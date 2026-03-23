@@ -21,8 +21,8 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
     <motion.nav
       layout
       className={cn(
-        "fixed bottom-6 left-1/2 glass rounded-full shadow-2xl border border-white/20 z-50 flex items-center",
-        isExpanded ? "gap-0 px-6 py-3" : "px-3 py-3"
+        "fixed bottom-6 left-1/2 glass rounded-full shadow-2xl border border-white/20 z-50 flex items-center justify-center",
+        isExpanded ? "gap-2 px-8 py-4" : "px-4 py-4"
       )}
       style={{ x: '-50%' }}
       transition={{
@@ -51,16 +51,16 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                 scale: { type: 'spring', damping: 18, stiffness: 350, mass: 0.6 },
                 filter: { duration: 0.2 },
               }}
-              className={cn("flex-1 flex items-center justify-center", !isExpanded && "flex-none")}
+              className={cn("flex items-center justify-center", isExpanded ? "flex-1 min-w-[3.5rem]" : "flex-none")}
             >
               {collapsible && isHome && !isExpanded ? (
                 <button
-                  className="flex flex-col items-center gap-1 text-primary cursor-pointer px-1"
+                  className="flex flex-col items-center gap-1.5 text-primary cursor-pointer px-2"
                   onClick={() => setExpanded(true)}
                   onTouchStart={() => setExpanded(true)}
                 >
-                  <Home size={20} strokeWidth={2.5} />
-                  <span className="text-[10px] font-bold uppercase tracking-widest">Home</span>
+                  <Home size={22} strokeWidth={2.5} />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider">Home</span>
                 </button>
               ) : (
                 <NavLink
@@ -72,15 +72,15 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                   }}
                   className={({ isActive }) =>
                     cn(
-                      "flex flex-col items-center gap-1 transition-colors duration-200",
+                      "flex flex-col items-center gap-1.5 transition-colors duration-200 px-2",
                       isActive ? "text-primary" : "text-on-surface/40 hover:text-on-surface/60"
                     )
                   }
                 >
                   {({ isActive }) => (
                     <>
-                      <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
-                      <span className="text-[10px] font-bold uppercase tracking-widest">{item.label}</span>
+                      <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+                      <span className="text-[10px] font-semibold uppercase tracking-wider">{item.label}</span>
                     </>
                   )}
                 </NavLink>
