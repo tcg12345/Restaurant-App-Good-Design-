@@ -145,14 +145,6 @@ export const Home: React.FC = () => {
         </section>
       </main>
 
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        className="fixed bottom-24 right-6 bg-primary text-white px-6 py-4 rounded-full shadow-2xl flex items-center gap-3 z-40"
-      >
-        <MapIcon size={20} />
-        <span className="text-sm font-bold uppercase tracking-widest">Explore Map</span>
-      </motion.button>
     </div>
   );
 };
