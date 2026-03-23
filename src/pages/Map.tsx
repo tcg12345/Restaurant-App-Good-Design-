@@ -121,6 +121,9 @@ export const Map: React.FC = () => {
   const createMarkerElement = useCallback((place: PlaceResult) => {
     const el = document.createElement('div');
     el.className = 'mapbox-custom-marker';
+    el.style.opacity = '0';
+    el.style.transform = 'scale(0.3) translateY(10px)';
+    el.style.transition = 'opacity 0.4s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)';
     el.innerHTML = `
       <div class="marker-pin" data-id="${place.id}" style="
         padding: 10px;
@@ -128,7 +131,7 @@ export const Map: React.FC = () => {
         background: white;
         box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -152,17 +155,75 @@ export const Map: React.FC = () => {
     return el;
   }, []);
 
-  // Sync markers on map when places change
+  // Show popup for a place
+  const showPopup = useCallback((place: PlaceResult, map: mapboxgl.Map) => {
+    if (popupRef.current) popupRef.current.remove();
+    const ratingHtml = place.rating > 0
+      ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="#8B4513" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span style="font-size:12px;font-weight:700;color:#8B4513;">${place.rating.toFixed(1)}</span>
+          <span style="font-size:11px;color:#999;margin-left:2px;">(${place.userRatingCount})</span>
+        </div>`
+      : '';
+    const priceHtml = place.priceLevel > 0
+      ? `<span style="font-size:11px;color:#666;font-weight:600;">${'$'.repeat(place.priceLevel)}</span>`
+      : '';
+    const addressShort = place.address.split(',').slice(0, 2).join(', ');
+
+    const popup = new mapboxgl.Popup({
+      offset: 25,
+      closeButton: true,
+      closeOnClick: false,
+      maxWidth: '240px',
+      className: 'restaurant-popup',
+    })
+      .setLngLat([place.lng, place.lat])
+      .setHTML(`
+        <div style="font-family:inherit;padding:4px 0;">
+          ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
+          <div style="font-size:14px;font-weight:700;margin-bottom:4px;line-height:1.3;">${place.name}</div>
+          ${ratingHtml}
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${addressShort}</span>
+            ${priceHtml ? `<span style="color:#ccc;">·</span>${priceHtml}` : ''}
+          </div>
+        </div>
+      `)
+      .addTo(map);
+
+    popup.on('close', () => {
+      setSelectedMarker(null);
+      isMarkerSelectedRef.current = false;
+      popupRef.current = null;
+    });
+
+    popupRef.current = popup;
+  }, []);
+
+  // Sync markers on map when places change — keeps existing markers, animates new ones in
   const syncMarkers = useCallback((newPlaces: PlaceResult[]) => {
     const map = mapRef.current;
     if (!map) return;
 
-    // Remove old markers
-    Object.values(markersRef.current).forEach((m) => m.remove());
-    markersRef.current = {};
+    const newIds = new Set(newPlaces.map((p) => p.id));
+    const oldIds = new Set(Object.keys(markersRef.current));
 
-    // Add new markers
+    // Fade out and remove markers that are no longer in the set
+    Object.entries(markersRef.current).forEach(([id, m]) => {
+      if (!newIds.has(id)) {
+        const el = m.getElement();
+        el.style.opacity = '0';
+        el.style.transform = 'scale(0.3)';
+        setTimeout(() => m.remove(), 400);
+        delete markersRef.current[id];
+      }
+    });
+
+    // Add new markers with staggered animation
+    let animIndex = 0;
     newPlaces.forEach((place) => {
+      if (oldIds.has(place.id)) return; // already on map
+
       const el = createMarkerElement(place);
 
       el.addEventListener('click', (e) => {
@@ -170,49 +231,7 @@ export const Map: React.FC = () => {
         setSelectedMarker(place.id);
         isMarkerSelectedRef.current = true;
         map.easeTo({ center: [place.lng, place.lat], duration: 500 });
-
-        // Show popup
-        if (popupRef.current) popupRef.current.remove();
-        const ratingHtml = place.rating > 0
-          ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="#8B4513" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-              <span style="font-size:12px;font-weight:700;color:#8B4513;">${place.rating.toFixed(1)}</span>
-              <span style="font-size:11px;color:#999;margin-left:2px;">(${place.userRatingCount})</span>
-            </div>`
-          : '';
-        const priceHtml = place.priceLevel > 0
-          ? `<span style="font-size:11px;color:#666;font-weight:600;">${'$'.repeat(place.priceLevel)}</span>`
-          : '';
-        const addressShort = place.address.split(',').slice(0, 2).join(', ');
-
-        const popup = new mapboxgl.Popup({
-          offset: 25,
-          closeButton: true,
-          closeOnClick: false,
-          maxWidth: '240px',
-          className: 'restaurant-popup',
-        })
-          .setLngLat([place.lng, place.lat])
-          .setHTML(`
-            <div style="font-family:inherit;padding:4px 0;">
-              ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
-              <div style="font-size:14px;font-weight:700;margin-bottom:4px;line-height:1.3;">${place.name}</div>
-              ${ratingHtml}
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span style="font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${addressShort}</span>
-                ${priceHtml ? `<span style="color:#ccc;">·</span>${priceHtml}` : ''}
-              </div>
-            </div>
-          `)
-          .addTo(map);
-
-        popup.on('close', () => {
-          setSelectedMarker(null);
-          isMarkerSelectedRef.current = false;
-          popupRef.current = null;
-        });
-
-        popupRef.current = popup;
+        showPopup(place, map);
       });
 
       const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
@@ -220,8 +239,16 @@ export const Map: React.FC = () => {
         .addTo(map);
 
       markersRef.current[place.id] = marker;
+
+      // Staggered fade-in
+      const delay = Math.min(animIndex * 30, 600);
+      setTimeout(() => {
+        el.style.opacity = '1';
+        el.style.transform = 'scale(1) translateY(0)';
+      }, delay);
+      animIndex++;
     });
-  }, [createMarkerElement]);
+  }, [createMarkerElement, showPopup]);
 
   // Fetch nearby restaurants for the current map center
   const fetchNearby = useCallback(async (cuisines?: string[]) => {

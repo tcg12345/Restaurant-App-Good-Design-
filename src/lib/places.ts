@@ -114,7 +114,10 @@ export async function searchNearbyRestaurants(
     return searchWithFilters(lat, lng, radiusMeters, cuisineTypes, priceLevel);
   }
 
-  // Default: fetch both via nearbySearch AND textSearch for more results
+  // Default: fetch from multiple sources in parallel for maximum results
+  const radius = Math.max(radiusMeters, 3000);
+  const bigRadius = Math.max(radiusMeters, 8000);
+
   const nearbyBody = {
     includedTypes: ['restaurant'],
     maxResultCount: 20,
@@ -122,25 +125,42 @@ export async function searchNearbyRestaurants(
     locationRestriction: {
       circle: {
         center: { latitude: lat, longitude: lng },
-        radius: radiusMeters,
+        radius: radius,
       },
     },
   };
 
-  const textBody = {
-    textQuery: 'restaurants',
-    maxResultCount: 20,
-    locationBias: {
-      circle: {
-        center: { latitude: lat, longitude: lng },
-        radius: Math.max(radiusMeters, 5000),
+  const textQueries = [
+    'best restaurants',
+    'popular dining',
+    'top rated restaurants',
+  ];
+
+  console.log('[Places] multi-query request:', lat, lng, radiusMeters);
+
+  const textFetches = textQueries.map((q) =>
+    fetch(`${BASE_URL}/places:searchText`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+        'X-Goog-FieldMask': FIELDS,
       },
-    },
-  };
+      body: JSON.stringify({
+        textQuery: q,
+        maxResultCount: 20,
+        locationBias: {
+          circle: {
+            center: { latitude: lat, longitude: lng },
+            radius: bigRadius,
+          },
+        },
+      }),
+    }).then((r) => r.json()).then((d) => mapPlaces(d.places || []))
+      .catch(() => [] as PlaceResult[])
+  );
 
-  console.log('[Places] searchNearby+text request:', lat, lng, radiusMeters);
-
-  const [nearbyRes, textRes] = await Promise.all([
+  const [nearbyRes, ...textResults] = await Promise.all([
     fetch(`${BASE_URL}/places:searchNearby`, {
       method: 'POST',
       headers: {
@@ -149,25 +169,13 @@ export async function searchNearbyRestaurants(
         'X-Goog-FieldMask': FIELDS,
       },
       body: JSON.stringify(nearbyBody),
-    }),
-    fetch(`${BASE_URL}/places:searchText`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
-        'X-Goog-FieldMask': FIELDS,
-      },
-      body: JSON.stringify(textBody),
-    }),
+    }).then((r) => r.json()).then((d) => mapPlaces(d.places || []))
+      .catch(() => [] as PlaceResult[]),
+    ...textFetches,
   ]);
 
-  const [nearbyData, textData] = await Promise.all([nearbyRes.json(), textRes.json()]);
-  console.log('[Places] nearby count:', nearbyData.places?.length ?? 0, 'text count:', textData.places?.length ?? 0);
-
-  const combined = [
-    ...mapPlaces(nearbyData.places || []),
-    ...mapPlaces(textData.places || []),
-  ];
+  const combined = [nearbyRes, ...textResults].flat();
+  console.log('[Places] total raw results:', combined.length);
   return deduplicatePlaces(combined);
 }
 
