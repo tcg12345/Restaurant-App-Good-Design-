@@ -19,7 +19,7 @@ import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
-  const isMapPage = location.pathname === '/map';
+  const isMapPage = location.pathname === '/';
   const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/');
   const { phoneMode } = useSettings();
 
@@ -40,8 +40,8 @@ const AppContent: React.FC = () => {
         <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
           <AnimatePresence mode="wait">
             <Routes location={location}>
-              <Route path="/" element={<Home />} />
-              <Route path="/map" element={<Map />} />
+              <Route path="/" element={<Map />} />
+              <Route path="/search" element={<Home />} />
               <Route path="/circle" element={<Circle />} />
               <Route path="/experts" element={<Experts />} />
               <Route path="/profile" element={<Profile />} />
