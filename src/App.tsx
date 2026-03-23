@@ -24,7 +24,17 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/';
   const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/');
   const { phoneMode } = useSettings();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : "min-h-screen bg-surface flex items-center justify-center"}>
+        <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-2xl animate-pulse">
+          G
+        </div>
+      </div>
+    );
+  }
 
   if (!isSignedIn) {
     return (
