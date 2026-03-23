@@ -59,7 +59,7 @@ export const Map: React.FC = () => {
 
   // Filter state
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
-  const [selectedCuisine, setSelectedCuisine] = useState('');
+  const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -69,12 +69,12 @@ export const Map: React.FC = () => {
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisine: '', selectedPrice: 0 });
+  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0 });
 
   // Keep ref in sync with state so the moveend callback sees current values
   useEffect(() => {
-    filtersRef.current = { sortBy, selectedCuisine, selectedPrice };
-  }, [sortBy, selectedCuisine, selectedPrice]);
+    filtersRef.current = { sortBy, selectedCuisines, selectedPrice };
+  }, [sortBy, selectedCuisines, selectedPrice]);
 
   // Bottom sheet state
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -214,20 +214,21 @@ export const Map: React.FC = () => {
   }, [createMarkerElement]);
 
   // Fetch nearby restaurants for the current map center
-  const fetchNearby = useCallback(async (cuisine?: string) => {
+  const fetchNearby = useCallback(async (cuisines?: string[]) => {
     const map = mapRef.current;
     if (!map) return;
     setIsSearching(true);
     try {
       const center = map.getCenter();
       const zoom = map.getZoom();
-      // Scale radius based on zoom level
-      const radius = Math.min(50000, Math.max(500, Math.round(40000 / Math.pow(2, zoom - 10))));
-      const cuisineType = cuisine ?? filtersRef.current.selectedCuisine;
-      const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineType);
-      const filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
-      setPlaces(filtered);
-      syncMarkers(filtered);
+      // Scale radius based on zoom level — use larger radius for better coverage
+      const radius = Math.min(50000, Math.max(1000, Math.round(50000 / Math.pow(2, zoom - 10))));
+      const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
+      const price = filtersRef.current.selectedPrice;
+      const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price);
+      const sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
+      setPlaces(sorted);
+      syncMarkers(sorted);
     } catch (err) {
       console.error('Places search failed:', err);
     } finally {
@@ -325,7 +326,7 @@ export const Map: React.FC = () => {
     });
   }, []);
 
-  const activeFilterCount = (selectedCuisine ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
+  const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
@@ -579,20 +580,35 @@ export const Map: React.FC = () => {
                     <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Cuisine</h3>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {CUISINE_TYPES.map((c) => (
-                      <button
-                        key={c.type || 'all'}
-                        onClick={() => setSelectedCuisine(c.type)}
-                        className={cn(
-                          "px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all",
-                          selectedCuisine === c.type
-                            ? "border-primary bg-primary/5 text-primary"
-                            : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
-                        )}
-                      >
-                        {c.label}
-                      </button>
-                    ))}
+                    {CUISINE_TYPES.map((c) => {
+                      const isAll = c.type === '';
+                      const isActive = isAll ? selectedCuisines.length === 0 : selectedCuisines.includes(c.type);
+                      return (
+                        <button
+                          key={c.type || 'all'}
+                          onClick={() => {
+                            if (isAll) {
+                              setSelectedCuisines([]);
+                            } else {
+                              setSelectedCuisines((prev) =>
+                                prev.includes(c.type)
+                                  ? prev.filter((t) => t !== c.type)
+                                  : [...prev, c.type]
+                              );
+                            }
+                          }}
+                          className={cn(
+                            "px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all",
+                            isActive
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
+                          )}
+                        >
+                          {isActive && !isAll && <Check size={12} className="inline mr-1 -mt-0.5" />}
+                          {c.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -602,7 +618,7 @@ export const Map: React.FC = () => {
                 <button
                   onClick={() => {
                     setSortBy('popularity');
-                    setSelectedCuisine('');
+                    setSelectedCuisines([]);
                     setSelectedPrice(0);
                   }}
                   className="flex-1 py-3.5 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors"
@@ -612,7 +628,7 @@ export const Map: React.FC = () => {
                 <button
                   onClick={() => {
                     setShowFilters(false);
-                    fetchNearby(selectedCuisine);
+                    fetchNearby(selectedCuisines);
                   }}
                   className="flex-[2] py-3.5 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-shadow"
                 >
@@ -764,6 +780,7 @@ export const Map: React.FC = () => {
                 <button
                   onClick={() => {
                     setShowSearchInput(true);
+                    if (!sheetOpen) setSheetOpen(true);
                     setTimeout(() => searchInputRef.current?.focus(), 100);
                   }}
                   className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"

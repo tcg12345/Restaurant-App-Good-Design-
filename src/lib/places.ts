@@ -109,15 +109,14 @@ export async function searchNearbyRestaurants(
   cuisineTypes: string[] = [],
   priceLevel = 0,
 ): Promise<PlaceResult[]> {
-  // If price filter or multiple cuisines are set, use text search for better matching
-  if (priceLevel > 0 || cuisineTypes.length > 1) {
+  // Always use text search for better coverage — supports price levels and more results
+  if (priceLevel > 0 || cuisineTypes.length > 0) {
     return searchWithFilters(lat, lng, radiusMeters, cuisineTypes, priceLevel);
   }
 
-  const includedTypes = cuisineTypes.length === 1 ? [cuisineTypes[0]] : ['restaurant'];
-
-  const body = {
-    includedTypes,
+  // Default: fetch both via nearbySearch AND textSearch for more results
+  const nearbyBody = {
+    includedTypes: ['restaurant'],
     maxResultCount: 20,
     rankPreference: 'POPULARITY',
     locationRestriction: {
@@ -128,27 +127,48 @@ export async function searchNearbyRestaurants(
     },
   };
 
-  console.log('[Places] searchNearby request:', lat, lng, radiusMeters, cuisineTypes.join(',') || 'all');
-
-  const res = await fetch(`${BASE_URL}/places:searchNearby`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
-      'X-Goog-FieldMask': FIELDS,
+  const textBody = {
+    textQuery: 'restaurants',
+    maxResultCount: 20,
+    locationBias: {
+      circle: {
+        center: { latitude: lat, longitude: lng },
+        radius: Math.max(radiusMeters, 5000),
+      },
     },
-    body: JSON.stringify(body),
-  });
+  };
 
-  const data = await res.json();
-  console.log('[Places] searchNearby status:', res.status, 'count:', data.places?.length ?? 0);
+  console.log('[Places] searchNearby+text request:', lat, lng, radiusMeters);
 
-  if (!res.ok) {
-    console.error('[Places] searchNearby error:', data);
-    throw new Error(`Places searchNearby failed: ${data.error?.message || res.status}`);
-  }
+  const [nearbyRes, textRes] = await Promise.all([
+    fetch(`${BASE_URL}/places:searchNearby`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+        'X-Goog-FieldMask': FIELDS,
+      },
+      body: JSON.stringify(nearbyBody),
+    }),
+    fetch(`${BASE_URL}/places:searchText`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+        'X-Goog-FieldMask': FIELDS,
+      },
+      body: JSON.stringify(textBody),
+    }),
+  ]);
 
-  return mapPlaces(data.places || []);
+  const [nearbyData, textData] = await Promise.all([nearbyRes.json(), textRes.json()]);
+  console.log('[Places] nearby count:', nearbyData.places?.length ?? 0, 'text count:', textData.places?.length ?? 0);
+
+  const combined = [
+    ...mapPlaces(nearbyData.places || []),
+    ...mapPlaces(textData.places || []),
+  ];
+  return deduplicatePlaces(combined);
 }
 
 // Use text search for filtered queries — supports priceLevels and better cuisine matching
@@ -215,11 +235,10 @@ export async function searchPlacesByText(
   const body = {
     textQuery: query + ' restaurant',
     maxResultCount: 20,
-    includedType: 'restaurant',
     locationBias: {
       circle: {
         center: { latitude: lat, longitude: lng },
-        radius: 5000,
+        radius: 10000,
       },
     },
   };
