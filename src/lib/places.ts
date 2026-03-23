@@ -36,6 +36,13 @@ function parsePriceLevel(pl: string | number | undefined): number {
   return map[pl || ''] ?? 0;
 }
 
+const PRICE_LEVEL_STRINGS: Record<number, string> = {
+  1: 'PRICE_LEVEL_INEXPENSIVE',
+  2: 'PRICE_LEVEL_MODERATE',
+  3: 'PRICE_LEVEL_EXPENSIVE',
+  4: 'PRICE_LEVEL_VERY_EXPENSIVE',
+};
+
 function photoUrl(photoName: string | undefined): string | null {
   if (!photoName) return null;
   return `${BASE_URL}/${photoName}/media?maxWidthPx=400&maxHeightPx=400&key=${GOOGLE_PLACES_KEY}`;
@@ -56,9 +63,18 @@ function mapPlaces(places: any[]): PlaceResult[] {
   }));
 }
 
+function deduplicatePlaces(places: PlaceResult[]): PlaceResult[] {
+  const seen = new Set<string>();
+  return places.filter((p) => {
+    if (seen.has(p.id)) return false;
+    seen.add(p.id);
+    return true;
+  });
+}
+
 const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.photos,places.types,places.userRatingCount';
 
-// Cuisine type mapping for Google Places API includedTypes
+// Cuisine type mapping for Google Places API
 export const CUISINE_TYPES: { label: string; type: string }[] = [
   { label: 'All', type: '' },
   { label: 'Italian', type: 'italian_restaurant' },
@@ -82,13 +98,23 @@ export const CUISINE_TYPES: { label: string; type: string }[] = [
   { label: 'Vegan', type: 'vegan_restaurant' },
 ];
 
+// Cuisine type to human-readable label for text search
+const CUISINE_LABEL_MAP: Record<string, string> = {};
+CUISINE_TYPES.forEach((c) => { if (c.type) CUISINE_LABEL_MAP[c.type] = c.label; });
+
 export async function searchNearbyRestaurants(
   lat: number,
   lng: number,
   radiusMeters = 2000,
-  cuisineType = '',
+  cuisineTypes: string[] = [],
+  priceLevel = 0,
 ): Promise<PlaceResult[]> {
-  const includedTypes = cuisineType ? [cuisineType] : ['restaurant'];
+  // If price filter or multiple cuisines are set, use text search for better matching
+  if (priceLevel > 0 || cuisineTypes.length > 1) {
+    return searchWithFilters(lat, lng, radiusMeters, cuisineTypes, priceLevel);
+  }
+
+  const includedTypes = cuisineTypes.length === 1 ? [cuisineTypes[0]] : ['restaurant'];
 
   const body = {
     includedTypes,
@@ -102,7 +128,7 @@ export async function searchNearbyRestaurants(
     },
   };
 
-  console.log('[Places] searchNearby request:', lat, lng, radiusMeters, cuisineType || 'all');
+  console.log('[Places] searchNearby request:', lat, lng, radiusMeters, cuisineTypes.join(',') || 'all');
 
   const res = await fetch(`${BASE_URL}/places:searchNearby`, {
     method: 'POST',
@@ -123,6 +149,62 @@ export async function searchNearbyRestaurants(
   }
 
   return mapPlaces(data.places || []);
+}
+
+// Use text search for filtered queries — supports priceLevels and better cuisine matching
+async function searchWithFilters(
+  lat: number,
+  lng: number,
+  radiusMeters: number,
+  cuisineTypes: string[],
+  priceLevel: number,
+): Promise<PlaceResult[]> {
+  const queries = cuisineTypes.length > 0
+    ? cuisineTypes.map((t) => CUISINE_LABEL_MAP[t] || 'restaurant')
+    : ['restaurant'];
+
+  const priceLevels = priceLevel > 0 && PRICE_LEVEL_STRINGS[priceLevel]
+    ? [PRICE_LEVEL_STRINGS[priceLevel]]
+    : undefined;
+
+  const promises = queries.map(async (cuisine) => {
+    const body: any = {
+      textQuery: `${cuisine} restaurant`,
+      maxResultCount: 20,
+      locationBias: {
+        circle: {
+          center: { latitude: lat, longitude: lng },
+          radius: Math.max(radiusMeters, 5000),
+        },
+      },
+    };
+
+    if (priceLevels) {
+      body.priceLevels = priceLevels;
+    }
+
+    console.log('[Places] filtered textSearch:', cuisine, priceLevels || 'any price');
+
+    const res = await fetch(`${BASE_URL}/places:searchText`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+        'X-Goog-FieldMask': FIELDS,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      console.error('[Places] filtered textSearch error:', data);
+      return [];
+    }
+    return mapPlaces(data.places || []);
+  });
+
+  const results = await Promise.all(promises);
+  return deduplicatePlaces(results.flat());
 }
 
 export async function searchPlacesByText(
