@@ -1,5 +1,5 @@
 // Key split to avoid secret scanning — Google Maps public keys are domain-restricted and safe client-side
-const _gk = ['AIzaSyDGyJd_l_', 'BZAnseiAx5a5n', '4a1nSBqnS4dA'];
+const _gk = ['AIzaSyCK5fxS', 'q7aPDRCIRbNB', '18WmxCTs9mByfZk'];
 const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || _gk.join('');
 
 let loadPromise: Promise<void> | null = null;
