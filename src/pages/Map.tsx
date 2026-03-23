@@ -68,7 +68,9 @@ export const Map: React.FC = () => {
   const popupRef = useRef<mapboxgl.Popup | null>(null);
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchWrapperRef = useRef<HTMLFormElement>(null);
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMarkerSelectedRef = useRef(false); // tracks if a marker is actively selected (suppresses re-fetch)
   const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0 });
 
   // Keep ref in sync with state so the moveend callback sees current values
@@ -163,9 +165,11 @@ export const Map: React.FC = () => {
     newPlaces.forEach((place) => {
       const el = createMarkerElement(place);
 
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
         setSelectedMarker(place.id);
-        map.flyTo({ center: [place.lng, place.lat], zoom: 15, duration: 1000 });
+        isMarkerSelectedRef.current = true;
+        map.easeTo({ center: [place.lng, place.lat], duration: 500 });
 
         // Show popup
         if (popupRef.current) popupRef.current.remove();
@@ -184,7 +188,7 @@ export const Map: React.FC = () => {
         const popup = new mapboxgl.Popup({
           offset: 25,
           closeButton: true,
-          closeOnClick: true,
+          closeOnClick: false,
           maxWidth: '240px',
           className: 'restaurant-popup',
         })
@@ -201,6 +205,12 @@ export const Map: React.FC = () => {
             </div>
           `)
           .addTo(map);
+
+        popup.on('close', () => {
+          setSelectedMarker(null);
+          isMarkerSelectedRef.current = false;
+          popupRef.current = null;
+        });
 
         popupRef.current = popup;
       });
@@ -285,12 +295,25 @@ export const Map: React.FC = () => {
       fetchNearby();
     });
 
-    // Re-fetch when user moves the map (debounced)
+    // Re-fetch when user moves the map (debounced) — skip if a marker is selected
     map.on('moveend', () => {
+      if (isMarkerSelectedRef.current) return;
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       fetchTimeoutRef.current = setTimeout(() => {
-        fetchNearby();
+        if (!isMarkerSelectedRef.current) fetchNearby();
       }, 800);
+    });
+
+    // Click on map background clears selection & popup
+    map.on('click', () => {
+      if (isMarkerSelectedRef.current) {
+        isMarkerSelectedRef.current = false;
+        setSelectedMarker(null);
+        if (popupRef.current) {
+          popupRef.current.remove();
+          popupRef.current = null;
+        }
+      }
     });
 
     return () => {
@@ -317,12 +340,25 @@ export const Map: React.FC = () => {
     });
   }, [selectedMarker]);
 
+  // Close search input when clicking outside
+  useEffect(() => {
+    if (!showSearchInput) return;
+    const handler = (e: MouseEvent) => {
+      if (searchWrapperRef.current && !searchWrapperRef.current.contains(e.target as Node)) {
+        setShowSearchInput(false);
+        setSearchQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showSearchInput]);
+
   const flyToPlace = useCallback((place: PlaceResult) => {
     setSelectedMarker(place.id);
-    mapRef.current?.flyTo({
+    isMarkerSelectedRef.current = true;
+    mapRef.current?.easeTo({
       center: [place.lng, place.lat],
-      zoom: 15,
-      duration: 1000,
+      duration: 500,
     });
   }, []);
 
@@ -731,6 +767,7 @@ export const Map: React.FC = () => {
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
+                ref={searchWrapperRef}
                 key="search-input"
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
