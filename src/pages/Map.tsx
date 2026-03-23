@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, animate } from 'motion/react';
-import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown } from 'lucide-react';
+import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -21,6 +21,13 @@ const MOCK_MARKERS = [
   { id: '3', name: 'Sakura Zen', lat: 40.7589, lng: -73.9851, rating: 4.8, price: '$$$$' },
 ];
 
+const MAP_STYLES = [
+  { id: 'light', label: 'Light', style: 'mapbox://styles/mapbox/light-v11' },
+  { id: 'dark', label: 'Dark', style: 'mapbox://styles/mapbox/dark-v11' },
+  { id: 'satellite', label: 'Satellite', style: 'mapbox://styles/mapbox/satellite-streets-v12' },
+  { id: 'streets', label: 'Streets', style: 'mapbox://styles/mapbox/streets-v12' },
+] as const;
+
 const FILTERS = [
   { icon: Bookmark, label: 'Hitlist', active: false },
   { icon: Users, label: 'Anyone', hasDropdown: true, active: false },
@@ -29,6 +36,8 @@ const FILTERS = [
 
 export const Map: React.FC = () => {
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
+  const [activeStyle, setActiveStyle] = useState<string>('light');
+  const [showStylePicker, setShowStylePicker] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
@@ -150,7 +159,7 @@ export const Map: React.FC = () => {
       <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
 
       {/* Floating Action Buttons */}
-      <div className="absolute right-6 top-6 flex flex-col gap-4 z-30">
+      <div className="absolute right-6 top-6 flex flex-col gap-3 z-30">
         <button
           onClick={() => {
             if (navigator.geolocation) {
@@ -170,6 +179,51 @@ export const Map: React.FC = () => {
         <button className="w-12 h-12 glass rounded-full flex items-center justify-center shadow-xl text-on-surface/60 hover:text-primary transition-colors">
           <Heart size={20} />
         </button>
+        <div className="relative">
+          <button
+            onClick={() => setShowStylePicker(!showStylePicker)}
+            className={cn(
+              "w-12 h-12 glass rounded-full flex items-center justify-center shadow-xl transition-colors",
+              showStylePicker ? "text-primary" : "text-on-surface/60 hover:text-primary"
+            )}
+          >
+            {showStylePicker ? <X size={20} /> : <Layers size={20} />}
+          </button>
+          {showStylePicker && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.85, x: 10 }}
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.85 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+              className="absolute right-14 top-0 glass rounded-2xl shadow-2xl border border-white/20 p-2 flex flex-col gap-1 min-w-[140px]"
+            >
+              {MAP_STYLES.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => {
+                    if (mapRef.current && s.id !== activeStyle) {
+                      mapRef.current.setStyle(s.style);
+                      setActiveStyle(s.id);
+                    }
+                    setShowStylePicker(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-2.5 rounded-xl text-left transition-colors whitespace-nowrap",
+                    activeStyle === s.id
+                      ? "bg-primary/10 text-primary"
+                      : "text-on-surface/70 hover:bg-on-surface/5"
+                  )}
+                >
+                  <span className={cn(
+                    "w-2 h-2 rounded-full flex-shrink-0",
+                    activeStyle === s.id ? "bg-primary" : "bg-on-surface/20"
+                  )} />
+                  <span className="text-xs font-bold uppercase tracking-wider">{s.label}</span>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </div>
       </div>
 
       {/* Bottom Sheet */}
