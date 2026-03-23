@@ -18,6 +18,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SignIn } from './pages/SignIn';
+import { Auth } from './pages/Auth';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
@@ -52,7 +53,10 @@ const AppContent: React.FC = () => {
           }
         >
           <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
-            <SignIn />
+            <Routes location={location}>
+              <Route path="/auth" element={<Auth />} />
+              <Route path="*" element={<SignIn />} />
+            </Routes>
           </div>
         </div>
       </div>
