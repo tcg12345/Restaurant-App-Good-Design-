@@ -1,50 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RadarChart } from '../components/RadarChart';
-import { Search, Filter, Map as MapIcon, ChevronRight } from 'lucide-react';
+import { Search, Filter, ChevronRight, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
-
-const MOCK_RESTAURANTS = [
-  {
-    id: '1',
-    name: 'Lumière Gastronomie',
-    image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?auto=format&fit=crop&q=80&w=800',
-    rating: 4.9,
-    price: '$$$$',
-    cuisine: 'Modern French',
-    distance: '0.8 mi',
-    isMichelin: true,
-  },
-  {
-    id: '2',
-    name: 'The Alchemist Table',
-    image: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&q=80&w=800',
-    rating: 4.7,
-    price: '$$$',
-    cuisine: 'Molecular',
-    distance: '1.2 mi',
-  },
-  {
-    id: '3',
-    name: 'Sakura Zen',
-    image: 'https://images.unsplash.com/photo-1580822184713-fc5400e7fe10?auto=format&fit=crop&q=80&w=800',
-    rating: 4.8,
-    price: '$$$$',
-    cuisine: 'Omakase',
-    distance: '2.1 mi',
-    isMichelin: true,
-  },
-  {
-    id: '4',
-    name: 'Terra & Mare',
-    image: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=800',
-    rating: 4.6,
-    price: '$$',
-    cuisine: 'Mediterranean',
-    distance: '0.5 mi',
-  },
-];
+import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
 
 const TASTE_DATA = [
   { subject: 'Umami', value: 120, fullMark: 150 },
@@ -55,13 +15,107 @@ const TASTE_DATA = [
   { subject: 'Spicy', value: 65, fullMark: 150 },
 ];
 
+// Default location (NYC)
+const DEFAULT_LAT = 40.735;
+const DEFAULT_LNG = -73.99;
+
+const QUICK_FILTERS = ['Near Me', 'Italian', 'Fine Dining', 'Sushi', 'Mexican'];
+
+function placeToCardProps(place: PlaceResult) {
+  return {
+    id: place.id,
+    name: place.name,
+    image: place.photoUrl || 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=800',
+    rating: place.rating,
+    price: priceLevelToString(place.priceLevel),
+    cuisine: place.address.split(',')[0],
+    distance: '',
+    isMichelin: place.rating >= 4.7 && place.userRatingCount > 500,
+  };
+}
+
 export const Home: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
+  const [places, setPlaces] = useState<PlaceResult[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [userLat, setUserLat] = useState(DEFAULT_LAT);
+  const [userLng, setUserLng] = useState(DEFAULT_LNG);
+
+  // Get user location on mount
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setUserLat(pos.coords.latitude);
+          setUserLng(pos.coords.longitude);
+        },
+        () => {} // silently fall back to default
+      );
+    }
+  }, []);
+
+  // Load nearby restaurants on mount
+  useEffect(() => {
+    setIsLoading(true);
+    searchNearbyRestaurants(userLat, userLng)
+      .then(setPlaces)
+      .catch((err) => console.error('Initial search failed:', err))
+      .finally(() => setIsLoading(false));
+  }, [userLat, userLng]);
+
+  const handleSearch = useCallback(async (query: string) => {
+    if (!query.trim()) return;
+    setIsLoading(true);
+    setActiveFilter(null);
+    try {
+      const results = await searchPlacesByText(query, userLat, userLng);
+      setPlaces(results);
+    } catch (err) {
+      console.error('Search failed:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userLat, userLng]);
+
+  const handleFilterClick = useCallback(async (filter: string) => {
+    if (activeFilter === filter) {
+      // Deselect — reload nearby
+      setActiveFilter(null);
+      setIsLoading(true);
+      try {
+        const results = await searchNearbyRestaurants(userLat, userLng);
+        setPlaces(results);
+      } catch (err) {
+        console.error('Nearby search failed:', err);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    setActiveFilter(filter);
+    setIsLoading(true);
+    try {
+      let results: PlaceResult[];
+      if (filter === 'Near Me') {
+        results = await searchNearbyRestaurants(userLat, userLng, 1000);
+      } else {
+        results = await searchPlacesByText(filter, userLat, userLng);
+      }
+      setPlaces(results);
+    } catch (err) {
+      console.error('Filter search failed:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeFilter, userLat, userLng]);
 
   return (
     <div className="pb-32">
       <TopBar />
-      
+
       <main className="px-6">
         <div className="flex items-center gap-6 mb-8 border-b border-muted">
           <button
@@ -88,25 +142,38 @@ export const Home: React.FC = () => {
           </button>
         </div>
 
-        <div className="relative mb-8">
+        <form
+          className="relative mb-8"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSearch(searchQuery);
+          }}
+        >
           <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
             <Search size={20} />
           </div>
           <input
             type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search for a flavor, mood, or spot..."
             className="w-full bg-white rounded-2xl py-4 pl-12 pr-12 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
           />
-          <button className="absolute inset-y-0 right-4 flex items-center text-primary">
+          <button type="submit" className="absolute inset-y-0 right-4 flex items-center text-primary">
             <Filter size={20} />
           </button>
-        </div>
+        </form>
 
         <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar mb-8">
-          {['Near Me', 'Italian', 'Fine Dining', 'Hidden Gems', 'Outdoor'].map((filter) => (
+          {QUICK_FILTERS.map((filter) => (
             <button
               key={filter}
-              className="whitespace-nowrap px-6 py-2 rounded-full bg-white text-xs font-bold uppercase tracking-widest border border-muted hover:border-primary hover:text-primary transition-all"
+              onClick={() => handleFilterClick(filter)}
+              className={`whitespace-nowrap px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all ${
+                activeFilter === filter
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-white border-muted hover:border-primary hover:text-primary'
+              }`}
             >
               {filter}
             </button>
@@ -115,21 +182,37 @@ export const Home: React.FC = () => {
 
         <section className="mb-12">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-serif font-bold">Curated for You</h2>
-            <button className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1">
-              See All <ChevronRight size={14} />
-            </button>
+            <h2 className="text-2xl font-serif font-bold">
+              {activeFilter || searchQuery ? 'Results' : 'Curated for You'}
+            </h2>
+            {places.length > 0 && (
+              <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">
+                {places.length} found
+              </span>
+            )}
           </div>
-          
-          <div className="stagger-grid">
-            {MOCK_RESTAURANTS.map((restaurant, index) => (
-              <RestaurantCard
-                key={restaurant.id}
-                {...restaurant}
-                className="stagger-item"
-              />
-            ))}
-          </div>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={24} className="text-primary animate-spin" />
+              <span className="ml-3 text-sm text-on-surface/50 font-medium">Finding restaurants...</span>
+            </div>
+          ) : places.length === 0 ? (
+            <div className="text-center py-16">
+              <p className="text-on-surface/40 text-sm font-medium">No restaurants found</p>
+              <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
+            </div>
+          ) : (
+            <div className="stagger-grid">
+              {places.map((place) => (
+                <RestaurantCard
+                  key={place.id}
+                  {...placeToCardProps(place)}
+                  className="stagger-item"
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="bg-secondary/10 rounded-[2rem] p-8 mb-12 overflow-hidden relative">

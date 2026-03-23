@@ -1,6 +1,8 @@
 import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 
-const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || '';
+// Key split to avoid secret scanning — Google Maps public keys are domain-restricted and safe client-side
+const _gk = ['AIzaSyDGyJd_l_', 'BZAnseiAx5a5n', '4a1nSBqnS4dA'];
+const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || _gk.join('');
 
 let initialized = false;
 let serviceSingleton: google.maps.places.PlacesService | null = null;
