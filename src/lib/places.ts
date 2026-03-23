@@ -1,21 +1,43 @@
-import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
-
 // Key split to avoid secret scanning — Google Maps public keys are domain-restricted and safe client-side
 const _gk = ['AIzaSyDGyJd_l_', 'BZAnseiAx5a5n', '4a1nSBqnS4dA'];
 const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || _gk.join('');
 
-let initialized = false;
+let loadPromise: Promise<void> | null = null;
 let serviceSingleton: google.maps.places.PlacesService | null = null;
+
+function loadGoogleMaps(): Promise<void> {
+  if (loadPromise) return loadPromise;
+
+  // If already loaded by another script
+  if (window.google?.maps?.places) {
+    loadPromise = Promise.resolve();
+    return loadPromise;
+  }
+
+  loadPromise = new Promise((resolve, reject) => {
+    const callbackName = '__gmapsCallback_' + Date.now();
+    (window as any)[callbackName] = () => {
+      delete (window as any)[callbackName];
+      resolve();
+    };
+
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_PLACES_KEY}&libraries=places&callback=${callbackName}`;
+    script.async = true;
+    script.defer = true;
+    script.onerror = () => {
+      loadPromise = null;
+      reject(new Error('Failed to load Google Maps script'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return loadPromise;
+}
 
 async function getService(): Promise<google.maps.places.PlacesService> {
   if (serviceSingleton) return serviceSingleton;
-
-  if (!initialized) {
-    setOptions({ apiKey: GOOGLE_PLACES_KEY, version: 'weekly' });
-    initialized = true;
-  }
-
-  await importLibrary('places');
+  await loadGoogleMaps();
   const div = document.createElement('div');
   serviceSingleton = new google.maps.places.PlacesService(div);
   return serviceSingleton;
