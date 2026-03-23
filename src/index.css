@@ -40,3 +40,25 @@
   0% { transform: scale(1); opacity: 1; }
   100% { transform: scale(3); opacity: 0; }
 }
+
+/* Mapbox popup styling */
+.restaurant-popup .mapboxgl-popup-content {
+  border-radius: 16px;
+  padding: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  font-family: "Manrope", sans-serif;
+}
+.restaurant-popup .mapboxgl-popup-close-button {
+  font-size: 18px;
+  padding: 4px 8px;
+  color: #999;
+  right: 4px;
+  top: 4px;
+}
+.restaurant-popup .mapboxgl-popup-close-button:hover {
+  color: #333;
+  background: transparent;
+}
+.restaurant-popup .mapboxgl-popup-tip {
+  border-top-color: white;
+}

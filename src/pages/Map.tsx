@@ -65,6 +65,7 @@ export const Map: React.FC = () => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
+  const popupRef = useRef<mapboxgl.Popup | null>(null);
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -165,6 +166,43 @@ export const Map: React.FC = () => {
       el.addEventListener('click', () => {
         setSelectedMarker(place.id);
         map.flyTo({ center: [place.lng, place.lat], zoom: 15, duration: 1000 });
+
+        // Show popup
+        if (popupRef.current) popupRef.current.remove();
+        const ratingHtml = place.rating > 0
+          ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="#8B4513" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              <span style="font-size:12px;font-weight:700;color:#8B4513;">${place.rating.toFixed(1)}</span>
+              <span style="font-size:11px;color:#999;margin-left:2px;">(${place.userRatingCount})</span>
+            </div>`
+          : '';
+        const priceHtml = place.priceLevel > 0
+          ? `<span style="font-size:11px;color:#666;font-weight:600;">${'$'.repeat(place.priceLevel)}</span>`
+          : '';
+        const addressShort = place.address.split(',').slice(0, 2).join(', ');
+
+        const popup = new mapboxgl.Popup({
+          offset: 25,
+          closeButton: true,
+          closeOnClick: true,
+          maxWidth: '240px',
+          className: 'restaurant-popup',
+        })
+          .setLngLat([place.lng, place.lat])
+          .setHTML(`
+            <div style="font-family:inherit;padding:4px 0;">
+              ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
+              <div style="font-size:14px;font-weight:700;margin-bottom:4px;line-height:1.3;">${place.name}</div>
+              ${ratingHtml}
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${addressShort}</span>
+                ${priceHtml ? `<span style="color:#ccc;">·</span>${priceHtml}` : ''}
+              </div>
+            </div>
+          `)
+          .addTo(map);
+
+        popupRef.current = popup;
       });
 
       const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
