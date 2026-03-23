@@ -26,7 +26,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
         "fixed left-1/2 glass rounded-full shadow-2xl border border-white/20 z-50 flex items-center justify-center",
         phoneMode ? "bottom-3" : "bottom-6",
         isExpanded
-          ? phoneMode ? "gap-1 px-4 py-2.5" : "gap-2 px-8 py-4"
+          ? phoneMode ? "gap-1.5 px-5 py-2.5" : "gap-2 px-8 py-4"
           : phoneMode ? "px-2.5 py-2.5" : "px-4 py-4"
       )}
       style={{ x: '-50%' }}
