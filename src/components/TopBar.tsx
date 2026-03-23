@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, Settings, Smartphone } from 'lucide-react';
+import { Bell, Settings, Smartphone, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
 
 export const TopBar: React.FC<{ title?: string }> = ({ title = "Gourmet Canvas" }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { phoneMode, togglePhoneMode } = useSettings();
+  const { signOut } = useAuth();
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -67,6 +69,18 @@ export const TopBar: React.FC<{ title?: string }> = ({ title = "Gourmet Canvas" 
                       />
                     </div>
                   </button>
+                  <div className="border-t border-black/5 mt-1 pt-1">
+                    <button
+                      onClick={() => {
+                        setSettingsOpen(false);
+                        void signOut();
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-red-50 transition-colors cursor-pointer"
+                    >
+                      <LogOut size={18} className="text-red-500/70" />
+                      <span className="flex-1 text-sm text-red-600/80 text-left">Sign Out</span>
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             )}

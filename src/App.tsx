@@ -16,12 +16,48 @@ import { Onboarding } from './pages/Onboarding';
 import { BottomNav } from './components/BottomNav';
 import { AnimatePresence, motion } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { SignIn } from './pages/SignIn';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/';
   const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/');
   const { phoneMode } = useSettings();
+  const { isSignedIn, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : "min-h-screen bg-surface flex items-center justify-center"}>
+        <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-2xl animate-pulse">
+          G
+        </div>
+      </div>
+    );
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : ""}>
+        <div
+          className={
+            phoneMode
+              ? "relative bg-surface selection:bg-primary/20 selection:text-primary overflow-hidden rounded-3xl shadow-2xl border border-white/10"
+              : "min-h-screen bg-surface selection:bg-primary/20 selection:text-primary"
+          }
+          style={
+            phoneMode
+              ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh' }
+              : undefined
+          }
+        >
+          <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
+            <SignIn />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : ""}>
@@ -71,9 +107,11 @@ const AppContent: React.FC = () => {
 export default function App() {
   return (
     <Router>
-      <SettingsProvider>
-        <AppContent />
-      </SettingsProvider>
+      <AuthProvider>
+        <SettingsProvider>
+          <AppContent />
+        </SettingsProvider>
+      </AuthProvider>
     </Router>
   );
 }

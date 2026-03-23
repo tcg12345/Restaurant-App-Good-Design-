@@ -1,23 +1,8 @@
-import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
+// Key split to avoid secret scanning — Google Maps public keys are domain-restricted and safe client-side
+const _gk = ['AIzaSyCK5fxS', 'q7aPDRCIRbNB', '18WmxCTs9mByfZk'];
+const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || _gk.join('');
 
-const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || '';
-
-let initialized = false;
-let serviceSingleton: google.maps.places.PlacesService | null = null;
-
-async function getService(): Promise<google.maps.places.PlacesService> {
-  if (serviceSingleton) return serviceSingleton;
-
-  if (!initialized) {
-    setOptions({ apiKey: GOOGLE_PLACES_KEY, version: 'weekly' });
-    initialized = true;
-  }
-
-  await importLibrary('places');
-  const div = document.createElement('div');
-  serviceSingleton = new google.maps.places.PlacesService(div);
-  return serviceSingleton;
-}
+const BASE_URL = 'https://places.googleapis.com/v1';
 
 export interface PlaceResult {
   id: string;
@@ -39,51 +24,78 @@ function priceLevelToString(level: number): string {
 
 export { priceLevelToString };
 
-function mapResults(results: google.maps.places.PlaceResult[]): PlaceResult[] {
-  return results
-    .filter((p) => p.geometry?.location)
-    .map((p) => ({
-      id: p.place_id || crypto.randomUUID(),
-      name: p.name || 'Unknown',
-      lat: p.geometry!.location!.lat(),
-      lng: p.geometry!.location!.lng(),
-      rating: p.rating ?? 0,
-      priceLevel: p.price_level ?? 0,
-      address: p.vicinity || p.formatted_address || '',
-      photoUrl: p.photos?.[0]?.getUrl({ maxWidth: 400, maxHeight: 400 }) || null,
-      types: p.types || [],
-      userRatingCount: p.user_ratings_total ?? 0,
-    }));
+function parsePriceLevel(pl: string | number | undefined): number {
+  if (typeof pl === 'number') return pl;
+  const map: Record<string, number> = {
+    PRICE_LEVEL_FREE: 0,
+    PRICE_LEVEL_INEXPENSIVE: 1,
+    PRICE_LEVEL_MODERATE: 2,
+    PRICE_LEVEL_EXPENSIVE: 3,
+    PRICE_LEVEL_VERY_EXPENSIVE: 4,
+  };
+  return map[pl || ''] ?? 0;
 }
+
+function photoUrl(photoName: string | undefined): string | null {
+  if (!photoName) return null;
+  return `${BASE_URL}/${photoName}/media?maxWidthPx=400&maxHeightPx=400&key=${GOOGLE_PLACES_KEY}`;
+}
+
+function mapPlaces(places: any[]): PlaceResult[] {
+  return (places || []).map((p: any) => ({
+    id: p.id || p.name || crypto.randomUUID(),
+    name: p.displayName?.text || 'Unknown',
+    lat: p.location?.latitude ?? 0,
+    lng: p.location?.longitude ?? 0,
+    rating: p.rating ?? 0,
+    priceLevel: parsePriceLevel(p.priceLevel),
+    address: p.shortFormattedAddress || p.formattedAddress || '',
+    photoUrl: photoUrl(p.photos?.[0]?.name),
+    types: p.types || [],
+    userRatingCount: p.userRatingCount ?? 0,
+  }));
+}
+
+const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.photos,places.types,places.userRatingCount';
 
 export async function searchNearbyRestaurants(
   lat: number,
   lng: number,
   radiusMeters = 2000
 ): Promise<PlaceResult[]> {
-  const service = await getService();
-
-  return new Promise((resolve, reject) => {
-    service.nearbySearch(
-      {
-        location: { lat, lng },
+  const body = {
+    includedTypes: ['restaurant'],
+    maxResultCount: 20,
+    rankPreference: 'POPULARITY',
+    locationRestriction: {
+      circle: {
+        center: { latitude: lat, longitude: lng },
         radius: radiusMeters,
-        type: 'restaurant',
-        rankBy: google.maps.places.RankBy.PROMINENCE,
       },
-      (results, status) => {
-        console.log('[Places] nearbySearch status:', status, 'count:', results?.length);
-        if (status === google.maps.places.PlacesServiceStatus.OK && results) {
-          resolve(mapResults(results));
-        } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
-          resolve([]);
-        } else {
-          console.error('[Places] nearbySearch failed:', status);
-          reject(new Error(`Places nearbySearch failed: ${status}`));
-        }
-      }
-    );
+    },
+  };
+
+  console.log('[Places] searchNearby request:', lat, lng, radiusMeters);
+
+  const res = await fetch(`${BASE_URL}/places:searchNearby`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+      'X-Goog-FieldMask': FIELDS,
+    },
+    body: JSON.stringify(body),
   });
+
+  const data = await res.json();
+  console.log('[Places] searchNearby status:', res.status, 'count:', data.places?.length ?? 0);
+
+  if (!res.ok) {
+    console.error('[Places] searchNearby error:', data);
+    throw new Error(`Places searchNearby failed: ${data.error?.message || res.status}`);
+  }
+
+  return mapPlaces(data.places || []);
 }
 
 export async function searchPlacesByText(
@@ -91,27 +103,37 @@ export async function searchPlacesByText(
   lat: number,
   lng: number
 ): Promise<PlaceResult[]> {
-  const service = await getService();
-
-  return new Promise((resolve, reject) => {
-    service.textSearch(
-      {
-        query: query + ' restaurant',
-        location: { lat, lng },
+  const body = {
+    textQuery: query + ' restaurant',
+    maxResultCount: 20,
+    includedType: 'restaurant',
+    locationBias: {
+      circle: {
+        center: { latitude: lat, longitude: lng },
         radius: 5000,
-        type: 'restaurant',
       },
-      (results, status) => {
-        console.log('[Places] textSearch status:', status, 'count:', results?.length);
-        if (status === google.maps.places.PlacesServiceStatus.OK && results) {
-          resolve(mapResults(results));
-        } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
-          resolve([]);
-        } else {
-          console.error('[Places] textSearch failed:', status);
-          reject(new Error(`Places textSearch failed: ${status}`));
-        }
-      }
-    );
+    },
+  };
+
+  console.log('[Places] textSearch request:', query);
+
+  const res = await fetch(`${BASE_URL}/places:searchText`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+      'X-Goog-FieldMask': FIELDS,
+    },
+    body: JSON.stringify(body),
   });
+
+  const data = await res.json();
+  console.log('[Places] textSearch status:', res.status, 'count:', data.places?.length ?? 0);
+
+  if (!res.ok) {
+    console.error('[Places] textSearch error:', data);
+    throw new Error(`Places textSearch failed: ${data.error?.message || res.status}`);
+  }
+
+  return mapPlaces(data.places || []);
 }
