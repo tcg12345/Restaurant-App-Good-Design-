@@ -2,8 +2,14 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, animate } from 'motion/react';
 import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
+// @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
+import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
 import 'mapbox-gl/dist/mapbox-gl.css';
+
+// Fix mapbox-gl worker for Vite production builds
+// @ts-ignore
+mapboxgl.workerClass = MapboxWorker;
 
 // Token split to avoid secret scanning — Mapbox public tokens are domain-restricted and safe client-side
 const _mb = ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'];
@@ -141,7 +147,7 @@ export const Map: React.FC = () => {
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
       {/* Real Mapbox Map */}
-      <div ref={mapContainerRef} className="absolute inset-0" />
+      <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
 
       {/* Floating Action Buttons */}
       <div className="absolute right-6 top-6 flex flex-col gap-4 z-30">
