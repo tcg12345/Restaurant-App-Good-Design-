@@ -6,8 +6,8 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 
 const navItems = [
-  { icon: Search, label: 'Search', path: '/' },
   { icon: Home, label: 'Home', path: '/map' },
+  { icon: Search, label: 'Search', path: '/' },
   { icon: Heart, label: 'Pantry', path: '/pantry' },
   { icon: Users, label: 'Circle', path: '/circle' },
   { icon: User, label: 'Profile', path: '/profile' },
