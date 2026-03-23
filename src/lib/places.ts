@@ -1,26 +1,19 @@
-import { Loader } from '@googlemaps/js-api-loader';
+import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 
 const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || '';
 
-let loaderInstance: Loader | null = null;
+let initialized = false;
 let serviceSingleton: google.maps.places.PlacesService | null = null;
-
-function getLoader() {
-  if (!loaderInstance) {
-    loaderInstance = new Loader({
-      apiKey: GOOGLE_PLACES_KEY,
-      version: 'weekly',
-      libraries: ['places'],
-    });
-  }
-  return loaderInstance;
-}
 
 async function getService(): Promise<google.maps.places.PlacesService> {
   if (serviceSingleton) return serviceSingleton;
-  const loader = getLoader();
-  await loader.importLibrary('places');
-  // PlacesService needs a DOM element or map — use a hidden div
+
+  if (!initialized) {
+    setOptions({ apiKey: GOOGLE_PLACES_KEY, version: 'weekly' });
+    initialized = true;
+  }
+
+  await importLibrary('places');
   const div = document.createElement('div');
   serviceSingleton = new google.maps.places.PlacesService(div);
   return serviceSingleton;
