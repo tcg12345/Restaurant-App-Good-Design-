@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { motion, useMotionValue, useTransform, animate, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
@@ -75,22 +75,14 @@ export const Map: React.FC = () => {
     filtersRef.current = { sortBy, selectedCuisine, selectedPrice };
   }, [sortBy, selectedCuisine, selectedPrice]);
 
-  // Sheet height: 0 = collapsed (peek), 1 = fully open
-  const sheetY = useMotionValue(0);
-  const PEEK_HEIGHT = 130;
+  // Bottom sheet state
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragStartYRef = useRef(0);
+  const dragCurrentYRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const PEEK_HEIGHT = 140;
   const SHEET_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.75 : 600;
-  const dragRange = SHEET_HEIGHT - PEEK_HEIGHT;
-
-  const translateY = useTransform(sheetY, [0, dragRange], [dragRange, 0]);
-
-  const snapSheet = (open: boolean) => {
-    animate(sheetY, open ? dragRange : 0, {
-      type: 'spring',
-      damping: 30,
-      stiffness: 200,
-      mass: 0.8,
-    });
-  };
 
   // Sort and filter places client-side
   const getFilteredPlaces = useCallback((allPlaces: PlaceResult[], sort: SortOption, price: number): PlaceResult[] => {
@@ -596,32 +588,87 @@ export const Map: React.FC = () => {
 
       {/* Bottom Sheet */}
       <motion.div
-        style={{ y: translateY, height: SHEET_HEIGHT }}
-        drag="y"
-        dragConstraints={{ top: 0, bottom: 0 }}
-        dragElastic={0.1}
-        onDragEnd={(_, info) => {
-          const currentVal = sheetY.get();
-          const velocity = info.velocity.y;
-          if (velocity < -300 || (currentVal > dragRange * 0.3 && velocity <= 0)) {
-            snapSheet(true);
-          } else if (velocity > 300 || (currentVal < dragRange * 0.7 && velocity >= 0)) {
-            snapSheet(false);
-          } else {
-            snapSheet(currentVal > dragRange * 0.5);
-          }
-        }}
-        onDrag={(_, info) => {
-          const currentVal = sheetY.get();
-          const newVal = currentVal - info.delta.y;
-          sheetY.set(Math.max(0, Math.min(dragRange, newVal)));
-        }}
-        dragListener={true}
-        dragMomentum={false}
-        className="absolute bottom-0 left-0 right-0 glass rounded-t-[3rem] shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col"
+        ref={sheetRef}
+        animate={{ y: sheetOpen ? 0 : SHEET_HEIGHT - PEEK_HEIGHT }}
+        initial={{ y: SHEET_HEIGHT - PEEK_HEIGHT }}
+        transition={{ type: 'spring', damping: 32, stiffness: 300, mass: 0.8 }}
+        style={{ height: SHEET_HEIGHT }}
+        className="absolute bottom-0 left-0 right-0 glass rounded-t-[3rem] shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform"
       >
-        {/* Handle */}
-        <div className="w-full flex flex-col items-center pt-4 pb-4 cursor-grab active:cursor-grabbing flex-shrink-0">
+        {/* Handle — only this area is draggable */}
+        <div
+          className="w-full flex flex-col items-center pt-4 pb-4 cursor-grab active:cursor-grabbing flex-shrink-0"
+          style={{ touchAction: 'none' }}
+          onClick={() => {
+            if (Math.abs(dragCurrentYRef.current) < 5) setSheetOpen(!sheetOpen);
+          }}
+          onTouchStart={(e) => {
+            dragStartYRef.current = e.touches[0].clientY;
+            dragCurrentYRef.current = 0;
+            isDraggingRef.current = true;
+          }}
+          onTouchMove={(e) => {
+            if (!isDraggingRef.current) return;
+            const delta = e.touches[0].clientY - dragStartYRef.current;
+            dragCurrentYRef.current = delta;
+            const el = sheetRef.current;
+            if (!el) return;
+            const baseY = sheetOpen ? 0 : SHEET_HEIGHT - PEEK_HEIGHT;
+            const clamped = Math.max(0, Math.min(SHEET_HEIGHT - PEEK_HEIGHT, baseY + delta));
+            el.style.transform = `translateY(${clamped}px)`;
+            el.style.transition = 'none';
+          }}
+          onTouchEnd={() => {
+            if (!isDraggingRef.current) return;
+            isDraggingRef.current = false;
+            const delta = dragCurrentYRef.current;
+            const el = sheetRef.current;
+            if (el) {
+              el.style.transform = '';
+              el.style.transition = '';
+            }
+            if (sheetOpen) {
+              if (delta > 50) setSheetOpen(false);
+            } else {
+              if (delta < -50) setSheetOpen(true);
+            }
+          }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            dragStartYRef.current = e.clientY;
+            dragCurrentYRef.current = 0;
+            isDraggingRef.current = true;
+            const onMouseMove = (ev: MouseEvent) => {
+              if (!isDraggingRef.current) return;
+              const delta = ev.clientY - dragStartYRef.current;
+              dragCurrentYRef.current = delta;
+              const el = sheetRef.current;
+              if (!el) return;
+              const baseY = sheetOpen ? 0 : SHEET_HEIGHT - PEEK_HEIGHT;
+              const clamped = Math.max(0, Math.min(SHEET_HEIGHT - PEEK_HEIGHT, baseY + delta));
+              el.style.transform = `translateY(${clamped}px)`;
+              el.style.transition = 'none';
+            };
+            const onMouseUp = () => {
+              isDraggingRef.current = false;
+              const delta = dragCurrentYRef.current;
+              const el = sheetRef.current;
+              if (el) {
+                el.style.transform = '';
+                el.style.transition = '';
+              }
+              if (sheetOpen) {
+                if (delta > 50) setSheetOpen(false);
+              } else {
+                if (delta < -50) setSheetOpen(true);
+              }
+              window.removeEventListener('mousemove', onMouseMove);
+              window.removeEventListener('mouseup', onMouseUp);
+            };
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+          }}
+        >
           <div className="w-12 h-1.5 bg-on-surface/10 rounded-full" />
         </div>
 
