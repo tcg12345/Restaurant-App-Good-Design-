@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Search, Home, Users, User, Heart } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
 const navItems = [
@@ -12,8 +12,6 @@ const navItems = [
   { icon: User, label: 'Profile', path: '/profile' },
 ];
 
-const homeItem = navItems.find((item) => item.path === '/map')!;
-
 export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = false }) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -21,62 +19,76 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
 
   return (
     <motion.nav
-      className="fixed bottom-6 left-1/2 glass rounded-full shadow-2xl border border-white/20 z-50 flex items-center justify-between overflow-hidden"
-      initial={false}
-      animate={{
-        width: isExpanded ? 'min(90%, 28rem)' : '3.5rem',
-        paddingLeft: isExpanded ? '1.5rem' : '0rem',
-        paddingRight: isExpanded ? '1.5rem' : '0rem',
-        paddingTop: '0.75rem',
-        paddingBottom: '0.75rem',
-        x: '-50%',
+      layout
+      className={cn(
+        "fixed bottom-6 left-1/2 glass rounded-full shadow-2xl border border-white/20 z-50 flex items-center",
+        isExpanded ? "gap-0 px-6 py-3" : "px-3 py-3"
+      )}
+      style={{ x: '-50%' }}
+      transition={{
+        layout: { type: 'spring', damping: 22, stiffness: 280, mass: 0.8 },
       }}
-      transition={{ type: 'spring', damping: 25, stiffness: 300 }}
       onMouseEnter={() => collapsible && setExpanded(true)}
       onMouseLeave={() => collapsible && setExpanded(false)}
     >
-      {isExpanded ? (
-        navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            onClick={(e) => {
-              // On touch devices, tapping Home while expanded on map page should just collapse
-              if (collapsible && item.path === '/map') {
-                // Let the link navigate normally, then collapse
-                setTimeout(() => setExpanded(false), 100);
-              }
-            }}
-            className={({ isActive }) =>
-              cn(
-                "flex flex-col items-center gap-1 transition-all duration-300 flex-1",
-                isActive ? "text-primary scale-110" : "text-on-surface/40 hover:text-on-surface/60"
-              )
-            }
-          >
-            {({ isActive }) => (
-              <motion.div
-                className="flex flex-col items-center gap-1"
-                initial={{ opacity: 0, scale: 0.5 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-              >
-                <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
-                <span className="text-[10px] font-bold uppercase tracking-widest">{item.label}</span>
-              </motion.div>
-            )}
-          </NavLink>
-        ))
-      ) : (
-        <button
-          className="flex flex-col items-center gap-1 text-primary w-14 cursor-pointer"
-          onClick={() => setExpanded(true)}
-          onTouchStart={() => setExpanded(true)}
-        >
-          <homeItem.icon size={20} strokeWidth={2.5} />
-          <span className="text-[10px] font-bold uppercase tracking-widest">{homeItem.label}</span>
-        </button>
-      )}
+      <AnimatePresence mode="popLayout">
+        {navItems.map((item) => {
+          const isHome = item.path === '/map';
+          const shouldShow = isExpanded || isHome;
+
+          if (!shouldShow) return null;
+
+          return (
+            <motion.div
+              key={item.path}
+              layout
+              initial={{ opacity: 0, scale: 0, filter: 'blur(4px)' }}
+              animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, scale: 0, filter: 'blur(4px)' }}
+              transition={{
+                layout: { type: 'spring', damping: 22, stiffness: 280, mass: 0.8 },
+                opacity: { duration: 0.2 },
+                scale: { type: 'spring', damping: 18, stiffness: 350, mass: 0.6 },
+                filter: { duration: 0.2 },
+              }}
+              className={cn("flex-1 flex items-center justify-center", !isExpanded && "flex-none")}
+            >
+              {collapsible && isHome && !isExpanded ? (
+                <button
+                  className="flex flex-col items-center gap-1 text-primary cursor-pointer px-1"
+                  onClick={() => setExpanded(true)}
+                  onTouchStart={() => setExpanded(true)}
+                >
+                  <Home size={20} strokeWidth={2.5} />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Home</span>
+                </button>
+              ) : (
+                <NavLink
+                  to={item.path}
+                  onClick={() => {
+                    if (collapsible && isHome) {
+                      setTimeout(() => setExpanded(false), 150);
+                    }
+                  }}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex flex-col items-center gap-1 transition-colors duration-200",
+                      isActive ? "text-primary" : "text-on-surface/40 hover:text-on-surface/60"
+                    )
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">{item.label}</span>
+                    </>
+                  )}
+                </NavLink>
+              )}
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
     </motion.nav>
   );
 };
