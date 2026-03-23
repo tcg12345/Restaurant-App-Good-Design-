@@ -41,6 +41,7 @@ export const Map: React.FC = () => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
+  const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
   // Sheet height: 0 = collapsed (peek), 1 = fully open
   const sheetY = useMotionValue(0);
@@ -164,8 +165,26 @@ export const Map: React.FC = () => {
           onClick={() => {
             if (navigator.geolocation) {
               navigator.geolocation.getCurrentPosition((pos) => {
+                const lngLat: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+
+                // Create or update user location marker
+                if (userMarkerRef.current) {
+                  userMarkerRef.current.setLngLat(lngLat);
+                } else if (mapRef.current) {
+                  const el = document.createElement('div');
+                  el.innerHTML = `
+                    <div style="position:relative;width:20px;height:20px;">
+                      <div style="position:absolute;inset:0;border-radius:50%;background:rgba(59,130,246,0.25);animation:user-pulse 2s ease-out infinite;"></div>
+                      <div style="position:absolute;inset:4px;border-radius:50%;background:#3B82F6;border:2.5px solid white;box-shadow:0 2px 8px rgba(59,130,246,0.5);"></div>
+                    </div>
+                  `;
+                  userMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+                    .setLngLat(lngLat)
+                    .addTo(mapRef.current);
+                }
+
                 mapRef.current?.flyTo({
-                  center: [pos.coords.longitude, pos.coords.latitude],
+                  center: lngLat,
                   zoom: 14,
                   duration: 1500,
                 });

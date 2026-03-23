@@ -35,3 +35,8 @@
   break-inside: avoid;
   margin-bottom: 1rem;
 }
+
+@keyframes user-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(3); opacity: 0; }
+}
