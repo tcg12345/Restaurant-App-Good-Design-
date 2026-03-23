@@ -3,7 +3,7 @@ import { Loader } from '@googlemaps/js-api-loader';
 const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || '';
 
 let loaderInstance: Loader | null = null;
-let placesLib: google.maps.PlacesLibrary | null = null;
+let serviceSingleton: google.maps.places.PlacesService | null = null;
 
 function getLoader() {
   if (!loaderInstance) {
@@ -16,11 +16,14 @@ function getLoader() {
   return loaderInstance;
 }
 
-async function getPlacesLib() {
-  if (placesLib) return placesLib;
+async function getService(): Promise<google.maps.places.PlacesService> {
+  if (serviceSingleton) return serviceSingleton;
   const loader = getLoader();
-  placesLib = await loader.importLibrary('places');
-  return placesLib;
+  await loader.importLibrary('places');
+  // PlacesService needs a DOM element or map — use a hidden div
+  const div = document.createElement('div');
+  serviceSingleton = new google.maps.places.PlacesService(div);
+  return serviceSingleton;
 }
 
 export interface PlaceResult {
@@ -34,7 +37,6 @@ export interface PlaceResult {
   photoUrl: string | null;
   types: string[];
   userRatingCount: number;
-  isOpen?: boolean;
 }
 
 function priceLevelToString(level: number): string {
@@ -44,54 +46,51 @@ function priceLevelToString(level: number): string {
 
 export { priceLevelToString };
 
+function mapResults(results: google.maps.places.PlaceResult[]): PlaceResult[] {
+  return results
+    .filter((p) => p.geometry?.location)
+    .map((p) => ({
+      id: p.place_id || crypto.randomUUID(),
+      name: p.name || 'Unknown',
+      lat: p.geometry!.location!.lat(),
+      lng: p.geometry!.location!.lng(),
+      rating: p.rating ?? 0,
+      priceLevel: p.price_level ?? 0,
+      address: p.vicinity || p.formatted_address || '',
+      photoUrl: p.photos?.[0]?.getUrl({ maxWidth: 400, maxHeight: 400 }) || null,
+      types: p.types || [],
+      userRatingCount: p.user_ratings_total ?? 0,
+    }));
+}
+
 export async function searchNearbyRestaurants(
   lat: number,
   lng: number,
   radiusMeters = 2000
 ): Promise<PlaceResult[]> {
-  const lib = await getPlacesLib();
+  const service = await getService();
 
-  const request = {
-    fields: [
-      'displayName',
-      'id',
-      'location',
-      'rating',
-      'priceLevel',
-      'formattedAddress',
-      'photos',
-      'primaryType',
-      'types',
-      'userRatingCount',
-      'regularOpeningHours',
-    ],
-    locationRestriction: {
-      center: { lat, lng },
-      radius: radiusMeters,
-    },
-    includedPrimaryTypes: ['restaurant'],
-    maxResultCount: 20,
-    rankPreference: 'POPULARITY' as any,
-  };
-
-  // @ts-ignore — Places New API
-  const { places } = await lib.Place.searchNearby(request);
-
-  return (places || []).map((place: any) => ({
-    id: place.id,
-    name: place.displayName || 'Unknown',
-    lat: place.location?.lat() ?? lat,
-    lng: place.location?.lng() ?? lng,
-    rating: place.rating ?? 0,
-    priceLevel: typeof place.priceLevel === 'number'
-      ? place.priceLevel
-      : (['FREE', 'INEXPENSIVE', 'MODERATE', 'EXPENSIVE', 'VERY_EXPENSIVE'].indexOf(place.priceLevel) ?? 0),
-    address: place.formattedAddress || '',
-    photoUrl: place.photos?.[0]?.getURI?.({ maxWidth: 400, maxHeight: 400 }) || null,
-    types: place.types || [],
-    userRatingCount: place.userRatingCount ?? 0,
-    isOpen: place.regularOpeningHours?.periods ? undefined : undefined,
-  }));
+  return new Promise((resolve, reject) => {
+    service.nearbySearch(
+      {
+        location: { lat, lng },
+        radius: radiusMeters,
+        type: 'restaurant',
+        rankBy: google.maps.places.RankBy.PROMINENCE,
+      },
+      (results, status) => {
+        console.log('[Places] nearbySearch status:', status, 'count:', results?.length);
+        if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+          resolve(mapResults(results));
+        } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+          resolve([]);
+        } else {
+          console.error('[Places] nearbySearch failed:', status);
+          reject(new Error(`Places nearbySearch failed: ${status}`));
+        }
+      }
+    );
+  });
 }
 
 export async function searchPlacesByText(
@@ -99,45 +98,27 @@ export async function searchPlacesByText(
   lat: number,
   lng: number
 ): Promise<PlaceResult[]> {
-  const lib = await getPlacesLib();
+  const service = await getService();
 
-  const request = {
-    textQuery: query + ' restaurant',
-    fields: [
-      'displayName',
-      'id',
-      'location',
-      'rating',
-      'priceLevel',
-      'formattedAddress',
-      'photos',
-      'primaryType',
-      'types',
-      'userRatingCount',
-    ],
-    locationBias: {
-      center: { lat, lng },
-      radius: 5000,
-    },
-    includedType: 'restaurant',
-    maxResultCount: 20,
-  };
-
-  // @ts-ignore — Places New API
-  const { places } = await lib.Place.searchByText(request);
-
-  return (places || []).map((place: any) => ({
-    id: place.id,
-    name: place.displayName || 'Unknown',
-    lat: place.location?.lat() ?? lat,
-    lng: place.location?.lng() ?? lng,
-    rating: place.rating ?? 0,
-    priceLevel: typeof place.priceLevel === 'number'
-      ? place.priceLevel
-      : (['FREE', 'INEXPENSIVE', 'MODERATE', 'EXPENSIVE', 'VERY_EXPENSIVE'].indexOf(place.priceLevel) ?? 0),
-    address: place.formattedAddress || '',
-    photoUrl: place.photos?.[0]?.getURI?.({ maxWidth: 400, maxHeight: 400 }) || null,
-    types: place.types || [],
-    userRatingCount: place.userRatingCount ?? 0,
-  }));
+  return new Promise((resolve, reject) => {
+    service.textSearch(
+      {
+        query: query + ' restaurant',
+        location: { lat, lng },
+        radius: 5000,
+        type: 'restaurant',
+      },
+      (results, status) => {
+        console.log('[Places] textSearch status:', status, 'count:', results?.length);
+        if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+          resolve(mapResults(results));
+        } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+          resolve([]);
+        } else {
+          console.error('[Places] textSearch failed:', status);
+          reject(new Error(`Places textSearch failed: ${status}`));
+        }
+      }
+    );
+  });
 }
