@@ -1,10 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { motion, useMotionValue, useTransform, animate } from 'motion/react';
-import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square } from 'lucide-react';
+import { motion, useMotionValue, useTransform, animate, AnimatePresence } from 'motion/react';
+import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
+import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Fix mapbox-gl worker for Vite production builds
@@ -14,12 +15,6 @@ mapboxgl.workerClass = MapboxWorker;
 // Token split to avoid secret scanning — Mapbox public tokens are domain-restricted and safe client-side
 const _mb = ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'];
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || _mb.join('');
-
-const MOCK_MARKERS = [
-  { id: '1', name: 'Lumière', lat: 40.7128, lng: -74.0060, rating: 4.9, price: '$$$$' },
-  { id: '2', name: 'Alchemist', lat: 40.7282, lng: -73.9942, rating: 4.7, price: '$$$' },
-  { id: '3', name: 'Sakura Zen', lat: 40.7589, lng: -73.9851, rating: 4.8, price: '$$$$' },
-];
 
 const MAP_STYLES = [
   { id: 'light', label: 'Light', style: 'mapbox://styles/mapbox/light-v11' },
@@ -39,10 +34,15 @@ export const Map: React.FC = () => {
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
+  const [places, setPlaces] = useState<PlaceResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearchInput, setShowSearchInput] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Sheet height: 0 = collapsed (peek), 1 = fully open
   const sheetY = useMotionValue(0);
@@ -61,6 +61,109 @@ export const Map: React.FC = () => {
     });
   };
 
+  // Create a marker element for a place
+  const createMarkerElement = useCallback((place: PlaceResult) => {
+    const el = document.createElement('div');
+    el.className = 'mapbox-custom-marker';
+    el.innerHTML = `
+      <div class="marker-pin" data-id="${place.id}" style="
+        padding: 10px;
+        border-radius: 50%;
+        background: white;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+      </div>
+    `;
+
+    el.addEventListener('mouseenter', () => {
+      const pin = el.querySelector('.marker-pin') as HTMLElement;
+      if (pin) pin.style.transform = 'scale(1.2)';
+    });
+    el.addEventListener('mouseleave', () => {
+      const pin = el.querySelector('.marker-pin') as HTMLElement;
+      if (pin) pin.style.transform = 'scale(1)';
+    });
+
+    return el;
+  }, []);
+
+  // Sync markers on map when places change
+  const syncMarkers = useCallback((newPlaces: PlaceResult[]) => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Remove old markers
+    Object.values(markersRef.current).forEach((m) => m.remove());
+    markersRef.current = {};
+
+    // Add new markers
+    newPlaces.forEach((place) => {
+      const el = createMarkerElement(place);
+
+      el.addEventListener('click', () => {
+        setSelectedMarker(place.id);
+        map.flyTo({ center: [place.lng, place.lat], zoom: 15, duration: 1000 });
+      });
+
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([place.lng, place.lat])
+        .addTo(map);
+
+      markersRef.current[place.id] = marker;
+    });
+  }, [createMarkerElement]);
+
+  // Fetch nearby restaurants for the current map center
+  const fetchNearby = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map) return;
+    setIsSearching(true);
+    try {
+      const center = map.getCenter();
+      const results = await searchNearbyRestaurants(center.lat, center.lng);
+      setPlaces(results);
+      syncMarkers(results);
+    } catch (err) {
+      console.error('Places search failed:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [syncMarkers]);
+
+  // Text search
+  const handleSearch = useCallback(async (query: string) => {
+    const map = mapRef.current;
+    if (!map || !query.trim()) return;
+    setIsSearching(true);
+    setSelectedMarker(null);
+    try {
+      const center = map.getCenter();
+      const results = await searchPlacesByText(query, center.lat, center.lng);
+      setPlaces(results);
+      syncMarkers(results);
+
+      // Fit map to results
+      if (results.length > 0) {
+        const bounds = new mapboxgl.LngLatBounds();
+        results.forEach((p) => bounds.extend([p.lng, p.lat]));
+        map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
+      }
+    } catch (err) {
+      console.error('Text search failed:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [syncMarkers]);
+
   // Initialize Mapbox
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current || !MAPBOX_TOKEN) return;
@@ -77,57 +180,18 @@ export const Map: React.FC = () => {
 
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
 
-    // Add markers
-    MOCK_MARKERS.forEach((markerData) => {
-      const el = document.createElement('div');
-      el.className = 'mapbox-custom-marker';
-      el.innerHTML = `
-        <div class="marker-pin" data-id="${markerData.id}" style="
-          padding: 10px;
-          border-radius: 50%;
-          background: white;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-          cursor: pointer;
-          transition: all 0.2s ease;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        ">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-            <circle cx="12" cy="10" r="3"/>
-          </svg>
-        </div>
-      `;
-
-      el.addEventListener('click', () => {
-        setSelectedMarker(markerData.id);
-        map.flyTo({ center: [markerData.lng, markerData.lat], zoom: 15, duration: 1000 });
-      });
-
-      el.addEventListener('mouseenter', () => {
-        const pin = el.querySelector('.marker-pin') as HTMLElement;
-        if (pin) pin.style.transform = 'scale(1.2)';
-      });
-      el.addEventListener('mouseleave', () => {
-        const pin = el.querySelector('.marker-pin') as HTMLElement;
-        if (pin) pin.style.transform = 'scale(1)';
-      });
-
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([markerData.lng, markerData.lat])
-        .addTo(map);
-
-      markersRef.current[markerData.id] = marker;
-    });
-
     mapRef.current = map;
+
+    // Search nearby restaurants once map loads
+    map.on('load', () => {
+      fetchNearby();
+    });
 
     return () => {
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update marker styles when selection changes
   useEffect(() => {
@@ -146,10 +210,10 @@ export const Map: React.FC = () => {
     });
   }, [selectedMarker]);
 
-  const flyToMarker = useCallback((marker: typeof MOCK_MARKERS[0]) => {
-    setSelectedMarker(marker.id);
+  const flyToPlace = useCallback((place: PlaceResult) => {
+    setSelectedMarker(place.id);
     mapRef.current?.flyTo({
-      center: [marker.lng, marker.lat],
+      center: [place.lng, place.lat],
       zoom: 15,
       duration: 1000,
     });
@@ -189,6 +253,9 @@ export const Map: React.FC = () => {
                   zoom: 14,
                   duration: 1500,
                 });
+
+                // Re-search near new location
+                setTimeout(() => fetchNearby(), 1600);
               });
             }
           }}
@@ -352,66 +419,160 @@ export const Map: React.FC = () => {
 
         {/* Search Bar & Filters */}
         <div className="px-6 pb-4 flex-shrink-0">
-          <div className="flex items-center gap-3 overflow-x-auto no-scrollbar">
-            <button className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors">
-              <Search size={20} className="text-on-surface/70" />
-            </button>
-            <button className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors">
-              <SlidersHorizontal size={18} className="text-on-surface/70" />
-            </button>
-            {FILTERS.map((filter) => (
-              <button
-                key={filter.label}
-                className={cn(
-                  "flex items-center gap-2 px-5 py-3 rounded-full border-2 border-on-surface/10 whitespace-nowrap flex-shrink-0 transition-colors hover:bg-muted",
-                  filter.active && "bg-primary/10 border-primary/30 text-primary"
-                )}
+          <AnimatePresence mode="wait">
+            {showSearchInput ? (
+              <motion.form
+                key="search-input"
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="flex items-center gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (searchQuery.trim()) {
+                    handleSearch(searchQuery);
+                    setShowSearchInput(false);
+                  }
+                }}
               >
-                <filter.icon size={16} className={filter.active ? "text-primary" : "text-on-surface/50"} />
-                <span className="text-xs font-bold uppercase tracking-wider">{filter.label}</span>
-                {filter.hasDropdown && <ChevronDown size={14} className="text-on-surface/40" />}
-              </button>
-            ))}
-          </div>
+                <div className="flex-1 relative">
+                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search restaurants..."
+                    autoFocus
+                    className="w-full pl-11 pr-4 py-3 rounded-full border-2 border-on-surface/10 bg-surface text-on-surface text-sm font-medium focus:outline-none focus:border-primary/40 transition-colors"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSearchInput(false);
+                    setSearchQuery('');
+                  }}
+                  className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"
+                >
+                  <X size={18} className="text-on-surface/70" />
+                </button>
+              </motion.form>
+            ) : (
+              <motion.div
+                key="filters"
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="flex items-center gap-3 overflow-x-auto no-scrollbar"
+              >
+                <button
+                  onClick={() => {
+                    setShowSearchInput(true);
+                    setTimeout(() => searchInputRef.current?.focus(), 100);
+                  }}
+                  className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"
+                >
+                  <Search size={20} className="text-on-surface/70" />
+                </button>
+                <button
+                  onClick={fetchNearby}
+                  className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"
+                >
+                  {isSearching ? (
+                    <Loader2 size={18} className="text-on-surface/70 animate-spin" />
+                  ) : (
+                    <SlidersHorizontal size={18} className="text-on-surface/70" />
+                  )}
+                </button>
+                {FILTERS.map((filter) => (
+                  <button
+                    key={filter.label}
+                    className={cn(
+                      "flex items-center gap-2 px-5 py-3 rounded-full border-2 border-on-surface/10 whitespace-nowrap flex-shrink-0 transition-colors hover:bg-muted",
+                      filter.active && "bg-primary/10 border-primary/30 text-primary"
+                    )}
+                  >
+                    <filter.icon size={16} className={filter.active ? "text-primary" : "text-on-surface/50"} />
+                    <span className="text-xs font-bold uppercase tracking-wider">{filter.label}</span>
+                    {filter.hasDropdown && <ChevronDown size={14} className="text-on-surface/40" />}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Results List */}
         <div className="px-6 flex-1 overflow-y-auto no-scrollbar pb-32">
-          <div className="space-y-6">
-            {MOCK_MARKERS.map((marker) => (
-              <div
-                key={marker.id}
-                className={cn(
-                  "flex gap-4 group cursor-pointer rounded-2xl p-2 -mx-2 transition-colors",
-                  selectedMarker === marker.id && "bg-primary/5"
-                )}
-                onClick={() => flyToMarker(marker)}
-              >
-                <div className="w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0">
-                  <img
-                    src={`https://images.unsplash.com/photo-${1414235077428 + parseInt(marker.id) * 100000000000}?auto=format&fit=crop&q=80&w=200`}
-                    alt={marker.name}
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                    referrerPolicy="no-referrer"
-                  />
-                </div>
-                <div className="flex-1 py-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="font-serif font-bold text-lg">{marker.name}</h3>
-                    <div className="flex items-center gap-1 text-primary">
-                      <Star size={12} className="fill-primary" />
-                      <span className="text-xs font-bold">{marker.rating}</span>
+          {isSearching && places.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={24} className="text-primary animate-spin" />
+              <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
+            </div>
+          ) : places.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <MapPinned size={32} className="text-on-surface/20 mb-3" />
+              <p className="text-sm text-on-surface/40 font-medium">No restaurants found</p>
+              <p className="text-xs text-on-surface/30 mt-1">Try searching or move the map</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {places.map((place) => (
+                <div
+                  key={place.id}
+                  className={cn(
+                    "flex gap-4 group cursor-pointer rounded-2xl p-2 -mx-2 transition-colors",
+                    selectedMarker === place.id && "bg-primary/5"
+                  )}
+                  onClick={() => flyToPlace(place)}
+                >
+                  <div className="w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0 bg-muted">
+                    {place.photoUrl ? (
+                      <img
+                        src={place.photoUrl}
+                        alt={place.name}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="h-full w-full flex items-center justify-center bg-on-surface/5">
+                        <MapPinned size={24} className="text-on-surface/20" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 py-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <h3 className="font-serif font-bold text-lg truncate">{place.name}</h3>
+                      {place.rating > 0 && (
+                        <div className="flex items-center gap-1 text-primary flex-shrink-0">
+                          <Star size={12} className="fill-primary" />
+                          <span className="text-xs font-bold">{place.rating.toFixed(1)}</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-on-surface/40 font-medium uppercase tracking-wider mb-2 truncate">
+                      {place.address.split(',').slice(0, 2).join(', ')}
+                      {place.priceLevel > 0 && ` • ${priceLevelToString(place.priceLevel)}`}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {place.rating >= 4.5 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider">Top Rated</span>
+                      )}
+                      {place.userRatingCount > 500 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/10 text-secondary font-bold uppercase tracking-wider">Popular</span>
+                      )}
+                      {place.priceLevel >= 3 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-on-surface/5 text-on-surface/50 font-bold uppercase tracking-wider">Fine Dining</span>
+                      )}
                     </div>
                   </div>
-                  <p className="text-xs text-on-surface/40 font-medium uppercase tracking-wider mb-2">Modern French • {marker.price}</p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider">Michelin</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/10 text-secondary font-bold uppercase tracking-wider">Top Rated</span>
-                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </motion.div>
     </div>
