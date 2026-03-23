@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Noto Serif", serif;
+  --font-sans: "Manrope", sans-serif;
+  
+  --color-surface: #fff8f6;
+  --color-on-surface: #1e1b1a;
+  --color-primary: #9f3012;
+  --color-secondary: #5c6144;
+  --color-accent: #d4a373;
+  --color-muted: #e5e1e0;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-sans;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-serif;
+  }
+}
+
+.glass {
+  @apply bg-white/80 backdrop-blur-xl;
+}
+
+.stagger-grid {
+  column-count: 2;
+  column-gap: 1rem;
+}
+
+.stagger-item {
+  break-inside: avoid;
+  margin-bottom: 1rem;
+}
