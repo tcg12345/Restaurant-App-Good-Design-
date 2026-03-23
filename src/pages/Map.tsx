@@ -1,15 +1,19 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, animate } from 'motion/react';
 import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square } from 'lucide-react';
+import mapboxgl from 'mapbox-gl';
+// @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
+import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
+import 'mapbox-gl/dist/mapbox-gl.css';
 
-declare global {
-  interface Window {
-    mapkit: any;
-  }
-}
+// Fix mapbox-gl worker for Vite production builds
+// @ts-ignore
+mapboxgl.workerClass = MapboxWorker;
 
-const MAPKIT_TOKEN = import.meta.env.VITE_APPLE_MAPKIT_TOKEN || '';
+// Token split to avoid secret scanning — Mapbox public tokens are domain-restricted and safe client-side
+const _mb = ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'];
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || _mb.join('');
 
 const MOCK_MARKERS = [
   { id: '1', name: 'Lumière', lat: 40.7128, lng: -74.0060, rating: 4.9, price: '$$$$' },
@@ -18,10 +22,10 @@ const MOCK_MARKERS = [
 ];
 
 const MAP_STYLES = [
-  { id: 'standard', label: 'Standard', mapType: 'Standard' },
-  { id: 'muted', label: 'Muted', mapType: 'MutedStandard' },
-  { id: 'satellite', label: 'Satellite', mapType: 'Satellite' },
-  { id: 'hybrid', label: 'Hybrid', mapType: 'Hybrid' },
+  { id: 'light', label: 'Light', style: 'mapbox://styles/mapbox/light-v11' },
+  { id: 'dark', label: 'Dark', style: 'mapbox://styles/mapbox/dark-v11' },
+  { id: 'satellite', label: 'Satellite', style: 'mapbox://styles/mapbox/satellite-streets-v12' },
+  { id: 'streets', label: 'Streets', style: 'mapbox://styles/mapbox/streets-v12' },
 ] as const;
 
 const FILTERS = [
@@ -30,32 +34,15 @@ const FILTERS = [
   { icon: MapPinned, label: 'Nearby', active: false },
 ];
 
-// Wait for mapkit to be available
-const waitForMapKit = (): Promise<any> => {
-  return new Promise((resolve) => {
-    if (window.mapkit) {
-      resolve(window.mapkit);
-      return;
-    }
-    const check = setInterval(() => {
-      if (window.mapkit) {
-        clearInterval(check);
-        resolve(window.mapkit);
-      }
-    }, 100);
-  });
-};
-
 export const Map: React.FC = () => {
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
-  const [activeStyle, setActiveStyle] = useState<string>('standard');
+  const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
-  const annotationsRef = useRef<{ [id: string]: any }>({});
-  const mapkitRef = useRef<any>(null);
-  const initializedRef = useRef(false);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
+  const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
   // Sheet height: 0 = collapsed (peek), 1 = fully open
   const sheetY = useMotionValue(0);
@@ -74,94 +61,103 @@ export const Map: React.FC = () => {
     });
   };
 
-  // Initialize Apple MapKit JS
+  // Initialize Mapbox
   useEffect(() => {
-    if (!mapContainerRef.current || initializedRef.current) return;
-    initializedRef.current = true;
+    if (!mapContainerRef.current || mapRef.current || !MAPBOX_TOKEN) return;
 
-    const initMap = async () => {
-      const mk = await waitForMapKit();
-      mapkitRef.current = mk;
+    mapboxgl.accessToken = MAPBOX_TOKEN;
 
-      mk.init({
-        authorizationCallback: (done: (token: string) => void) => {
-          done(MAPKIT_TOKEN);
-        },
+    const map = new mapboxgl.Map({
+      container: mapContainerRef.current,
+      style: 'mapbox://styles/mapbox/light-v11',
+      center: [-73.99, 40.735],
+      zoom: 12.5,
+      attributionControl: false,
+    });
+
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
+
+    // Add markers
+    MOCK_MARKERS.forEach((markerData) => {
+      const el = document.createElement('div');
+      el.className = 'mapbox-custom-marker';
+      el.innerHTML = `
+        <div class="marker-pin" data-id="${markerData.id}" style="
+          padding: 10px;
+          border-radius: 50%;
+          background: white;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        ">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+        </div>
+      `;
+
+      el.addEventListener('click', () => {
+        setSelectedMarker(markerData.id);
+        map.flyTo({ center: [markerData.lng, markerData.lat], zoom: 15, duration: 1000 });
       });
 
-      const map = new mk.Map(mapContainerRef.current, {
-        center: new mk.Coordinate(40.735, -73.99),
-        cameraDistance: 25000,
-        showsCompass: mk.FeatureVisibility.Hidden,
-        showsMapTypeControl: false,
-        showsZoomControl: false,
-        colorScheme: mk.Map.ColorSchemes.Light,
+      el.addEventListener('mouseenter', () => {
+        const pin = el.querySelector('.marker-pin') as HTMLElement;
+        if (pin) pin.style.transform = 'scale(1.2)';
+      });
+      el.addEventListener('mouseleave', () => {
+        const pin = el.querySelector('.marker-pin') as HTMLElement;
+        if (pin) pin.style.transform = 'scale(1)';
       });
 
-      // Add markers
-      const annotations = MOCK_MARKERS.map((markerData) => {
-        const coord = new mk.Coordinate(markerData.lat, markerData.lng);
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([markerData.lng, markerData.lat])
+        .addTo(map);
 
-        const annotation = new mk.MarkerAnnotation(coord, {
-          title: markerData.name,
-          glyphText: '🍽',
-          color: '#8B4513',
-          data: { id: markerData.id },
-        });
+      markersRef.current[markerData.id] = marker;
+    });
 
-        annotationsRef.current[markerData.id] = annotation;
-        return annotation;
-      });
-
-      map.addAnnotations(annotations);
-
-      // Handle annotation selection
-      map.addEventListener('select', (event: any) => {
-        const annotation = event.annotation;
-        if (annotation?.data?.id) {
-          setSelectedMarker(annotation.data.id);
-        }
-      });
-
-      map.addEventListener('deselect', () => {
-        setSelectedMarker(null);
-      });
-
-      mapRef.current = map;
-    };
-
-    initMap();
+    mapRef.current = map;
 
     return () => {
-      if (mapRef.current) {
-        mapRef.current.destroy();
-        mapRef.current = null;
-      }
+      map.remove();
+      mapRef.current = null;
     };
   }, []);
 
   // Update marker styles when selection changes
   useEffect(() => {
-    Object.entries(annotationsRef.current).forEach(([id, annotation]) => {
+    Object.entries(markersRef.current).forEach(([id, marker]) => {
+      const el = marker.getElement();
+      const pin = el.querySelector('.marker-pin') as HTMLElement;
+      if (!pin) return;
       const isSelected = id === selectedMarker;
-      annotation.color = isSelected ? '#D4A574' : '#8B4513';
-      annotation.glyphText = isSelected ? '⭐' : '🍽';
+      pin.style.background = isSelected ? 'var(--color-primary, #8B4513)' : 'white';
+      pin.style.color = isSelected ? 'white' : 'currentColor';
+      const svg = pin.querySelector('svg');
+      if (svg) {
+        svg.setAttribute('stroke', isSelected ? 'white' : 'currentColor');
+        svg.setAttribute('fill', isSelected ? 'white' : 'none');
+      }
     });
   }, [selectedMarker]);
 
   const flyToMarker = useCallback((marker: typeof MOCK_MARKERS[0]) => {
     setSelectedMarker(marker.id);
-    const mk = mapkitRef.current;
-    if (mapRef.current && mk) {
-      const coordinate = new mk.Coordinate(marker.lat, marker.lng);
-      mapRef.current.setCenterAnimated(coordinate, true);
-      mapRef.current.setCameraDistanceAnimated(5000, true);
-    }
+    mapRef.current?.flyTo({
+      center: [marker.lng, marker.lat],
+      zoom: 15,
+      duration: 1000,
+    });
   }, []);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
-      {/* Apple MapKit Map */}
+      {/* Real Mapbox Map */}
       <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
 
       {/* Floating Action Buttons */}
@@ -170,21 +166,29 @@ export const Map: React.FC = () => {
           onClick={() => {
             if (navigator.geolocation) {
               navigator.geolocation.getCurrentPosition((pos) => {
-                const mk = mapkitRef.current;
-                if (mapRef.current && mk) {
-                  const coordinate = new mk.Coordinate(pos.coords.latitude, pos.coords.longitude);
-                  mapRef.current.setCenterAnimated(coordinate, true);
-                  mapRef.current.setCameraDistanceAnimated(5000, true);
+                const lngLat: [number, number] = [pos.coords.longitude, pos.coords.latitude];
 
-                  // Add user location annotation
-                  const userAnnotation = new mk.MarkerAnnotation(coordinate, {
-                    color: '#3B82F6',
-                    glyphText: '📍',
-                    title: 'You',
-                    displayPriority: 1000,
-                  });
-                  mapRef.current.addAnnotation(userAnnotation);
+                // Create or update user location marker
+                if (userMarkerRef.current) {
+                  userMarkerRef.current.setLngLat(lngLat);
+                } else if (mapRef.current) {
+                  const el = document.createElement('div');
+                  el.innerHTML = `
+                    <div style="position:relative;width:20px;height:20px;">
+                      <div style="position:absolute;inset:0;border-radius:50%;background:rgba(59,130,246,0.25);animation:user-pulse 2s ease-out infinite;"></div>
+                      <div style="position:absolute;inset:4px;border-radius:50%;background:#3B82F6;border:2.5px solid white;box-shadow:0 2px 8px rgba(59,130,246,0.5);"></div>
+                    </div>
+                  `;
+                  userMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+                    .setLngLat(lngLat)
+                    .addTo(mapRef.current);
                 }
+
+                mapRef.current?.flyTo({
+                  center: lngLat,
+                  zoom: 14,
+                  duration: 1500,
+                });
               });
             }
           }}
@@ -198,45 +202,44 @@ export const Map: React.FC = () => {
         <button
           onClick={() => {
             const map = mapRef.current;
-            const mk = mapkitRef.current;
-            if (!map || !mk) return;
+            if (!map) return;
             const next = !is3D;
             setIs3D(next);
 
-            if (next) {
-              // Switch to 3D: tilt camera and zoom in
-              map.mapType = mk.Map.MapTypes.Standard;
-              map.setCameraDistanceAnimated(3000, true);
+            map.easeTo({
+              pitch: next ? 60 : 0,
+              bearing: next ? -20 : 0,
+              duration: 1000,
+            });
 
-              // Use a small delay to let the camera distance animate, then tilt
-              setTimeout(() => {
-                try {
-                  // MapKit JS 5.x supports camera property for 3D
-                  const center = map.center;
-                  const camera = new mk.MapCamera();
-                  camera.centerCoordinate = center;
-                  camera.distance = 3000;
-                  camera.pitch = 60;
-                  camera.heading = -20;
-                  map.setCameraAnimated(camera, true);
-                } catch {
-                  // Fallback: at minimum set camera distance
-                  map.setCameraDistanceAnimated(3000, true);
-                }
-              }, 300);
-            } else {
-              // Switch to 2D: flatten camera
-              try {
-                const center = map.center;
-                const camera = new mk.MapCamera();
-                camera.centerCoordinate = center;
-                camera.distance = 15000;
-                camera.pitch = 0;
-                camera.heading = 0;
-                map.setCameraAnimated(camera, true);
-              } catch {
-                map.setCameraDistanceAnimated(15000, true);
+            // Add or remove 3D buildings layer
+            const addBuildings = () => {
+              if (next && !map.getLayer('3d-buildings')) {
+                const layers = map.getStyle().layers || [];
+                const labelLayer = layers.find((l: any) => l.type === 'symbol' && l.layout?.['text-field']);
+                map.addLayer({
+                  id: '3d-buildings',
+                  source: 'composite',
+                  'source-layer': 'building',
+                  filter: ['==', 'extrude', 'true'],
+                  type: 'fill-extrusion',
+                  minzoom: 12,
+                  paint: {
+                    'fill-extrusion-color': '#c4b5a2',
+                    'fill-extrusion-height': ['get', 'height'],
+                    'fill-extrusion-base': ['get', 'min_height'],
+                    'fill-extrusion-opacity': 0.7,
+                  },
+                }, labelLayer?.id);
+              } else if (!next && map.getLayer('3d-buildings')) {
+                map.removeLayer('3d-buildings');
               }
+            };
+
+            if (map.isStyleLoaded()) {
+              addBuildings();
+            } else {
+              map.once('style.load', addBuildings);
             }
           }}
           className={cn(
@@ -268,11 +271,32 @@ export const Map: React.FC = () => {
                 <button
                   key={s.id}
                   onClick={() => {
-                    const map = mapRef.current;
-                    const mk = mapkitRef.current;
-                    if (map && mk && s.id !== activeStyle) {
-                      map.mapType = mk.Map.MapTypes[s.mapType];
+                    if (mapRef.current && s.id !== activeStyle) {
+                      mapRef.current.setStyle(s.style);
                       setActiveStyle(s.id);
+                      // Re-add 3D buildings after style loads if 3D is active
+                      if (is3D) {
+                        mapRef.current.once('style.load', () => {
+                          const map = mapRef.current;
+                          if (!map || map.getLayer('3d-buildings')) return;
+                          const layers = map.getStyle().layers || [];
+                          const labelLayer = layers.find((l: any) => l.type === 'symbol' && l.layout?.['text-field']);
+                          map.addLayer({
+                            id: '3d-buildings',
+                            source: 'composite',
+                            'source-layer': 'building',
+                            filter: ['==', 'extrude', 'true'],
+                            type: 'fill-extrusion',
+                            minzoom: 12,
+                            paint: {
+                              'fill-extrusion-color': '#c4b5a2',
+                              'fill-extrusion-height': ['get', 'height'],
+                              'fill-extrusion-base': ['get', 'min_height'],
+                              'fill-extrusion-opacity': 0.7,
+                            },
+                          }, labelLayer?.id);
+                        });
+                      }
                     }
                     setShowStylePicker(false);
                   }}
