@@ -58,13 +58,40 @@ function mapPlaces(places: any[]): PlaceResult[] {
 
 const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.photos,places.types,places.userRatingCount';
 
+// Cuisine type mapping for Google Places API includedTypes
+export const CUISINE_TYPES: { label: string; type: string }[] = [
+  { label: 'All', type: '' },
+  { label: 'Italian', type: 'italian_restaurant' },
+  { label: 'Chinese', type: 'chinese_restaurant' },
+  { label: 'Japanese', type: 'japanese_restaurant' },
+  { label: 'Mexican', type: 'mexican_restaurant' },
+  { label: 'Indian', type: 'indian_restaurant' },
+  { label: 'Thai', type: 'thai_restaurant' },
+  { label: 'French', type: 'french_restaurant' },
+  { label: 'Korean', type: 'korean_restaurant' },
+  { label: 'Mediterranean', type: 'mediterranean_restaurant' },
+  { label: 'American', type: 'american_restaurant' },
+  { label: 'Seafood', type: 'seafood_restaurant' },
+  { label: 'Steakhouse', type: 'steak_house' },
+  { label: 'Sushi', type: 'sushi_restaurant' },
+  { label: 'Pizza', type: 'pizza_restaurant' },
+  { label: 'Cafe', type: 'cafe' },
+  { label: 'Bakery', type: 'bakery' },
+  { label: 'Bar & Grill', type: 'bar_and_grill' },
+  { label: 'Breakfast', type: 'breakfast_restaurant' },
+  { label: 'Vegan', type: 'vegan_restaurant' },
+];
+
 export async function searchNearbyRestaurants(
   lat: number,
   lng: number,
-  radiusMeters = 2000
+  radiusMeters = 2000,
+  cuisineType = '',
 ): Promise<PlaceResult[]> {
+  const includedTypes = cuisineType ? [cuisineType] : ['restaurant'];
+
   const body = {
-    includedTypes: ['restaurant'],
+    includedTypes,
     maxResultCount: 20,
     rankPreference: 'POPULARITY',
     locationRestriction: {
@@ -75,7 +102,7 @@ export async function searchNearbyRestaurants(
     },
   };
 
-  console.log('[Places] searchNearby request:', lat, lng, radiusMeters);
+  console.log('[Places] searchNearby request:', lat, lng, radiusMeters, cuisineType || 'all');
 
   const res = await fetch(`${BASE_URL}/places:searchNearby`, {
     method: 'POST',
