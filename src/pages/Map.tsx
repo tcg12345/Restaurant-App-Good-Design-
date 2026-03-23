@@ -1,7 +1,7 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, animate } from 'motion/react';
 import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown } from 'lucide-react';
-import MapGL, { Marker, NavigationControl } from 'react-map-gl';
+import mapboxgl from 'mapbox-gl';
 import { cn } from '../lib/utils';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -21,7 +21,9 @@ const FILTERS = [
 
 export const Map: React.FC = () => {
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
-  const mapRef = useRef<any>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
 
   // Sheet height: 0 = collapsed (peek), 1 = fully open
   const sheetY = useMotionValue(0);
@@ -29,7 +31,6 @@ export const Map: React.FC = () => {
   const SHEET_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.75 : 600;
   const dragRange = SHEET_HEIGHT - PEEK_HEIGHT;
 
-  // Map sheetY (0 = collapsed, dragRange = open) to translateY
   const translateY = useTransform(sheetY, [0, dragRange], [dragRange, 0]);
 
   const snapSheet = (open: boolean) => {
@@ -40,6 +41,91 @@ export const Map: React.FC = () => {
       mass: 0.8,
     });
   };
+
+  // Initialize Mapbox
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return;
+
+    mapboxgl.accessToken = MAPBOX_TOKEN;
+
+    const map = new mapboxgl.Map({
+      container: mapContainerRef.current,
+      style: 'mapbox://styles/mapbox/light-v11',
+      center: [-73.99, 40.735],
+      zoom: 12.5,
+      attributionControl: false,
+    });
+
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
+
+    // Add markers
+    MOCK_MARKERS.forEach((markerData) => {
+      const el = document.createElement('div');
+      el.className = 'mapbox-custom-marker';
+      el.innerHTML = `
+        <div class="marker-pin" data-id="${markerData.id}" style="
+          padding: 10px;
+          border-radius: 50%;
+          background: white;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        ">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+        </div>
+      `;
+
+      el.addEventListener('click', () => {
+        setSelectedMarker(markerData.id);
+        map.flyTo({ center: [markerData.lng, markerData.lat], zoom: 15, duration: 1000 });
+      });
+
+      el.addEventListener('mouseenter', () => {
+        const pin = el.querySelector('.marker-pin') as HTMLElement;
+        if (pin) pin.style.transform = 'scale(1.2)';
+      });
+      el.addEventListener('mouseleave', () => {
+        const pin = el.querySelector('.marker-pin') as HTMLElement;
+        if (pin) pin.style.transform = 'scale(1)';
+      });
+
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([markerData.lng, markerData.lat])
+        .addTo(map);
+
+      markersRef.current[markerData.id] = marker;
+    });
+
+    mapRef.current = map;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // Update marker styles when selection changes
+  useEffect(() => {
+    Object.entries(markersRef.current).forEach(([id, marker]) => {
+      const el = marker.getElement();
+      const pin = el.querySelector('.marker-pin') as HTMLElement;
+      if (!pin) return;
+      const isSelected = id === selectedMarker;
+      pin.style.background = isSelected ? 'var(--color-primary, #8B4513)' : 'white';
+      pin.style.color = isSelected ? 'white' : 'currentColor';
+      const svg = pin.querySelector('svg');
+      if (svg) {
+        svg.setAttribute('stroke', isSelected ? 'white' : 'currentColor');
+        svg.setAttribute('fill', isSelected ? 'white' : 'none');
+      }
+    });
+  }, [selectedMarker]);
 
   const flyToMarker = useCallback((marker: typeof MOCK_MARKERS[0]) => {
     setSelectedMarker(marker.id);
@@ -53,68 +139,7 @@ export const Map: React.FC = () => {
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
       {/* Real Mapbox Map */}
-      <div className="absolute inset-0">
-        <MapGL
-          ref={mapRef}
-          mapboxAccessToken={MAPBOX_TOKEN}
-          initialViewState={{
-            longitude: -73.99,
-            latitude: 40.735,
-            zoom: 12.5,
-          }}
-          style={{ width: '100%', height: '100%' }}
-          mapStyle="mapbox://styles/mapbox/light-v11"
-          attributionControl={false}
-        >
-          <NavigationControl position="top-left" showCompass={false} />
-
-          {MOCK_MARKERS.map((marker) => (
-            <Marker
-              key={marker.id}
-              longitude={marker.lng}
-              latitude={marker.lat}
-              anchor="center"
-              onClick={(e) => {
-                e.originalEvent.stopPropagation();
-                flyToMarker(marker);
-              }}
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                whileHover={{ scale: 1.2 }}
-                className={cn(
-                  "p-2.5 rounded-full shadow-xl cursor-pointer transition-colors duration-200",
-                  selectedMarker === marker.id
-                    ? "bg-primary text-white"
-                    : "bg-white text-on-surface hover:bg-primary/10"
-                )}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill={selectedMarker === marker.id ? "white" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                  <circle cx="12" cy="10" r="3" />
-                </svg>
-              </motion.div>
-
-              {selectedMarker === marker.id && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 glass px-4 py-2 rounded-2xl whitespace-nowrap shadow-2xl pointer-events-none"
-                >
-                  <p className="text-sm font-serif font-bold text-on-surface">{marker.name}</p>
-                  <div className="flex items-center gap-2 text-[10px] font-bold text-primary mt-1">
-                    <Star size={10} className="fill-primary" />
-                    <span>{marker.rating}</span>
-                    <span className="text-on-surface/40">•</span>
-                    <span>{marker.price}</span>
-                  </div>
-                </motion.div>
-              )}
-            </Marker>
-          ))}
-        </MapGL>
-      </div>
+      <div ref={mapContainerRef} className="absolute inset-0" />
 
       {/* Floating Action Buttons */}
       <div className="absolute right-6 top-6 flex flex-col gap-4 z-30">
