@@ -1,7 +1,7 @@
 import React from 'react';
 import { TopBar } from '../components/TopBar';
 import { RadarChart } from '../components/RadarChart';
-import { Settings, Edit2, Share2, Heart, Star, Bookmark, ChevronRight } from 'lucide-react';
+import { Edit2, Share2, Heart, Star, Bookmark, ChevronRight } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const TASTE_DATA = [
@@ -140,12 +140,6 @@ export const Profile: React.FC = () => {
           </div>
         </section>
       </main>
-
-      <div className="fixed top-6 right-6 z-50">
-        <button className="p-3 glass rounded-full text-on-surface/60 hover:text-primary transition-colors shadow-xl">
-          <Settings size={24} />
-        </button>
-      </div>
     </div>
   );
 };
