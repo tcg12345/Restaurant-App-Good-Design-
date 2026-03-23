@@ -1,11 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, animate, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2 } from 'lucide-react';
+import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
-import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Fix mapbox-gl worker for Vite production builds
@@ -29,6 +29,23 @@ const FILTERS = [
   { icon: MapPinned, label: 'Nearby', active: false },
 ];
 
+type SortOption = 'popularity' | 'rating' | 'price_low' | 'price_high';
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'popularity', label: 'Most Popular' },
+  { value: 'rating', label: 'Highest Rated' },
+  { value: 'price_low', label: 'Price: Low to High' },
+  { value: 'price_high', label: 'Price: High to Low' },
+];
+
+const PRICE_LEVELS = [
+  { value: 0, label: 'All' },
+  { value: 1, label: '$' },
+  { value: 2, label: '$$' },
+  { value: 3, label: '$$$' },
+  { value: 4, label: '$$$$' },
+];
+
 export const Map: React.FC = () => {
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
@@ -38,11 +55,25 @@ export const Map: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Filter state
+  const [sortBy, setSortBy] = useState<SortOption>('popularity');
+  const [selectedCuisine, setSelectedCuisine] = useState('');
+  const [selectedPrice, setSelectedPrice] = useState(0);
+
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisine: '', selectedPrice: 0 });
+
+  // Keep ref in sync with state so the moveend callback sees current values
+  useEffect(() => {
+    filtersRef.current = { sortBy, selectedCuisine, selectedPrice };
+  }, [sortBy, selectedCuisine, selectedPrice]);
 
   // Sheet height: 0 = collapsed (peek), 1 = fully open
   const sheetY = useMotionValue(0);
@@ -60,6 +91,36 @@ export const Map: React.FC = () => {
       mass: 0.8,
     });
   };
+
+  // Sort and filter places client-side
+  const getFilteredPlaces = useCallback((allPlaces: PlaceResult[], sort: SortOption, price: number): PlaceResult[] => {
+    let filtered = allPlaces;
+
+    // Filter by price
+    if (price > 0) {
+      filtered = filtered.filter((p) => p.priceLevel === price);
+    }
+
+    // Sort
+    const sorted = [...filtered];
+    switch (sort) {
+      case 'rating':
+        sorted.sort((a, b) => b.rating - a.rating);
+        break;
+      case 'price_low':
+        sorted.sort((a, b) => a.priceLevel - b.priceLevel);
+        break;
+      case 'price_high':
+        sorted.sort((a, b) => b.priceLevel - a.priceLevel);
+        break;
+      case 'popularity':
+      default:
+        sorted.sort((a, b) => b.userRatingCount - a.userRatingCount);
+        break;
+    }
+
+    return sorted;
+  }, []);
 
   // Create a marker element for a place
   const createMarkerElement = useCallback((place: PlaceResult) => {
@@ -123,21 +184,26 @@ export const Map: React.FC = () => {
   }, [createMarkerElement]);
 
   // Fetch nearby restaurants for the current map center
-  const fetchNearby = useCallback(async () => {
+  const fetchNearby = useCallback(async (cuisine?: string) => {
     const map = mapRef.current;
     if (!map) return;
     setIsSearching(true);
     try {
       const center = map.getCenter();
-      const results = await searchNearbyRestaurants(center.lat, center.lng);
-      setPlaces(results);
-      syncMarkers(results);
+      const zoom = map.getZoom();
+      // Scale radius based on zoom level
+      const radius = Math.min(50000, Math.max(500, Math.round(40000 / Math.pow(2, zoom - 10))));
+      const cuisineType = cuisine ?? filtersRef.current.selectedCuisine;
+      const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineType);
+      const filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
+      setPlaces(filtered);
+      syncMarkers(filtered);
     } catch (err) {
       console.error('Places search failed:', err);
     } finally {
       setIsSearching(false);
     }
-  }, [syncMarkers]);
+  }, [syncMarkers, getFilteredPlaces]);
 
   // Text search
   const handleSearch = useCallback(async (query: string) => {
@@ -148,8 +214,9 @@ export const Map: React.FC = () => {
     try {
       const center = map.getCenter();
       const results = await searchPlacesByText(query, center.lat, center.lng);
-      setPlaces(results);
-      syncMarkers(results);
+      const filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
+      setPlaces(filtered);
+      syncMarkers(filtered);
 
       // Fit map to results
       if (results.length > 0) {
@@ -162,7 +229,7 @@ export const Map: React.FC = () => {
     } finally {
       setIsSearching(false);
     }
-  }, [syncMarkers]);
+  }, [syncMarkers, getFilteredPlaces]);
 
   // Initialize Mapbox
   useEffect(() => {
@@ -187,7 +254,16 @@ export const Map: React.FC = () => {
       fetchNearby();
     });
 
+    // Re-fetch when user moves the map (debounced)
+    map.on('moveend', () => {
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = setTimeout(() => {
+        fetchNearby();
+      }, 800);
+    });
+
     return () => {
+      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       map.remove();
       mapRef.current = null;
     };
@@ -218,6 +294,8 @@ export const Map: React.FC = () => {
       duration: 1000,
     });
   }, []);
+
+  const activeFilterCount = (selectedCuisine ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
@@ -253,9 +331,6 @@ export const Map: React.FC = () => {
                   zoom: 14,
                   duration: 1500,
                 });
-
-                // Re-search near new location
-                setTimeout(() => fetchNearby(), 1600);
               });
             }
           }}
@@ -386,6 +461,139 @@ export const Map: React.FC = () => {
         </div>
       </div>
 
+      {/* Filter Panel Overlay */}
+      <AnimatePresence>
+        {showFilters && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/30 z-50"
+              onClick={() => setShowFilters(false)}
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="absolute bottom-0 left-0 right-0 z-50 bg-surface rounded-t-[2rem] shadow-2xl max-h-[85vh] overflow-y-auto"
+            >
+              {/* Header */}
+              <div className="sticky top-0 bg-surface z-10 px-6 pt-5 pb-4 border-b border-black/5">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-serif font-bold text-on-surface">Filters</h2>
+                  <button
+                    onClick={() => setShowFilters(false)}
+                    className="w-9 h-9 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+                  >
+                    <X size={18} className="text-on-surface/60" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-6 py-5 space-y-6">
+                {/* Sort By */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <ArrowUpDown size={16} className="text-primary" />
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Sort By</h3>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {SORT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setSortBy(opt.value)}
+                        className={cn(
+                          "flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all",
+                          sortBy === opt.value
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-on-surface/10 text-on-surface/60 hover:border-on-surface/20"
+                        )}
+                      >
+                        {sortBy === opt.value && <Check size={14} />}
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Price Range */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <DollarSign size={16} className="text-primary" />
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Price Range</h3>
+                  </div>
+                  <div className="flex gap-2">
+                    {PRICE_LEVELS.map((p) => (
+                      <button
+                        key={p.value}
+                        onClick={() => setSelectedPrice(p.value)}
+                        className={cn(
+                          "flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all",
+                          selectedPrice === p.value
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-on-surface/10 text-on-surface/60 hover:border-on-surface/20"
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Cuisine */}
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <UtensilsCrossed size={16} className="text-primary" />
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Cuisine</h3>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {CUISINE_TYPES.map((c) => (
+                      <button
+                        key={c.type || 'all'}
+                        onClick={() => setSelectedCuisine(c.type)}
+                        className={cn(
+                          "px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all",
+                          selectedCuisine === c.type
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
+                        )}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Apply / Reset buttons */}
+              <div className="sticky bottom-0 bg-surface border-t border-black/5 px-6 py-4 flex gap-3">
+                <button
+                  onClick={() => {
+                    setSortBy('popularity');
+                    setSelectedCuisine('');
+                    setSelectedPrice(0);
+                  }}
+                  className="flex-1 py-3.5 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors"
+                >
+                  Reset
+                </button>
+                <button
+                  onClick={() => {
+                    setShowFilters(false);
+                    fetchNearby(selectedCuisine);
+                  }}
+                  className="flex-[2] py-3.5 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-shadow"
+                >
+                  Apply Filters
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Bottom Sheet */}
       <motion.div
         style={{ y: translateY, height: SHEET_HEIGHT }}
@@ -478,13 +686,23 @@ export const Map: React.FC = () => {
                   <Search size={20} className="text-on-surface/70" />
                 </button>
                 <button
-                  onClick={fetchNearby}
-                  className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"
+                  onClick={() => setShowFilters(true)}
+                  className={cn(
+                    "relative w-12 h-12 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors",
+                    activeFilterCount > 0
+                      ? "border-primary bg-primary/5"
+                      : "border-on-surface/10 hover:bg-muted"
+                  )}
                 >
                   {isSearching ? (
                     <Loader2 size={18} className="text-on-surface/70 animate-spin" />
                   ) : (
-                    <SlidersHorizontal size={18} className="text-on-surface/70" />
+                    <SlidersHorizontal size={18} className={activeFilterCount > 0 ? "text-primary" : "text-on-surface/70"} />
+                  )}
+                  {activeFilterCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
+                      {activeFilterCount}
+                    </span>
                   )}
                 </button>
                 {FILTERS.map((filter) => (
