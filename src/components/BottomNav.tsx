@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { Search, Home, Users, User, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { useSettings } from '../contexts/SettingsContext';
 
 const navItems = [
   { icon: Search, label: 'Search', path: '/' },
@@ -14,6 +15,7 @@ const navItems = [
 
 export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = false }) => {
   const [expanded, setExpanded] = useState(false);
+  const { phoneMode } = useSettings();
 
   const isExpanded = !collapsible || expanded;
 
@@ -21,8 +23,11 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
     <motion.nav
       layout
       className={cn(
-        "fixed bottom-6 left-1/2 glass rounded-full shadow-2xl border border-white/20 z-50 flex items-center justify-center",
-        isExpanded ? "gap-2 px-8 py-4" : "px-4 py-4"
+        "fixed left-1/2 glass rounded-full shadow-2xl border border-white/20 z-50 flex items-center justify-center",
+        phoneMode ? "bottom-3" : "bottom-6",
+        isExpanded
+          ? phoneMode ? "gap-1 px-4 py-2.5" : "gap-2 px-8 py-4"
+          : phoneMode ? "px-2.5 py-2.5" : "px-4 py-4"
       )}
       style={{ x: '-50%' }}
       transition={{
@@ -51,16 +56,16 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                 scale: { type: 'spring', damping: 18, stiffness: 350, mass: 0.6 },
                 filter: { duration: 0.2 },
               }}
-              className={cn("flex items-center justify-center", isExpanded ? "flex-1 min-w-[3.5rem]" : "flex-none")}
+              className={cn("flex items-center justify-center", isExpanded ? `flex-1 ${phoneMode ? 'min-w-[2.5rem]' : 'min-w-[3.5rem]'}` : "flex-none")}
             >
               {collapsible && isHome && !isExpanded ? (
                 <button
-                  className="flex flex-col items-center gap-1.5 text-primary cursor-pointer px-2"
+                  className={cn("flex flex-col items-center text-primary cursor-pointer", phoneMode ? "gap-0.5 px-1" : "gap-1.5 px-2")}
                   onClick={() => setExpanded(true)}
                   onTouchStart={() => setExpanded(true)}
                 >
-                  <Home size={22} strokeWidth={2.5} />
-                  <span className="text-[10px] font-semibold uppercase tracking-wider">Home</span>
+                  <Home size={phoneMode ? 16 : 22} strokeWidth={2.5} />
+                  <span className={cn("font-semibold uppercase", phoneMode ? "text-[7px] tracking-wide" : "text-[10px] tracking-wider")}>Home</span>
                 </button>
               ) : (
                 <NavLink
@@ -72,15 +77,16 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                   }}
                   className={({ isActive }) =>
                     cn(
-                      "flex flex-col items-center gap-1.5 transition-colors duration-200 px-2",
+                      "flex flex-col items-center transition-colors duration-200",
+                      phoneMode ? "gap-0.5 px-1" : "gap-1.5 px-2",
                       isActive ? "text-primary" : "text-on-surface/40 hover:text-on-surface/60"
                     )
                   }
                 >
                   {({ isActive }) => (
                     <>
-                      <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
-                      <span className="text-[10px] font-semibold uppercase tracking-wider">{item.label}</span>
+                      <item.icon size={phoneMode ? 16 : 22} strokeWidth={isActive ? 2.5 : 2} />
+                      <span className={cn("font-semibold uppercase", phoneMode ? "text-[7px] tracking-wide" : "text-[10px] tracking-wider")}>{item.label}</span>
                     </>
                   )}
                 </NavLink>
