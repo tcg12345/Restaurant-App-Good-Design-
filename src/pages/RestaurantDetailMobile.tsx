@@ -8,7 +8,7 @@ import {
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-/* ── Photo Gallery — mobile bottom sheet with swipe gestures ── */
+/* ── Photo Gallery Bottom Sheet ── */
 const PhotoGallery: React.FC<{
   photos: string[];
   name: string;
@@ -16,173 +16,66 @@ const PhotoGallery: React.FC<{
   onClose: () => void;
 }> = ({ photos, name, initialIndex, onClose }) => {
   const [viewIndex, setViewIndex] = useState(initialIndex);
-  const sheetRef = React.useRef<HTMLDivElement>(null);
-  const thumbsRef = React.useRef<HTMLDivElement>(null);
-
-  // Swipe-to-dismiss state
-  const dragStartY = React.useRef(0);
-  const dragCurrentY = React.useRef(0);
-  const isDragging = React.useRef(false);
-
-  // Swipe-to-change-photo state
-  const photoStartX = React.useRef(0);
-  const photoSwiping = React.useRef(false);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
 
-  // Auto-scroll thumbnail strip
-  useEffect(() => {
-    const strip = thumbsRef.current;
-    if (!strip) return;
-    const thumb = strip.children[viewIndex] as HTMLElement | undefined;
-    if (thumb) {
-      thumb.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
-    }
-  }, [viewIndex]);
-
-  // Sheet drag-to-dismiss handlers
-  const onSheetTouchStart = (e: React.TouchEvent) => {
-    dragStartY.current = e.touches[0].clientY;
-    dragCurrentY.current = 0;
-    isDragging.current = true;
-  };
-  const onSheetTouchMove = (e: React.TouchEvent) => {
-    if (!isDragging.current) return;
-    const delta = e.touches[0].clientY - dragStartY.current;
-    dragCurrentY.current = delta;
-    const el = sheetRef.current;
-    if (!el) return;
-    // Only allow dragging downward
-    const clamped = Math.max(0, delta);
-    el.style.transform = `translateY(${clamped}px)`;
-    el.style.transition = 'none';
-  };
-  const onSheetTouchEnd = () => {
-    isDragging.current = false;
-    const el = sheetRef.current;
-    if (!el) return;
-    // If dragged down more than 100px, dismiss
-    if (dragCurrentY.current > 100) {
-      el.style.transition = 'transform 0.3s ease-out';
-      el.style.transform = 'translateY(100%)';
-      setTimeout(onClose, 300);
-    } else {
-      el.style.transition = 'transform 0.3s ease-out';
-      el.style.transform = 'translateY(0)';
-    }
-  };
-
-  // Photo swipe handlers (horizontal)
-  const onPhotoTouchStart = (e: React.TouchEvent) => {
-    photoStartX.current = e.touches[0].clientX;
-    photoSwiping.current = true;
-    // Don't let this trigger the sheet drag
-    e.stopPropagation();
-  };
-  const onPhotoTouchEnd = (e: React.TouchEvent) => {
-    if (!photoSwiping.current) return;
-    photoSwiping.current = false;
-    const deltaX = e.changedTouches[0].clientX - photoStartX.current;
-    if (Math.abs(deltaX) > 50 && photos.length > 1) {
-      if (deltaX < 0) {
-        setViewIndex((i) => (i + 1) % photos.length);
-      } else {
-        setViewIndex((i) => (i - 1 + photos.length) % photos.length);
-      }
-    }
-  };
-
   return (
-    <>
-      {/* Overlay */}
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/30 z-50"
-        onClick={onClose}
-      />
-      {/* Sheet */}
-      <motion.div
-        ref={sheetRef}
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-[2rem] shadow-2xl flex flex-col"
-        style={{ maxHeight: '70vh' }}
-        onTouchStart={onSheetTouchStart}
-        onTouchMove={onSheetTouchMove}
-        onTouchEnd={onSheetTouchEnd}
+        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl max-h-[92vh] flex flex-col"
       >
-        {/* Drag handle */}
-        <div className="flex-shrink-0 pt-3 pb-1 px-5">
-          <div className="w-12 h-1.5 bg-on-surface/10 rounded-full mx-auto" />
+        {/* Handle + header */}
+        <div className="flex-shrink-0 pt-3 pb-2 px-5">
+          <div className="w-10 h-1 rounded-full bg-on-surface/15 mx-auto mb-3" />
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-serif font-bold">Photos</h2>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-full hover:bg-on-surface/5 transition-colors"
+            >
+              <X size={20} className="text-on-surface/50" />
+            </button>
+          </div>
         </div>
 
-        {/* Header */}
-        <div className="flex-shrink-0 flex items-center justify-between px-5 py-2">
-          <h2 className="text-base font-serif font-bold">Photos</h2>
-          <button onClick={onClose} className="p-1.5 -mr-1.5 rounded-full active:bg-on-surface/5 transition-colors">
-            <X size={20} className="text-on-surface/50" />
-          </button>
-        </div>
-
-        {/* Featured photo — swipeable horizontally */}
-        <div
-          className="flex-shrink-0 px-4 pb-3"
-          onTouchStart={onPhotoTouchStart}
-          onTouchEnd={onPhotoTouchEnd}
-        >
-          <div className="relative rounded-2xl overflow-hidden aspect-[3/2] bg-on-surface/5">
+        {/* Featured photo */}
+        <div className="flex-shrink-0 px-5 pb-3">
+          <div className="relative rounded-2xl overflow-hidden aspect-[4/3]">
             <img
               src={photos[viewIndex]}
               alt={`${name} photo ${viewIndex + 1}`}
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
-              draggable={false}
             />
-            <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur-sm text-white text-[11px] font-medium px-2 py-0.5 rounded-full">
+            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
               {viewIndex + 1} / {photos.length}
             </div>
-            {photos.length > 1 && (
-              <>
-                <button
-                  onClick={() => setViewIndex((i) => (i - 1 + photos.length) % photos.length)}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/80"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                <button
-                  onClick={() => setViewIndex((i) => (i + 1) % photos.length)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/80"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </>
-            )}
           </div>
         </div>
 
-        {/* Horizontal thumbnail strip */}
-        <div className="flex-shrink-0 pb-5 pt-1">
-          <div
-            ref={thumbsRef}
-            className="flex gap-2 px-4 overflow-x-auto"
-            style={{ scrollbarWidth: 'none' }}
-          >
+        {/* Thumbnail grid */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-8">
+          <div className="grid grid-cols-3 gap-2">
             {photos.map((url, i) => (
               <button
                 key={i}
                 onClick={() => setViewIndex(i)}
-                className={`flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden transition-all ${
-                  i === viewIndex
-                    ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface'
-                    : 'opacity-50'
-                }`}
+                className={`relative aspect-square rounded-xl overflow-hidden ${i === viewIndex ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
               >
                 <img
                   src={url}
@@ -195,7 +88,7 @@ const PhotoGallery: React.FC<{
           </div>
         </div>
       </motion.div>
-    </>
+    </motion.div>
   );
 };
 
