@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { SocialFeed } from '../components/SocialFeed';
 
 const TASTE_DATA = [
   { subject: 'Umami', value: 120, fullMark: 150 },
@@ -328,6 +329,9 @@ export const Home: React.FC = () => {
               </div>
               <div className="absolute top-0 right-0 w-32 h-32 bg-secondary/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
             </section>
+
+            {/* Social Feed */}
+            <SocialFeed />
           </>
         ) : (
           <CircleActivity />
