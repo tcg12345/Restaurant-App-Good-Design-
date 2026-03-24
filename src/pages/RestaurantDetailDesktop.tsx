@@ -3,9 +3,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search, Share2,
+  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search, Share2, Heart,
 } from 'lucide-react';
-import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
+import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
+import { useLists } from '../contexts/ListsContext';
+import { priceLevelToString } from '../lib/places';
+import { RadarChart } from '../components/RadarChart';
+import { getFlavorProfile, getTopFlavors } from '../lib/flavorProfile';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 /* ── Photo Gallery Bottom Sheet ── */
@@ -118,6 +122,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
     priceStr, cuisine,
     photos, directionsUrl, mapsUrl,
   } = useRestaurantDetail();
+
+  const { openRatingModal, openAddToListModal, addToWishlist, removeFromWishlist, isWishlisted, getRating } = useLists();
 
   if (loading) {
     return (
@@ -233,17 +239,58 @@ export const RestaurantDetailDesktop: React.FC = () => {
         <div className="mb-6">
           <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-tight mb-2">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-medium text-on-surface/55 uppercase tracking-wider">{cuisine}</span>
-            <span className="text-on-surface/25">·</span>
-            <span className="text-xs font-medium text-on-surface/55 uppercase tracking-wider">{priceStr}</span>
+            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{cuisine}</span>
+            <span className="text-on-surface/35">·</span>
+            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{priceStr}</span>
           </div>
         </div>
 
-        {/* Add to List — full-width primary button */}
-        <button className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary text-white font-medium text-sm hover:bg-primary/90 transition-colors mb-3">
-          <ListPlus size={18} />
-          Add to List
-        </button>
+        {/* Action buttons — Rate, Add to List, Wishlist */}
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <button
+            onClick={() => place && openRatingModal({
+              id: place.id, name: place.name,
+              image: place.photoUrl || '',
+              cuisine, price: priceStr,
+              address: place.address,
+            })}
+            className={`flex items-center justify-center gap-1.5 py-3.5 rounded-2xl font-medium text-sm transition-colors ${
+              place && getRating(place.id) ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100' : 'bg-primary text-white hover:bg-primary/90'
+            }`}
+          >
+            <Star size={16} />
+            {place && getRating(place.id) ? `${getRating(place.id)!.score.toFixed(1)}` : 'Rate'}
+          </button>
+          <button
+            onClick={() => place && openAddToListModal(place.id, { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.address })}
+            className="flex items-center justify-center gap-1.5 py-3.5 rounded-2xl bg-primary text-white font-medium text-sm hover:bg-primary/90 transition-colors"
+          >
+            <ListPlus size={16} />
+            List
+          </button>
+          <button
+            onClick={() => {
+              if (!place) return;
+              if (isWishlisted(place.id)) {
+                removeFromWishlist(place.id);
+              } else {
+                addToWishlist({
+                  restaurantId: place.id, name: place.name,
+                  image: place.photoUrl || '',
+                  cuisine, price: priceStr,
+                  address: place.address,
+                  addedAt: Date.now(),
+                });
+              }
+            }}
+            className={`flex items-center justify-center gap-1.5 py-3.5 rounded-2xl font-medium text-sm transition-colors border ${
+              place && isWishlisted(place.id) ? 'bg-secondary/10 text-secondary border-secondary/30 hover:bg-secondary/20' : 'bg-white text-on-surface/60 border-on-surface/12 hover:bg-on-surface/[0.03]'
+            }`}
+          >
+            <Heart size={16} className={place && isWishlisted(place.id) ? 'fill-secondary' : ''} />
+            {place && isWishlisted(place.id) ? 'Saved' : 'Wishlist'}
+          </button>
+        </div>
 
         {/* Action row — Directions, Website, Photos */}
         <div className="grid grid-cols-3 gap-3 mb-7">
@@ -280,6 +327,25 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <span className="text-xs font-medium">Photos</span>
           </button>
         </div>
+
+        {/* Flavor Profile */}
+        {place && (() => {
+          const flavorData = getFlavorProfile(place.types, place.name);
+          const topFlavors = getTopFlavors(flavorData);
+          return (
+            <section className="mb-7 bg-secondary/10 rounded-2xl p-6 overflow-hidden relative">
+              <div className="relative z-10">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary mb-1">Flavor Profile</p>
+                <h3 className="text-lg font-serif font-bold mb-3">Taste DNA</h3>
+                <RadarChart data={flavorData} color="#5c6144" />
+                <p className="text-xs text-on-surface/60 mt-3 leading-relaxed">
+                  This spot leans towards <span className="text-secondary font-bold italic">{topFlavors[0]}</span> and <span className="text-secondary font-bold italic">{topFlavors[1]}</span> profiles.
+                </p>
+              </div>
+              <div className="absolute top-0 right-0 w-24 h-24 bg-secondary/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
+            </section>
+          );
+        })()}
 
         {/* Ratings — Google, Friends, Community side by side */}
         <section className="mb-7">

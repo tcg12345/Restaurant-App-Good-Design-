@@ -17,6 +17,9 @@ import { BottomNav } from './components/BottomNav';
 import { AnimatePresence, motion } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ListsProvider } from './contexts/ListsContext';
+import { RatingModal } from './components/RatingModal';
+import { AddToListModal } from './components/AddToListModal';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 
@@ -113,7 +116,11 @@ export default function App() {
     <Router>
       <AuthProvider>
         <SettingsProvider>
-          <AppContent />
+          <ListsProvider>
+            <AppContent />
+            <RatingModal />
+            <AddToListModal />
+          </ListsProvider>
         </SettingsProvider>
       </AuthProvider>
     </Router>

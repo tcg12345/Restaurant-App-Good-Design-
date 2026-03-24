@@ -6,6 +6,7 @@ import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
+import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -49,6 +50,7 @@ const PRICE_LEVELS = [
 
 export const Map: React.FC = () => {
   const navigate = useNavigate();
+  const { setHideBottomNav } = useSettings();
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
@@ -57,7 +59,12 @@ export const Map: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFiltersRaw, setShowFiltersRaw] = useState(false);
+  const setShowFilters = useCallback((show: boolean) => {
+    setShowFiltersRaw(show);
+    setHideBottomNav(show);
+  }, [setHideBottomNav]);
+  const showFilters = showFiltersRaw;
 
   // Filter state
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
@@ -920,67 +927,73 @@ export const Map: React.FC = () => {
               <p className="text-xs text-on-surface/30 mt-1">Try searching or move the map</p>
             </div>
           ) : (
-            <div className="space-y-6">
-              {places.map((place) => (
-                <div
-                  key={place.id}
-                  className={cn(
-                    "flex gap-4 group cursor-pointer rounded-2xl p-2 -mx-2 transition-colors",
-                    selectedMarker === place.id && "bg-primary/5"
-                  )}
-                  onClick={() => flyToPlace(place)}
-                >
-                  <div className="w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0 bg-muted">
-                    {place.photoUrl ? (
-                      <img
-                        src={place.photoUrl}
-                        alt={place.name}
-                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="h-full w-full flex items-center justify-center bg-on-surface/5">
-                        <MapPinned size={24} className="text-on-surface/20" />
-                      </div>
+            <div className="space-y-4">
+              {places.map((place) => {
+                const cityState = place.address
+                  .split(',')
+                  .slice(1, 3)
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                  .join(', ') || place.address.split(',')[0]?.trim() || '';
+
+                return (
+                  <div
+                    key={place.id}
+                    className={cn(
+                      "flex gap-3.5 group cursor-pointer rounded-2xl p-3 bg-white shadow-sm border border-on-surface/5 transition-all hover:shadow-md",
+                      selectedMarker === place.id && "ring-2 ring-primary/20"
                     )}
-                  </div>
-                  <div className="flex-1 py-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1 gap-2">
-                      <h3 className="font-serif font-bold text-lg truncate">{place.name}</h3>
-                      {place.rating > 0 && (
-                        <div className="flex items-center gap-1 text-primary flex-shrink-0">
-                          <Star size={12} className="fill-primary" />
-                          <span className="text-xs font-bold">{place.rating.toFixed(1)}</span>
+                    onClick={() => flyToPlace(place)}
+                  >
+                    <div className="w-[92px] h-[92px] rounded-xl overflow-hidden flex-shrink-0 bg-muted self-center">
+                      {place.photoUrl ? (
+                        <img
+                          src={place.photoUrl}
+                          alt={place.name}
+                          className="h-full w-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center bg-on-surface/5">
+                          <MapPinned size={24} className="text-on-surface/20" />
                         </div>
                       )}
                     </div>
-                    <p className="text-xs text-on-surface/40 font-medium uppercase tracking-wider mb-2 truncate">
-                      {place.address.split(',').slice(0, 2).join(', ')}
-                      {place.priceLevel > 0 && ` • ${priceLevelToString(place.priceLevel)}`}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      {place.rating >= 4.5 && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider">Top Rated</span>
-                      )}
-                      {place.userRatingCount > 500 && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/10 text-secondary font-bold uppercase tracking-wider">Popular</span>
-                      )}
-                      {place.priceLevel >= 3 && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-on-surface/5 text-on-surface/50 font-bold uppercase tracking-wider">Fine Dining</span>
-                      )}
+                    <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                      <div>
+                        <h3 className="font-serif font-bold text-[15px] leading-snug"
+                            style={{ fontSize: place.name.length > 24 ? '13px' : '15px' }}
+                        >
+                          {place.name}
+                        </h3>
+                        {place.rating > 0 && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <Star size={13} className="fill-primary text-primary" />
+                            <span className="text-sm font-bold text-primary">{place.rating.toFixed(1)}</span>
+                            {place.priceLevel > 0 && (
+                              <span className="text-xs font-semibold text-on-surface/55 ml-1">{priceLevelToString(place.priceLevel)}</span>
+                            )}
+                          </div>
+                        )}
+                        <p className="text-xs text-on-surface/40 mt-1 leading-snug">
+                          {cityState}
+                        </p>
+                      </div>
+                      <div className="flex justify-end mt-1.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/restaurant/${place.id}`);
+                          }}
+                          className="px-4 py-1 rounded-full border border-primary/30 text-primary text-[11px] font-semibold hover:bg-primary/5 transition-colors"
+                        >
+                          View
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/restaurant/${place.id}`);
-                    }}
-                    className="flex-shrink-0 self-center ml-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
-                  >
-                    View
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
