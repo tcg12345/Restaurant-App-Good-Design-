@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, Bookmark, ExternalLink, X, Images,
+  Navigation, Bookmark, ExternalLink, X, Images, Users, UserCircle,
 } from 'lucide-react';
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -218,26 +218,38 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </button>
         </div>
 
-        {/* Rating */}
+        {/* Ratings — Google, Friends, Community side by side */}
         <section className="mb-7">
-          <div className="bg-white rounded-2xl p-5 border border-on-surface/8">
-            <div className="flex items-center gap-4">
-              <div className="text-center flex-shrink-0">
-                <p className="text-4xl font-serif font-bold leading-none">{place.rating}</p>
-                <div className="flex gap-0.5 justify-center mt-1.5">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star key={s} size={12} className={s <= Math.round(place.rating) ? 'fill-primary text-primary' : 'text-on-surface/15'} />
-                  ))}
-                </div>
+          <div className="grid grid-cols-3 gap-3">
+            {/* Google */}
+            <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
+              <p className="text-3xl font-serif font-bold leading-none">{place.rating}</p>
+              <div className="flex gap-0.5 justify-center mt-1.5 mb-2">
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <Star key={s} size={11} className={s <= Math.round(place.rating) ? 'fill-primary text-primary' : 'text-on-surface/15'} />
+                ))}
               </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-on-surface">Google Reviews</p>
-                <p className="text-xs text-on-surface/50 mt-0.5">{formatReviewCount(place.userRatingCount)} ratings</p>
-              </div>
+              <p className="text-xs font-medium text-on-surface">Google</p>
+              <p className="text-[11px] text-on-surface/45 mt-0.5">{formatReviewCount(place.userRatingCount)} ratings</p>
             </div>
-            <p className="text-xs text-on-surface/40 mt-3 pt-3 border-t border-on-surface/6">
-              No ratings from your network yet
-            </p>
+
+            {/* Friends */}
+            <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+                <UserCircle size={22} className="text-primary/50" />
+              </div>
+              <p className="text-xs font-medium text-on-surface">Friends</p>
+              <p className="text-[11px] text-on-surface/45 mt-0.5">No ratings yet</p>
+            </div>
+
+            {/* Community */}
+            <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
+              <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mb-2">
+                <Users size={22} className="text-violet-400" />
+              </div>
+              <p className="text-xs font-medium text-on-surface">Community</p>
+              <p className="text-[11px] text-on-surface/45 mt-0.5">No ratings yet</p>
+            </div>
           </div>
         </section>
 

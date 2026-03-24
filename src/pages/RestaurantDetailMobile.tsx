@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, Bookmark, ExternalLink, X, Images,
+  Navigation, Bookmark, ExternalLink, X, Images, Users, UserCircle,
 } from 'lucide-react';
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -226,8 +226,9 @@ export const RestaurantDetailMobile: React.FC = () => {
           </button>
         </div>
 
-        {/* Rating */}
-        <section className="mb-7">
+        {/* Ratings — Google, Friends, Community */}
+        <section className="mb-7 space-y-3">
+          {/* Google */}
           <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
             <div className="flex items-center gap-4">
               <div className="text-center flex-shrink-0">
@@ -243,9 +244,36 @@ export const RestaurantDetailMobile: React.FC = () => {
                 <p className="text-xs text-on-surface/50 mt-0.5">{formatReviewCount(place.userRatingCount)} ratings</p>
               </div>
             </div>
-            <p className="text-xs text-on-surface/40 mt-3 pt-3 border-t border-on-surface/6">
-              No ratings from your network yet
-            </p>
+          </div>
+
+          {/* Friends */}
+          <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
+            <div className="flex items-center gap-4">
+              <div className="text-center flex-shrink-0 w-14">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                  <UserCircle size={20} className="text-primary/50" />
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-on-surface">Friends</p>
+                <p className="text-xs text-on-surface/45 mt-0.5">No friends have rated this place yet</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Community */}
+          <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
+            <div className="flex items-center gap-4">
+              <div className="text-center flex-shrink-0 w-14">
+                <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mx-auto">
+                  <Users size={20} className="text-violet-400" />
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-on-surface">Community</p>
+                <p className="text-xs text-on-surface/45 mt-0.5">No community ratings yet</p>
+              </div>
+            </div>
           </div>
         </section>
 
