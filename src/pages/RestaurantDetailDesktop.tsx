@@ -8,6 +8,8 @@ import {
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { priceLevelToString } from '../lib/places';
+import { RadarChart } from '../components/RadarChart';
+import { getFlavorProfile, getTopFlavors } from '../lib/flavorProfile';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 /* ── Photo Gallery Bottom Sheet ── */
@@ -325,6 +327,25 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <span className="text-xs font-medium">Photos</span>
           </button>
         </div>
+
+        {/* Flavor Profile */}
+        {place && (() => {
+          const flavorData = getFlavorProfile(place.types, place.name);
+          const topFlavors = getTopFlavors(flavorData);
+          return (
+            <section className="mb-7 bg-secondary/10 rounded-2xl p-6 overflow-hidden relative">
+              <div className="relative z-10">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary mb-1">Flavor Profile</p>
+                <h3 className="text-lg font-serif font-bold mb-3">Taste DNA</h3>
+                <RadarChart data={flavorData} color="#5c6144" />
+                <p className="text-xs text-on-surface/60 mt-3 leading-relaxed">
+                  This spot leans towards <span className="text-secondary font-bold italic">{topFlavors[0]}</span> and <span className="text-secondary font-bold italic">{topFlavors[1]}</span> profiles.
+                </p>
+              </div>
+              <div className="absolute top-0 right-0 w-24 h-24 bg-secondary/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
+            </section>
+          );
+        })()}
 
         {/* Ratings — Google, Friends, Community side by side */}
         <section className="mb-7">

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
-import { RadarChart } from '../components/RadarChart';
 import { CircleActivity } from '../components/CircleActivity';
 import { Search, Filter, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -10,15 +9,6 @@ import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { SocialFeed } from '../components/SocialFeed';
-
-const TASTE_DATA = [
-  { subject: 'Umami', value: 120, fullMark: 150 },
-  { subject: 'Sweet', value: 98, fullMark: 150 },
-  { subject: 'Sour', value: 86, fullMark: 150 },
-  { subject: 'Bitter', value: 99, fullMark: 150 },
-  { subject: 'Salty', value: 85, fullMark: 150 },
-  { subject: 'Spicy', value: 65, fullMark: 150 },
-];
 
 // Default location (NYC)
 const DEFAULT_LAT = 40.735;
@@ -511,18 +501,6 @@ export const Home: React.FC = () => {
                   </>
                 );
               })()}
-            </section>
-
-            <section className="bg-secondary/10 rounded-[2rem] p-8 mb-12 overflow-hidden relative">
-              <div className="relative z-10">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary mb-2">Your Circle's Palate</p>
-                <h2 className="text-2xl font-serif font-bold mb-6">The Collective Taste</h2>
-                <RadarChart data={TASTE_DATA} color="#5c6144" />
-                <p className="text-xs text-on-surface/60 mt-6 leading-relaxed">
-                  Your circle is currently leaning towards <span className="text-secondary font-bold italic">Umami</span> and <span className="text-secondary font-bold italic">Bitter</span> profiles. Explore spots that match this trend.
-                </p>
-              </div>
-              <div className="absolute top-0 right-0 w-32 h-32 bg-secondary/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
             </section>
 
             {/* Collections */}
