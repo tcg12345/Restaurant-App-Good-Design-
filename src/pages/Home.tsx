@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RadarChart } from '../components/RadarChart';
@@ -78,6 +78,17 @@ export const Home: React.FC = () => {
       setIsLoading(false);
     }
   }, [userLat, userLng]);
+
+  // Auto-search after user stops typing for 500ms
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!searchQuery.trim()) return;
+    debounceRef.current = setTimeout(() => {
+      handleSearch(searchQuery);
+    }, 500);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [searchQuery, handleSearch]);
 
   const handleFilterClick = useCallback(async (filter: string) => {
     if (activeFilter === filter) {
