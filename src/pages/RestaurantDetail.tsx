@@ -66,13 +66,18 @@ const PhotoGallery: React.FC<{
 }> = ({ photos, name, initialIndex, onClose }) => {
   const [viewIndex, setViewIndex] = useState(initialIndex);
 
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm touch-none"
       onClick={onClose}
     >
       <motion.div
@@ -113,7 +118,7 @@ const PhotoGallery: React.FC<{
         </div>
 
         {/* Thumbnail grid */}
-        <div className="flex-1 overflow-y-auto px-5 pb-8">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-8">
           <div className="grid grid-cols-3 gap-2">
             {photos.map((url, i) => (
               <button
