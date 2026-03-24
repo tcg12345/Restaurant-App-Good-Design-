@@ -48,7 +48,7 @@ const AppContent: React.FC = () => {
           }
           style={
             phoneMode
-              ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh' }
+              ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' }
               : undefined
           }
         >
@@ -73,7 +73,7 @@ const AppContent: React.FC = () => {
         }
         style={
           phoneMode
-            ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh' }
+            ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' }
             : undefined
         }
       >

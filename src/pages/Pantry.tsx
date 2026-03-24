@@ -13,7 +13,6 @@ const PANTRY_ITEMS = [
     price: '$$$$',
     cuisine: 'Modern French',
     distance: '0.8 mi',
-    isMichelin: true,
   },
   {
     id: '2',
@@ -94,7 +93,6 @@ export const Pantry: React.FC = () => {
                     </div>
                     <p className="text-xs text-on-surface/40 font-medium uppercase tracking-wider mb-2">{item.cuisine} • {item.price}</p>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider">Michelin</span>
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/10 text-secondary font-bold uppercase tracking-wider">Top Rated</span>
                     </div>
                   </div>

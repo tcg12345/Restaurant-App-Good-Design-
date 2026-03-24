@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
@@ -47,6 +48,7 @@ const PRICE_LEVELS = [
 ];
 
 export const Map: React.FC = () => {
+  const navigate = useNavigate();
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
@@ -59,21 +61,24 @@ export const Map: React.FC = () => {
 
   // Filter state
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
-  const [selectedCuisine, setSelectedCuisine] = useState('');
+  const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
+  const popupRef = useRef<mapboxgl.Popup | null>(null);
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchWrapperRef = useRef<HTMLFormElement>(null);
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisine: '', selectedPrice: 0 });
+  const isMarkerSelectedRef = useRef(false); // tracks if a marker is actively selected (suppresses re-fetch)
+  const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0 });
 
   // Keep ref in sync with state so the moveend callback sees current values
   useEffect(() => {
-    filtersRef.current = { sortBy, selectedCuisine, selectedPrice };
-  }, [sortBy, selectedCuisine, selectedPrice]);
+    filtersRef.current = { sortBy, selectedCuisines, selectedPrice };
+  }, [sortBy, selectedCuisines, selectedPrice]);
 
   // Bottom sheet state
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -125,10 +130,12 @@ export const Map: React.FC = () => {
         background: white;
         box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         cursor: pointer;
-        transition: all 0.2s ease;
         display: flex;
         align-items: center;
         justify-content: center;
+        opacity: 0;
+        transform: scale(0.4);
+        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease;
       ">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
@@ -139,7 +146,7 @@ export const Map: React.FC = () => {
 
     el.addEventListener('mouseenter', () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
-      if (pin) pin.style.transform = 'scale(1.2)';
+      if (pin) pin.style.transform = 'scale(1.15)';
     });
     el.addEventListener('mouseleave', () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
@@ -149,22 +156,96 @@ export const Map: React.FC = () => {
     return el;
   }, []);
 
-  // Sync markers on map when places change
+  // Show popup for a place
+  const showPopup = useCallback((place: PlaceResult, map: mapboxgl.Map) => {
+    if (popupRef.current) popupRef.current.remove();
+    const ratingHtml = place.rating > 0
+      ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="#8B4513" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span style="font-size:12px;font-weight:700;color:#8B4513;">${place.rating.toFixed(1)}</span>
+          <span style="font-size:11px;color:#999;margin-left:2px;">(${place.userRatingCount})</span>
+        </div>`
+      : '';
+    const priceHtml = place.priceLevel > 0
+      ? `<span style="font-size:11px;color:#666;font-weight:600;">${'$'.repeat(place.priceLevel)}</span>`
+      : '';
+    const addressShort = place.address.split(',').slice(0, 2).join(', ');
+
+    const popup = new mapboxgl.Popup({
+      offset: 25,
+      closeButton: true,
+      closeOnClick: false,
+      maxWidth: '240px',
+      className: 'restaurant-popup',
+    })
+      .setLngLat([place.lng, place.lat])
+      .setHTML(`
+        <div style="font-family:inherit;padding:4px 0;">
+          ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
+          <div style="font-size:14px;font-weight:700;margin-bottom:4px;line-height:1.3;">${place.name}</div>
+          ${ratingHtml}
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${addressShort}</span>
+            ${priceHtml ? `<span style="color:#ccc;">·</span>${priceHtml}` : ''}
+          </div>
+          <button data-place-id="${place.id}" class="popup-view-btn" style="width:100%;margin-top:8px;padding:6px 0;background:#9f3012;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.05em;text-transform:uppercase;">View Details</button>
+        </div>
+      `)
+      .addTo(map);
+
+    // Attach click handler after popup renders
+    popup.once('open', () => {
+      const btn = (popup as any).getElement()?.querySelector('.popup-view-btn');
+      if (btn) {
+        btn.addEventListener('click', () => {
+          navigate(`/restaurant/${place.id}`);
+        });
+      }
+    });
+
+    popup.on('close', () => {
+      setSelectedMarker(null);
+      isMarkerSelectedRef.current = false;
+      popupRef.current = null;
+    });
+
+    popupRef.current = popup;
+  }, [navigate]);
+
+  // Sync markers on map when places change — keeps existing markers, animates new ones in
   const syncMarkers = useCallback((newPlaces: PlaceResult[]) => {
     const map = mapRef.current;
     if (!map) return;
 
-    // Remove old markers
-    Object.values(markersRef.current).forEach((m) => m.remove());
-    markersRef.current = {};
+    const newIds = new Set(newPlaces.map((p) => p.id));
+    const oldIds = new Set(Object.keys(markersRef.current));
 
-    // Add new markers
+    // Fade out and remove markers that are no longer in the set
+    Object.entries(markersRef.current).forEach(([id, m]) => {
+      if (!newIds.has(id)) {
+        const pin = m.getElement().querySelector('.marker-pin') as HTMLElement;
+        if (pin) {
+          pin.style.opacity = '0';
+          pin.style.transform = 'scale(0.4)';
+        }
+        setTimeout(() => m.remove(), 300);
+        delete markersRef.current[id];
+      }
+    });
+
+    // Add new markers with staggered animation
+    let animIndex = 0;
     newPlaces.forEach((place) => {
+      if (oldIds.has(place.id)) return; // already on map
+
       const el = createMarkerElement(place);
 
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
         setSelectedMarker(place.id);
-        map.flyTo({ center: [place.lng, place.lat], zoom: 15, duration: 1000 });
+        isMarkerSelectedRef.current = true;
+        map.easeTo({ center: [place.lng, place.lat], duration: 500 });
+        showPopup(place, map);
       });
 
       const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
@@ -172,24 +253,36 @@ export const Map: React.FC = () => {
         .addTo(map);
 
       markersRef.current[place.id] = marker;
+
+      // Staggered fade-in on the inner pin (not outer el, which Mapbox controls)
+      const delay = Math.min(animIndex * 25, 400);
+      setTimeout(() => {
+        const pin = el.querySelector('.marker-pin') as HTMLElement;
+        if (pin) {
+          pin.style.opacity = '1';
+          pin.style.transform = 'scale(1)';
+        }
+      }, delay);
+      animIndex++;
     });
-  }, [createMarkerElement]);
+  }, [createMarkerElement, showPopup]);
 
   // Fetch nearby restaurants for the current map center
-  const fetchNearby = useCallback(async (cuisine?: string) => {
+  const fetchNearby = useCallback(async (cuisines?: string[]) => {
     const map = mapRef.current;
     if (!map) return;
     setIsSearching(true);
     try {
       const center = map.getCenter();
       const zoom = map.getZoom();
-      // Scale radius based on zoom level
-      const radius = Math.min(50000, Math.max(500, Math.round(40000 / Math.pow(2, zoom - 10))));
-      const cuisineType = cuisine ?? filtersRef.current.selectedCuisine;
-      const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineType);
-      const filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
-      setPlaces(filtered);
-      syncMarkers(filtered);
+      // Scale radius based on zoom level — use larger radius for better coverage
+      const radius = Math.min(50000, Math.max(1000, Math.round(50000 / Math.pow(2, zoom - 10))));
+      const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
+      const price = filtersRef.current.selectedPrice;
+      const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price);
+      const sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
+      setPlaces(sorted);
+      syncMarkers(sorted);
     } catch (err) {
       console.error('Places search failed:', err);
     } finally {
@@ -246,12 +339,25 @@ export const Map: React.FC = () => {
       fetchNearby();
     });
 
-    // Re-fetch when user moves the map (debounced)
+    // Re-fetch when user moves the map (debounced) — skip if a marker is selected
     map.on('moveend', () => {
+      if (isMarkerSelectedRef.current) return;
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       fetchTimeoutRef.current = setTimeout(() => {
-        fetchNearby();
+        if (!isMarkerSelectedRef.current) fetchNearby();
       }, 800);
+    });
+
+    // Click on map background clears selection & popup
+    map.on('click', () => {
+      if (isMarkerSelectedRef.current) {
+        isMarkerSelectedRef.current = false;
+        setSelectedMarker(null);
+        if (popupRef.current) {
+          popupRef.current.remove();
+          popupRef.current = null;
+        }
+      }
     });
 
     return () => {
@@ -278,16 +384,29 @@ export const Map: React.FC = () => {
     });
   }, [selectedMarker]);
 
+  // Close search input when clicking outside
+  useEffect(() => {
+    if (!showSearchInput) return;
+    const handler = (e: MouseEvent) => {
+      if (searchWrapperRef.current && !searchWrapperRef.current.contains(e.target as Node)) {
+        setShowSearchInput(false);
+        setSearchQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showSearchInput]);
+
   const flyToPlace = useCallback((place: PlaceResult) => {
     setSelectedMarker(place.id);
-    mapRef.current?.flyTo({
+    isMarkerSelectedRef.current = true;
+    mapRef.current?.easeTo({
       center: [place.lng, place.lat],
-      zoom: 15,
-      duration: 1000,
+      duration: 500,
     });
   }, []);
 
-  const activeFilterCount = (selectedCuisine ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
+  const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
@@ -541,20 +660,35 @@ export const Map: React.FC = () => {
                     <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Cuisine</h3>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {CUISINE_TYPES.map((c) => (
-                      <button
-                        key={c.type || 'all'}
-                        onClick={() => setSelectedCuisine(c.type)}
-                        className={cn(
-                          "px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all",
-                          selectedCuisine === c.type
-                            ? "border-primary bg-primary/5 text-primary"
-                            : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
-                        )}
-                      >
-                        {c.label}
-                      </button>
-                    ))}
+                    {CUISINE_TYPES.map((c) => {
+                      const isAll = c.type === '';
+                      const isActive = isAll ? selectedCuisines.length === 0 : selectedCuisines.includes(c.type);
+                      return (
+                        <button
+                          key={c.type || 'all'}
+                          onClick={() => {
+                            if (isAll) {
+                              setSelectedCuisines([]);
+                            } else {
+                              setSelectedCuisines((prev) =>
+                                prev.includes(c.type)
+                                  ? prev.filter((t) => t !== c.type)
+                                  : [...prev, c.type]
+                              );
+                            }
+                          }}
+                          className={cn(
+                            "px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all",
+                            isActive
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
+                          )}
+                        >
+                          {isActive && !isAll && <Check size={12} className="inline mr-1 -mt-0.5" />}
+                          {c.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -564,7 +698,7 @@ export const Map: React.FC = () => {
                 <button
                   onClick={() => {
                     setSortBy('popularity');
-                    setSelectedCuisine('');
+                    setSelectedCuisines([]);
                     setSelectedPrice(0);
                   }}
                   className="flex-1 py-3.5 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors"
@@ -574,7 +708,7 @@ export const Map: React.FC = () => {
                 <button
                   onClick={() => {
                     setShowFilters(false);
-                    fetchNearby(selectedCuisine);
+                    fetchNearby(selectedCuisines);
                   }}
                   className="flex-[2] py-3.5 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-shadow"
                 >
@@ -677,6 +811,7 @@ export const Map: React.FC = () => {
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
+                ref={searchWrapperRef}
                 key="search-input"
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -726,6 +861,7 @@ export const Map: React.FC = () => {
                 <button
                   onClick={() => {
                     setShowSearchInput(true);
+                    if (!sheetOpen) setSheetOpen(true);
                     setTimeout(() => searchInputRef.current?.focus(), 100);
                   }}
                   className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"
@@ -834,6 +970,15 @@ export const Map: React.FC = () => {
                       )}
                     </div>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/restaurant/${place.id}`);
+                    }}
+                    className="flex-shrink-0 self-center ml-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                  >
+                    View
+                  </button>
                 </div>
               ))}
             </div>
