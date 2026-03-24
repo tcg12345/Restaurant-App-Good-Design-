@@ -8,17 +8,13 @@ import {
   Clock,
   Phone,
   Globe,
-  Heart,
-  Share2,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  Users,
-  UserCheck,
   Loader2,
   Navigation,
   Bookmark,
-  ListPlus,
+  ExternalLink,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore
@@ -118,21 +114,22 @@ export const RestaurantDetail: React.FC = () => {
     return (
       <div className="min-h-screen bg-surface flex flex-col items-center justify-center gap-4 px-8">
         <p className="text-on-surface/60 text-center">{error || 'Restaurant not found'}</p>
-        <button onClick={() => navigate(-1)} className="text-primary font-bold">Go Back</button>
+        <button onClick={() => navigate(-1)} className="text-primary font-medium">Go Back</button>
       </div>
     );
   }
 
-  const priceStr = priceLevelToString(place.priceLevel);
   const cuisine = getCuisineLabel(place.types);
   const isMichelin = place.rating >= 4.7 && place.userRatingCount > 500;
   const photos = place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : []);
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.address)}&destination_place_id=${place.id}`;
+  const mapsUrl = `https://www.google.com/maps/place/?q=place_id:${place.id}`;
 
   return (
     <div className="pb-32 bg-surface min-h-screen">
-      {/* ── Hero with Photo Carousel ── */}
-      <div className="relative h-[38vh] sm:h-[50vh] lg:h-[60vh] w-full overflow-hidden">
+
+      {/* ── Hero ── */}
+      <div className="relative w-full aspect-[9/12] sm:aspect-[16/10] lg:aspect-[16/9] max-h-[70vh] overflow-hidden">
         {photos.length > 0 ? (
           <img
             src={photos[photoIndex]}
@@ -145,228 +142,211 @@ export const RestaurantDetail: React.FC = () => {
             <MapPin size={64} className="text-on-surface/20" />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/20" />
 
-        {/* Photo arrows */}
+        {/* Gradient — only bottom third */}
+        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent" />
+
+        {/* Photo carousel arrows */}
         {photos.length > 1 && (
           <>
             <button
               onClick={() => setPhotoIndex((i) => (i - 1 + photos.length) % photos.length)}
-              className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/90 z-10"
+              className="absolute left-4 top-1/2 -translate-y-1/2 p-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 z-10"
             >
-              <ChevronLeft size={16} />
+              <ChevronLeft size={18} />
             </button>
             <button
               onClick={() => setPhotoIndex((i) => (i + 1) % photos.length)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/90 z-10"
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 z-10"
             >
-              <ChevronRight size={16} />
+              <ChevronRight size={18} />
             </button>
-            <div className="absolute bottom-20 sm:bottom-28 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+            <div className="absolute bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
               {photos.map((_, i) => (
                 <button
                   key={i}
                   onClick={() => setPhotoIndex(i)}
-                  className={`w-1.5 h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-white w-4' : 'bg-white/40'}`}
+                  className={`h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-white w-5' : 'bg-white/40 w-1.5'}`}
                 />
               ))}
             </div>
           </>
         )}
 
-        {/* Top nav */}
-        <div className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex items-center justify-between z-10">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 bg-black/30 backdrop-blur-sm rounded-full text-white/90"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div className="flex gap-2">
-            <button className="p-2 bg-black/30 backdrop-blur-sm rounded-full text-white/90">
-              <Share2 size={18} />
-            </button>
-            <button className="p-2 bg-black/30 backdrop-blur-sm rounded-full text-white/90">
-              <Heart size={18} />
-            </button>
-          </div>
-        </div>
+        {/* Back button */}
+        <button
+          onClick={() => navigate(-1)}
+          className="absolute top-4 left-4 sm:top-6 sm:left-6 p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 z-10"
+        >
+          <ArrowLeft size={18} />
+        </button>
 
-        {/* Restaurant info overlay */}
-        <div className="absolute bottom-4 sm:bottom-8 left-4 sm:left-8 right-4 sm:right-8">
-          <div className="flex items-center gap-2 mb-2 text-white/80">
-            <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">{cuisine}</span>
-            <span className="text-white/40">·</span>
-            <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">{priceStr}</span>
+        {/* Name + badges only */}
+        <div className="absolute bottom-5 sm:bottom-8 left-5 sm:left-8 right-5 sm:right-8 z-10">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="text-[11px] sm:text-xs font-medium text-white/70 uppercase tracking-wider">{cuisine}</span>
             {isMichelin && (
               <>
-                <span className="text-white/40">·</span>
-                <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider flex items-center gap-1">
-                  <Star size={10} className="fill-white text-white" />
+                <span className="text-white/30">·</span>
+                <span className="text-[11px] sm:text-xs font-medium text-white/70 uppercase tracking-wider flex items-center gap-1">
+                  <Star size={10} className="fill-white/70 text-white/70" />
                   Michelin
                 </span>
               </>
             )}
           </div>
-          <h1 className="text-xl sm:text-3xl lg:text-5xl font-serif font-bold text-white mb-1.5 leading-tight">{place.name}</h1>
-          <div className="flex items-center gap-1.5 text-white/60">
-            <MapPin size={13} />
-            <span className="text-[11px] sm:text-sm font-medium truncate">{place.address}</span>
-          </div>
+          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-serif font-bold text-white leading-tight">{place.name}</h1>
         </div>
       </div>
 
       {/* ── Main Content ── */}
-      <main className="px-4 sm:px-6 lg:px-8 pt-4 relative z-20 max-w-4xl mx-auto">
+      <main className="px-5 sm:px-6 lg:px-8 pt-6 max-w-2xl mx-auto">
 
-        {/* ── Action Buttons Row ── */}
-        <div className="grid grid-cols-4 gap-2 sm:gap-3 mb-4">
+        {/* ── Action Buttons — 3 equal ghost buttons ── */}
+        <div className="grid grid-cols-3 gap-3 mb-7">
           <a
             href={directionsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-primary text-white rounded-xl sm:rounded-2xl shadow-md active:scale-95 transition-transform"
+            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
           >
-            <Navigation size={16} className="sm:w-5 sm:h-5" />
-            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">Directions</span>
+            <Navigation size={18} />
+            <span className="text-[11px] sm:text-xs font-medium">Directions</span>
           </a>
-          <button className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-white text-on-surface rounded-xl sm:rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
-            <Bookmark size={16} className="sm:w-5 sm:h-5" />
-            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">Wishlist</span>
+          <button className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform">
+            <Bookmark size={18} />
+            <span className="text-[11px] sm:text-xs font-medium">Save</span>
           </button>
-          <button className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-white text-on-surface rounded-xl sm:rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
-            <Star size={16} className="sm:w-5 sm:h-5" />
-            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">Rate</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-white text-on-surface rounded-xl sm:rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
-            <ListPlus size={16} className="sm:w-5 sm:h-5" />
-            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">List</span>
+          <button className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform">
+            <Star size={18} />
+            <span className="text-[11px] sm:text-xs font-medium">Review</span>
           </button>
         </div>
 
-        {/* ── Rating Cards ── */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
-          {/* Google */}
-          <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted text-center">
-            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-1.5">
-              <Star size={12} className="text-primary fill-primary sm:w-4 sm:h-4" />
-            </div>
-            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-0.5">Google</p>
-            <p className="text-xl sm:text-3xl font-serif font-bold leading-none">{place.rating}</p>
-            <div className="flex gap-px justify-center mt-1">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <Star
-                  key={s}
-                  size={8}
-                  className={s <= Math.round(place.rating) ? 'fill-primary text-primary' : 'text-muted'}
-                />
-              ))}
-            </div>
-            <p className="text-[9px] text-on-surface/40 mt-0.5">{formatReviewCount(place.userRatingCount)}</p>
-          </div>
-
-          {/* Friends */}
-          <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted text-center">
-            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-secondary/10 flex items-center justify-center mx-auto mb-1.5">
-              <UserCheck size={12} className="text-secondary sm:w-4 sm:h-4" />
-            </div>
-            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-0.5">Friends</p>
-            <p className="text-xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
-            <p className="text-[9px] text-on-surface/30 mt-1">No ratings</p>
-          </div>
-
-          {/* Community */}
-          <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted text-center">
-            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-1.5">
-              <Users size={12} className="text-accent sm:w-4 sm:h-4" />
-            </div>
-            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-0.5">Community</p>
-            <p className="text-xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
-            <p className="text-[9px] text-on-surface/30 mt-1">No ratings</p>
-          </div>
-        </div>
-
-        {/* ── Hours Dropdown ── */}
-        {place.hours.length > 0 && (
-          <section className="mb-4">
-            <button
-              onClick={() => setHoursOpen(!hoursOpen)}
-              className="w-full bg-white rounded-xl sm:rounded-2xl px-3 sm:px-4 py-3 shadow-sm border border-muted flex items-center justify-between active:bg-muted/30 transition-colors"
-            >
-              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                <Clock size={16} className="text-primary flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-bold">Hours</span>
-                {place.isOpen !== null && (
-                  <span className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider ${place.isOpen ? 'text-green-600' : 'text-red-500'}`}>
-                    {place.isOpen ? 'Open' : 'Closed'}
-                  </span>
-                )}
-                <span className="text-[10px] sm:text-xs text-on-surface/50 truncate">{getTodayHours(place.hours)}</span>
+        {/* ── Rating — compact single card ── */}
+        <section className="mb-7">
+          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-on-surface/8">
+            <div className="flex items-center gap-4">
+              <div className="text-center flex-shrink-0">
+                <p className="text-3xl sm:text-4xl font-serif font-bold leading-none">{place.rating}</p>
+                <div className="flex gap-0.5 justify-center mt-1.5">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star
+                      key={s}
+                      size={12}
+                      className={s <= Math.round(place.rating) ? 'fill-primary text-primary' : 'text-on-surface/15'}
+                    />
+                  ))}
+                </div>
               </div>
-              <ChevronDown size={16} className={`text-on-surface/40 flex-shrink-0 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
-            </button>
-            <AnimatePresence>
-              {hoursOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-on-surface">Google Reviews</p>
+                <p className="text-xs text-on-surface/50 mt-0.5">{formatReviewCount(place.userRatingCount)} ratings</p>
+              </div>
+            </div>
+            <p className="text-xs text-on-surface/40 mt-3 pt-3 border-t border-on-surface/6">
+              No ratings from your network yet
+            </p>
+          </div>
+        </section>
+
+        {/* ── Info List — hours, contact, address in one card ── */}
+        <section className="mb-7">
+          <div className="bg-white rounded-2xl border border-on-surface/8 divide-y divide-on-surface/6">
+
+            {/* Hours row */}
+            {place.hours.length > 0 && (
+              <div>
+                <button
+                  onClick={() => setHoursOpen(!hoursOpen)}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.02] transition-colors"
                 >
-                  <div className="bg-white rounded-b-xl sm:rounded-b-2xl -mt-1.5 pt-3 pb-2.5 px-3 sm:px-4 border border-t-0 border-muted shadow-sm space-y-1.5">
-                    {place.hours.map((line, i) => {
-                      const [day, ...timeParts] = line.split(': ');
-                      const time = timeParts.join(': ');
-                      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                      const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
-                      return (
-                        <div key={i} className={`flex justify-between text-xs sm:text-sm ${isToday ? 'font-bold text-on-surface' : 'text-on-surface/50'}`}>
-                          <span>{day}</span>
-                          <span>{time}</span>
-                        </div>
-                      );
-                    })}
+                  <Clock size={18} className="text-on-surface/40 flex-shrink-0" />
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {place.isOpen !== null && (
+                      <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${place.isOpen ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                        {place.isOpen ? 'Open' : 'Closed'}
+                      </span>
+                    )}
+                    <span className="text-sm text-on-surface/60 truncate">{getTodayHours(place.hours)}</span>
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </section>
-        )}
-
-        {/* ── Contact ── */}
-        {(place.phone || place.website) && (
-          <section className="mb-4">
-            <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted space-y-2.5">
-              {place.phone && (
-                <a href={`tel:${place.phone}`} className="flex items-center gap-2.5 text-on-surface/60 hover:text-primary transition-colors">
-                  <Phone size={16} className="text-primary flex-shrink-0" />
-                  <span className="text-xs sm:text-sm font-medium">{place.phone}</span>
-                </a>
-              )}
-              {place.website && (
-                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 text-on-surface/60 hover:text-primary transition-colors">
-                  <Globe size={16} className="text-primary flex-shrink-0" />
-                  <span className="text-xs sm:text-sm font-medium truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
-                </a>
-              )}
-              <div className="flex items-center gap-2.5 text-on-surface/60">
-                <MapPin size={16} className="text-primary flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium">{place.address}</span>
+                  <ChevronDown size={16} className={`text-on-surface/30 flex-shrink-0 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
+                </button>
+                <AnimatePresence>
+                  {hoursOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-3 pl-11 space-y-1.5">
+                        {place.hours.map((line, i) => {
+                          const [day, ...timeParts] = line.split(': ');
+                          const time = timeParts.join(': ');
+                          const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+                          const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
+                          return (
+                            <div key={i} className={`flex justify-between text-sm ${isToday ? 'font-medium text-on-surface' : 'text-on-surface/45'}`}>
+                              <span>{day}</span>
+                              <span>{time}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
+            )}
+
+            {/* Phone */}
+            {place.phone && (
+              <a href={`tel:${place.phone}`} className="flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.02] transition-colors">
+                <Phone size={18} className="text-on-surface/40 flex-shrink-0" />
+                <span className="text-sm text-on-surface/70">{place.phone}</span>
+              </a>
+            )}
+
+            {/* Website */}
+            {place.website && (
+              <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.02] transition-colors">
+                <Globe size={18} className="text-on-surface/40 flex-shrink-0" />
+                <span className="text-sm text-on-surface/70 truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
+              </a>
+            )}
+
+            {/* Address */}
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <MapPin size={18} className="text-on-surface/40 flex-shrink-0" />
+              <span className="text-sm text-on-surface/70">{place.address}</span>
             </div>
-          </section>
-        )}
+          </div>
+        </section>
 
         {/* ── Map ── */}
-        <section className="mb-6">
-          <h3 className="text-base sm:text-lg font-serif font-bold mb-2">Location</h3>
-          <div
-            ref={mapContainerRef}
-            className="w-full h-40 sm:h-56 lg:h-72 rounded-xl sm:rounded-2xl overflow-hidden shadow-sm"
-          />
-          <p className="text-[10px] sm:text-xs text-on-surface/40 mt-1.5">{place.address}</p>
+        <section className="mb-8">
+          <div className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
+            <div
+              ref={mapContainerRef}
+              className="w-full h-48 sm:h-64 lg:h-72"
+            />
+            <div className="px-4 py-3 flex items-center justify-between">
+              <p className="text-xs text-on-surface/45">{place.address}</p>
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-primary font-medium flex-shrink-0 ml-3"
+              >
+                Open in Maps
+                <ExternalLink size={12} />
+              </a>
+            </div>
+          </div>
         </section>
+
       </main>
     </div>
   );
