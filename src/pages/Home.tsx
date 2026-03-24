@@ -3,11 +3,12 @@ import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RadarChart } from '../components/RadarChart';
 import { CircleActivity } from '../components/CircleActivity';
-import { Search, Filter, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown } from 'lucide-react';
+import { Search, Filter, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { SocialFeed } from '../components/SocialFeed';
 
 const TASTE_DATA = [
@@ -125,6 +126,14 @@ export const Home: React.FC = () => {
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
 
+  // Location search state
+  const [locationQuery, setLocationQuery] = useState('');
+  const [locationLabel, setLocationLabel] = useState('');
+  const [locationResults, setLocationResults] = useState<{ id: string; name: string; lat: number; lng: number }[]>([]);
+  const [showLocationResults, setShowLocationResults] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
   // When rawPlaces or filter settings change, recompute displayed places
@@ -153,6 +162,53 @@ export const Home: React.FC = () => {
       .catch((err) => console.error('Initial search failed:', err))
       .finally(() => setIsLoading(false));
   }, [userLat, userLng]);
+
+  // Location geocoding
+  useEffect(() => {
+    if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+    if (!locationQuery.trim()) {
+      setLocationResults([]);
+      return;
+    }
+    setLocationLoading(true);
+    locationDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locationQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address&limit=5`
+        );
+        const data = await res.json();
+        const items = (data.features || []).map((f: any) => ({
+          id: f.id,
+          name: f.place_name,
+          lat: f.center[1],
+          lng: f.center[0],
+        }));
+        setLocationResults(items);
+      } catch {
+        setLocationResults([]);
+      } finally {
+        setLocationLoading(false);
+      }
+    }, 300);
+    return () => { if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current); };
+  }, [locationQuery]);
+
+  const handleSelectLocation = useCallback((name: string, lat: number, lng: number) => {
+    setUserLat(lat);
+    setUserLng(lng);
+    setLocationLabel(name);
+    setLocationQuery('');
+    setShowLocationResults(false);
+    setLocationResults([]);
+  }, []);
+
+  const handleUseCurrentLocation = useCallback(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        handleSelectLocation('Current Location', pos.coords.latitude, pos.coords.longitude);
+      });
+    }
+  }, [handleSelectLocation]);
 
   const handleSearch = useCallback(async (query: string) => {
     if (!query.trim()) return;
@@ -259,38 +315,133 @@ export const Home: React.FC = () => {
 
         {activeTab === 'general' ? (
           <>
-            <form
-              className="relative mb-4"
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSearch(searchQuery);
-              }}
-            >
-              <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
-                <Search size={20} />
-              </div>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search for a flavor, mood, or spot..."
-                className="w-full bg-white rounded-2xl py-4 pl-12 pr-12 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-              <button
-                type="button"
-                onClick={() => setShowFilters(true)}
-                className="absolute inset-y-0 right-4 flex items-center text-primary"
+            {/* Search bars — desktop: side by side, mobile: stacked */}
+            <div className={cn("mb-4", !phoneMode && "flex gap-3")}>
+              {/* Restaurant search */}
+              <form
+                className={cn("relative", phoneMode ? "mb-3" : "flex-[2]")}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSearch(searchQuery);
+                }}
               >
-                <div className="relative">
-                  <SlidersHorizontal size={20} />
-                  {activeFilterCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">
-                      {activeFilterCount}
-                    </span>
-                  )}
+                <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
+                  <Search size={20} />
                 </div>
-              </button>
-            </form>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search restaurant, cuisine, occasion..."
+                  className="w-full bg-white rounded-2xl py-4 pl-12 pr-12 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowFilters(true)}
+                  className="absolute inset-y-0 right-4 flex items-center text-primary"
+                >
+                  <div className="relative">
+                    <SlidersHorizontal size={20} />
+                    {activeFilterCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">
+                        {activeFilterCount}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              </form>
+
+              {/* Location search */}
+              <div className={cn("relative", phoneMode ? "" : "flex-1")}>
+                <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
+                  <MapPin size={18} />
+                </div>
+                <input
+                  type="text"
+                  value={locationQuery}
+                  onChange={(e) => {
+                    setLocationQuery(e.target.value);
+                    setShowLocationResults(true);
+                  }}
+                  onFocus={() => { if (locationQuery.trim()) setShowLocationResults(true); }}
+                  placeholder={locationLabel || 'Location...'}
+                  className={cn(
+                    "w-full bg-white rounded-2xl py-4 pl-11 pr-10 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all",
+                    locationLabel && !locationQuery && "placeholder:text-on-surface/70"
+                  )}
+                />
+                {(locationQuery || locationLabel) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLocationQuery('');
+                      setLocationLabel('');
+                      setShowLocationResults(false);
+                      setLocationResults([]);
+                      // Reset to default location
+                      if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition(
+                          (pos) => { setUserLat(pos.coords.latitude); setUserLng(pos.coords.longitude); },
+                          () => { setUserLat(DEFAULT_LAT); setUserLng(DEFAULT_LNG); }
+                        );
+                      }
+                    }}
+                    className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Location search results dropdown */}
+            <AnimatePresence>
+              {showLocationResults && (
+                <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowLocationResults(false)} />
+                <motion.div
+                  initial={{ opacity: 0, y: -5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  transition={{ duration: 0.15 }}
+                  className="relative z-20 bg-white rounded-2xl shadow-lg border border-on-surface/8 mb-4 overflow-hidden"
+                >
+                  {/* Current Location option */}
+                  <button
+                    onClick={() => {
+                      handleUseCurrentLocation();
+                    }}
+                    className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-on-surface/[0.03] transition-colors border-b border-on-surface/6"
+                  >
+                    <MapPin size={18} className="text-on-surface/30 flex-shrink-0" />
+                    <span className="text-sm font-semibold text-on-surface">Current Location</span>
+                  </button>
+
+                  {locationLoading && locationQuery.trim() && (
+                    <div className="flex items-center gap-3 px-5 py-4">
+                      <Loader2 size={16} className="text-on-surface/30 animate-spin" />
+                      <span className="text-sm text-on-surface/40">Searching...</span>
+                    </div>
+                  )}
+
+                  {!locationLoading && locationResults.map((loc) => (
+                    <button
+                      key={loc.id}
+                      onClick={() => handleSelectLocation(loc.name, loc.lat, loc.lng)}
+                      className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-on-surface/[0.03] transition-colors border-b border-on-surface/6 last:border-b-0"
+                    >
+                      <MapPin size={18} className="text-on-surface/25 flex-shrink-0" />
+                      <span className="text-sm font-medium text-on-surface">{loc.name}</span>
+                    </button>
+                  ))}
+
+                  {!locationLoading && locationQuery.trim() && locationResults.length === 0 && (
+                    <div className="px-5 py-4 text-sm text-on-surface/40">No locations found</div>
+                  )}
+                </motion.div>
+                </>
+              )}
+            </AnimatePresence>
 
             <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar mb-6">
               {QUICK_FILTERS.map((filter) => (
