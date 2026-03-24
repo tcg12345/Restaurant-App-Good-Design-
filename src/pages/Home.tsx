@@ -6,6 +6,7 @@ import { CircleActivity } from '../components/CircleActivity';
 import { Search, Filter, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 
 const TASTE_DATA = [
@@ -81,6 +82,7 @@ function applyLocalFilters(allPlaces: PlaceResult[], sort: SortOption, price: nu
 }
 
 export const Home: React.FC = () => {
+  const { phoneMode } = useSettings();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
   const [rawPlaces, setRawPlaces] = useState<PlaceResult[]>([]);
   const [places, setPlaces] = useState<PlaceResult[]>([]);
@@ -300,7 +302,7 @@ export const Home: React.FC = () => {
                   <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
+                <div className={cn("grid gap-3 sm:gap-4", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
                   {places.map((place) => (
                     <RestaurantCard
                       key={place.id}
