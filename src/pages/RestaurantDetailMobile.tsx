@@ -163,11 +163,11 @@ export const RestaurantDetailMobile: React.FC = () => {
     <div className="pb-32 bg-surface min-h-screen">
 
       {/* ── Hero — full-bleed tall image, text at very bottom ── */}
-      <div className="relative w-full min-h-[65vh] max-h-[80vh] overflow-hidden">
+      <div className="relative w-full overflow-hidden" style={{ height: '65vh', maxHeight: '80vh' }}>
         {photos.length > 0 ? (
           <button
             onClick={() => setGalleryOpen(true)}
-            className="block h-full w-full cursor-pointer absolute inset-0"
+            className="absolute inset-0 w-full h-full cursor-pointer z-[1]"
           >
             <img
               src={photos[photoIndex]}
@@ -177,7 +177,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             />
           </button>
         ) : (
-          <div className="h-full w-full bg-muted flex items-center justify-center">
+          <div className="absolute inset-0 w-full h-full bg-muted flex items-center justify-center">
             <MapPin size={64} className="text-on-surface/20" />
           </div>
         )}
@@ -240,7 +240,7 @@ export const RestaurantDetailMobile: React.FC = () => {
         )}
 
         {/* Name + badges — anchored at very bottom, white on dark gradient */}
-        <div className="absolute bottom-10 left-5 right-5 z-10">
+        <div className="absolute bottom-10 left-5 right-5 z-10 pointer-events-none">
           <h1 className="text-2xl font-serif font-bold text-white leading-tight mb-1.5 drop-shadow-lg">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[11px] font-medium text-white/75 uppercase tracking-wider">{cuisine}</span>
