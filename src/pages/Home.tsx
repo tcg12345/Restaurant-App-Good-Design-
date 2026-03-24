@@ -279,483 +279,506 @@ export const Home: React.FC = () => {
     setShowLocationResults(false);
   };
 
-  /* ═══════════════════════════════════════════
-     SEARCH RESULTS PAGE (full-screen overlay)
-     ═══════════════════════════════════════════ */
-  if (searchActive) {
-    return (
-      <div className="pb-32 min-h-screen bg-surface">
-        <div className="px-5 pt-4">
-          {/* Back arrow + search bars */}
-          <div className="flex items-start gap-3 mb-3">
-            <button
-              onClick={handleBackFromSearch}
-              className="mt-3 p-1 text-on-surface/50 hover:text-on-surface transition-colors flex-shrink-0"
-            >
-              <ArrowLeft size={22} />
-            </button>
+  return (
+    <>
+      {/* ═══════════════════════════════════════════
+          MAIN FEED PAGE
+          ═══════════════════════════════════════════ */}
+      <div className="pb-32">
+        <TopBar />
 
-            <div className={cn("flex-1", !phoneMode && "flex gap-3")}>
-              {/* Restaurant search */}
-              <form
-                className={cn("relative", phoneMode ? "mb-2.5" : "flex-[2]")}
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSearch(searchQuery);
-                }}
+        <main className="px-6">
+          <div className="flex items-center gap-6 mb-8 border-b border-muted">
+            <button
+              onClick={() => setActiveTab('general')}
+              className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${
+                activeTab === 'general' ? 'text-primary' : 'text-on-surface/40'
+              }`}
+            >
+              General Search
+              {activeTab === 'general' && (
+                <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('circle')}
+              className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${
+                activeTab === 'circle' ? 'text-primary' : 'text-on-surface/40'
+              }`}
+            >
+              Circle Activity
+              {activeTab === 'circle' && (
+                <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
+              )}
+            </button>
+          </div>
+
+          {activeTab === 'general' ? (
+            <>
+              {/* Fake search bar — tapping opens the search page */}
+              <button
+                onClick={() => setSearchActive(true)}
+                className="w-full relative mb-6"
               >
                 <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
                   <Search size={20} />
                 </div>
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search restaurant, cuisine, occasion..."
-                  className="w-full bg-white rounded-2xl py-3.5 pl-12 pr-12 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowFilters(true)}
-                  className="absolute inset-y-0 right-4 flex items-center text-primary"
-                >
-                  <div className="relative">
-                    <SlidersHorizontal size={20} />
-                    {activeFilterCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">
-                        {activeFilterCount}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              </form>
-
-              {/* Location search */}
-              <div className={cn("relative", phoneMode ? "" : "flex-1")}>
-                <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
-                  <MapPin size={18} />
+                <div className="w-full bg-white rounded-2xl py-4 pl-12 pr-12 text-sm font-medium shadow-sm text-on-surface/40 text-left">
+                  Search restaurant, cuisine, occasion...
                 </div>
-                <input
-                  type="text"
-                  value={locationQuery}
-                  onChange={(e) => {
-                    setLocationQuery(e.target.value);
-                    setShowLocationResults(true);
-                  }}
-                  onFocus={() => { if (locationQuery.trim()) setShowLocationResults(true); }}
-                  placeholder={locationLabel || 'Location...'}
-                  className={cn(
-                    "w-full bg-white rounded-2xl py-3.5 pl-11 pr-10 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all",
-                    locationLabel && !locationQuery && "placeholder:text-on-surface/70"
-                  )}
-                />
-                {(locationQuery || locationLabel) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLocationQuery('');
-                      setLocationLabel('');
-                      setShowLocationResults(false);
-                      setLocationResults([]);
-                      if (navigator.geolocation) {
-                        navigator.geolocation.getCurrentPosition(
-                          (pos) => { setUserLat(pos.coords.latitude); setUserLng(pos.coords.longitude); },
-                          () => { setUserLat(DEFAULT_LAT); setUserLng(DEFAULT_LNG); }
-                        );
-                      }
-                    }}
-                    className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60 transition-colors"
-                  >
-                    <X size={18} />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Location search results dropdown */}
-          <AnimatePresence>
-            {showLocationResults && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowLocationResults(false)} />
-                <motion.div
-                  initial={{ opacity: 0, y: -5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -5 }}
-                  transition={{ duration: 0.15 }}
-                  className="relative z-20 bg-white rounded-2xl shadow-lg border border-on-surface/8 mb-3 overflow-hidden ml-9"
-                >
-                  <button
-                    onClick={handleUseCurrentLocation}
-                    className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-on-surface/[0.03] transition-colors border-b border-on-surface/6"
-                  >
-                    <MapPin size={18} className="text-on-surface/30 flex-shrink-0" />
-                    <span className="text-sm font-semibold text-on-surface">Current Location</span>
-                  </button>
-                  {locationLoading && locationQuery.trim() && (
-                    <div className="flex items-center gap-3 px-5 py-4">
-                      <Loader2 size={16} className="text-on-surface/30 animate-spin" />
-                      <span className="text-sm text-on-surface/40">Searching...</span>
-                    </div>
-                  )}
-                  {!locationLoading && locationResults.map((loc) => (
-                    <button
-                      key={loc.id}
-                      onClick={() => handleSelectLocation(loc.name, loc.lat, loc.lng)}
-                      className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-on-surface/[0.03] transition-colors border-b border-on-surface/6 last:border-b-0"
-                    >
-                      <MapPin size={18} className="text-on-surface/25 flex-shrink-0" />
-                      <span className="text-sm font-medium text-on-surface">{loc.name}</span>
-                    </button>
-                  ))}
-                  {!locationLoading && locationQuery.trim() && locationResults.length === 0 && (
-                    <div className="px-5 py-4 text-sm text-on-surface/40">No locations found</div>
-                  )}
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
-
-          {/* Quick filters */}
-          <div className="flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-4 ml-9">
-            {QUICK_FILTERS.map((filter) => (
-              <button
-                key={filter}
-                onClick={() => handleFilterClick(filter)}
-                className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all ${
-                  activeFilter === filter
-                    ? 'bg-primary text-white border-primary'
-                    : 'bg-white border-muted hover:border-primary hover:text-primary'
-                }`}
-              >
-                {filter}
               </button>
-            ))}
-          </div>
 
-          {/* Results */}
-          <div className="ml-9">
-            {isLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 size={24} className="text-primary animate-spin" />
-                <span className="ml-3 text-sm text-on-surface/50 font-medium">Finding restaurants...</span>
-              </div>
-            ) : places.length === 0 && (searchQuery.trim() || activeFilter) ? (
-              <div className="text-center py-16">
-                <p className="text-on-surface/40 text-sm font-medium">No restaurants found</p>
-                <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
-              </div>
-            ) : places.length === 0 ? (
-              <div className="text-center py-16">
-                <Search size={32} className="mx-auto text-on-surface/15 mb-3" />
-                <p className="text-sm font-medium text-on-surface/40">Search for restaurants</p>
-                <p className="text-xs text-on-surface/30 mt-1">Type a name, cuisine, or use the filters above</p>
-              </div>
-            ) : (() => {
-              const initialCount = phoneMode ? 8 : 8;
-              const visiblePlaces = showAllResults ? places : places.slice(0, initialCount);
-              const hasMore = places.length > initialCount;
-              return (
-                <>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-serif font-bold">Results</h2>
-                    <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">
-                      {places.length} found
-                    </span>
-                  </div>
-                  <div className={cn("grid gap-3 sm:gap-4", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
-                    {visiblePlaces.map((place) => (
-                      <RestaurantCard
-                        key={place.id}
-                        {...placeToCardProps(place)}
-                      />
-                    ))}
-                  </div>
-                  {hasMore && (
-                    <button
-                      onClick={() => setShowAllResults(!showAllResults)}
-                      className="w-full flex flex-col items-center gap-1 mt-4 py-3 text-on-surface/40 hover:text-primary transition-colors"
+              {/* Collections */}
+              <section className="mb-12">
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-2xl font-serif font-bold">Collections</h2>
+                  <button className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1">
+                    New Collection <ChevronRight size={14} />
+                  </button>
+                </div>
+
+                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
+                  {COLLECTION_NAMES.map((list) => (
+                    <motion.button
+                      key={list}
+                      whileHover={{ y: -5 }}
+                      className="flex-shrink-0 w-40 h-48 rounded-3xl bg-secondary/10 p-6 flex flex-col justify-between group hover:bg-secondary hover:text-white transition-all duration-500"
                     >
-                      <span className="text-xs font-bold uppercase tracking-wider">
-                        {showAllResults ? 'Show less' : `Show all ${places.length} results`}
-                      </span>
-                      <ChevronDown size={20} className={cn("transition-transform", showAllResults && "rotate-180")} />
-                    </button>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-        </div>
-
-        {/* Filter Panel */}
-        <AnimatePresence>
-          {showFilters && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/30 z-50"
-                onClick={() => setShowFilters(false)}
-              />
-              <motion.div
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-                className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-[2rem] shadow-2xl max-h-[85vh] flex flex-col"
-              >
-                <div className="flex-shrink-0 bg-surface z-10 px-6 pt-5 pb-4 border-b border-black/5">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-serif font-bold text-on-surface">Filters</h2>
-                    <button
-                      onClick={() => setShowFilters(false)}
-                      className="w-9 h-9 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
-                    >
-                      <X size={18} className="text-on-surface/60" />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <ArrowUpDown size={16} className="text-primary" />
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Sort By</h3>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {SORT_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          onClick={() => setSortBy(opt.value)}
-                          className={cn(
-                            "flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all",
-                            sortBy === opt.value
-                              ? "border-primary bg-primary/5 text-primary"
-                              : "border-on-surface/10 text-on-surface/60 hover:border-on-surface/20"
-                          )}
-                        >
-                          {sortBy === opt.value && <Check size={14} />}
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <DollarSign size={16} className="text-primary" />
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Price Range</h3>
-                    </div>
-                    <div className="flex gap-2">
-                      {PRICE_LEVELS.map((p) => (
-                        <button
-                          key={p.value}
-                          onClick={() => setSelectedPrice(p.value)}
-                          className={cn(
-                            "flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all",
-                            selectedPrice === p.value
-                              ? "border-primary bg-primary/5 text-primary"
-                              : "border-on-surface/10 text-on-surface/60 hover:border-on-surface/20"
-                          )}
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <UtensilsCrossed size={16} className="text-primary" />
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Cuisine</h3>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {CUISINE_TYPES.map((c) => {
-                        const isAll = c.type === '';
-                        const isActive = isAll ? selectedCuisines.length === 0 : selectedCuisines.includes(c.type);
-                        return (
-                          <button
-                            key={c.type || 'all'}
-                            onClick={() => {
-                              if (isAll) {
-                                setSelectedCuisines([]);
-                              } else {
-                                setSelectedCuisines((prev) =>
-                                  prev.includes(c.type)
-                                    ? prev.filter((t) => t !== c.type)
-                                    : [...prev, c.type]
-                                );
-                              }
-                            }}
-                            className={cn(
-                              "px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all",
-                              isActive
-                                ? "border-primary bg-primary/5 text-primary"
-                                : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
-                            )}
-                          >
-                            {isActive && !isAll && <Check size={12} className="inline mr-1 -mt-0.5" />}
-                            {c.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex-shrink-0 bg-surface border-t border-black/5 px-6 py-4 flex gap-3">
-                  <button
-                    onClick={() => { setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); }}
-                    className="flex-1 py-3.5 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors"
-                  >
-                    Reset
-                  </button>
-                  <button
-                    onClick={handleApplyFilters}
-                    className="flex-[2] py-3.5 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-shadow"
-                  >
-                    Apply Filters
-                  </button>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
-      </div>
-    );
-  }
-
-  /* ═══════════════════════════════════════════
-     MAIN FEED PAGE
-     ═══════════════════════════════════════════ */
-  return (
-    <div className="pb-32">
-      <TopBar />
-
-      <main className="px-6">
-        <div className="flex items-center gap-6 mb-8 border-b border-muted">
-          <button
-            onClick={() => setActiveTab('general')}
-            className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${
-              activeTab === 'general' ? 'text-primary' : 'text-on-surface/40'
-            }`}
-          >
-            General Search
-            {activeTab === 'general' && (
-              <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('circle')}
-            className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${
-              activeTab === 'circle' ? 'text-primary' : 'text-on-surface/40'
-            }`}
-          >
-            Circle Activity
-            {activeTab === 'circle' && (
-              <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-            )}
-          </button>
-        </div>
-
-        {activeTab === 'general' ? (
-          <>
-            {/* Fake search bar — tapping opens the search page */}
-            <button
-              onClick={() => setSearchActive(true)}
-              className="w-full relative mb-6"
-            >
-              <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
-                <Search size={20} />
-              </div>
-              <div className="w-full bg-white rounded-2xl py-4 pl-12 pr-12 text-sm font-medium shadow-sm text-on-surface/40 text-left">
-                Search restaurant, cuisine, occasion...
-              </div>
-            </button>
-
-            {/* Collections */}
-            <section className="mb-12">
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-2xl font-serif font-bold">Collections</h2>
-                <button className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1">
-                  New Collection <ChevronRight size={14} />
-                </button>
-              </div>
-
-              <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
-                {COLLECTION_NAMES.map((list) => (
-                  <motion.button
-                    key={list}
-                    whileHover={{ y: -5 }}
-                    className="flex-shrink-0 w-40 h-48 rounded-3xl bg-secondary/10 p-6 flex flex-col justify-between group hover:bg-secondary hover:text-white transition-all duration-500"
-                  >
-                    <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-secondary shadow-sm group-hover:text-primary transition-colors">
-                      <Bookmark size={20} />
-                    </div>
-                    <div>
-                      <h4 className="font-serif font-bold text-lg mb-1">{list}</h4>
-                      <p className="text-[10px] uppercase tracking-widest opacity-60">12 items</p>
-                    </div>
-                  </motion.button>
-                ))}
-              </div>
-            </section>
-
-            {/* Rated Spots */}
-            <section className="mb-12">
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="text-2xl font-serif font-bold">Rated Spots</h2>
-                <div className="flex items-center gap-4 text-on-surface/40">
-                  <button className="p-2 hover:text-primary transition-colors">
-                    <Grid size={18} />
-                  </button>
-                  <button className="p-2 hover:text-primary transition-colors">
-                    <List size={18} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-8">
-                {RATED_SPOTS.map((item) => (
-                  <div key={item.id} className="flex gap-6 group cursor-pointer">
-                    <div className="w-32 h-32 rounded-3xl overflow-hidden flex-shrink-0 shadow-lg">
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-                        referrerPolicy="no-referrer"
-                      />
-                    </div>
-                    <div className="flex-1 py-2 flex flex-col justify-between">
+                      <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-secondary shadow-sm group-hover:text-primary transition-colors">
+                        <Bookmark size={20} />
+                      </div>
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="font-serif font-bold text-xl">{item.name}</h3>
-                          <div className="flex items-center gap-1 text-primary">
-                            <Star size={14} className="fill-primary" />
-                            <span className="text-sm font-bold">{item.rating}</span>
+                        <h4 className="font-serif font-bold text-lg mb-1">{list}</h4>
+                        <p className="text-[10px] uppercase tracking-widest opacity-60">12 items</p>
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+              </section>
+
+              {/* Rated Spots */}
+              <section className="mb-12">
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-2xl font-serif font-bold">Rated Spots</h2>
+                  <div className="flex items-center gap-4 text-on-surface/40">
+                    <button className="p-2 hover:text-primary transition-colors">
+                      <Grid size={18} />
+                    </button>
+                    <button className="p-2 hover:text-primary transition-colors">
+                      <List size={18} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-8">
+                  {RATED_SPOTS.map((item) => (
+                    <div key={item.id} className="flex gap-6 group cursor-pointer">
+                      <div className="w-32 h-32 rounded-3xl overflow-hidden flex-shrink-0 shadow-lg">
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <div className="flex-1 py-2 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <h3 className="font-serif font-bold text-xl">{item.name}</h3>
+                            <div className="flex items-center gap-1 text-primary">
+                              <Star size={14} className="fill-primary" />
+                              <span className="text-sm font-bold">{item.rating}</span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-on-surface/40 font-medium uppercase tracking-wider mb-2">{item.cuisine} · {item.price}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/10 text-secondary font-bold uppercase tracking-wider">Top Rated</span>
                           </div>
                         </div>
-                        <p className="text-xs text-on-surface/40 font-medium uppercase tracking-wider mb-2">{item.cuisine} · {item.price}</p>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/10 text-secondary font-bold uppercase tracking-wider">Top Rated</span>
+                        <div className="flex items-center gap-4 text-on-surface/40">
+                          <button className="text-[10px] font-bold uppercase tracking-widest hover:text-primary transition-colors">Edit Review</button>
+                          <button className="text-[10px] font-bold uppercase tracking-widest hover:text-primary transition-colors">Share</button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4 text-on-surface/40">
-                        <button className="text-[10px] font-bold uppercase tracking-widest hover:text-primary transition-colors">Edit Review</button>
-                        <button className="text-[10px] font-bold uppercase tracking-widest hover:text-primary transition-colors">Share</button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {/* Social Feed */}
+              <SocialFeed />
+            </>
+          ) : (
+            <CircleActivity />
+          )}
+        </main>
+      </div>
+
+      {/* ═══════════════════════════════════════════
+          SEARCH PAGE — slides up as bottom sheet
+          ═══════════════════════════════════════════ */}
+      <AnimatePresence>
+        {searchActive && (
+          <motion.div
+            key="search-overlay"
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            className="fixed inset-0 z-40 bg-surface overflow-y-auto"
+          >
+            <div className="pb-32 min-h-full">
+              <div className="px-5 pt-4">
+                {/* Phone: back arrow on its own row above search bars */}
+                {phoneMode && (
+                  <button
+                    onClick={handleBackFromSearch}
+                    className="mb-2 p-1 text-on-surface/50 hover:text-on-surface transition-colors"
+                  >
+                    <ArrowLeft size={22} />
+                  </button>
+                )}
+
+                {/* Desktop: back arrow inline with search bars */}
+                <div className={cn(phoneMode ? "" : "flex items-start gap-3 mb-3")}>
+                  {!phoneMode && (
+                    <button
+                      onClick={handleBackFromSearch}
+                      className="mt-3 p-1 text-on-surface/50 hover:text-on-surface transition-colors flex-shrink-0"
+                    >
+                      <ArrowLeft size={22} />
+                    </button>
+                  )}
+
+                  <div className={cn(phoneMode ? "" : "flex-1 flex gap-3")}>
+                    {/* Restaurant search */}
+                    <form
+                      className={cn("relative", phoneMode ? "mb-2.5" : "flex-[2]")}
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSearch(searchQuery);
+                      }}
+                    >
+                      <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
+                        <Search size={20} />
                       </div>
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search restaurant, cuisine, occasion..."
+                        className="w-full bg-white rounded-2xl py-3.5 pl-12 pr-12 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowFilters(true)}
+                        className="absolute inset-y-0 right-4 flex items-center text-primary"
+                      >
+                        <div className="relative">
+                          <SlidersHorizontal size={20} />
+                          {activeFilterCount > 0 && (
+                            <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">
+                              {activeFilterCount}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    </form>
+
+                    {/* Location search */}
+                    <div className={cn("relative", phoneMode ? "" : "flex-1")}>
+                      <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
+                        <MapPin size={18} />
+                      </div>
+                      <input
+                        type="text"
+                        value={locationQuery}
+                        onChange={(e) => {
+                          setLocationQuery(e.target.value);
+                          setShowLocationResults(true);
+                        }}
+                        onFocus={() => { if (locationQuery.trim()) setShowLocationResults(true); }}
+                        placeholder={locationLabel || 'Location...'}
+                        className={cn(
+                          "w-full bg-white rounded-2xl py-3.5 pl-11 pr-10 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all",
+                          locationLabel && !locationQuery && "placeholder:text-on-surface/70"
+                        )}
+                      />
+                      {(locationQuery || locationLabel) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLocationQuery('');
+                            setLocationLabel('');
+                            setShowLocationResults(false);
+                            setLocationResults([]);
+                            if (navigator.geolocation) {
+                              navigator.geolocation.getCurrentPosition(
+                                (pos) => { setUserLat(pos.coords.latitude); setUserLng(pos.coords.longitude); },
+                                () => { setUserLat(DEFAULT_LAT); setUserLng(DEFAULT_LNG); }
+                              );
+                            }
+                          }}
+                          className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                        >
+                          <X size={18} />
+                        </button>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
-            </section>
+                </div>
 
-            {/* Social Feed */}
-            <SocialFeed />
-          </>
-        ) : (
-          <CircleActivity />
+                {/* Location search results dropdown */}
+                <AnimatePresence>
+                  {showLocationResults && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowLocationResults(false)} />
+                      <motion.div
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -5 }}
+                        transition={{ duration: 0.15 }}
+                        className={cn("relative z-20 bg-white rounded-2xl shadow-lg border border-on-surface/8 mb-3 overflow-hidden", !phoneMode && "ml-9")}
+                      >
+                        <button
+                          onClick={handleUseCurrentLocation}
+                          className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-on-surface/[0.03] transition-colors border-b border-on-surface/6"
+                        >
+                          <MapPin size={18} className="text-on-surface/30 flex-shrink-0" />
+                          <span className="text-sm font-semibold text-on-surface">Current Location</span>
+                        </button>
+                        {locationLoading && locationQuery.trim() && (
+                          <div className="flex items-center gap-3 px-5 py-4">
+                            <Loader2 size={16} className="text-on-surface/30 animate-spin" />
+                            <span className="text-sm text-on-surface/40">Searching...</span>
+                          </div>
+                        )}
+                        {!locationLoading && locationResults.map((loc) => (
+                          <button
+                            key={loc.id}
+                            onClick={() => handleSelectLocation(loc.name, loc.lat, loc.lng)}
+                            className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-on-surface/[0.03] transition-colors border-b border-on-surface/6 last:border-b-0"
+                          >
+                            <MapPin size={18} className="text-on-surface/25 flex-shrink-0" />
+                            <span className="text-sm font-medium text-on-surface">{loc.name}</span>
+                          </button>
+                        ))}
+                        {!locationLoading && locationQuery.trim() && locationResults.length === 0 && (
+                          <div className="px-5 py-4 text-sm text-on-surface/40">No locations found</div>
+                        )}
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+
+                {/* Quick filters */}
+                <div className={cn("flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-4", !phoneMode && "ml-9")}>
+                  {QUICK_FILTERS.map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => handleFilterClick(filter)}
+                      className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all ${
+                        activeFilter === filter
+                          ? 'bg-primary text-white border-primary'
+                          : 'bg-white border-muted hover:border-primary hover:text-primary'
+                      }`}
+                    >
+                      {filter}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Results */}
+                <div className={cn(!phoneMode && "ml-9")}>
+                  {isLoading ? (
+                    <div className="flex items-center justify-center py-16">
+                      <Loader2 size={24} className="text-primary animate-spin" />
+                      <span className="ml-3 text-sm text-on-surface/50 font-medium">Finding restaurants...</span>
+                    </div>
+                  ) : places.length === 0 && (searchQuery.trim() || activeFilter) ? (
+                    <div className="text-center py-16">
+                      <p className="text-on-surface/40 text-sm font-medium">No restaurants found</p>
+                      <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
+                    </div>
+                  ) : places.length === 0 ? (
+                    <div className="text-center py-16">
+                      <Search size={32} className="mx-auto text-on-surface/15 mb-3" />
+                      <p className="text-sm font-medium text-on-surface/40">Search for restaurants</p>
+                      <p className="text-xs text-on-surface/30 mt-1">Type a name, cuisine, or use the filters above</p>
+                    </div>
+                  ) : (() => {
+                    const initialCount = phoneMode ? 8 : 8;
+                    const visiblePlaces = showAllResults ? places : places.slice(0, initialCount);
+                    const hasMore = places.length > initialCount;
+                    return (
+                      <>
+                        <div className="flex items-center justify-between mb-4">
+                          <h2 className="text-lg font-serif font-bold">Results</h2>
+                          <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">
+                            {places.length} found
+                          </span>
+                        </div>
+                        <div className={cn("grid gap-3 sm:gap-4", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
+                          {visiblePlaces.map((place) => (
+                            <RestaurantCard
+                              key={place.id}
+                              {...placeToCardProps(place)}
+                            />
+                          ))}
+                        </div>
+                        {hasMore && (
+                          <button
+                            onClick={() => setShowAllResults(!showAllResults)}
+                            className="w-full flex flex-col items-center gap-1 mt-4 py-3 text-on-surface/40 hover:text-primary transition-colors"
+                          >
+                            <span className="text-xs font-bold uppercase tracking-wider">
+                              {showAllResults ? 'Show less' : `Show all ${places.length} results`}
+                            </span>
+                            <ChevronDown size={20} className={cn("transition-transform", showAllResults && "rotate-180")} />
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Filter Panel */}
+              <AnimatePresence>
+                {showFilters && (
+                  <>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="fixed inset-0 bg-black/30 z-50"
+                      onClick={() => setShowFilters(false)}
+                    />
+                    <motion.div
+                      initial={{ y: '100%' }}
+                      animate={{ y: 0 }}
+                      exit={{ y: '100%' }}
+                      transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+                      className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-[2rem] shadow-2xl max-h-[85vh] flex flex-col"
+                    >
+                      <div className="flex-shrink-0 bg-surface z-10 px-6 pt-5 pb-4 border-b border-black/5">
+                        <div className="flex items-center justify-between">
+                          <h2 className="text-lg font-serif font-bold text-on-surface">Filters</h2>
+                          <button
+                            onClick={() => setShowFilters(false)}
+                            className="w-9 h-9 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+                          >
+                            <X size={18} className="text-on-surface/60" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <ArrowUpDown size={16} className="text-primary" />
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Sort By</h3>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {SORT_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.value}
+                                onClick={() => setSortBy(opt.value)}
+                                className={cn(
+                                  "flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all",
+                                  sortBy === opt.value
+                                    ? "border-primary bg-primary/5 text-primary"
+                                    : "border-on-surface/10 text-on-surface/60 hover:border-on-surface/20"
+                                )}
+                              >
+                                {sortBy === opt.value && <Check size={14} />}
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <DollarSign size={16} className="text-primary" />
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Price Range</h3>
+                          </div>
+                          <div className="flex gap-2">
+                            {PRICE_LEVELS.map((p) => (
+                              <button
+                                key={p.value}
+                                onClick={() => setSelectedPrice(p.value)}
+                                className={cn(
+                                  "flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all",
+                                  selectedPrice === p.value
+                                    ? "border-primary bg-primary/5 text-primary"
+                                    : "border-on-surface/10 text-on-surface/60 hover:border-on-surface/20"
+                                )}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <UtensilsCrossed size={16} className="text-primary" />
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Cuisine</h3>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {CUISINE_TYPES.map((c) => {
+                              const isAll = c.type === '';
+                              const isActive = isAll ? selectedCuisines.length === 0 : selectedCuisines.includes(c.type);
+                              return (
+                                <button
+                                  key={c.type || 'all'}
+                                  onClick={() => {
+                                    if (isAll) {
+                                      setSelectedCuisines([]);
+                                    } else {
+                                      setSelectedCuisines((prev) =>
+                                        prev.includes(c.type)
+                                          ? prev.filter((t) => t !== c.type)
+                                          : [...prev, c.type]
+                                      );
+                                    }
+                                  }}
+                                  className={cn(
+                                    "px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all",
+                                    isActive
+                                      ? "border-primary bg-primary/5 text-primary"
+                                      : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
+                                  )}
+                                >
+                                  {isActive && !isAll && <Check size={12} className="inline mr-1 -mt-0.5" />}
+                                  {c.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0 bg-surface border-t border-black/5 px-6 py-4 flex gap-3">
+                        <button
+                          onClick={() => { setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); }}
+                          className="flex-1 py-3.5 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors"
+                        >
+                          Reset
+                        </button>
+                        <button
+                          onClick={handleApplyFilters}
+                          className="flex-[2] py-3.5 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-shadow"
+                        >
+                          Apply Filters
+                        </button>
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
         )}
-      </main>
-    </div>
+      </AnimatePresence>
+    </>
   );
 };
