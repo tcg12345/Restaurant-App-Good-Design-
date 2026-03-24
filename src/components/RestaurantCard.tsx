@@ -65,7 +65,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 text-[11px] sm:text-xs lg:text-[10px] text-on-surface/40 font-medium uppercase tracking-wider truncate">
+          <div className="flex items-center gap-1.5 text-[11px] sm:text-xs lg:text-[10px] text-on-surface/60 font-semibold uppercase tracking-wider truncate">
             <span className="truncate">{cuisine}</span>
             <span>•</span>
             <span>{price}</span>

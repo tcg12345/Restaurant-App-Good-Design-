@@ -234,9 +234,9 @@ export const RestaurantDetailMobile: React.FC = () => {
         <div className="absolute bottom-10 left-5 right-5 z-10 pointer-events-none">
           <h1 className="text-2xl font-serif font-bold text-white leading-tight mb-1.5 drop-shadow-lg">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-medium text-white/75 uppercase tracking-wider">{cuisine}</span>
-            <span className="text-white/35">·</span>
-            <span className="text-[11px] font-medium text-white/75 uppercase tracking-wider">{priceStr}</span>
+            <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{cuisine}</span>
+            <span className="text-white/50">·</span>
+            <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{priceStr}</span>
           </div>
         </div>
       </div>

@@ -233,9 +233,9 @@ export const RestaurantDetailDesktop: React.FC = () => {
         <div className="mb-6">
           <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-tight mb-2">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-medium text-on-surface/55 uppercase tracking-wider">{cuisine}</span>
-            <span className="text-on-surface/25">·</span>
-            <span className="text-xs font-medium text-on-surface/55 uppercase tracking-wider">{priceStr}</span>
+            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{cuisine}</span>
+            <span className="text-on-surface/35">·</span>
+            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{priceStr}</span>
           </div>
         </div>
 

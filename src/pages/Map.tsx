@@ -971,7 +971,7 @@ export const Map: React.FC = () => {
                             <Star size={13} className="fill-primary text-primary" />
                             <span className="text-sm font-bold text-primary">{place.rating.toFixed(1)}</span>
                             {place.priceLevel > 0 && (
-                              <span className="text-xs text-on-surface/30 ml-1">{priceLevelToString(place.priceLevel)}</span>
+                              <span className="text-xs font-semibold text-on-surface/55 ml-1">{priceLevelToString(place.priceLevel)}</span>
                             )}
                           </div>
                         )}
