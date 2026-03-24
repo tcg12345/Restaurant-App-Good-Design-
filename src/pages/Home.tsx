@@ -203,12 +203,11 @@ export const Home: React.FC = () => {
               <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
             </div>
           ) : (
-            <div className="stagger-grid">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {places.map((place) => (
                 <RestaurantCard
                   key={place.id}
                   {...placeToCardProps(place)}
-                  className="stagger-item"
                 />
               ))}
             </div>

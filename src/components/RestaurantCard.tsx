@@ -36,7 +36,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           className
         )}
       >
-        <div className="relative aspect-[4/5] overflow-hidden">
+        <div className="relative aspect-[3/2] overflow-hidden">
           <img
             src={image}
             alt={name}
@@ -46,40 +46,40 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
           
           {isMichelin && (
-            <div className="absolute top-4 left-4 glass px-3 py-1 rounded-full flex items-center gap-1.5">
-              <Star size={12} className="fill-primary text-primary" />
-              <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Michelin</span>
+            <div className="absolute top-2 left-2 glass px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Star size={10} className="fill-primary text-primary" />
+              <span className="text-[8px] font-bold uppercase tracking-widest text-primary">Michelin</span>
             </div>
           )}
-          
-          <button 
+
+          <button
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
             }}
-            className="absolute top-4 right-4 p-2 glass rounded-full text-on-surface/60 hover:text-primary transition-colors z-10"
+            className="absolute top-2 right-2 p-1.5 glass rounded-full text-on-surface/60 hover:text-primary transition-colors z-10"
           >
-            <Heart size={18} />
+            <Heart size={14} />
           </button>
         </div>
 
-        <div className="p-4">
-          <div className="flex items-start justify-between mb-1">
-            <h3 className="font-serif text-lg font-bold leading-tight">{name}</h3>
-            <div className="flex items-center gap-1 text-primary">
-              <Star size={14} className="fill-primary" />
-              <span className="text-sm font-bold">{rating}</span>
+        <div className="p-3">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <h3 className="font-serif text-sm font-bold leading-tight line-clamp-2 min-h-[2.5rem]">{name}</h3>
+            <div className="flex items-center gap-1 text-primary flex-shrink-0">
+              <Star size={12} className="fill-primary" />
+              <span className="text-xs font-bold">{rating}</span>
             </div>
           </div>
-          
-          <div className="flex items-center gap-2 text-xs text-on-surface/40 font-medium uppercase tracking-wider">
-            <span>{cuisine}</span>
+
+          <div className="flex items-center gap-2 text-[10px] text-on-surface/40 font-medium uppercase tracking-wider truncate">
+            <span className="truncate">{cuisine}</span>
             <span>•</span>
             <span>{price}</span>
           </div>
-          
-          <div className="mt-3 flex items-center gap-1 text-xs text-on-surface/60">
-            <MapPin size={12} />
+
+          <div className="mt-2 flex items-center gap-1 text-[10px] text-on-surface/60">
+            <MapPin size={10} />
             <span>{distance}</span>
           </div>
         </div>
