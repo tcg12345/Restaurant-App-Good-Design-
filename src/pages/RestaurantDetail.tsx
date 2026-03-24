@@ -145,29 +145,29 @@ export const RestaurantDetail: React.FC = () => {
             <MapPin size={64} className="text-on-surface/20" />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-black/30" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/20" />
 
         {/* Photo arrows */}
         {photos.length > 1 && (
           <>
             <button
               onClick={() => setPhotoIndex((i) => (i - 1 + photos.length) % photos.length)}
-              className="absolute left-3 top-1/2 -translate-y-1/2 p-2 glass rounded-full text-on-surface shadow-xl z-10"
+              className="absolute left-3 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/90 z-10"
             >
-              <ChevronLeft size={18} />
+              <ChevronLeft size={16} />
             </button>
             <button
               onClick={() => setPhotoIndex((i) => (i + 1) % photos.length)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 glass rounded-full text-on-surface shadow-xl z-10"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/90 z-10"
             >
-              <ChevronRight size={18} />
+              <ChevronRight size={16} />
             </button>
             <div className="absolute bottom-20 sm:bottom-28 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
               {photos.map((_, i) => (
                 <button
                   key={i}
                   onClick={() => setPhotoIndex(i)}
-                  className={`w-1.5 h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-white w-4' : 'bg-white/50'}`}
+                  className={`w-1.5 h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-white w-4' : 'bg-white/40'}`}
                 />
               ))}
             </div>
@@ -178,40 +178,40 @@ export const RestaurantDetail: React.FC = () => {
         <div className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex items-center justify-between z-10">
           <button
             onClick={() => navigate(-1)}
-            className="p-2.5 sm:p-3 glass rounded-full text-on-surface shadow-xl"
+            className="p-2 bg-black/30 backdrop-blur-sm rounded-full text-white/90"
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={18} />
           </button>
-          <div className="flex gap-3">
-            <button className="p-2.5 sm:p-3 glass rounded-full text-on-surface shadow-xl">
-              <Share2 size={20} />
+          <div className="flex gap-2">
+            <button className="p-2 bg-black/30 backdrop-blur-sm rounded-full text-white/90">
+              <Share2 size={18} />
             </button>
-            <button className="p-2.5 sm:p-3 glass rounded-full text-on-surface shadow-xl">
-              <Heart size={20} />
+            <button className="p-2 bg-black/30 backdrop-blur-sm rounded-full text-white/90">
+              <Heart size={18} />
             </button>
           </div>
         </div>
 
         {/* Restaurant info overlay */}
         <div className="absolute bottom-4 sm:bottom-8 left-4 sm:left-8 right-4 sm:right-8">
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <div className="flex items-center gap-2 mb-2 text-white/80">
+            <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">{cuisine}</span>
+            <span className="text-white/40">·</span>
+            <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider">{priceStr}</span>
             {isMichelin && (
-              <div className="glass px-3 py-1 rounded-full flex items-center gap-1.5">
-                <Star size={12} className="fill-primary text-primary" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Michelin</span>
-              </div>
+              <>
+                <span className="text-white/40">·</span>
+                <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider flex items-center gap-1">
+                  <Star size={10} className="fill-white text-white" />
+                  Michelin
+                </span>
+              </>
             )}
-            <div className="glass px-3 py-1 rounded-full">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface">{priceStr}</span>
-            </div>
-            <div className="glass px-3 py-1 rounded-full">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface">{cuisine}</span>
-            </div>
           </div>
-          <h1 className="text-xl sm:text-3xl lg:text-5xl font-serif font-bold text-white mb-1 leading-tight">{place.name}</h1>
-          <div className="flex items-center gap-1.5 text-white/70">
-            <MapPin size={14} />
-            <span className="text-xs sm:text-sm font-medium truncate">{place.address}</span>
+          <h1 className="text-xl sm:text-3xl lg:text-5xl font-serif font-bold text-white mb-1.5 leading-tight">{place.name}</h1>
+          <div className="flex items-center gap-1.5 text-white/60">
+            <MapPin size={13} />
+            <span className="text-[11px] sm:text-sm font-medium truncate">{place.address}</span>
           </div>
         </div>
       </div>
