@@ -3,9 +3,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search, Share2,
+  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search, Share2, Heart,
 } from 'lucide-react';
-import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
+import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
+import { useLists } from '../contexts/ListsContext';
+import { priceLevelToString } from '../lib/places';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 /* ── Photo Gallery Bottom Sheet ── */
@@ -118,6 +120,8 @@ export const RestaurantDetailMobile: React.FC = () => {
     priceStr, cuisine,
     photos, directionsUrl, mapsUrl,
   } = useRestaurantDetail();
+
+  const { openRatingModal, openAddToListModal, addToWishlist, removeFromWishlist, isWishlisted, getRating } = useLists();
 
   if (loading) {
     return (
@@ -244,11 +248,52 @@ export const RestaurantDetailMobile: React.FC = () => {
       {/* ── Main Content ── */}
       <main className="px-5 pt-6">
 
-        {/* Add to List — full-width primary button */}
-        <button className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary text-white font-medium text-sm active:scale-[0.98] transition-transform mb-3">
-          <ListPlus size={18} />
-          Add to List
-        </button>
+        {/* Action buttons — Rate, Add to List, Wishlist */}
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <button
+            onClick={() => place && openRatingModal({
+              id: place.id, name: place.name,
+              image: place.photoUrl || '',
+              cuisine, price: priceStr,
+              address: place.address,
+            })}
+            className={`flex items-center justify-center gap-1.5 py-3 rounded-2xl font-medium text-sm active:scale-[0.98] transition-transform ${
+              place && getRating(place.id) ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-primary text-white'
+            }`}
+          >
+            <Star size={16} />
+            {place && getRating(place.id) ? `${getRating(place.id)!.score.toFixed(1)}` : 'Rate'}
+          </button>
+          <button
+            onClick={() => place && openAddToListModal(place.id)}
+            className="flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-primary text-white font-medium text-sm active:scale-[0.98] transition-transform"
+          >
+            <ListPlus size={16} />
+            List
+          </button>
+          <button
+            onClick={() => {
+              if (!place) return;
+              if (isWishlisted(place.id)) {
+                removeFromWishlist(place.id);
+              } else {
+                addToWishlist({
+                  restaurantId: place.id, name: place.name,
+                  image: place.photoUrl || '',
+                  cuisine, price: priceStr,
+                  address: place.address,
+                  addedAt: Date.now(),
+                });
+              }
+            }}
+            className={`flex items-center justify-center gap-1.5 py-3 rounded-2xl font-medium text-sm active:scale-[0.98] transition-transform border ${
+              place && isWishlisted(place.id) ? 'bg-secondary/10 text-secondary border-secondary/30' : 'bg-white text-on-surface/60 border-on-surface/12'
+            }`}
+          >
+            <Heart size={16} className={place && isWishlisted(place.id) ? 'fill-secondary' : ''} />
+            {place && isWishlisted(place.id) ? 'Saved' : 'Wishlist'}
+          </button>
+        </div>
 
         {/* Action row — Directions, Website, Photos */}
         <div className="grid grid-cols-3 gap-3 mb-7">

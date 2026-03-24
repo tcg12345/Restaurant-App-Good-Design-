@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Search, Home, Users, User, Heart } from 'lucide-react';
+import { Search, Home, Users, User, ListPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
@@ -8,7 +8,7 @@ import { useSettings } from '../contexts/SettingsContext';
 const navItems = [
   { icon: Home, label: 'Home', path: '/' },
   { icon: Search, label: 'Search', path: '/search' },
-  { icon: Heart, label: 'Pantry', path: '/pantry' },
+  { icon: ListPlus, label: 'Lists', path: '/pantry' },
   { icon: Users, label: 'Circle', path: '/circle' },
   { icon: User, label: 'Profile', path: '/profile' },
 ];
