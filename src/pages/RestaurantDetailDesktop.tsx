@@ -8,7 +8,7 @@ import {
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-/* ── Photo Gallery — bottom sheet (matches Map filter panel pattern) ── */
+/* ── Photo Gallery — bottom sheet with swipe gestures ── */
 const PhotoGallery: React.FC<{
   photos: string[];
   name: string;
@@ -16,7 +16,12 @@ const PhotoGallery: React.FC<{
   onClose: () => void;
 }> = ({ photos, name, initialIndex, onClose }) => {
   const [viewIndex, setViewIndex] = useState(initialIndex);
+  const sheetRef = React.useRef<HTMLDivElement>(null);
   const thumbsRef = React.useRef<HTMLDivElement>(null);
+
+  const dragStartY = React.useRef(0);
+  const dragCurrentY = React.useRef(0);
+  const isDragging = React.useRef(false);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -32,6 +37,35 @@ const PhotoGallery: React.FC<{
     }
   }, [viewIndex]);
 
+  const onSheetTouchStart = (e: React.TouchEvent) => {
+    dragStartY.current = e.touches[0].clientY;
+    dragCurrentY.current = 0;
+    isDragging.current = true;
+  };
+  const onSheetTouchMove = (e: React.TouchEvent) => {
+    if (!isDragging.current) return;
+    const delta = e.touches[0].clientY - dragStartY.current;
+    dragCurrentY.current = delta;
+    const el = sheetRef.current;
+    if (!el) return;
+    const clamped = Math.max(0, delta);
+    el.style.transform = `translateY(${clamped}px)`;
+    el.style.transition = 'none';
+  };
+  const onSheetTouchEnd = () => {
+    isDragging.current = false;
+    const el = sheetRef.current;
+    if (!el) return;
+    if (dragCurrentY.current > 100) {
+      el.style.transition = 'transform 0.3s ease-out';
+      el.style.transform = 'translateY(100%)';
+      setTimeout(onClose, 300);
+    } else {
+      el.style.transition = 'transform 0.3s ease-out';
+      el.style.transform = 'translateY(0)';
+    }
+  };
+
   return (
     <>
       {/* Overlay */}
@@ -42,22 +76,26 @@ const PhotoGallery: React.FC<{
         className="fixed inset-0 bg-black/30 z-50"
         onClick={onClose}
       />
-      {/* Sheet */}
+      {/* Sheet — capped width on desktop so it doesn't stretch full screen */}
       <motion.div
+        ref={sheetRef}
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-[2rem] shadow-2xl flex flex-col"
-        style={{ maxHeight: '85vh' }}
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-2xl z-50 bg-surface rounded-t-[2rem] shadow-2xl flex flex-col"
+        style={{ maxHeight: '70vh' }}
+        onTouchStart={onSheetTouchStart}
+        onTouchMove={onSheetTouchMove}
+        onTouchEnd={onSheetTouchEnd}
       >
         {/* Drag handle */}
-        <div className="flex-shrink-0 pt-3 px-5">
+        <div className="flex-shrink-0 pt-3 pb-1 px-5">
           <div className="w-12 h-1.5 bg-on-surface/10 rounded-full mx-auto" />
         </div>
 
         {/* Header */}
-        <div className="flex-shrink-0 flex items-center justify-between px-6 py-3">
+        <div className="flex-shrink-0 flex items-center justify-between px-6 py-2">
           <h2 className="text-lg font-serif font-bold">Photos</h2>
           <button onClick={onClose} className="p-1.5 -mr-1.5 rounded-full hover:bg-on-surface/5 transition-colors">
             <X size={20} className="text-on-surface/50" />
@@ -65,15 +103,15 @@ const PhotoGallery: React.FC<{
         </div>
 
         {/* Featured photo with nav arrows */}
-        <div className="flex-shrink-0 px-5 pb-3 relative">
-          <div className="relative rounded-2xl overflow-hidden aspect-[4/3] bg-on-surface/5">
+        <div className="flex-shrink-0 px-5 pb-3">
+          <div className="relative rounded-2xl overflow-hidden aspect-[3/2] bg-on-surface/5">
             <img
               src={photos[viewIndex]}
               alt={`${name} photo ${viewIndex + 1}`}
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
             />
-            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-[11px] font-medium px-2.5 py-1 rounded-full">
+            <div className="absolute bottom-2 right-2 bg-black/50 backdrop-blur-sm text-white text-[11px] font-medium px-2 py-0.5 rounded-full">
               {viewIndex + 1} / {photos.length}
             </div>
             {photos.length > 1 && (
@@ -96,20 +134,20 @@ const PhotoGallery: React.FC<{
         </div>
 
         {/* Horizontal thumbnail strip */}
-        <div className="flex-shrink-0 pb-6 pt-1">
+        <div className="flex-shrink-0 pb-5 pt-1">
           <div
             ref={thumbsRef}
             className="flex gap-2 px-5 overflow-x-auto"
-            style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
+            style={{ scrollbarWidth: 'none' }}
           >
             {photos.map((url, i) => (
               <button
                 key={i}
                 onClick={() => setViewIndex(i)}
-                className={`flex-shrink-0 w-16 h-16 rounded-xl overflow-hidden transition-all ${
+                className={`flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden transition-all ${
                   i === viewIndex
-                    ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface scale-105'
-                    : 'opacity-60 hover:opacity-90'
+                    ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface'
+                    : 'opacity-50 hover:opacity-80'
                 }`}
               >
                 <img
