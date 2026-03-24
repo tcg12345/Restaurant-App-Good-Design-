@@ -8,7 +8,7 @@ import {
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-/* ── Photo Gallery Bottom Sheet ── */
+/* ── Photo Gallery — mobile bottom sheet ── */
 const PhotoGallery: React.FC<{
   photos: string[];
   name: string;
@@ -16,11 +16,22 @@ const PhotoGallery: React.FC<{
   onClose: () => void;
 }> = ({ photos, name, initialIndex, onClose }) => {
   const [viewIndex, setViewIndex] = useState(initialIndex);
+  const thumbsRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
+
+  /* Auto-scroll the thumbnail strip to keep selected thumb visible */
+  useEffect(() => {
+    const strip = thumbsRef.current;
+    if (!strip) return;
+    const thumb = strip.children[viewIndex] as HTMLElement | undefined;
+    if (thumb) {
+      thumb.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+    }
+  }, [viewIndex]);
 
   return (
     <motion.div
@@ -28,7 +39,7 @@ const PhotoGallery: React.FC<{
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm touch-none"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
@@ -37,34 +48,80 @@ const PhotoGallery: React.FC<{
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl max-h-[92vh] flex flex-col"
+        className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl flex flex-col"
+        style={{ maxHeight: '85vh' }}
       >
-        <div className="flex-shrink-0 pt-3 pb-2 px-5">
-          <div className="w-10 h-1 rounded-full bg-on-surface/15 mx-auto mb-3" />
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-serif font-bold">Photos</h2>
-            <button onClick={onClose} className="p-1.5 rounded-full hover:bg-on-surface/5 transition-colors">
-              <X size={20} className="text-on-surface/50" />
-            </button>
-          </div>
+        {/* Drag handle */}
+        <div className="flex-shrink-0 pt-3 px-5">
+          <div className="w-10 h-1 rounded-full bg-on-surface/15 mx-auto" />
         </div>
-        <div className="flex-shrink-0 px-5 pb-3">
-          <div className="relative rounded-2xl overflow-hidden aspect-[4/3]">
-            <img src={photos[viewIndex]} alt={`${name} photo ${viewIndex + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
+
+        {/* Header */}
+        <div className="flex-shrink-0 flex items-center justify-between px-5 py-3">
+          <h2 className="text-base font-serif font-bold">Photos</h2>
+          <button onClick={onClose} className="p-1.5 -mr-1.5 rounded-full active:bg-on-surface/5 transition-colors">
+            <X size={20} className="text-on-surface/50" />
+          </button>
+        </div>
+
+        {/* Featured photo with nav arrows */}
+        <div className="flex-shrink-0 px-4 pb-3 relative">
+          <div className="relative rounded-2xl overflow-hidden aspect-[4/3] bg-on-surface/5">
+            <img
+              src={photos[viewIndex]}
+              alt={`${name} photo ${viewIndex + 1}`}
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+
+            {/* Counter badge */}
+            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-[11px] font-medium px-2.5 py-1 rounded-full">
               {viewIndex + 1} / {photos.length}
             </div>
+
+            {/* Prev / Next arrows */}
+            {photos.length > 1 && (
+              <>
+                <button
+                  onClick={() => setViewIndex((i) => (i - 1 + photos.length) % photos.length)}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/80"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  onClick={() => setViewIndex((i) => (i + 1) % photos.length)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/80"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </>
+            )}
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-8">
-          <div className="grid grid-cols-3 gap-2">
+
+        {/* Horizontal thumbnail strip */}
+        <div className="flex-shrink-0 pb-6 pt-1">
+          <div
+            ref={thumbsRef}
+            className="flex gap-2 px-4 overflow-x-auto scrollbar-hide"
+            style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
+          >
             {photos.map((url, i) => (
               <button
                 key={i}
                 onClick={() => setViewIndex(i)}
-                className={`relative aspect-square rounded-xl overflow-hidden ${i === viewIndex ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
+                className={`flex-shrink-0 w-16 h-16 rounded-xl overflow-hidden transition-all ${
+                  i === viewIndex
+                    ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface scale-105'
+                    : 'opacity-60'
+                }`}
               >
-                <img src={url} alt={`${name} photo ${i + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <img
+                  src={url}
+                  alt={`${name} photo ${i + 1}`}
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
               </button>
             ))}
           </div>
