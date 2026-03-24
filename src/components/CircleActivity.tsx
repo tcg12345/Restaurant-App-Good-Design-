@@ -367,13 +367,13 @@ export const CircleActivity: React.FC = () => {
           <p className="text-on-surface/30 text-xs mt-1">Try adjusting your search or filters</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-5">
           {filtered.map((restaurant) => (
             <Link key={restaurant.id} to={`/restaurant/${restaurant.id}`}>
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden flex active:scale-[0.98] transition-transform"
+                className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex active:scale-[0.98] transition-transform"
               >
                 {/* Image */}
                 <div className="w-28 sm:w-32 flex-shrink-0">
@@ -386,7 +386,7 @@ export const CircleActivity: React.FC = () => {
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 p-3 min-w-0 flex flex-col justify-between">
+                <div className="flex-1 p-4 min-w-0 flex flex-col justify-between">
                   <div>
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="font-serif font-bold text-sm leading-tight line-clamp-1">{restaurant.name}</h3>
