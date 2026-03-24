@@ -17,6 +17,15 @@ export interface RestaurantRating {
   createdAt: number;      // timestamp
 }
 
+export interface RestaurantMeta {
+  id: string;
+  name: string;
+  image: string;
+  cuisine: string;
+  price: string;
+  address: string;
+}
+
 export interface CustomList {
   id: string;
   name: string;
@@ -52,6 +61,11 @@ interface ListsContextValue {
   removeFromList: (listId: string, restaurantId: string) => void;
   getListsForRestaurant: (restaurantId: string) => CustomList[];
 
+  // Restaurant metadata cache
+  restaurantMeta: Record<string, RestaurantMeta>;
+  cacheRestaurantMeta: (meta: RestaurantMeta) => void;
+  getRestaurantInfo: (restaurantId: string) => RestaurantMeta | undefined;
+
   // Wishlist
   wishlist: WishlistItem[];
   addToWishlist: (item: WishlistItem) => void;
@@ -60,19 +74,20 @@ interface ListsContextValue {
 
   // Modals
   ratingModalOpen: boolean;
-  ratingModalRestaurant: { id: string; name: string; image: string; cuisine: string; price: string; address: string } | null;
-  openRatingModal: (restaurant: { id: string; name: string; image: string; cuisine: string; price: string; address: string }) => void;
+  ratingModalRestaurant: RestaurantMeta | null;
+  openRatingModal: (restaurant: RestaurantMeta) => void;
   closeRatingModal: () => void;
 
   addToListModalOpen: boolean;
   addToListRestaurantId: string | null;
-  openAddToListModal: (restaurantId: string) => void;
+  openAddToListModal: (restaurantId: string, meta?: RestaurantMeta) => void;
   closeAddToListModal: () => void;
 }
 
 const STORAGE_KEY_RATINGS = 'gourmad-ratings';
 const STORAGE_KEY_LISTS = 'gourmad-lists';
 const STORAGE_KEY_WISHLIST = 'gourmad-wishlist';
+const STORAGE_KEY_META = 'gourmad-restaurant-meta';
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -100,16 +115,31 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [ratings, setRatings] = useState<RestaurantRating[]>(() => loadFromStorage(STORAGE_KEY_RATINGS, []));
   const [lists, setLists] = useState<CustomList[]>(() => loadFromStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS));
   const [wishlist, setWishlist] = useState<WishlistItem[]>(() => loadFromStorage(STORAGE_KEY_WISHLIST, []));
+  const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
 
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
-  const [ratingModalRestaurant, setRatingModalRestaurant] = useState<ListsContextValue['ratingModalRestaurant']>(null);
+  const [ratingModalRestaurant, setRatingModalRestaurant] = useState<RestaurantMeta | null>(null);
   const [addToListModalOpen, setAddToListModalOpen] = useState(false);
   const [addToListRestaurantId, setAddToListRestaurantId] = useState<string | null>(null);
 
-  // Persist helpers
-  const persistRatings = (next: RestaurantRating[]) => { setRatings(next); saveToStorage(STORAGE_KEY_RATINGS, next); };
-  const persistLists = (next: CustomList[]) => { setLists(next); saveToStorage(STORAGE_KEY_LISTS, next); };
-  const persistWishlist = (next: WishlistItem[]) => { setWishlist(next); saveToStorage(STORAGE_KEY_WISHLIST, next); };
+  // Restaurant metadata cache
+  const cacheRestaurantMeta = useCallback((meta: RestaurantMeta) => {
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, [meta.id]: meta };
+      saveToStorage(STORAGE_KEY_META, next);
+      return next;
+    });
+  }, []);
+
+  const getRestaurantInfo = useCallback((restaurantId: string): RestaurantMeta | undefined => {
+    // Check cache first, then ratings, then wishlist
+    if (restaurantMeta[restaurantId]) return restaurantMeta[restaurantId];
+    const rated = ratings.find((r) => r.restaurantId === restaurantId);
+    if (rated) return { id: rated.restaurantId, name: rated.name, image: rated.image, cuisine: rated.cuisine, price: rated.price, address: rated.address };
+    const wished = wishlist.find((w) => w.restaurantId === restaurantId);
+    if (wished) return { id: wished.restaurantId, name: wished.name, image: wished.image, cuisine: wished.cuisine, price: wished.price, address: wished.address };
+    return undefined;
+  }, [restaurantMeta, ratings, wishlist]);
 
   // Ratings
   const rateRestaurant = useCallback((rating: RestaurantRating) => {
@@ -118,7 +148,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       saveToStorage(STORAGE_KEY_RATINGS, next);
       return next;
     });
-  }, []);
+    // Also cache the metadata
+    cacheRestaurantMeta({ id: rating.restaurantId, name: rating.name, image: rating.image, cuisine: rating.cuisine, price: rating.price, address: rating.address });
+  }, [cacheRestaurantMeta]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
@@ -193,7 +225,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       saveToStorage(STORAGE_KEY_WISHLIST, next);
       return next;
     });
-  }, []);
+    // Also cache the metadata
+    cacheRestaurantMeta({ id: item.restaurantId, name: item.name, image: item.image, cuisine: item.cuisine, price: item.price, address: item.address });
+  }, [cacheRestaurantMeta]);
 
   const removeFromWishlist = useCallback((restaurantId: string) => {
     setWishlist((prev) => {
@@ -206,19 +240,25 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const isWishlisted = useCallback((restaurantId: string) => wishlist.some((w) => w.restaurantId === restaurantId), [wishlist]);
 
   // Modals
-  const openRatingModal = useCallback((restaurant: ListsContextValue['ratingModalRestaurant']) => {
+  const openRatingModal = useCallback((restaurant: RestaurantMeta) => {
+    cacheRestaurantMeta(restaurant);
     setRatingModalRestaurant(restaurant);
     setRatingModalOpen(true);
-  }, []);
+  }, [cacheRestaurantMeta]);
   const closeRatingModal = useCallback(() => { setRatingModalOpen(false); setRatingModalRestaurant(null); }, []);
 
-  const openAddToListModal = useCallback((restaurantId: string) => { setAddToListRestaurantId(restaurantId); setAddToListModalOpen(true); }, []);
+  const openAddToListModal = useCallback((restaurantId: string, meta?: RestaurantMeta) => {
+    if (meta) cacheRestaurantMeta(meta);
+    setAddToListRestaurantId(restaurantId);
+    setAddToListModalOpen(true);
+  }, [cacheRestaurantMeta]);
   const closeAddToListModal = useCallback(() => { setAddToListModalOpen(false); setAddToListRestaurantId(null); }, []);
 
   return (
     <ListsContext.Provider value={{
       ratings, rateRestaurant, updateRating, removeRating, getRating,
       lists, createList, deleteList, renameList, addToList, removeFromList, getListsForRestaurant,
+      restaurantMeta, cacheRestaurantMeta, getRestaurantInfo,
       wishlist, addToWishlist, removeFromWishlist, isWishlisted,
       ratingModalOpen, ratingModalRestaurant, openRatingModal, closeRatingModal,
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,

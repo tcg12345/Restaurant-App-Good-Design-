@@ -265,7 +265,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             {place && getRating(place.id) ? `${getRating(place.id)!.score.toFixed(1)}` : 'Rate'}
           </button>
           <button
-            onClick={() => place && openAddToListModal(place.id)}
+            onClick={() => place && openAddToListModal(place.id, { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.address })}
             className="flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-primary text-white font-medium text-sm active:scale-[0.98] transition-transform"
           >
             <ListPlus size={16} />
