@@ -58,7 +58,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
 
         <div className="p-3 sm:p-3">
           <div className="flex items-start justify-between gap-1.5 mb-0.5">
-            <h3 className="font-serif text-sm sm:text-base lg:text-sm font-bold leading-tight line-clamp-2 min-h-[2.25rem] lg:min-h-[2.5rem]">{name}</h3>
+            <h3 className="font-serif text-sm sm:text-base lg:text-sm font-bold leading-tight line-clamp-3 sm:line-clamp-2 min-h-[3rem] sm:min-h-[2.25rem] lg:min-h-[2.5rem]">{name}</h3>
             <div className="flex items-center gap-0.5 text-primary flex-shrink-0">
               <Star size={13} className="fill-primary sm:w-3.5 sm:h-3.5 lg:w-3 lg:h-3" />
               <span className="text-xs sm:text-sm lg:text-xs font-bold">{rating}</span>
