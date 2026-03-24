@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RadarChart } from '../components/RadarChart';
+import { CircleActivity } from '../components/CircleActivity';
 import { Search, Filter, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -225,100 +226,106 @@ export const Home: React.FC = () => {
           </button>
         </div>
 
-        <form
-          className="relative mb-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSearch(searchQuery);
-          }}
-        >
-          <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
-            <Search size={20} />
-          </div>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search for a flavor, mood, or spot..."
-            className="w-full bg-white rounded-2xl py-4 pl-12 pr-12 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-          />
-          <button
-            type="button"
-            onClick={() => setShowFilters(true)}
-            className="absolute inset-y-0 right-4 flex items-center text-primary"
-          >
-            <div className="relative">
-              <SlidersHorizontal size={20} />
-              {activeFilterCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">
-                  {activeFilterCount}
-                </span>
-              )}
-            </div>
-          </button>
-        </form>
-
-        <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar mb-6">
-          {QUICK_FILTERS.map((filter) => (
-            <button
-              key={filter}
-              onClick={() => handleFilterClick(filter)}
-              className={`whitespace-nowrap px-5 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all ${
-                activeFilter === filter
-                  ? 'bg-primary text-white border-primary'
-                  : 'bg-white border-muted hover:border-primary hover:text-primary'
-              }`}
+        {activeTab === 'general' ? (
+          <>
+            <form
+              className="relative mb-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSearch(searchQuery);
+              }}
             >
-              {filter}
-            </button>
-          ))}
-        </div>
+              <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
+                <Search size={20} />
+              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search for a flavor, mood, or spot..."
+                className="w-full bg-white rounded-2xl py-4 pl-12 pr-12 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+              />
+              <button
+                type="button"
+                onClick={() => setShowFilters(true)}
+                className="absolute inset-y-0 right-4 flex items-center text-primary"
+              >
+                <div className="relative">
+                  <SlidersHorizontal size={20} />
+                  {activeFilterCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </div>
+              </button>
+            </form>
 
-        <section className="mb-12">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-serif font-bold">
-              {activeFilter || searchQuery ? 'Results' : 'Curated for You'}
-            </h2>
-            {places.length > 0 && (
-              <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">
-                {places.length} found
-              </span>
-            )}
-          </div>
-
-          {isLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 size={24} className="text-primary animate-spin" />
-              <span className="ml-3 text-sm text-on-surface/50 font-medium">Finding restaurants...</span>
-            </div>
-          ) : places.length === 0 ? (
-            <div className="text-center py-16">
-              <p className="text-on-surface/40 text-sm font-medium">No restaurants found</p>
-              <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
-              {places.map((place) => (
-                <RestaurantCard
-                  key={place.id}
-                  {...placeToCardProps(place)}
-                />
+            <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar mb-6">
+              {QUICK_FILTERS.map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => handleFilterClick(filter)}
+                  className={`whitespace-nowrap px-5 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all ${
+                    activeFilter === filter
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-white border-muted hover:border-primary hover:text-primary'
+                  }`}
+                >
+                  {filter}
+                </button>
               ))}
             </div>
-          )}
-        </section>
 
-        <section className="bg-secondary/10 rounded-[2rem] p-8 mb-12 overflow-hidden relative">
-          <div className="relative z-10">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary mb-2">Your Circle's Palate</p>
-            <h2 className="text-2xl font-serif font-bold mb-6">The Collective Taste</h2>
-            <RadarChart data={TASTE_DATA} color="#5c6144" />
-            <p className="text-xs text-on-surface/60 mt-6 leading-relaxed">
-              Your circle is currently leaning towards <span className="text-secondary font-bold italic">Umami</span> and <span className="text-secondary font-bold italic">Bitter</span> profiles. Explore spots that match this trend.
-            </p>
-          </div>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-secondary/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
-        </section>
+            <section className="mb-12">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-serif font-bold">
+                  {activeFilter || searchQuery ? 'Results' : 'Curated for You'}
+                </h2>
+                {places.length > 0 && (
+                  <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">
+                    {places.length} found
+                  </span>
+                )}
+              </div>
+
+              {isLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 size={24} className="text-primary animate-spin" />
+                  <span className="ml-3 text-sm text-on-surface/50 font-medium">Finding restaurants...</span>
+                </div>
+              ) : places.length === 0 ? (
+                <div className="text-center py-16">
+                  <p className="text-on-surface/40 text-sm font-medium">No restaurants found</p>
+                  <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
+                  {places.map((place) => (
+                    <RestaurantCard
+                      key={place.id}
+                      {...placeToCardProps(place)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="bg-secondary/10 rounded-[2rem] p-8 mb-12 overflow-hidden relative">
+              <div className="relative z-10">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary mb-2">Your Circle's Palate</p>
+                <h2 className="text-2xl font-serif font-bold mb-6">The Collective Taste</h2>
+                <RadarChart data={TASTE_DATA} color="#5c6144" />
+                <p className="text-xs text-on-surface/60 mt-6 leading-relaxed">
+                  Your circle is currently leaning towards <span className="text-secondary font-bold italic">Umami</span> and <span className="text-secondary font-bold italic">Bitter</span> profiles. Explore spots that match this trend.
+                </p>
+              </div>
+              <div className="absolute top-0 right-0 w-32 h-32 bg-secondary/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
+            </section>
+          </>
+        ) : (
+          <CircleActivity />
+        )}
       </main>
 
       {/* Filter Panel */}
