@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search,
+  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search, Share2,
 } from 'lucide-react';
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -140,7 +140,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
     <div className="pb-16 bg-surface min-h-screen">
 
       {/* ── Hero — wide cinematic banner ── */}
-      <div className="relative w-full aspect-[16/9] max-h-[55vh] overflow-hidden">
+      <div className="relative w-full aspect-[16/9] max-h-[65vh] overflow-hidden">
         {photos.length > 0 ? (
           <button
             onClick={() => setGalleryOpen(true)}
@@ -200,16 +200,30 @@ export const RestaurantDetailDesktop: React.FC = () => {
           <ArrowLeft size={20} />
         </button>
 
-        {/* Photo count badge */}
-        {photos.length > 1 && (
+        {/* Top-right actions */}
+        <div className="absolute top-6 right-6 flex items-center gap-2 z-10">
           <button
-            onClick={() => setGalleryOpen(true)}
-            className="absolute top-6 right-6 flex items-center gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 text-xs font-medium hover:bg-black/40 transition-colors z-10"
+            onClick={() => {
+              if (navigator.share) {
+                navigator.share({ title: place.name, url: window.location.href });
+              } else {
+                navigator.clipboard.writeText(window.location.href);
+              }
+            }}
+            className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/40 transition-colors"
           >
-            <Images size={14} />
-            {photos.length}
+            <Share2 size={18} />
           </button>
-        )}
+          {photos.length > 1 && (
+            <button
+              onClick={() => setGalleryOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 text-xs font-medium hover:bg-black/40 transition-colors"
+            >
+              <Images size={14} />
+              {photos.length}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Content — centered with max-width ── */}

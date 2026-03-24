@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search,
+  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search, Share2,
 } from 'lucide-react';
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -140,7 +140,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     <div className="pb-32 bg-surface min-h-screen">
 
       {/* ── Hero — full-bleed tall image, text at very bottom ── */}
-      <div className="relative w-full overflow-hidden" style={{ height: '65vh', maxHeight: '80vh' }}>
+      <div className="relative w-full overflow-hidden" style={{ height: '75vh', maxHeight: '85vh' }}>
         {photos.length > 0 ? (
           <button
             onClick={() => setGalleryOpen(true)}
@@ -205,16 +205,30 @@ export const RestaurantDetailMobile: React.FC = () => {
           <ArrowLeft size={18} />
         </button>
 
-        {/* Photo count badge */}
-        {photos.length > 1 && (
+        {/* Top-right actions */}
+        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
           <button
-            onClick={() => setGalleryOpen(true)}
-            className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 text-xs font-medium z-10"
+            onClick={() => {
+              if (navigator.share) {
+                navigator.share({ title: place.name, url: window.location.href });
+              } else {
+                navigator.clipboard.writeText(window.location.href);
+              }
+            }}
+            className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80"
           >
-            <Images size={14} />
-            {photos.length}
+            <Share2 size={16} />
           </button>
-        )}
+          {photos.length > 1 && (
+            <button
+              onClick={() => setGalleryOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 text-xs font-medium"
+            >
+              <Images size={14} />
+              {photos.length}
+            </button>
+          )}
+        </div>
 
         {/* Name + badges — anchored at very bottom, white on dark gradient */}
         <div className="absolute bottom-10 left-5 right-5 z-10 pointer-events-none">
