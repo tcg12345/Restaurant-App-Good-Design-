@@ -3,7 +3,7 @@ import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { RadarChart } from '../components/RadarChart';
 import { CircleActivity } from '../components/CircleActivity';
-import { Search, Filter, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight } from 'lucide-react';
+import { Search, Filter, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
@@ -120,6 +120,7 @@ export const Home: React.FC = () => {
     setShowFiltersRaw(show);
     setHideBottomNav(show);
   }, [setHideBottomNav]);
+  const [showAllResults, setShowAllResults] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
@@ -157,6 +158,7 @@ export const Home: React.FC = () => {
     if (!query.trim()) return;
     setIsLoading(true);
     setActiveFilter(null);
+    setShowAllResults(false);
     try {
       const results = await searchPlacesByText(query, userLat, userLng);
       setRawPlaces(results);
@@ -179,6 +181,7 @@ export const Home: React.FC = () => {
   }, [searchQuery, handleSearch]);
 
   const handleFilterClick = useCallback(async (filter: string) => {
+    setShowAllResults(false);
     if (activeFilter === filter) {
       // Deselect — reload nearby
       setActiveFilter(null);
@@ -327,16 +330,34 @@ export const Home: React.FC = () => {
                   <p className="text-on-surface/40 text-sm font-medium">No restaurants found</p>
                   <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
                 </div>
-              ) : (
-                <div className={cn("grid gap-3 sm:gap-4", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
-                  {places.map((place) => (
-                    <RestaurantCard
-                      key={place.id}
-                      {...placeToCardProps(place)}
-                    />
-                  ))}
-                </div>
-              )}
+              ) : (() => {
+                // 4 rows: 2 cols on mobile/sm, 4 on lg, 5 on 2xl
+                const initialCount = phoneMode ? 8 : 8;
+                const visiblePlaces = showAllResults ? places : places.slice(0, initialCount);
+                const hasMore = places.length > initialCount;
+
+                return (
+                  <>
+                    <div className={cn("grid gap-3 sm:gap-4", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
+                      {visiblePlaces.map((place) => (
+                        <RestaurantCard
+                          key={place.id}
+                          {...placeToCardProps(place)}
+                        />
+                      ))}
+                    </div>
+                    {hasMore && !showAllResults && (
+                      <button
+                        onClick={() => setShowAllResults(true)}
+                        className="w-full flex flex-col items-center gap-1 mt-4 py-3 text-on-surface/40 hover:text-primary transition-colors"
+                      >
+                        <span className="text-xs font-bold uppercase tracking-wider">Show all {places.length} results</span>
+                        <ChevronDown size={20} />
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
             </section>
 
             <section className="bg-secondary/10 rounded-[2rem] p-8 mb-12 overflow-hidden relative">
