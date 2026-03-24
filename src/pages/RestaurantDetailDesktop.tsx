@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus,
+  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search,
 } from 'lucide-react';
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -16,6 +16,7 @@ const PhotoGallery: React.FC<{
   onClose: () => void;
 }> = ({ photos, name, initialIndex, onClose }) => {
   const [viewIndex, setViewIndex] = useState(initialIndex);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -37,7 +38,8 @@ const PhotoGallery: React.FC<{
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl max-h-[92vh] flex flex-col"
+        className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl flex flex-col"
+        style={{ maxHeight: '92%' }}
       >
         {/* Handle + header */}
         <div className="flex-shrink-0 pt-3 pb-2 px-5">
@@ -50,6 +52,20 @@ const PhotoGallery: React.FC<{
             >
               <X size={20} className="text-on-surface/50" />
             </button>
+          </div>
+        </div>
+
+        {/* Search bar */}
+        <div className="flex-shrink-0 px-5 pb-3">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
+            <input
+              type="text"
+              placeholder="Search photos..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all"
+            />
           </div>
         </div>
 
@@ -69,7 +85,7 @@ const PhotoGallery: React.FC<{
         </div>
 
         {/* Thumbnail grid */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-8">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
           <div className="grid grid-cols-3 gap-2">
             {photos.map((url, i) => (
               <button
