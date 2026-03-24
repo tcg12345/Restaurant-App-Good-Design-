@@ -141,11 +141,9 @@ export async function searchNearbyRestaurants(
     },
   };
 
-  const textQueries = hasLocation
-    ? [`best restaurants in ${locationName}`, `popular dining in ${locationName}`, `top rated restaurants in ${locationName}`]
-    : ['best restaurants', 'popular dining', 'top rated restaurants'];
+  const textQueries = ['best restaurants', 'popular dining', 'top rated restaurants'];
 
-  console.log('[Places] multi-query request:', lat, lng, radiusMeters, hasLocation ? `(location: ${locationName})` : '');
+  console.log('[Places] multi-query request:', lat, lng, radiusMeters, hasLocation ? `(restricted to ${locationName})` : '');
 
   // When location is set, restrict text queries to the area; otherwise just bias
   const locationParam = hasLocation
@@ -162,6 +160,7 @@ export async function searchNearbyRestaurants(
       },
       body: JSON.stringify({
         textQuery: q,
+        includedType: 'restaurant',
         maxResultCount: 20,
         ...locationParam,
       }),
@@ -212,12 +211,9 @@ async function searchWithFilters(
     : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: filterRadius } } };
 
   const promises = queries.map(async (cuisine) => {
-    const textQuery = hasLocation
-      ? `${cuisine} restaurant in ${locationName}`
-      : `${cuisine} restaurant`;
-
     const body: any = {
-      textQuery,
+      textQuery: cuisine,
+      includedType: 'restaurant',
       maxResultCount: 20,
       ...locationParam,
     };
@@ -256,23 +252,22 @@ export async function searchPlacesByText(
   lng: number,
   locationName?: string,
 ): Promise<PlaceResult[]> {
-  // Build the text query: include location name for specificity when set
   const hasLocation = !!locationName && locationName !== 'Current Location';
-  const textQuery = hasLocation
-    ? `${query} restaurant ${locationName}`
-    : `${query} restaurant`;
 
+  // Use includedType to restrict to restaurants instead of polluting the query text.
+  // Keep the user's raw query clean so Google can match restaurant names accurately.
   const body: any = {
-    textQuery,
+    textQuery: query,
+    includedType: 'restaurant',
     maxResultCount: 20,
   };
 
   if (hasLocation) {
-    // When user has explicitly picked a location, restrict results to that area
+    // Restrict results to the selected location area
     body.locationRestriction = {
       circle: {
         center: { latitude: lat, longitude: lng },
-        radius: 8000,
+        radius: 10000,
       },
     };
   } else {
@@ -284,7 +279,7 @@ export async function searchPlacesByText(
     };
   }
 
-  console.log('[Places] textSearch request:', textQuery, hasLocation ? '(restricted)' : '(biased)');
+  console.log('[Places] textSearch request:', query, hasLocation ? `(restricted to ${locationName})` : '(biased)');
 
   const res = await fetch(`${BASE_URL}/places:searchText`, {
     method: 'POST',

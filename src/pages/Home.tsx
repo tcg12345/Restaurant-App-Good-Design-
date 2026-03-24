@@ -99,12 +99,13 @@ function saveSearchState(state: any) {
 function loadSearchState(): any | null {
   try {
     const raw = sessionStorage.getItem(SEARCH_STATE_KEY);
-    if (raw) {
-      sessionStorage.removeItem(SEARCH_STATE_KEY);
-      return JSON.parse(raw);
-    }
+    if (raw) return JSON.parse(raw);
   } catch {}
   return null;
+}
+
+function clearSearchState() {
+  try { sessionStorage.removeItem(SEARCH_STATE_KEY); } catch {}
 }
 
 export const Home: React.FC = () => {
@@ -162,8 +163,9 @@ export const Home: React.FC = () => {
     setPlaces(applyLocalFilters(rawPlaces, sortBy, selectedPrice));
   }, [rawPlaces, sortBy, selectedPrice]);
 
-  // Get user location on mount
+  // Get user location on mount (skip if we restored a custom location from saved state)
   useEffect(() => {
+    if (ss?.locationLabel) return; // restored state has a custom location — don't override
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -245,10 +247,16 @@ export const Home: React.FC = () => {
   }, [userLat, userLng, locationLabel]);
 
   // Auto-search after user stops typing for 500ms
+  // Skip the first trigger if we restored saved state (results are already loaded)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipInitialSearch = useRef(!!ss);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!searchQuery.trim() || !searchActive) return;
+    if (skipInitialSearch.current) {
+      skipInitialSearch.current = false;
+      return;
+    }
     debounceRef.current = setTimeout(() => {
       handleSearch(searchQuery);
     }, 500);
@@ -308,7 +316,7 @@ export const Home: React.FC = () => {
     setActiveFilter(null);
     setShowAllResults(false);
     setShowLocationResults(false);
-    try { sessionStorage.removeItem(SEARCH_STATE_KEY); } catch {}
+    clearSearchState();
   };
 
   return (
