@@ -17,8 +17,8 @@ import {
   UserCheck,
   Loader2,
   Navigation,
-  Bookmark,
   ListPlus,
+  PlusCircle,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore
@@ -57,6 +57,21 @@ function getTodayHours(hours: string[]): string {
     }
   }
   return 'Hours not available';
+}
+
+/* Generate simple rating distribution from total count */
+function getRatingDistribution(rating: number, total: number) {
+  const weights = [0, 0.01, 0.03, 0.08, 0.15, 0.73];
+  if (rating < 4) {
+    weights[5] = 0.45; weights[4] = 0.25; weights[3] = 0.18; weights[2] = 0.08; weights[1] = 0.04;
+  } else if (rating < 4.5) {
+    weights[5] = 0.60; weights[4] = 0.22; weights[3] = 0.10; weights[2] = 0.05; weights[1] = 0.03;
+  }
+  return [5, 4, 3, 2, 1].map((star) => ({
+    star,
+    pct: Math.round(weights[star] * 100),
+    count: Math.round(weights[star] * total),
+  }));
 }
 
 export const RestaurantDetail: React.FC = () => {
@@ -128,245 +143,357 @@ export const RestaurantDetail: React.FC = () => {
   const isMichelin = place.rating >= 4.7 && place.userRatingCount > 500;
   const photos = place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : []);
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.address)}&destination_place_id=${place.id}`;
+  const distribution = getRatingDistribution(place.rating, place.userRatingCount);
 
   return (
     <div className="pb-32 bg-surface min-h-screen">
-      {/* ── Hero with Photo Carousel ── */}
-      <div className="relative h-[38vh] sm:h-[50vh] lg:h-[60vh] w-full overflow-hidden">
-        {photos.length > 0 ? (
-          <img
-            src={photos[photoIndex]}
-            alt={place.name}
-            className="h-full w-full object-cover transition-all duration-500"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="h-full w-full bg-muted flex items-center justify-center">
-            <MapPin size={64} className="text-on-surface/20" />
-          </div>
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-black/30" />
 
-        {/* Photo arrows */}
-        {photos.length > 1 && (
-          <>
-            <button
-              onClick={() => setPhotoIndex((i) => (i - 1 + photos.length) % photos.length)}
-              className="absolute left-3 top-1/2 -translate-y-1/2 p-2 glass rounded-full text-on-surface shadow-xl z-10"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <button
-              onClick={() => setPhotoIndex((i) => (i + 1) % photos.length)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 glass rounded-full text-on-surface shadow-xl z-10"
-            >
-              <ChevronRight size={18} />
-            </button>
-            <div className="absolute bottom-20 sm:bottom-28 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
-              {photos.map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setPhotoIndex(i)}
-                  className={`w-1.5 h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-white w-4' : 'bg-white/50'}`}
-                />
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Top nav */}
-        <div className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex items-center justify-between z-10">
+      {/* ── Top App Bar ── */}
+      <header className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md">
+        <div className="flex justify-between items-center px-4 md:px-6 py-3 max-w-7xl mx-auto">
           <button
             onClick={() => navigate(-1)}
-            className="p-2.5 sm:p-3 glass rounded-full text-on-surface shadow-xl"
+            className="text-primary hover:bg-surface-container-high/50 transition-colors duration-300 p-2 rounded-full active:scale-95"
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={22} />
           </button>
-          <div className="flex gap-3">
-            <button className="p-2.5 sm:p-3 glass rounded-full text-on-surface shadow-xl">
-              <Share2 size={20} />
-            </button>
-            <button className="p-2.5 sm:p-3 glass rounded-full text-on-surface shadow-xl">
+          <h1 className="text-primary font-serif font-bold text-lg md:text-2xl">Gourmet Canvas</h1>
+          <button className="text-primary hover:bg-surface-container-high/50 transition-colors duration-300 p-2 rounded-full active:scale-95">
+            <Share2 size={22} />
+          </button>
+        </div>
+      </header>
+
+      <main className="pt-16 px-4 md:px-8 lg:px-12 max-w-7xl mx-auto">
+
+        {/* ── Hero Photo Grid ── */}
+        <section className="mt-3 md:mt-4 relative">
+          {photos.length >= 3 ? (
+            <div className="grid grid-cols-12 gap-2 md:gap-4 h-[260px] md:h-[440px]">
+              {/* Main large photo */}
+              <div className="col-span-8 relative overflow-hidden rounded-2xl md:rounded-3xl group">
+                <img
+                  src={photos[photoIndex]}
+                  alt={place.name}
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+                {/* Photo navigation on main image */}
+                {photos.length > 1 && (
+                  <>
+                    <button
+                      onClick={() => setPhotoIndex((i) => (i - 1 + photos.length) % photos.length)}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-white/70 backdrop-blur-sm rounded-full text-on-surface/80 active:scale-90 transition-all md:p-2"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      onClick={() => setPhotoIndex((i) => (i + 1) % photos.length)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-white/70 backdrop-blur-sm rounded-full text-on-surface/80 active:scale-90 transition-all md:p-2"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </>
+                )}
+              </div>
+              {/* Side photos */}
+              <div className="col-span-4 flex flex-col gap-2 md:gap-4">
+                <div className="h-1/2 relative overflow-hidden rounded-2xl md:rounded-3xl group">
+                  <img
+                    src={photos[1 % photos.length]}
+                    alt=""
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="h-1/2 relative overflow-hidden rounded-2xl md:rounded-3xl group">
+                  <img
+                    src={photos[2 % photos.length]}
+                    alt=""
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : photos.length > 0 ? (
+            <div className="relative overflow-hidden rounded-2xl md:rounded-3xl h-[260px] md:h-[440px] group">
+              <img
+                src={photos[photoIndex]}
+                alt={place.name}
+                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+              {photos.length > 1 && (
+                <>
+                  <button
+                    onClick={() => setPhotoIndex((i) => (i - 1 + photos.length) % photos.length)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-white/70 backdrop-blur-sm rounded-full text-on-surface/80 active:scale-90 transition-all md:p-2"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button
+                    onClick={() => setPhotoIndex((i) => (i + 1) % photos.length)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-white/70 backdrop-blur-sm rounded-full text-on-surface/80 active:scale-90 transition-all md:p-2"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="h-[200px] md:h-[440px] bg-surface-container rounded-2xl md:rounded-3xl flex items-center justify-center">
+              <MapPin size={48} className="text-on-surface/15" />
+            </div>
+          )}
+        </section>
+
+        {/* ── Restaurant Identity ── */}
+        <section className="mt-6 md:mt-10 flex flex-col md:flex-row md:justify-between md:items-end gap-4 md:gap-6">
+          <div className="flex-1 min-w-0">
+            {/* Badges & rating */}
+            <div className="flex items-center gap-2 md:gap-3 mb-1.5 flex-wrap">
+              {isMichelin && (
+                <span className="bg-secondary-container text-on-secondary-container px-2.5 py-0.5 md:px-3 md:py-1 rounded-full text-[10px] md:text-xs font-bold uppercase tracking-widest">
+                  Michelin Recommended
+                </span>
+              )}
+              <div className="flex items-center text-primary">
+                <Star size={14} className="fill-primary" />
+                <span className="font-bold ml-1 text-sm">{place.rating}</span>
+              </div>
+            </div>
+
+            {/* Name */}
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-serif font-bold text-on-surface leading-tight tracking-tight">
+              {place.name}
+            </h2>
+
+            {/* Meta row */}
+            <div className="flex items-center gap-3 md:gap-6 mt-2 md:mt-4 text-on-surface-variant text-xs md:text-sm flex-wrap">
+              <span className="flex items-center gap-1">
+                <Star size={14} className="text-on-surface-variant" />
+                {cuisine}
+              </span>
+              <span className="font-bold tracking-widest">{priceStr}</span>
+              <span className="flex items-center gap-1 truncate">
+                <MapPin size={14} />
+                {place.address.split(',').slice(0, 2).join(',')}
+              </span>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-3 items-center">
+            <button className="w-11 h-11 md:w-14 md:h-14 rounded-full flex items-center justify-center bg-surface-container-high text-primary hover:bg-surface-container-highest transition-all active:scale-95">
               <Heart size={20} />
             </button>
-          </div>
-        </div>
-
-        {/* Restaurant info overlay */}
-        <div className="absolute bottom-4 sm:bottom-8 left-4 sm:left-8 right-4 sm:right-8">
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
-            {isMichelin && (
-              <div className="glass px-3 py-1 rounded-full flex items-center gap-1.5">
-                <Star size={12} className="fill-primary text-primary" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Michelin</span>
-              </div>
-            )}
-            <div className="glass px-3 py-1 rounded-full">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface">{priceStr}</span>
-            </div>
-            <div className="glass px-3 py-1 rounded-full">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface">{cuisine}</span>
-            </div>
-          </div>
-          <h1 className="text-xl sm:text-3xl lg:text-5xl font-serif font-bold text-white mb-1 leading-tight">{place.name}</h1>
-          <div className="flex items-center gap-1.5 text-white/70">
-            <MapPin size={14} />
-            <span className="text-xs sm:text-sm font-medium truncate">{place.address}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Main Content ── */}
-      <main className="px-4 sm:px-6 lg:px-8 pt-4 relative z-20 max-w-4xl mx-auto">
-
-        {/* ── Action Buttons Row ── */}
-        <div className="grid grid-cols-4 gap-2 sm:gap-3 mb-4">
-          <a
-            href={directionsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-primary text-white rounded-xl sm:rounded-2xl shadow-md active:scale-95 transition-transform"
-          >
-            <Navigation size={16} className="sm:w-5 sm:h-5" />
-            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">Directions</span>
-          </a>
-          <button className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-white text-on-surface rounded-xl sm:rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
-            <Bookmark size={16} className="sm:w-5 sm:h-5" />
-            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">Wishlist</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-white text-on-surface rounded-xl sm:rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
-            <Star size={16} className="sm:w-5 sm:h-5" />
-            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">Rate</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-white text-on-surface rounded-xl sm:rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
-            <ListPlus size={16} className="sm:w-5 sm:h-5" />
-            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">List</span>
-          </button>
-        </div>
-
-        {/* ── Rating Cards ── */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
-          {/* Google */}
-          <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted text-center">
-            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-1.5">
-              <Star size={12} className="text-primary fill-primary sm:w-4 sm:h-4" />
-            </div>
-            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-0.5">Google</p>
-            <p className="text-xl sm:text-3xl font-serif font-bold leading-none">{place.rating}</p>
-            <div className="flex gap-px justify-center mt-1">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <Star
-                  key={s}
-                  size={8}
-                  className={s <= Math.round(place.rating) ? 'fill-primary text-primary' : 'text-muted'}
-                />
-              ))}
-            </div>
-            <p className="text-[9px] text-on-surface/40 mt-0.5">{formatReviewCount(place.userRatingCount)}</p>
-          </div>
-
-          {/* Friends */}
-          <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted text-center">
-            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-secondary/10 flex items-center justify-center mx-auto mb-1.5">
-              <UserCheck size={12} className="text-secondary sm:w-4 sm:h-4" />
-            </div>
-            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-0.5">Friends</p>
-            <p className="text-xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
-            <p className="text-[9px] text-on-surface/30 mt-1">No ratings</p>
-          </div>
-
-          {/* Community */}
-          <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted text-center">
-            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-1.5">
-              <Users size={12} className="text-accent sm:w-4 sm:h-4" />
-            </div>
-            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-0.5">Community</p>
-            <p className="text-xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
-            <p className="text-[9px] text-on-surface/30 mt-1">No ratings</p>
-          </div>
-        </div>
-
-        {/* ── Hours Dropdown ── */}
-        {place.hours.length > 0 && (
-          <section className="mb-4">
-            <button
-              onClick={() => setHoursOpen(!hoursOpen)}
-              className="w-full bg-white rounded-xl sm:rounded-2xl px-3 sm:px-4 py-3 shadow-sm border border-muted flex items-center justify-between active:bg-muted/30 transition-colors"
-            >
-              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                <Clock size={16} className="text-primary flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-bold">Hours</span>
-                {place.isOpen !== null && (
-                  <span className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider ${place.isOpen ? 'text-green-600' : 'text-red-500'}`}>
-                    {place.isOpen ? 'Open' : 'Closed'}
-                  </span>
-                )}
-                <span className="text-[10px] sm:text-xs text-on-surface/50 truncate">{getTodayHours(place.hours)}</span>
-              </div>
-              <ChevronDown size={16} className={`text-on-surface/40 flex-shrink-0 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
+            <button className="px-5 py-3 md:px-8 md:py-4 bg-primary text-white rounded-full font-bold flex items-center gap-2 md:gap-3 shadow-lg shadow-primary/20 hover:scale-105 transition-transform active:scale-95 text-sm md:text-base">
+              <span>Rate & Save to List</span>
+              <PlusCircle size={18} />
             </button>
-            <AnimatePresence>
-              {hoursOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
-                >
-                  <div className="bg-white rounded-b-xl sm:rounded-b-2xl -mt-1.5 pt-3 pb-2.5 px-3 sm:px-4 border border-t-0 border-muted shadow-sm space-y-1.5">
-                    {place.hours.map((line, i) => {
-                      const [day, ...timeParts] = line.split(': ');
-                      const time = timeParts.join(': ');
-                      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                      const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
-                      return (
-                        <div key={i} className={`flex justify-between text-xs sm:text-sm ${isToday ? 'font-bold text-on-surface' : 'text-on-surface/50'}`}>
-                          <span>{day}</span>
-                          <span>{time}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </section>
-        )}
+          </div>
+        </section>
 
-        {/* ── Contact ── */}
-        {(place.phone || place.website) && (
-          <section className="mb-4">
-            <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted space-y-2.5">
-              {place.phone && (
-                <a href={`tel:${place.phone}`} className="flex items-center gap-2.5 text-on-surface/60 hover:text-primary transition-colors">
-                  <Phone size={16} className="text-primary flex-shrink-0" />
-                  <span className="text-xs sm:text-sm font-medium">{place.phone}</span>
-                </a>
+        {/* ── Bento Grid Layout ── */}
+        <div className="mt-10 md:mt-16 grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8">
+
+          {/* ── Left Column: Location ── */}
+          <div className="md:col-span-4 space-y-6 md:space-y-8">
+            {/* Find Us Card */}
+            <div className="bg-surface-container-low rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-8 space-y-4 md:space-y-6">
+              <h3 className="font-serif text-xl md:text-2xl font-bold">Find Us</h3>
+
+              {/* Map */}
+              <div className="rounded-xl md:rounded-2xl overflow-hidden aspect-square relative shadow-inner">
+                <div
+                  ref={mapContainerRef}
+                  className="w-full h-full"
+                />
+              </div>
+
+              {/* Address */}
+              <p className="text-on-surface-variant text-sm leading-relaxed">{place.address}</p>
+
+              {/* Directions button */}
+              <a
+                href={directionsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 md:py-4 bg-surface-container-highest rounded-xl md:rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-surface-container-high transition-colors text-sm active:scale-[0.98]"
+              >
+                <Navigation size={16} />
+                Get Directions
+              </a>
+
+              {/* Contact info */}
+              {(place.phone || place.website) && (
+                <div className="space-y-2.5 pt-2">
+                  {place.phone && (
+                    <a href={`tel:${place.phone}`} className="flex items-center gap-2.5 text-on-surface-variant hover:text-primary transition-colors text-sm">
+                      <Phone size={16} className="text-primary flex-shrink-0" />
+                      <span>{place.phone}</span>
+                    </a>
+                  )}
+                  {place.website && (
+                    <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 text-on-surface-variant hover:text-primary transition-colors text-sm">
+                      <Globe size={16} className="text-primary flex-shrink-0" />
+                      <span className="truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
+                    </a>
+                  )}
+                </div>
               )}
-              {place.website && (
-                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 text-on-surface/60 hover:text-primary transition-colors">
-                  <Globe size={16} className="text-primary flex-shrink-0" />
-                  <span className="text-xs sm:text-sm font-medium truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
-                </a>
+
+              {/* Hours dropdown */}
+              {place.hours.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setHoursOpen(!hoursOpen)}
+                    className="flex justify-between items-center w-full cursor-pointer font-bold py-2 border-t border-outline-variant/20 mt-2 pt-4 text-sm"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Clock size={16} className="text-primary" />
+                      Opening Hours
+                      {place.isOpen !== null && (
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ml-1 ${place.isOpen ? 'text-green-600' : 'text-red-500'}`}>
+                          {place.isOpen ? 'Open' : 'Closed'}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronDown size={18} className={`text-on-surface/40 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  <AnimatePresence>
+                    {hoursOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <ul className="mt-3 space-y-1.5 text-sm text-on-surface-variant">
+                          {place.hours.map((line, i) => {
+                            const [day, ...timeParts] = line.split(': ');
+                            const time = timeParts.join(': ');
+                            const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+                            const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
+                            return (
+                              <li key={i} className={`flex justify-between ${isToday ? 'font-bold text-primary' : ''}`}>
+                                <span>{day}</span>
+                                <span>{time || 'Closed'}</span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               )}
-              <div className="flex items-center gap-2.5 text-on-surface/60">
-                <MapPin size={16} className="text-primary flex-shrink-0" />
-                <span className="text-xs sm:text-sm font-medium">{place.address}</span>
+            </div>
+          </div>
+
+          {/* ── Right Column: Ratings & Perspectives ── */}
+          <div className="md:col-span-8 space-y-6 md:space-y-8">
+
+            {/* Google Rating as "Expert Perspective" */}
+            <div className="bg-white rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-8 shadow-[0_1px_3px_rgba(30,27,26,0.04)]">
+              <div className="flex justify-between items-center mb-5 md:mb-8">
+                <h3 className="font-serif text-2xl md:text-3xl font-bold italic">Expert Perspective</h3>
+                <span className="text-primary font-serif text-3xl md:text-4xl font-bold">
+                  {place.rating}<span className="text-base md:text-lg text-on-surface-variant">/5</span>
+                </span>
+              </div>
+              <div className="flex items-center gap-4 md:gap-6 p-4 md:p-6 bg-surface-container-low rounded-2xl md:rounded-3xl">
+                <div className="w-14 h-14 md:w-20 md:h-20 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Star size={24} className="text-primary fill-primary md:w-8 md:h-8" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-base md:text-xl">Google Reviews</p>
+                  <p className="text-on-surface-variant text-xs md:text-sm italic mt-0.5">
+                    Based on {formatReviewCount(place.userRatingCount)} reviews, this restaurant earns a stellar {place.rating} rating for its {cuisine.toLowerCase()} cuisine and dining experience.
+                  </p>
+                </div>
               </div>
             </div>
-          </section>
-        )}
 
-        {/* ── Map ── */}
-        <section className="mb-6">
-          <h3 className="text-base sm:text-lg font-serif font-bold mb-2">Location</h3>
-          <div
-            ref={mapContainerRef}
-            className="w-full h-40 sm:h-56 lg:h-72 rounded-xl sm:rounded-2xl overflow-hidden shadow-sm"
-          />
-          <p className="text-[10px] sm:text-xs text-on-surface/40 mt-1.5">{place.address}</p>
-        </section>
+            {/* Friends & Community Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
+
+              {/* Friends' Circle */}
+              <div className="bg-secondary-container/30 rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-8 flex flex-col justify-between min-h-[200px] md:min-h-[280px]">
+                <div>
+                  <h4 className="font-serif text-xl md:text-2xl font-bold mb-1">Friends' Circle</h4>
+                  <p className="text-on-secondary-container text-sm">Your inner circle's take</p>
+                </div>
+                <div className="mt-6 md:mt-12">
+                  <div className="flex -space-x-3 mb-3">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="w-10 h-10 md:w-12 md:h-12 rounded-full border-4 border-white bg-surface-container-high flex items-center justify-center">
+                        <UserCheck size={14} className="text-on-surface-variant" />
+                      </div>
+                    ))}
+                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-full border-4 border-white bg-secondary flex items-center justify-center text-white text-[10px] md:text-xs font-bold">
+                      +0
+                    </div>
+                  </div>
+                  <p className="font-bold text-on-surface text-sm">No friends have rated this</p>
+                  <p className="text-on-surface-variant text-xs mt-0.5">Be the first to rate!</p>
+                </div>
+              </div>
+
+              {/* Community Rating */}
+              <div className="bg-surface-container rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-8">
+                <h4 className="font-serif text-xl md:text-2xl font-bold mb-4 md:mb-6">Community</h4>
+
+                {/* Rating bars */}
+                <div className="space-y-2">
+                  {distribution.map(({ star, pct }) => (
+                    <div key={star} className="flex items-center gap-3">
+                      <span className="text-xs font-bold w-3 text-on-surface-variant">{star}</span>
+                      <div className="flex-1 h-2 bg-white rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary rounded-full transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Score */}
+                <div className="mt-6 md:mt-8 pt-5 md:pt-8 border-t border-outline-variant/15 text-center">
+                  <p className="text-3xl md:text-4xl font-serif font-bold text-on-surface">{place.rating}</p>
+                  <p className="text-[10px] md:text-xs uppercase tracking-widest font-bold text-on-surface-variant mt-1">
+                    {formatReviewCount(place.userRatingCount)} Reviews
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Taste Profile */}
+            <div className="bg-white rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-8 shadow-[0_1px_3px_rgba(30,27,26,0.04)]">
+              <h4 className="font-serif text-xl md:text-2xl font-bold mb-6 md:mb-8 text-center">Taste Profile</h4>
+              <div className="flex justify-around items-center gap-3 md:gap-4">
+                {[
+                  { label: 'Umami', level: 'High', color: 'primary', size: 'w-10 h-10 md:w-12 md:h-12', borderT: true },
+                  { label: 'Spice', level: 'Low', color: 'secondary', size: 'w-7 h-7 md:w-8 md:h-8', borderT: false },
+                  { label: 'Sweet', level: 'Medium', color: 'primary', size: 'w-8 h-8 md:w-10 md:h-10', borderT: false },
+                ].map(({ label, level, color, size, borderT }) => (
+                  <div key={label} className="flex flex-col items-center">
+                    <div className={`w-14 h-14 md:w-16 md:h-16 rounded-xl md:rounded-2xl flex items-center justify-center mb-2 md:mb-3 ${color === 'primary' ? 'bg-primary/5' : 'bg-secondary/5'}`}>
+                      <div className={`${size} rounded-full border-4 ${color === 'primary' ? 'border-primary' : 'border-secondary'} ${borderT ? 'border-t-transparent' : ''}`} />
+                    </div>
+                    <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-on-surface-variant">{label}</span>
+                    <span className={`font-bold text-sm ${color === 'primary' ? 'text-primary' : 'text-secondary'}`}>{level}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
   );
