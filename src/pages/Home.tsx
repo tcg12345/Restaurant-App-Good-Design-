@@ -346,13 +346,15 @@ export const Home: React.FC = () => {
                         />
                       ))}
                     </div>
-                    {hasMore && !showAllResults && (
+                    {hasMore && (
                       <button
-                        onClick={() => setShowAllResults(true)}
+                        onClick={() => setShowAllResults(!showAllResults)}
                         className="w-full flex flex-col items-center gap-1 mt-4 py-3 text-on-surface/40 hover:text-primary transition-colors"
                       >
-                        <span className="text-xs font-bold uppercase tracking-wider">Show all {places.length} results</span>
-                        <ChevronDown size={20} />
+                        <span className="text-xs font-bold uppercase tracking-wider">
+                          {showAllResults ? 'Show less' : `Show all ${places.length} results`}
+                        </span>
+                        <ChevronDown size={20} className={cn("transition-transform", showAllResults && "rotate-180")} />
                       </button>
                     )}
                   </>
