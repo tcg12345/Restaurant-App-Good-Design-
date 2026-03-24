@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { RestaurantDetailMobile } from './RestaurantDetailMobile';
 import { RestaurantDetailDesktop } from './RestaurantDetailDesktop';
 
-function useIsMobile(breakpoint = 640) {
+function useIsMobile(breakpoint = 768) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < breakpoint);
 
   useEffect(() => {
