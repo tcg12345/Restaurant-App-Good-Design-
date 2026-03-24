@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, Bookmark, ExternalLink, X, Images, Users, UserCircle,
+  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus,
 } from 'lucide-react';
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -197,7 +197,13 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </div>
         </div>
 
-        {/* Action Buttons */}
+        {/* Add to List — full-width primary button */}
+        <button className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary text-white font-medium text-sm hover:bg-primary/90 transition-colors mb-3">
+          <ListPlus size={18} />
+          Add to List
+        </button>
+
+        {/* Action row — Directions, Website, Photos */}
         <div className="grid grid-cols-3 gap-3 mb-7">
           <a
             href={directionsUrl}
@@ -208,13 +214,28 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <Navigation size={18} />
             <span className="text-xs font-medium">Directions</span>
           </a>
-          <button className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors">
-            <Bookmark size={18} />
-            <span className="text-xs font-medium">Save</span>
-          </button>
-          <button className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors">
-            <Star size={18} />
-            <span className="text-xs font-medium">Review</span>
+          {place.website ? (
+            <a
+              href={place.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
+            >
+              <Globe size={18} />
+              <span className="text-xs font-medium">Website</span>
+            </a>
+          ) : (
+            <div className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/8 text-on-surface/30">
+              <Globe size={18} />
+              <span className="text-xs font-medium">Website</span>
+            </div>
+          )}
+          <button
+            onClick={() => setGalleryOpen(true)}
+            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
+          >
+            <Images size={18} />
+            <span className="text-xs font-medium">Photos</span>
           </button>
         </div>
 

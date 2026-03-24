@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, Bookmark, ExternalLink, X, Images, Users, UserCircle,
+  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus,
 } from 'lucide-react';
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -262,7 +262,13 @@ export const RestaurantDetailMobile: React.FC = () => {
       {/* ── Main Content ── */}
       <main className="px-5 pt-6">
 
-        {/* Action Buttons */}
+        {/* Add to List — full-width primary button */}
+        <button className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary text-white font-medium text-sm active:scale-[0.98] transition-transform mb-3">
+          <ListPlus size={18} />
+          Add to List
+        </button>
+
+        {/* Action row — Directions, Website, Photos */}
         <div className="grid grid-cols-3 gap-3 mb-7">
           <a
             href={directionsUrl}
@@ -273,13 +279,28 @@ export const RestaurantDetailMobile: React.FC = () => {
             <Navigation size={18} />
             <span className="text-[11px] font-medium">Directions</span>
           </a>
-          <button className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform">
-            <Bookmark size={18} />
-            <span className="text-[11px] font-medium">Save</span>
-          </button>
-          <button className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform">
-            <Star size={18} />
-            <span className="text-[11px] font-medium">Review</span>
+          {place.website ? (
+            <a
+              href={place.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
+            >
+              <Globe size={18} />
+              <span className="text-[11px] font-medium">Website</span>
+            </a>
+          ) : (
+            <div className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/8 text-on-surface/30">
+              <Globe size={18} />
+              <span className="text-[11px] font-medium">Website</span>
+            </div>
+          )}
+          <button
+            onClick={() => setGalleryOpen(true)}
+            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
+          >
+            <Images size={18} />
+            <span className="text-[11px] font-medium">Photos</span>
           </button>
         </div>
 
