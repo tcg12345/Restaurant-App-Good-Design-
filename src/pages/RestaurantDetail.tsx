@@ -216,12 +216,12 @@ export const RestaurantDetail: React.FC = () => {
   return (
     <div className="pb-32 bg-surface min-h-screen">
 
-      {/* ── Hero — taller, fades into page bg ── */}
-      <div className="relative w-full aspect-[3/4] sm:aspect-[16/10] lg:aspect-[16/9] max-h-[75vh] overflow-hidden">
+      {/* ── Hero — tall image with text anchored at very bottom ── */}
+      <div className="relative w-full min-h-[65vh] sm:min-h-[55vh] lg:min-h-[50vh] max-h-[80vh] overflow-hidden">
         {photos.length > 0 ? (
           <button
             onClick={() => setGalleryOpen(true)}
-            className="block h-full w-full cursor-pointer"
+            className="block h-full w-full cursor-pointer absolute inset-0"
           >
             <img
               src={photos[photoIndex]}
@@ -236,10 +236,15 @@ export const RestaurantDetail: React.FC = () => {
           </div>
         )}
 
-        {/* Gradient — fades into page background color */}
+        {/* Dark gradient for text legibility — bottom portion only */}
         <div
-          className="absolute inset-x-0 bottom-0 h-2/5 pointer-events-none"
-          style={{ background: 'linear-gradient(to top, #fff8f6 0%, #fff8f6 2%, rgba(255,248,246,0.85) 20%, rgba(255,248,246,0.4) 50%, transparent 100%)' }}
+          className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.45) 40%, rgba(0,0,0,0.1) 75%, transparent 100%)' }}
+        />
+        {/* Thin fade strip at the very bottom to blend into page bg */}
+        <div
+          className="absolute inset-x-0 bottom-0 h-8 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, #fff8f6, transparent)' }}
         />
 
         {/* Photo carousel arrows */}
@@ -257,12 +262,12 @@ export const RestaurantDetail: React.FC = () => {
             >
               <ChevronRight size={18} />
             </button>
-            <div className="absolute bottom-24 sm:bottom-24 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+            <div className="absolute bottom-[100px] sm:bottom-[110px] left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
               {photos.map((_, i) => (
                 <button
                   key={i}
                   onClick={(e) => { e.stopPropagation(); setPhotoIndex(i); }}
-                  className={`h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-on-surface/70 w-5' : 'bg-on-surface/20 w-1.5'}`}
+                  className={`h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-white w-5' : 'bg-white/40 w-1.5'}`}
                 />
               ))}
             </div>
@@ -288,18 +293,18 @@ export const RestaurantDetail: React.FC = () => {
           </button>
         )}
 
-        {/* Name + badges below name */}
-        <div className="absolute bottom-6 sm:bottom-10 left-5 sm:left-8 right-5 sm:right-8 z-10">
-          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-tight mb-2">{place.name}</h1>
+        {/* Name + badges — anchored at very bottom, white text on dark gradient */}
+        <div className="absolute bottom-10 left-5 sm:left-8 right-5 sm:right-8 z-10">
+          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-serif font-bold text-white leading-tight mb-1.5 drop-shadow-lg">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] sm:text-xs font-medium text-on-surface/55 uppercase tracking-wider">{cuisine}</span>
-            <span className="text-on-surface/25">·</span>
-            <span className="text-[11px] sm:text-xs font-medium text-on-surface/55 uppercase tracking-wider">{priceStr}</span>
+            <span className="text-[11px] sm:text-xs font-medium text-white/75 uppercase tracking-wider">{cuisine}</span>
+            <span className="text-white/35">·</span>
+            <span className="text-[11px] sm:text-xs font-medium text-white/75 uppercase tracking-wider">{priceStr}</span>
             {isMichelin && (
               <>
-                <span className="text-on-surface/25">·</span>
-                <span className="text-[11px] sm:text-xs font-medium text-on-surface/55 uppercase tracking-wider flex items-center gap-1">
-                  <Star size={10} className="fill-on-surface/55 text-on-surface/55" />
+                <span className="text-white/35">·</span>
+                <span className="text-[11px] sm:text-xs font-medium text-white/75 uppercase tracking-wider flex items-center gap-1">
+                  <Star size={10} className="fill-white/75 text-white/75" />
                   Michelin
                 </span>
               </>
