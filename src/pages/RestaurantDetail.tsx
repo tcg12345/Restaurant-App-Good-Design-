@@ -15,6 +15,8 @@ import {
   Navigation,
   Bookmark,
   ExternalLink,
+  X,
+  Images,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore
@@ -55,6 +57,85 @@ function getTodayHours(hours: string[]): string {
   return 'Hours not available';
 }
 
+/* ── Photo Gallery Bottom Sheet ── */
+const PhotoGallery: React.FC<{
+  photos: string[];
+  name: string;
+  initialIndex: number;
+  onClose: () => void;
+}> = ({ photos, name, initialIndex, onClose }) => {
+  const [viewIndex, setViewIndex] = useState(initialIndex);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl max-h-[92vh] flex flex-col"
+      >
+        {/* Handle + header */}
+        <div className="flex-shrink-0 pt-3 pb-2 px-5">
+          <div className="w-10 h-1 rounded-full bg-on-surface/15 mx-auto mb-3" />
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-serif font-bold">Photos</h2>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-full hover:bg-on-surface/5 transition-colors"
+            >
+              <X size={20} className="text-on-surface/50" />
+            </button>
+          </div>
+        </div>
+
+        {/* Featured photo */}
+        <div className="flex-shrink-0 px-5 pb-3">
+          <div className="relative rounded-2xl overflow-hidden aspect-[4/3]">
+            <img
+              src={photos[viewIndex]}
+              alt={`${name} photo ${viewIndex + 1}`}
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
+              {viewIndex + 1} / {photos.length}
+            </div>
+          </div>
+        </div>
+
+        {/* Thumbnail grid */}
+        <div className="flex-1 overflow-y-auto px-5 pb-8">
+          <div className="grid grid-cols-3 gap-2">
+            {photos.map((url, i) => (
+              <button
+                key={i}
+                onClick={() => setViewIndex(i)}
+                className={`relative aspect-square rounded-xl overflow-hidden ${i === viewIndex ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
+              >
+                <img
+                  src={url}
+                  alt={`${name} photo ${i + 1}`}
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
+
 export const RestaurantDetail: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -63,6 +144,7 @@ export const RestaurantDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [hoursOpen, setHoursOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
 
@@ -119,6 +201,7 @@ export const RestaurantDetail: React.FC = () => {
     );
   }
 
+  const priceStr = priceLevelToString(place.priceLevel);
   const cuisine = getCuisineLabel(place.types);
   const isMichelin = place.rating >= 4.7 && place.userRatingCount > 500;
   const photos = place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : []);
@@ -128,45 +211,53 @@ export const RestaurantDetail: React.FC = () => {
   return (
     <div className="pb-32 bg-surface min-h-screen">
 
-      {/* ── Hero ── */}
-      <div className="relative w-full aspect-[9/12] sm:aspect-[16/10] lg:aspect-[16/9] max-h-[70vh] overflow-hidden">
+      {/* ── Hero — taller, fades into page bg ── */}
+      <div className="relative w-full aspect-[3/4] sm:aspect-[16/10] lg:aspect-[16/9] max-h-[75vh] overflow-hidden">
         {photos.length > 0 ? (
-          <img
-            src={photos[photoIndex]}
-            alt={place.name}
-            className="h-full w-full object-cover transition-all duration-500"
-            referrerPolicy="no-referrer"
-          />
+          <button
+            onClick={() => setGalleryOpen(true)}
+            className="block h-full w-full cursor-pointer"
+          >
+            <img
+              src={photos[photoIndex]}
+              alt={place.name}
+              className="h-full w-full object-cover transition-all duration-500"
+              referrerPolicy="no-referrer"
+            />
+          </button>
         ) : (
           <div className="h-full w-full bg-muted flex items-center justify-center">
             <MapPin size={64} className="text-on-surface/20" />
           </div>
         )}
 
-        {/* Gradient — only bottom third */}
-        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent" />
+        {/* Gradient — fades into page background color */}
+        <div
+          className="absolute inset-x-0 bottom-0 h-2/5 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, #fff8f6 0%, #fff8f6 2%, rgba(255,248,246,0.85) 20%, rgba(255,248,246,0.4) 50%, transparent 100%)' }}
+        />
 
         {/* Photo carousel arrows */}
         {photos.length > 1 && (
           <>
             <button
-              onClick={() => setPhotoIndex((i) => (i - 1 + photos.length) % photos.length)}
+              onClick={(e) => { e.stopPropagation(); setPhotoIndex((i) => (i - 1 + photos.length) % photos.length); }}
               className="absolute left-4 top-1/2 -translate-y-1/2 p-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 z-10"
             >
               <ChevronLeft size={18} />
             </button>
             <button
-              onClick={() => setPhotoIndex((i) => (i + 1) % photos.length)}
+              onClick={(e) => { e.stopPropagation(); setPhotoIndex((i) => (i + 1) % photos.length); }}
               className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 z-10"
             >
               <ChevronRight size={18} />
             </button>
-            <div className="absolute bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+            <div className="absolute bottom-24 sm:bottom-24 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
               {photos.map((_, i) => (
                 <button
                   key={i}
-                  onClick={() => setPhotoIndex(i)}
-                  className={`h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-white w-5' : 'bg-white/40 w-1.5'}`}
+                  onClick={(e) => { e.stopPropagation(); setPhotoIndex(i); }}
+                  className={`h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-on-surface/70 w-5' : 'bg-on-surface/20 w-1.5'}`}
                 />
               ))}
             </div>
@@ -181,21 +272,34 @@ export const RestaurantDetail: React.FC = () => {
           <ArrowLeft size={18} />
         </button>
 
-        {/* Name + badges only */}
-        <div className="absolute bottom-5 sm:bottom-8 left-5 sm:left-8 right-5 sm:right-8 z-10">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-[11px] sm:text-xs font-medium text-white/70 uppercase tracking-wider">{cuisine}</span>
+        {/* Photo count badge */}
+        {photos.length > 1 && (
+          <button
+            onClick={() => setGalleryOpen(true)}
+            className="absolute top-4 right-4 sm:top-6 sm:right-6 flex items-center gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 text-xs font-medium z-10"
+          >
+            <Images size={14} />
+            {photos.length}
+          </button>
+        )}
+
+        {/* Name + badges below name */}
+        <div className="absolute bottom-6 sm:bottom-10 left-5 sm:left-8 right-5 sm:right-8 z-10">
+          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-tight mb-2">{place.name}</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] sm:text-xs font-medium text-on-surface/55 uppercase tracking-wider">{cuisine}</span>
+            <span className="text-on-surface/25">·</span>
+            <span className="text-[11px] sm:text-xs font-medium text-on-surface/55 uppercase tracking-wider">{priceStr}</span>
             {isMichelin && (
               <>
-                <span className="text-white/30">·</span>
-                <span className="text-[11px] sm:text-xs font-medium text-white/70 uppercase tracking-wider flex items-center gap-1">
-                  <Star size={10} className="fill-white/70 text-white/70" />
+                <span className="text-on-surface/25">·</span>
+                <span className="text-[11px] sm:text-xs font-medium text-on-surface/55 uppercase tracking-wider flex items-center gap-1">
+                  <Star size={10} className="fill-on-surface/55 text-on-surface/55" />
                   Michelin
                 </span>
               </>
             )}
           </div>
-          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-serif font-bold text-white leading-tight">{place.name}</h1>
         </div>
       </div>
 
@@ -348,6 +452,18 @@ export const RestaurantDetail: React.FC = () => {
         </section>
 
       </main>
+
+      {/* ── Photo Gallery Bottom Sheet ── */}
+      <AnimatePresence>
+        {galleryOpen && photos.length > 0 && (
+          <PhotoGallery
+            photos={photos}
+            name={place.name}
+            initialIndex={photoIndex}
+            onClose={() => setGalleryOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
