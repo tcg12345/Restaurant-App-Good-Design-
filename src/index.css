@@ -3,22 +3,13 @@
 @theme {
   --font-serif: "Noto Serif", serif;
   --font-sans: "Manrope", sans-serif;
-
+  
   --color-surface: #fff8f6;
   --color-on-surface: #1e1b1a;
-  --color-on-surface-variant: #58413c;
   --color-primary: #9f3012;
-  --color-primary-container: #c04828;
   --color-secondary: #5c6144;
-  --color-secondary-container: #e1e6c1;
-  --color-on-secondary-container: #62674a;
   --color-accent: #d4a373;
   --color-muted: #e5e1e0;
-  --color-surface-container-low: #faf2f0;
-  --color-surface-container: #f4ecea;
-  --color-surface-container-high: #eee7e4;
-  --color-surface-container-highest: #e8e1df;
-  --color-outline-variant: #dfbfb8;
 }
 
 @layer base {
