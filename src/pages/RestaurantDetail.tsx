@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft,
   Star,
@@ -12,9 +12,13 @@ import {
   Share2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Users,
   UserCheck,
   Loader2,
+  Navigation,
+  Bookmark,
+  ListPlus,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore
@@ -44,6 +48,17 @@ function getCuisineLabel(types: string[]): string {
   return 'Restaurant';
 }
 
+function getTodayHours(hours: string[]): string {
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+  for (const line of hours) {
+    const [day, ...timeParts] = line.split(': ');
+    if (today.startsWith(day.toLowerCase().slice(0, 3))) {
+      return timeParts.join(': ') || 'Hours not available';
+    }
+  }
+  return 'Hours not available';
+}
+
 export const RestaurantDetail: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -51,6 +66,7 @@ export const RestaurantDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [hoursOpen, setHoursOpen] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
 
@@ -64,7 +80,6 @@ export const RestaurantDetail: React.FC = () => {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Initialize map when place data loads
   useEffect(() => {
     if (!place || !mapContainerRef.current || mapRef.current || !MAPBOX_TOKEN) return;
 
@@ -112,11 +127,12 @@ export const RestaurantDetail: React.FC = () => {
   const cuisine = getCuisineLabel(place.types);
   const isMichelin = place.rating >= 4.7 && place.userRatingCount > 500;
   const photos = place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : []);
+  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.address)}&destination_place_id=${place.id}`;
 
   return (
     <div className="pb-32 bg-surface min-h-screen">
-      {/* Hero Section with Photo Carousel */}
-      <div className="relative h-[55vh] sm:h-[60vh] w-full overflow-hidden">
+      {/* ── Hero with Photo Carousel ── */}
+      <div className="relative h-[44vh] sm:h-[55vh] lg:h-[60vh] w-full overflow-hidden">
         {photos.length > 0 ? (
           <img
             src={photos[photoIndex]}
@@ -129,221 +145,228 @@ export const RestaurantDetail: React.FC = () => {
             <MapPin size={64} className="text-on-surface/20" />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-surface via-transparent to-black/40" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-black/30" />
 
-        {/* Photo navigation arrows */}
+        {/* Photo arrows */}
         {photos.length > 1 && (
           <>
             <button
               onClick={() => setPhotoIndex((i) => (i - 1 + photos.length) % photos.length)}
-              className="absolute left-4 top-1/2 -translate-y-1/2 p-2 glass rounded-full text-on-surface shadow-xl z-10"
+              className="absolute left-3 top-1/2 -translate-y-1/2 p-2 glass rounded-full text-on-surface shadow-xl z-10"
             >
-              <ChevronLeft size={20} />
+              <ChevronLeft size={18} />
             </button>
             <button
               onClick={() => setPhotoIndex((i) => (i + 1) % photos.length)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-2 glass rounded-full text-on-surface shadow-xl z-10"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-2 glass rounded-full text-on-surface shadow-xl z-10"
             >
-              <ChevronRight size={20} />
+              <ChevronRight size={18} />
             </button>
-            <div className="absolute bottom-32 sm:bottom-36 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+            <div className="absolute bottom-20 sm:bottom-28 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
               {photos.map((_, i) => (
                 <button
                   key={i}
                   onClick={() => setPhotoIndex(i)}
-                  className={`w-2 h-2 rounded-full transition-all ${i === photoIndex ? 'bg-white w-5' : 'bg-white/50'}`}
+                  className={`w-1.5 h-1.5 rounded-full transition-all ${i === photoIndex ? 'bg-white w-4' : 'bg-white/50'}`}
                 />
               ))}
             </div>
           </>
         )}
 
-        {/* Top navigation buttons */}
-        <div className="absolute top-6 left-6 right-6 flex items-center justify-between z-10">
+        {/* Top nav */}
+        <div className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex items-center justify-between z-10">
           <button
             onClick={() => navigate(-1)}
-            className="p-3 glass rounded-full text-on-surface shadow-xl"
+            className="p-2.5 sm:p-3 glass rounded-full text-on-surface shadow-xl"
           >
-            <ArrowLeft size={24} />
+            <ArrowLeft size={20} />
           </button>
-          <div className="flex gap-4">
-            <button className="p-3 glass rounded-full text-on-surface shadow-xl">
-              <Share2 size={24} />
+          <div className="flex gap-3">
+            <button className="p-2.5 sm:p-3 glass rounded-full text-on-surface shadow-xl">
+              <Share2 size={20} />
             </button>
-            <button className="p-3 glass rounded-full text-on-surface shadow-xl">
-              <Heart size={24} />
+            <button className="p-2.5 sm:p-3 glass rounded-full text-on-surface shadow-xl">
+              <Heart size={20} />
             </button>
           </div>
         </div>
 
         {/* Restaurant info overlay */}
-        <div className="absolute bottom-8 sm:bottom-12 left-6 sm:left-8 right-6 sm:right-8">
-          <div className="flex items-center gap-3 mb-3 flex-wrap">
+        <div className="absolute bottom-4 sm:bottom-8 left-4 sm:left-8 right-4 sm:right-8">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             {isMichelin && (
-              <div className="glass px-4 py-1.5 rounded-full flex items-center gap-2">
-                <Star size={16} className="fill-primary text-primary" />
-                <span className="text-xs font-bold uppercase tracking-widest text-primary">Michelin Starred</span>
+              <div className="glass px-3 py-1 rounded-full flex items-center gap-1.5">
+                <Star size={12} className="fill-primary text-primary" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Michelin</span>
               </div>
             )}
-            <div className="glass px-4 py-1.5 rounded-full flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-widest text-on-surface">{priceStr}</span>
+            <div className="glass px-3 py-1 rounded-full">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface">{priceStr}</span>
             </div>
-            <div className="glass px-4 py-1.5 rounded-full flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-widest text-on-surface">{cuisine}</span>
+            <div className="glass px-3 py-1 rounded-full">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface">{cuisine}</span>
             </div>
           </div>
-          <h1 className="text-3xl sm:text-5xl font-serif font-bold text-on-surface mb-3 leading-tight">{place.name}</h1>
-          <div className="flex items-center gap-4 sm:gap-6 text-on-surface/60 flex-wrap">
-            <div className="flex items-center gap-2">
-              <MapPin size={18} />
-              <span className="text-sm font-medium">{place.address}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Star size={18} className="fill-primary text-primary" />
-              <span className="text-sm font-bold text-on-surface">
-                {place.rating} ({formatReviewCount(place.userRatingCount)} Reviews)
-              </span>
-            </div>
+          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-serif font-bold text-white mb-1.5 leading-tight">{place.name}</h1>
+          <div className="flex items-center gap-1.5 text-white/70">
+            <MapPin size={14} />
+            <span className="text-xs sm:text-sm font-medium truncate">{place.address}</span>
           </div>
         </div>
       </div>
 
-      <main className="px-6 sm:px-8 -mt-4 relative z-20">
-        {/* Ratings Section */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
-          {/* Google Rating */}
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-muted">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <Star size={20} className="text-primary fill-primary" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">Google</p>
-                <p className="text-xs text-on-surface/40">Rating</p>
-              </div>
+      {/* ── Main Content ── */}
+      <main className="px-4 sm:px-6 lg:px-8 pt-5 relative z-20 max-w-4xl mx-auto">
+
+        {/* ── Action Buttons Row ── */}
+        <div className="grid grid-cols-4 gap-2 sm:gap-3 mb-6">
+          <a
+            href={directionsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col items-center gap-1.5 py-3 bg-primary text-white rounded-2xl shadow-md active:scale-95 transition-transform"
+          >
+            <Navigation size={20} />
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Directions</span>
+          </a>
+          <button className="flex flex-col items-center gap-1.5 py-3 bg-white text-on-surface rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
+            <Bookmark size={20} />
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Wishlist</span>
+          </button>
+          <button className="flex flex-col items-center gap-1.5 py-3 bg-white text-on-surface rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
+            <Star size={20} />
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Rate</span>
+          </button>
+          <button className="flex flex-col items-center gap-1.5 py-3 bg-white text-on-surface rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
+            <ListPlus size={20} />
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Add to List</span>
+          </button>
+        </div>
+
+        {/* ── Rating Cards ── */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          {/* Google */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-muted text-center">
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
+              <Star size={16} className="text-primary fill-primary" />
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-serif font-bold">{place.rating}</span>
-              <span className="text-sm text-on-surface/40">/ 5</span>
-            </div>
-            <div className="flex gap-0.5 mt-2">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-1">Google</p>
+            <p className="text-2xl sm:text-3xl font-serif font-bold leading-none">{place.rating}</p>
+            <div className="flex gap-0.5 justify-center mt-1.5">
               {[1, 2, 3, 4, 5].map((s) => (
                 <Star
                   key={s}
-                  size={14}
+                  size={10}
                   className={s <= Math.round(place.rating) ? 'fill-primary text-primary' : 'text-muted'}
                 />
               ))}
             </div>
-            <p className="text-xs text-on-surface/40 mt-1">{formatReviewCount(place.userRatingCount)} reviews</p>
+            <p className="text-[10px] text-on-surface/40 mt-1">{formatReviewCount(place.userRatingCount)}</p>
           </div>
 
-          {/* Friends Rating */}
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-muted">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center">
-                <UserCheck size={20} className="text-secondary" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">Friends</p>
-                <p className="text-xs text-on-surface/40">Rating</p>
-              </div>
+          {/* Friends */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-muted text-center">
+            <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center mx-auto mb-2">
+              <UserCheck size={16} className="text-secondary" />
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-serif font-bold text-on-surface/20">—</span>
-            </div>
-            <p className="text-xs text-on-surface/30 mt-3">No friend ratings yet</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-1">Friends</p>
+            <p className="text-2xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
+            <p className="text-[10px] text-on-surface/30 mt-2">No ratings yet</p>
           </div>
 
-          {/* Community Rating */}
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-muted">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
-                <Users size={20} className="text-accent" />
-              </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">Community</p>
-                <p className="text-xs text-on-surface/40">Rating</p>
-              </div>
+          {/* Community */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-muted text-center">
+            <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-2">
+              <Users size={16} className="text-accent" />
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-serif font-bold text-on-surface/20">—</span>
-            </div>
-            <p className="text-xs text-on-surface/30 mt-3">No community ratings yet</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-1">Community</p>
+            <p className="text-2xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
+            <p className="text-[10px] text-on-surface/30 mt-2">No ratings yet</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-          {/* Left Column — Main Content */}
-          <div className="lg:col-span-2 space-y-10">
-            {/* Hours */}
-            {place.hours.length > 0 && (
-              <section>
-                <h2 className="text-2xl font-serif font-bold mb-4 flex items-center gap-3">
-                  <Clock size={22} className="text-primary" />
-                  Hours
-                  {place.isOpen !== null && (
-                    <span className={`text-sm font-sans font-bold uppercase tracking-wider ${place.isOpen ? 'text-green-600' : 'text-red-500'}`}>
-                      {place.isOpen ? '• Open Now' : '• Closed'}
-                    </span>
-                  )}
-                </h2>
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-muted">
-                  <div className="space-y-2.5">
+        {/* ── Hours Dropdown ── */}
+        {place.hours.length > 0 && (
+          <section className="mb-6">
+            <button
+              onClick={() => setHoursOpen(!hoursOpen)}
+              className="w-full bg-white rounded-2xl px-4 py-3.5 shadow-sm border border-muted flex items-center justify-between active:bg-muted/30 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Clock size={18} className="text-primary" />
+                <span className="text-sm font-bold">Hours</span>
+                {place.isOpen !== null && (
+                  <span className={`text-xs font-bold uppercase tracking-wider ${place.isOpen ? 'text-green-600' : 'text-red-500'}`}>
+                    {place.isOpen ? 'Open' : 'Closed'}
+                  </span>
+                )}
+                <span className="text-xs text-on-surface/50">{getTodayHours(place.hours)}</span>
+              </div>
+              <ChevronDown size={18} className={`text-on-surface/40 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <AnimatePresence>
+              {hoursOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <div className="bg-white rounded-b-2xl -mt-2 pt-4 pb-3 px-4 border border-t-0 border-muted shadow-sm space-y-2">
                     {place.hours.map((line, i) => {
                       const [day, ...timeParts] = line.split(': ');
                       const time = timeParts.join(': ');
-                      const isToday = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase().startsWith(day.toLowerCase().slice(0, 3));
+                      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+                      const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
                       return (
-                        <div key={i} className={`flex justify-between text-sm ${isToday ? 'font-bold text-on-surface' : 'text-on-surface/60'}`}>
+                        <div key={i} className={`flex justify-between text-sm ${isToday ? 'font-bold text-on-surface' : 'text-on-surface/50'}`}>
                           <span>{day}</span>
                           <span>{time}</span>
                         </div>
                       );
                     })}
                   </div>
-                </div>
-              </section>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
+        )}
 
-            {/* Contact Info */}
-            {(place.phone || place.website) && (
-              <section>
-                <h2 className="text-2xl font-serif font-bold mb-4">Contact</h2>
-                <div className="space-y-4">
-                  {place.phone && (
-                    <a href={`tel:${place.phone}`} className="flex items-center gap-4 text-on-surface/60 hover:text-primary transition-colors">
-                      <Phone size={20} className="text-primary" />
-                      <span className="text-sm font-medium">{place.phone}</span>
-                    </a>
-                  )}
-                  {place.website && (
-                    <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 text-on-surface/60 hover:text-primary transition-colors">
-                      <Globe size={20} className="text-primary" />
-                      <span className="text-sm font-medium truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
-                    </a>
-                  )}
-                  <div className="flex items-center gap-4 text-on-surface/60">
-                    <MapPin size={20} className="text-primary flex-shrink-0" />
-                    <span className="text-sm font-medium">{place.address}</span>
-                  </div>
-                </div>
-              </section>
-            )}
-          </div>
+        {/* ── Contact ── */}
+        {(place.phone || place.website) && (
+          <section className="mb-6">
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-muted space-y-3">
+              {place.phone && (
+                <a href={`tel:${place.phone}`} className="flex items-center gap-3 text-on-surface/60 hover:text-primary transition-colors">
+                  <Phone size={18} className="text-primary flex-shrink-0" />
+                  <span className="text-sm font-medium">{place.phone}</span>
+                </a>
+              )}
+              {place.website && (
+                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-on-surface/60 hover:text-primary transition-colors">
+                  <Globe size={18} className="text-primary flex-shrink-0" />
+                  <span className="text-sm font-medium truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
+                </a>
+              )}
+              <div className="flex items-center gap-3 text-on-surface/60">
+                <MapPin size={18} className="text-primary flex-shrink-0" />
+                <span className="text-sm font-medium">{place.address}</span>
+              </div>
+            </div>
+          </section>
+        )}
 
-          {/* Right Column — Map */}
-          <div>
-            <section className="space-y-4">
-              <h3 className="text-2xl font-serif font-bold">Location</h3>
-              <div
-                ref={mapContainerRef}
-                className="aspect-square sm:aspect-video lg:aspect-square rounded-3xl overflow-hidden shadow-inner"
-              />
-              <p className="text-sm text-on-surface/50">{place.address}</p>
-            </section>
-          </div>
-        </div>
+        {/* ── Map ── */}
+        <section className="mb-6">
+          <h3 className="text-lg font-serif font-bold mb-3">Location</h3>
+          <div
+            ref={mapContainerRef}
+            className="w-full h-48 sm:h-64 lg:h-72 rounded-2xl overflow-hidden shadow-sm"
+          />
+          <p className="text-xs text-on-surface/40 mt-2">{place.address}</p>
+        </section>
       </main>
     </div>
   );
