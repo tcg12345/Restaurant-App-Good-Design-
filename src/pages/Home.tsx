@@ -90,19 +90,41 @@ function applyLocalFilters(allPlaces: PlaceResult[], sort: SortOption, price: nu
   return sorted;
 }
 
+const SEARCH_STATE_KEY = 'search-page-state';
+
+function saveSearchState(state: any) {
+  try { sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(state)); } catch {}
+}
+
+function loadSearchState(): any | null {
+  try {
+    const raw = sessionStorage.getItem(SEARCH_STATE_KEY);
+    if (raw) {
+      sessionStorage.removeItem(SEARCH_STATE_KEY);
+      return JSON.parse(raw);
+    }
+  } catch {}
+  return null;
+}
+
 export const Home: React.FC = () => {
   const { phoneMode, setHideBottomNav } = useSettings();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
-  const [rawPlaces, setRawPlaces] = useState<PlaceResult[]>([]);
-  const [places, setPlaces] = useState<PlaceResult[]>([]);
+
+  // Restore saved search state on mount (survives navigation to detail page and back)
+  const savedState = useRef(loadSearchState());
+  const ss = savedState.current;
+
+  const [rawPlaces, setRawPlaces] = useState<PlaceResult[]>(ss?.rawPlaces || []);
+  const [places, setPlaces] = useState<PlaceResult[]>(ss?.places || []);
   const [isLoading, setIsLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<string | null>(null);
-  const [userLat, setUserLat] = useState(DEFAULT_LAT);
-  const [userLng, setUserLng] = useState(DEFAULT_LNG);
+  const [searchQuery, setSearchQuery] = useState(ss?.searchQuery || '');
+  const [activeFilter, setActiveFilter] = useState<string | null>(ss?.activeFilter || null);
+  const [userLat, setUserLat] = useState(ss?.userLat || DEFAULT_LAT);
+  const [userLng, setUserLng] = useState(ss?.userLng || DEFAULT_LNG);
 
   // Search page state
-  const [searchActive, setSearchActive] = useState(false);
+  const [searchActive, setSearchActive] = useState(!!ss);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Filter panel state
@@ -112,17 +134,26 @@ export const Home: React.FC = () => {
     setHideBottomNav(show);
   }, [setHideBottomNav]);
   const [showAllResults, setShowAllResults] = useState(false);
-  const [sortBy, setSortBy] = useState<SortOption>('popularity');
-  const [selectedPrice, setSelectedPrice] = useState(0);
-  const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<SortOption>(ss?.sortBy || 'popularity');
+  const [selectedPrice, setSelectedPrice] = useState(ss?.selectedPrice || 0);
+  const [selectedCuisines, setSelectedCuisines] = useState<string[]>(ss?.selectedCuisines || []);
 
   // Location search state
   const [locationQuery, setLocationQuery] = useState('');
-  const [locationLabel, setLocationLabel] = useState('');
+  const [locationLabel, setLocationLabel] = useState(ss?.locationLabel || '');
   const [locationResults, setLocationResults] = useState<{ id: string; name: string; lat: number; lng: number }[]>([]);
   const [showLocationResults, setShowLocationResults] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Save search state to sessionStorage whenever search is active (so it persists across navigation)
+  useEffect(() => {
+    if (!searchActive) return;
+    saveSearchState({
+      searchQuery, rawPlaces, places, activeFilter, userLat, userLng,
+      sortBy, selectedPrice, selectedCuisines, locationLabel,
+    });
+  }, [searchActive, searchQuery, rawPlaces, places, activeFilter, userLat, userLng, sortBy, selectedPrice, selectedCuisines, locationLabel]);
 
   const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
@@ -277,6 +308,7 @@ export const Home: React.FC = () => {
     setActiveFilter(null);
     setShowAllResults(false);
     setShowLocationResults(false);
+    try { sessionStorage.removeItem(SEARCH_STATE_KEY); } catch {}
   };
 
   return (
