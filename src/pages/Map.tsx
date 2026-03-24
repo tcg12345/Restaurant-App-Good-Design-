@@ -121,9 +121,6 @@ export const Map: React.FC = () => {
   const createMarkerElement = useCallback((place: PlaceResult) => {
     const el = document.createElement('div');
     el.className = 'mapbox-custom-marker';
-    el.style.opacity = '0';
-    el.style.transform = 'scale(0.3) translateY(10px)';
-    el.style.transition = 'opacity 0.4s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)';
     el.innerHTML = `
       <div class="marker-pin" data-id="${place.id}" style="
         padding: 10px;
@@ -131,10 +128,12 @@ export const Map: React.FC = () => {
         background: white;
         box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         cursor: pointer;
-        transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
         display: flex;
         align-items: center;
         justify-content: center;
+        opacity: 0;
+        transform: scale(0.4);
+        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease;
       ">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
@@ -145,7 +144,7 @@ export const Map: React.FC = () => {
 
     el.addEventListener('mouseenter', () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
-      if (pin) pin.style.transform = 'scale(1.2)';
+      if (pin) pin.style.transform = 'scale(1.15)';
     });
     el.addEventListener('mouseleave', () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
@@ -211,10 +210,12 @@ export const Map: React.FC = () => {
     // Fade out and remove markers that are no longer in the set
     Object.entries(markersRef.current).forEach(([id, m]) => {
       if (!newIds.has(id)) {
-        const el = m.getElement();
-        el.style.opacity = '0';
-        el.style.transform = 'scale(0.3)';
-        setTimeout(() => m.remove(), 400);
+        const pin = m.getElement().querySelector('.marker-pin') as HTMLElement;
+        if (pin) {
+          pin.style.opacity = '0';
+          pin.style.transform = 'scale(0.4)';
+        }
+        setTimeout(() => m.remove(), 300);
         delete markersRef.current[id];
       }
     });
@@ -240,11 +241,14 @@ export const Map: React.FC = () => {
 
       markersRef.current[place.id] = marker;
 
-      // Staggered fade-in
-      const delay = Math.min(animIndex * 30, 600);
+      // Staggered fade-in on the inner pin (not outer el, which Mapbox controls)
+      const delay = Math.min(animIndex * 25, 400);
       setTimeout(() => {
-        el.style.opacity = '1';
-        el.style.transform = 'scale(1) translateY(0)';
+        const pin = el.querySelector('.marker-pin') as HTMLElement;
+        if (pin) {
+          pin.style.opacity = '1';
+          pin.style.transform = 'scale(1)';
+        }
       }, delay);
       animIndex++;
     });
