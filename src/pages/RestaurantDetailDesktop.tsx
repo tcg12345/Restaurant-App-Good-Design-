@@ -8,7 +8,7 @@ import {
 import { useRestaurantDetail, formatReviewCount, getTodayHours } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-/* ── Photo Gallery Modal (desktop-style centered modal) ── */
+/* ── Photo Gallery — bottom sheet (matches Map filter panel pattern) ── */
 const PhotoGallery: React.FC<{
   photos: string[];
   name: string;
@@ -16,58 +16,114 @@ const PhotoGallery: React.FC<{
   onClose: () => void;
 }> = ({ photos, name, initialIndex, onClose }) => {
   const [viewIndex, setViewIndex] = useState(initialIndex);
+  const thumbsRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
 
+  useEffect(() => {
+    const strip = thumbsRef.current;
+    if (!strip) return;
+    const thumb = strip.children[viewIndex] as HTMLElement | undefined;
+    if (thumb) {
+      thumb.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+    }
+  }, [viewIndex]);
+
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
-      onClick={onClose}
-    >
+    <>
+      {/* Overlay */}
       <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
-        transition={{ duration: 0.2 }}
-        onClick={(e) => e.stopPropagation()}
-        className="bg-surface rounded-2xl max-w-3xl w-full mx-8 max-h-[85vh] flex flex-col shadow-2xl"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/30 z-50"
+        onClick={onClose}
+      />
+      {/* Sheet */}
+      <motion.div
+        initial={{ y: '100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+        className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-[2rem] shadow-2xl flex flex-col"
+        style={{ maxHeight: '85vh' }}
       >
-        <div className="flex-shrink-0 pt-4 pb-3 px-6 flex items-center justify-between border-b border-on-surface/8">
+        {/* Drag handle */}
+        <div className="flex-shrink-0 pt-3 px-5">
+          <div className="w-12 h-1.5 bg-on-surface/10 rounded-full mx-auto" />
+        </div>
+
+        {/* Header */}
+        <div className="flex-shrink-0 flex items-center justify-between px-6 py-3">
           <h2 className="text-lg font-serif font-bold">Photos</h2>
-          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-on-surface/5 transition-colors">
+          <button onClick={onClose} className="p-1.5 -mr-1.5 rounded-full hover:bg-on-surface/5 transition-colors">
             <X size={20} className="text-on-surface/50" />
           </button>
         </div>
-        <div className="flex-shrink-0 px-6 py-4">
-          <div className="relative rounded-2xl overflow-hidden aspect-[16/10]">
-            <img src={photos[viewIndex]} alt={`${name} photo ${viewIndex + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
+
+        {/* Featured photo with nav arrows */}
+        <div className="flex-shrink-0 px-5 pb-3 relative">
+          <div className="relative rounded-2xl overflow-hidden aspect-[4/3] bg-on-surface/5">
+            <img
+              src={photos[viewIndex]}
+              alt={`${name} photo ${viewIndex + 1}`}
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-[11px] font-medium px-2.5 py-1 rounded-full">
               {viewIndex + 1} / {photos.length}
             </div>
+            {photos.length > 1 && (
+              <>
+                <button
+                  onClick={() => setViewIndex((i) => (i - 1 + photos.length) % photos.length)}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/50 transition-colors"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  onClick={() => setViewIndex((i) => (i + 1) % photos.length)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/30 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/50 transition-colors"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </>
+            )}
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto overscroll-contain px-6 pb-6">
-          <div className="grid grid-cols-5 gap-2">
+
+        {/* Horizontal thumbnail strip */}
+        <div className="flex-shrink-0 pb-6 pt-1">
+          <div
+            ref={thumbsRef}
+            className="flex gap-2 px-5 overflow-x-auto"
+            style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
+          >
             {photos.map((url, i) => (
               <button
                 key={i}
                 onClick={() => setViewIndex(i)}
-                className={`relative aspect-square rounded-xl overflow-hidden transition-all ${i === viewIndex ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : 'hover:opacity-80'}`}
+                className={`flex-shrink-0 w-16 h-16 rounded-xl overflow-hidden transition-all ${
+                  i === viewIndex
+                    ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface scale-105'
+                    : 'opacity-60 hover:opacity-90'
+                }`}
               >
-                <img src={url} alt={`${name} photo ${i + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <img
+                  src={url}
+                  alt={`${name} photo ${i + 1}`}
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
               </button>
             ))}
           </div>
         </div>
       </motion.div>
-    </motion.div>
+    </>
   );
 };
 
