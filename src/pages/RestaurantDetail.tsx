@@ -132,7 +132,7 @@ export const RestaurantDetail: React.FC = () => {
   return (
     <div className="pb-32 bg-surface min-h-screen">
       {/* ── Hero with Photo Carousel ── */}
-      <div className="relative h-[44vh] sm:h-[55vh] lg:h-[60vh] w-full overflow-hidden">
+      <div className="relative h-[38vh] sm:h-[50vh] lg:h-[60vh] w-full overflow-hidden">
         {photos.length > 0 ? (
           <img
             src={photos[photoIndex]}
@@ -208,7 +208,7 @@ export const RestaurantDetail: React.FC = () => {
               <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface">{cuisine}</span>
             </div>
           </div>
-          <h1 className="text-2xl sm:text-4xl lg:text-5xl font-serif font-bold text-white mb-1.5 leading-tight">{place.name}</h1>
+          <h1 className="text-xl sm:text-3xl lg:text-5xl font-serif font-bold text-white mb-1 leading-tight">{place.name}</h1>
           <div className="flex items-center gap-1.5 text-white/70">
             <MapPin size={14} />
             <span className="text-xs sm:text-sm font-medium truncate">{place.address}</span>
@@ -217,93 +217,93 @@ export const RestaurantDetail: React.FC = () => {
       </div>
 
       {/* ── Main Content ── */}
-      <main className="px-4 sm:px-6 lg:px-8 pt-5 relative z-20 max-w-4xl mx-auto">
+      <main className="px-4 sm:px-6 lg:px-8 pt-4 relative z-20 max-w-4xl mx-auto">
 
         {/* ── Action Buttons Row ── */}
-        <div className="grid grid-cols-4 gap-2 sm:gap-3 mb-6">
+        <div className="grid grid-cols-4 gap-2 sm:gap-3 mb-4">
           <a
             href={directionsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-col items-center gap-1.5 py-3 bg-primary text-white rounded-2xl shadow-md active:scale-95 transition-transform"
+            className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-primary text-white rounded-xl sm:rounded-2xl shadow-md active:scale-95 transition-transform"
           >
-            <Navigation size={20} />
-            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Directions</span>
+            <Navigation size={16} className="sm:w-5 sm:h-5" />
+            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">Directions</span>
           </a>
-          <button className="flex flex-col items-center gap-1.5 py-3 bg-white text-on-surface rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
-            <Bookmark size={20} />
-            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Wishlist</span>
+          <button className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-white text-on-surface rounded-xl sm:rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
+            <Bookmark size={16} className="sm:w-5 sm:h-5" />
+            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">Wishlist</span>
           </button>
-          <button className="flex flex-col items-center gap-1.5 py-3 bg-white text-on-surface rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
-            <Star size={20} />
-            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Rate</span>
+          <button className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-white text-on-surface rounded-xl sm:rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
+            <Star size={16} className="sm:w-5 sm:h-5" />
+            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">Rate</span>
           </button>
-          <button className="flex flex-col items-center gap-1.5 py-3 bg-white text-on-surface rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
-            <ListPlus size={20} />
-            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider">Add to List</span>
+          <button className="flex flex-col items-center gap-1 py-2.5 sm:py-3 bg-white text-on-surface rounded-xl sm:rounded-2xl shadow-sm border border-muted active:scale-95 transition-transform">
+            <ListPlus size={16} className="sm:w-5 sm:h-5" />
+            <span className="text-[9px] sm:text-xs font-bold uppercase tracking-wider">List</span>
           </button>
         </div>
 
         {/* ── Rating Cards ── */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
           {/* Google */}
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-muted text-center">
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
-              <Star size={16} className="text-primary fill-primary" />
+          <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted text-center">
+            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-1.5">
+              <Star size={12} className="text-primary fill-primary sm:w-4 sm:h-4" />
             </div>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-1">Google</p>
-            <p className="text-2xl sm:text-3xl font-serif font-bold leading-none">{place.rating}</p>
-            <div className="flex gap-0.5 justify-center mt-1.5">
+            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-0.5">Google</p>
+            <p className="text-xl sm:text-3xl font-serif font-bold leading-none">{place.rating}</p>
+            <div className="flex gap-px justify-center mt-1">
               {[1, 2, 3, 4, 5].map((s) => (
                 <Star
                   key={s}
-                  size={10}
+                  size={8}
                   className={s <= Math.round(place.rating) ? 'fill-primary text-primary' : 'text-muted'}
                 />
               ))}
             </div>
-            <p className="text-[10px] text-on-surface/40 mt-1">{formatReviewCount(place.userRatingCount)}</p>
+            <p className="text-[9px] text-on-surface/40 mt-0.5">{formatReviewCount(place.userRatingCount)}</p>
           </div>
 
           {/* Friends */}
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-muted text-center">
-            <div className="w-8 h-8 rounded-full bg-secondary/10 flex items-center justify-center mx-auto mb-2">
-              <UserCheck size={16} className="text-secondary" />
+          <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted text-center">
+            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-secondary/10 flex items-center justify-center mx-auto mb-1.5">
+              <UserCheck size={12} className="text-secondary sm:w-4 sm:h-4" />
             </div>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-1">Friends</p>
-            <p className="text-2xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
-            <p className="text-[10px] text-on-surface/30 mt-2">No ratings yet</p>
+            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-0.5">Friends</p>
+            <p className="text-xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
+            <p className="text-[9px] text-on-surface/30 mt-1">No ratings</p>
           </div>
 
           {/* Community */}
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-muted text-center">
-            <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-2">
-              <Users size={16} className="text-accent" />
+          <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted text-center">
+            <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-accent/20 flex items-center justify-center mx-auto mb-1.5">
+              <Users size={12} className="text-accent sm:w-4 sm:h-4" />
             </div>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-1">Community</p>
-            <p className="text-2xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
-            <p className="text-[10px] text-on-surface/30 mt-2">No ratings yet</p>
+            <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-on-surface/40 mb-0.5">Community</p>
+            <p className="text-xl sm:text-3xl font-serif font-bold leading-none text-on-surface/20">—</p>
+            <p className="text-[9px] text-on-surface/30 mt-1">No ratings</p>
           </div>
         </div>
 
         {/* ── Hours Dropdown ── */}
         {place.hours.length > 0 && (
-          <section className="mb-6">
+          <section className="mb-4">
             <button
               onClick={() => setHoursOpen(!hoursOpen)}
-              className="w-full bg-white rounded-2xl px-4 py-3.5 shadow-sm border border-muted flex items-center justify-between active:bg-muted/30 transition-colors"
+              className="w-full bg-white rounded-xl sm:rounded-2xl px-3 sm:px-4 py-3 shadow-sm border border-muted flex items-center justify-between active:bg-muted/30 transition-colors"
             >
-              <div className="flex items-center gap-3">
-                <Clock size={18} className="text-primary" />
-                <span className="text-sm font-bold">Hours</span>
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                <Clock size={16} className="text-primary flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-bold">Hours</span>
                 {place.isOpen !== null && (
-                  <span className={`text-xs font-bold uppercase tracking-wider ${place.isOpen ? 'text-green-600' : 'text-red-500'}`}>
+                  <span className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider ${place.isOpen ? 'text-green-600' : 'text-red-500'}`}>
                     {place.isOpen ? 'Open' : 'Closed'}
                   </span>
                 )}
-                <span className="text-xs text-on-surface/50">{getTodayHours(place.hours)}</span>
+                <span className="text-[10px] sm:text-xs text-on-surface/50 truncate">{getTodayHours(place.hours)}</span>
               </div>
-              <ChevronDown size={18} className={`text-on-surface/40 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown size={16} className={`text-on-surface/40 flex-shrink-0 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
             </button>
             <AnimatePresence>
               {hoursOpen && (
@@ -314,14 +314,14 @@ export const RestaurantDetail: React.FC = () => {
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden"
                 >
-                  <div className="bg-white rounded-b-2xl -mt-2 pt-4 pb-3 px-4 border border-t-0 border-muted shadow-sm space-y-2">
+                  <div className="bg-white rounded-b-xl sm:rounded-b-2xl -mt-1.5 pt-3 pb-2.5 px-3 sm:px-4 border border-t-0 border-muted shadow-sm space-y-1.5">
                     {place.hours.map((line, i) => {
                       const [day, ...timeParts] = line.split(': ');
                       const time = timeParts.join(': ');
                       const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
                       const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
                       return (
-                        <div key={i} className={`flex justify-between text-sm ${isToday ? 'font-bold text-on-surface' : 'text-on-surface/50'}`}>
+                        <div key={i} className={`flex justify-between text-xs sm:text-sm ${isToday ? 'font-bold text-on-surface' : 'text-on-surface/50'}`}>
                           <span>{day}</span>
                           <span>{time}</span>
                         </div>
@@ -336,23 +336,23 @@ export const RestaurantDetail: React.FC = () => {
 
         {/* ── Contact ── */}
         {(place.phone || place.website) && (
-          <section className="mb-6">
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-muted space-y-3">
+          <section className="mb-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-sm border border-muted space-y-2.5">
               {place.phone && (
-                <a href={`tel:${place.phone}`} className="flex items-center gap-3 text-on-surface/60 hover:text-primary transition-colors">
-                  <Phone size={18} className="text-primary flex-shrink-0" />
-                  <span className="text-sm font-medium">{place.phone}</span>
+                <a href={`tel:${place.phone}`} className="flex items-center gap-2.5 text-on-surface/60 hover:text-primary transition-colors">
+                  <Phone size={16} className="text-primary flex-shrink-0" />
+                  <span className="text-xs sm:text-sm font-medium">{place.phone}</span>
                 </a>
               )}
               {place.website && (
-                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-on-surface/60 hover:text-primary transition-colors">
-                  <Globe size={18} className="text-primary flex-shrink-0" />
-                  <span className="text-sm font-medium truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
+                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 text-on-surface/60 hover:text-primary transition-colors">
+                  <Globe size={16} className="text-primary flex-shrink-0" />
+                  <span className="text-xs sm:text-sm font-medium truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
                 </a>
               )}
-              <div className="flex items-center gap-3 text-on-surface/60">
-                <MapPin size={18} className="text-primary flex-shrink-0" />
-                <span className="text-sm font-medium">{place.address}</span>
+              <div className="flex items-center gap-2.5 text-on-surface/60">
+                <MapPin size={16} className="text-primary flex-shrink-0" />
+                <span className="text-xs sm:text-sm font-medium">{place.address}</span>
               </div>
             </div>
           </section>
@@ -360,12 +360,12 @@ export const RestaurantDetail: React.FC = () => {
 
         {/* ── Map ── */}
         <section className="mb-6">
-          <h3 className="text-lg font-serif font-bold mb-3">Location</h3>
+          <h3 className="text-base sm:text-lg font-serif font-bold mb-2">Location</h3>
           <div
             ref={mapContainerRef}
-            className="w-full h-48 sm:h-64 lg:h-72 rounded-2xl overflow-hidden shadow-sm"
+            className="w-full h-40 sm:h-56 lg:h-72 rounded-xl sm:rounded-2xl overflow-hidden shadow-sm"
           />
-          <p className="text-xs text-on-surface/40 mt-2">{place.address}</p>
+          <p className="text-[10px] sm:text-xs text-on-surface/40 mt-1.5">{place.address}</p>
         </section>
       </main>
     </div>
