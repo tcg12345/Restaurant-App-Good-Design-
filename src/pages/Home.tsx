@@ -204,14 +204,14 @@ export const Home: React.FC = () => {
     setActiveFilter(null);
     setShowAllResults(false);
     try {
-      const results = await searchPlacesByText(query, userLat, userLng);
+      const results = await searchPlacesByText(query, userLat, userLng, locationLabel || undefined);
       setRawPlaces(results);
     } catch (err) {
       console.error('Search failed:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [userLat, userLng]);
+  }, [userLat, userLng, locationLabel]);
 
   // Auto-search after user stops typing for 500ms
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -230,7 +230,7 @@ export const Home: React.FC = () => {
       setActiveFilter(null);
       setIsLoading(true);
       try {
-        const results = await searchNearbyRestaurants(userLat, userLng, 2000, selectedCuisines);
+        const results = await searchNearbyRestaurants(userLat, userLng, 2000, selectedCuisines, 0, locationLabel || undefined);
         setRawPlaces(results);
       } catch (err) {
         console.error('Nearby search failed:', err);
@@ -244,9 +244,9 @@ export const Home: React.FC = () => {
     try {
       let results: PlaceResult[];
       if (filter === 'Near Me') {
-        results = await searchNearbyRestaurants(userLat, userLng, 1000, selectedCuisines);
+        results = await searchNearbyRestaurants(userLat, userLng, 1000, selectedCuisines, 0, locationLabel || undefined);
       } else {
-        results = await searchPlacesByText(filter, userLat, userLng);
+        results = await searchPlacesByText(filter, userLat, userLng, locationLabel || undefined);
       }
       setRawPlaces(results);
     } catch (err) {
@@ -254,20 +254,20 @@ export const Home: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [activeFilter, userLat, userLng, selectedCuisines]);
+  }, [activeFilter, userLat, userLng, selectedCuisines, locationLabel]);
 
   const handleApplyFilters = useCallback(async () => {
     setShowFilters(false);
     setIsLoading(true);
     try {
-      const results = await searchNearbyRestaurants(userLat, userLng, 2000, selectedCuisines, selectedPrice);
+      const results = await searchNearbyRestaurants(userLat, userLng, 2000, selectedCuisines, selectedPrice, locationLabel || undefined);
       setRawPlaces(results);
     } catch (err) {
       console.error('Filter search failed:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [userLat, userLng, selectedCuisines, selectedPrice]);
+  }, [userLat, userLng, selectedCuisines, selectedPrice, locationLabel]);
 
   const handleBackFromSearch = () => {
     setSearchActive(false);

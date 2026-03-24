@@ -116,10 +116,13 @@ export async function searchNearbyRestaurants(
   radiusMeters = 2000,
   cuisineTypes: string[] = [],
   priceLevel = 0,
+  locationName?: string,
 ): Promise<PlaceResult[]> {
+  const hasLocation = !!locationName && locationName !== 'Current Location';
+
   // Always use text search for better coverage — supports price levels and more results
   if (priceLevel > 0 || cuisineTypes.length > 0) {
-    return searchWithFilters(lat, lng, radiusMeters, cuisineTypes, priceLevel);
+    return searchWithFilters(lat, lng, radiusMeters, cuisineTypes, priceLevel, locationName);
   }
 
   // Default: fetch from multiple sources in parallel for maximum results
@@ -138,13 +141,16 @@ export async function searchNearbyRestaurants(
     },
   };
 
-  const textQueries = [
-    'best restaurants',
-    'popular dining',
-    'top rated restaurants',
-  ];
+  const textQueries = hasLocation
+    ? [`best restaurants in ${locationName}`, `popular dining in ${locationName}`, `top rated restaurants in ${locationName}`]
+    : ['best restaurants', 'popular dining', 'top rated restaurants'];
 
-  console.log('[Places] multi-query request:', lat, lng, radiusMeters);
+  console.log('[Places] multi-query request:', lat, lng, radiusMeters, hasLocation ? `(location: ${locationName})` : '');
+
+  // When location is set, restrict text queries to the area; otherwise just bias
+  const locationParam = hasLocation
+    ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: bigRadius } } }
+    : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: bigRadius } } };
 
   const textFetches = textQueries.map((q) =>
     fetch(`${BASE_URL}/places:searchText`, {
@@ -157,12 +163,7 @@ export async function searchNearbyRestaurants(
       body: JSON.stringify({
         textQuery: q,
         maxResultCount: 20,
-        locationBias: {
-          circle: {
-            center: { latitude: lat, longitude: lng },
-            radius: bigRadius,
-          },
-        },
+        ...locationParam,
       }),
     }).then((r) => r.json()).then((d) => mapPlaces(d.places || []))
       .catch(() => [] as PlaceResult[])
@@ -194,7 +195,9 @@ async function searchWithFilters(
   radiusMeters: number,
   cuisineTypes: string[],
   priceLevel: number,
+  locationName?: string,
 ): Promise<PlaceResult[]> {
+  const hasLocation = !!locationName && locationName !== 'Current Location';
   const queries = cuisineTypes.length > 0
     ? cuisineTypes.map((t) => CUISINE_LABEL_MAP[t] || 'restaurant')
     : ['restaurant'];
@@ -203,16 +206,20 @@ async function searchWithFilters(
     ? [PRICE_LEVEL_STRINGS[priceLevel]]
     : undefined;
 
+  const filterRadius = Math.max(radiusMeters, 5000);
+  const locationParam = hasLocation
+    ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: filterRadius } } }
+    : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: filterRadius } } };
+
   const promises = queries.map(async (cuisine) => {
+    const textQuery = hasLocation
+      ? `${cuisine} restaurant in ${locationName}`
+      : `${cuisine} restaurant`;
+
     const body: any = {
-      textQuery: `${cuisine} restaurant`,
+      textQuery,
       maxResultCount: 20,
-      locationBias: {
-        circle: {
-          center: { latitude: lat, longitude: lng },
-          radius: Math.max(radiusMeters, 5000),
-        },
-      },
+      ...locationParam,
     };
 
     if (priceLevels) {
@@ -246,20 +253,38 @@ async function searchWithFilters(
 export async function searchPlacesByText(
   query: string,
   lat: number,
-  lng: number
+  lng: number,
+  locationName?: string,
 ): Promise<PlaceResult[]> {
-  const body = {
-    textQuery: query + ' restaurant',
+  // Build the text query: include location name for specificity when set
+  const hasLocation = !!locationName && locationName !== 'Current Location';
+  const textQuery = hasLocation
+    ? `${query} restaurant ${locationName}`
+    : `${query} restaurant`;
+
+  const body: any = {
+    textQuery,
     maxResultCount: 20,
-    locationBias: {
+  };
+
+  if (hasLocation) {
+    // When user has explicitly picked a location, restrict results to that area
+    body.locationRestriction = {
+      circle: {
+        center: { latitude: lat, longitude: lng },
+        radius: 8000,
+      },
+    };
+  } else {
+    body.locationBias = {
       circle: {
         center: { latitude: lat, longitude: lng },
         radius: 10000,
       },
-    },
-  };
+    };
+  }
 
-  console.log('[Places] textSearch request:', query);
+  console.log('[Places] textSearch request:', textQuery, hasLocation ? '(restricted)' : '(biased)');
 
   const res = await fetch(`${BASE_URL}/places:searchText`, {
     method: 'POST',
