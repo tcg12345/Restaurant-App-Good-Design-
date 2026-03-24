@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
@@ -47,6 +48,7 @@ const PRICE_LEVELS = [
 ];
 
 export const Map: React.FC = () => {
+  const navigate = useNavigate();
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
@@ -186,9 +188,20 @@ export const Map: React.FC = () => {
             <span style="font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${addressShort}</span>
             ${priceHtml ? `<span style="color:#ccc;">·</span>${priceHtml}` : ''}
           </div>
+          <button data-place-id="${place.id}" class="popup-view-btn" style="width:100%;margin-top:8px;padding:6px 0;background:#9f3012;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.05em;text-transform:uppercase;">View Details</button>
         </div>
       `)
       .addTo(map);
+
+    // Attach click handler after popup renders
+    popup.once('open', () => {
+      const btn = (popup as any).getElement()?.querySelector('.popup-view-btn');
+      if (btn) {
+        btn.addEventListener('click', () => {
+          navigate(`/restaurant/${place.id}`);
+        });
+      }
+    });
 
     popup.on('close', () => {
       setSelectedMarker(null);
@@ -197,7 +210,7 @@ export const Map: React.FC = () => {
     });
 
     popupRef.current = popup;
-  }, []);
+  }, [navigate]);
 
   // Sync markers on map when places change — keeps existing markers, animates new ones in
   const syncMarkers = useCallback((newPlaces: PlaceResult[]) => {
@@ -957,6 +970,15 @@ export const Map: React.FC = () => {
                       )}
                     </div>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/restaurant/${place.id}`);
+                    }}
+                    className="flex-shrink-0 self-center ml-2 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-[10px] font-bold uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                  >
+                    View
+                  </button>
                 </div>
               ))}
             </div>

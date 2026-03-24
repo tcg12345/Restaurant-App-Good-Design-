@@ -17,6 +17,14 @@ export interface PlaceResult {
   userRatingCount: number;
 }
 
+export interface PlaceDetails extends PlaceResult {
+  photoUrls: string[];
+  phone: string;
+  website: string;
+  hours: string[];
+  isOpen: boolean | null;
+}
+
 function priceLevelToString(level: number): string {
   if (level <= 0) return '$';
   return '$'.repeat(Math.min(level, 4));
@@ -272,4 +280,54 @@ export async function searchPlacesByText(
   }
 
   return mapPlaces(data.places || []);
+}
+
+const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,photos,types,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
+
+export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
+  console.log('[Places] getPlaceDetails:', placeId);
+
+  const res = await fetch(`${BASE_URL}/places/${placeId}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+      'X-Goog-FieldMask': DETAIL_FIELDS,
+    },
+  });
+
+  const p = await res.json();
+
+  if (!res.ok) {
+    console.error('[Places] getPlaceDetails error:', p);
+    throw new Error(`Place details failed: ${p.error?.message || res.status}`);
+  }
+
+  const photos = (p.photos || []).slice(0, 5).map((photo: any) =>
+    `${BASE_URL}/${photo.name}/media?maxWidthPx=800&maxHeightPx=600&key=${GOOGLE_PLACES_KEY}`
+  );
+
+  const hours = p.currentOpeningHours?.weekdayDescriptions
+    || p.regularOpeningHours?.weekdayDescriptions
+    || [];
+
+  const isOpen = p.currentOpeningHours?.openNow ?? null;
+
+  return {
+    id: p.id || placeId,
+    name: p.displayName?.text || 'Unknown',
+    lat: p.location?.latitude ?? 0,
+    lng: p.location?.longitude ?? 0,
+    rating: p.rating ?? 0,
+    priceLevel: parsePriceLevel(p.priceLevel),
+    address: p.shortFormattedAddress || p.formattedAddress || '',
+    photoUrl: photos[0] || null,
+    photoUrls: photos,
+    types: p.types || [],
+    userRatingCount: p.userRatingCount ?? 0,
+    phone: p.nationalPhoneNumber || '',
+    website: p.websiteUri || '',
+    hours,
+    isOpen,
+  };
 }
