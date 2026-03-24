@@ -206,7 +206,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     hoursOpen, setHoursOpen,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine, isMichelin,
+    priceStr, cuisine,
     photos, directionsUrl, mapsUrl,
   } = useRestaurantDetail();
 
@@ -314,15 +314,6 @@ export const RestaurantDetailMobile: React.FC = () => {
             <span className="text-[11px] font-medium text-white/75 uppercase tracking-wider">{cuisine}</span>
             <span className="text-white/35">·</span>
             <span className="text-[11px] font-medium text-white/75 uppercase tracking-wider">{priceStr}</span>
-            {isMichelin && (
-              <>
-                <span className="text-white/35">·</span>
-                <span className="text-[11px] font-medium text-white/75 uppercase tracking-wider flex items-center gap-1">
-                  <Star size={10} className="fill-white/75 text-white/75" />
-                  Michelin
-                </span>
-              </>
-            )}
           </div>
         </div>
       </div>

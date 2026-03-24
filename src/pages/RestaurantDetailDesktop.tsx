@@ -172,7 +172,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
     hoursOpen, setHoursOpen,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
-    priceStr, cuisine, isMichelin,
+    priceStr, cuisine,
     photos, directionsUrl, mapsUrl,
   } = useRestaurantDetail();
 
@@ -279,15 +279,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <span className="text-xs font-medium text-on-surface/55 uppercase tracking-wider">{cuisine}</span>
             <span className="text-on-surface/25">·</span>
             <span className="text-xs font-medium text-on-surface/55 uppercase tracking-wider">{priceStr}</span>
-            {isMichelin && (
-              <>
-                <span className="text-on-surface/25">·</span>
-                <span className="text-xs font-medium text-on-surface/55 uppercase tracking-wider flex items-center gap-1">
-                  <Star size={10} className="fill-on-surface/55 text-on-surface/55" />
-                  Michelin
-                </span>
-              </>
-            )}
           </div>
         </div>
 

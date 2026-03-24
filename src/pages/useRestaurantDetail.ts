@@ -88,7 +88,7 @@ export function useRestaurantDetail() {
 
   const priceStr = place ? priceLevelToString(place.priceLevel) : '';
   const cuisine = place ? getCuisineLabel(place.types) : '';
-  const isMichelin = place ? place.rating >= 4.7 && place.userRatingCount > 500 : false;
+
   const photos = place
     ? place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : [])
     : [];
@@ -113,7 +113,7 @@ export function useRestaurantDetail() {
     mapContainerRef,
     priceStr,
     cuisine,
-    isMichelin,
+
     photos,
     directionsUrl,
     mapsUrl,

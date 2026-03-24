@@ -12,7 +12,7 @@ interface RestaurantCardProps {
   price: string;
   cuisine: string;
   distance: string;
-  isMichelin?: boolean;
+
   className?: string;
 }
 
@@ -24,7 +24,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   price,
   cuisine,
   distance,
-  isMichelin,
+
   className,
 }) => {
   return (
@@ -45,12 +45,6 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
 
-          {isMichelin && (
-            <div className="absolute top-3 left-3 sm:top-2 sm:left-2 glass px-3 sm:px-2 py-1 sm:py-0.5 rounded-full flex items-center gap-1.5 sm:gap-1">
-              <Star size={14} className="fill-primary text-primary sm:w-3 sm:h-3 lg:w-2.5 lg:h-2.5" />
-              <span className="text-xs sm:text-[10px] lg:text-[8px] font-bold uppercase tracking-widest text-primary">Michelin</span>
-            </div>
-          )}
 
           <button
             onClick={(e) => {

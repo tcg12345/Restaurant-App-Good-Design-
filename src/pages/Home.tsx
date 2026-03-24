@@ -30,7 +30,7 @@ function placeToCardProps(place: PlaceResult) {
     price: priceLevelToString(place.priceLevel),
     cuisine: place.address.split(',')[0],
     distance: '',
-    isMichelin: place.rating >= 4.7 && place.userRatingCount > 500,
+
   };
 }
 
