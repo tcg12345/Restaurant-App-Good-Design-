@@ -302,55 +302,58 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </div>
         </section>
 
-        {/* Info List */}
+        {/* Hours */}
+        {place.hours.length > 0 && (
+          <section className="mb-3">
+            <div className="bg-white rounded-2xl border border-on-surface/8">
+              <button
+                onClick={() => setHoursOpen(!hoursOpen)}
+                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-on-surface/[0.02] transition-colors"
+              >
+                <Clock size={18} className="text-on-surface/40 flex-shrink-0" />
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {place.isOpen !== null && (
+                    <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${place.isOpen ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                      {place.isOpen ? 'Open' : 'Closed'}
+                    </span>
+                  )}
+                  <span className="text-sm text-on-surface/60 truncate">{getTodayHours(place.hours)}</span>
+                </div>
+                <ChevronDown size={16} className={`text-on-surface/30 flex-shrink-0 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {hoursOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-4 pb-3 pl-11 space-y-1.5">
+                      {place.hours.map((line, i) => {
+                        const [day, ...timeParts] = line.split(': ');
+                        const time = timeParts.join(': ');
+                        const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+                        const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
+                        return (
+                          <div key={i} className={`flex justify-between text-sm ${isToday ? 'font-medium text-on-surface' : 'text-on-surface/45'}`}>
+                            <span>{day}</span>
+                            <span>{time}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </section>
+        )}
+
+        {/* Contact & Address */}
         <section className="mb-7">
           <div className="bg-white rounded-2xl border border-on-surface/8 divide-y divide-on-surface/6">
-            {place.hours.length > 0 && (
-              <div>
-                <button
-                  onClick={() => setHoursOpen(!hoursOpen)}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-on-surface/[0.02] transition-colors"
-                >
-                  <Clock size={18} className="text-on-surface/40 flex-shrink-0" />
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {place.isOpen !== null && (
-                      <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${place.isOpen ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
-                        {place.isOpen ? 'Open' : 'Closed'}
-                      </span>
-                    )}
-                    <span className="text-sm text-on-surface/60 truncate">{getTodayHours(place.hours)}</span>
-                  </div>
-                  <ChevronDown size={16} className={`text-on-surface/30 flex-shrink-0 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
-                </button>
-                <AnimatePresence>
-                  {hoursOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="px-4 pb-3 pl-11 space-y-1.5">
-                        {place.hours.map((line, i) => {
-                          const [day, ...timeParts] = line.split(': ');
-                          const time = timeParts.join(': ');
-                          const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                          const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
-                          return (
-                            <div key={i} className={`flex justify-between text-sm ${isToday ? 'font-medium text-on-surface' : 'text-on-surface/45'}`}>
-                              <span>{day}</span>
-                              <span>{time}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-
             {place.phone && (
               <a href={`tel:${place.phone}`} className="flex items-center gap-3 px-4 py-3.5 hover:bg-on-surface/[0.02] transition-colors">
                 <Phone size={18} className="text-on-surface/40 flex-shrink-0" />
@@ -365,10 +368,11 @@ export const RestaurantDetailDesktop: React.FC = () => {
               </a>
             )}
 
-            <div className="flex items-center gap-3 px-4 py-3.5">
+            <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3.5 hover:bg-on-surface/[0.02] transition-colors">
               <MapPin size={18} className="text-on-surface/40 flex-shrink-0" />
-              <span className="text-sm text-on-surface/70">{place.address}</span>
-            </div>
+              <span className="text-sm text-on-surface/70 flex-1">{place.address}</span>
+              <Navigation size={14} className="text-primary flex-shrink-0" />
+            </a>
           </div>
         </section>
 
