@@ -15,15 +15,17 @@ const navItems = [
 
 export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = false }) => {
   const [expanded, setExpanded] = useState(false);
-  const { phoneMode } = useSettings();
+  const { phoneMode, hideBottomNav } = useSettings();
 
   const isExpanded = !collapsible || expanded;
 
   return (
     <motion.nav
       layout
+      animate={{ opacity: hideBottomNav ? 0 : 1, y: hideBottomNav ? 20 : 0 }}
       className={cn(
         "fixed left-1/2 glass rounded-full shadow-2xl border border-white/20 z-50 flex items-center justify-center",
+        hideBottomNav && "pointer-events-none",
         phoneMode ? "bottom-3" : "bottom-6",
         isExpanded
           ? phoneMode ? "gap-2 px-3 py-3" : "gap-2 px-8 py-4"
@@ -32,6 +34,8 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
       style={{ x: '-50%' }}
       transition={{
         layout: { type: 'spring', damping: 22, stiffness: 280, mass: 0.8 },
+        opacity: { duration: 0.2 },
+        y: { duration: 0.2 },
       }}
       onMouseEnter={() => collapsible && setExpanded(true)}
       onMouseLeave={() => collapsible && setExpanded(false)}

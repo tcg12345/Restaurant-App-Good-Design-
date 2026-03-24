@@ -82,7 +82,7 @@ function applyLocalFilters(allPlaces: PlaceResult[], sort: SortOption, price: nu
 }
 
 export const Home: React.FC = () => {
-  const { phoneMode } = useSettings();
+  const { phoneMode, setHideBottomNav } = useSettings();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
   const [rawPlaces, setRawPlaces] = useState<PlaceResult[]>([]);
   const [places, setPlaces] = useState<PlaceResult[]>([]);
@@ -93,7 +93,11 @@ export const Home: React.FC = () => {
   const [userLng, setUserLng] = useState(DEFAULT_LNG);
 
   // Filter panel state
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFiltersRaw] = useState(false);
+  const setShowFilters = useCallback((show: boolean) => {
+    setShowFiltersRaw(show);
+    setHideBottomNav(show);
+  }, [setHideBottomNav]);
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);

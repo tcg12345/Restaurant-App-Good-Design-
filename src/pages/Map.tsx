@@ -6,6 +6,7 @@ import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
+import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -49,6 +50,7 @@ const PRICE_LEVELS = [
 
 export const Map: React.FC = () => {
   const navigate = useNavigate();
+  const { setHideBottomNav } = useSettings();
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
@@ -57,7 +59,12 @@ export const Map: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFiltersRaw, setShowFiltersRaw] = useState(false);
+  const setShowFilters = useCallback((show: boolean) => {
+    setShowFiltersRaw(show);
+    setHideBottomNav(show);
+  }, [setHideBottomNav]);
+  const showFilters = showFiltersRaw;
 
   // Filter state
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
