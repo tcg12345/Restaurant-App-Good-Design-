@@ -184,15 +184,21 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // ── Load data from Supabase when user signs in ──
   useEffect(() => {
-    if (!userId || !supabaseConfigured) return;
+    if (!userId || !supabaseConfigured) {
+      if (!supabaseConfigured) console.warn('[Supabase] Not configured — data will only be in localStorage');
+      if (!userId) console.log('[Supabase] No user signed in');
+      return;
+    }
 
     let cancelled = false;
+    console.log('[Supabase] Loading cloud data for user:', userId);
+
     (async () => {
       const cloud = await loadUserData(userId);
       if (cancelled) return;
 
-      if (cloud) {
-        // Cloud data found — use it (merge: cloud wins, but keep any local-only items)
+      if (cloud && (cloud.ratings.length > 0 || cloud.lists.length > 0 || cloud.wishlist.length > 0)) {
+        // Cloud data found with actual content — use it
         const cloudRatings = migrateRatings(cloud.ratings || []);
         const cloudLists = migrateLists(cloud.lists.length > 0 ? cloud.lists : DEFAULT_LISTS);
         const cloudWishlist = migrateWishlist(cloud.wishlist || []);
@@ -209,21 +215,23 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
         saveToStorage(STORAGE_KEY_META, cloudMeta);
 
-        console.log('[Supabase] Loaded user data from cloud:', cloudRatings.length, 'ratings,', cloudLists.length, 'lists');
+        console.log('[Supabase] Loaded user data from cloud:', cloudRatings.length, 'ratings,', cloudLists.length, 'lists,', cloudWishlist.length, 'wishlist');
       } else {
-        // No cloud data — push current localStorage data to Supabase as initial sync
-        console.log('[Supabase] No cloud data found, syncing local data to cloud...');
+        // No cloud data or empty — push current localStorage data to Supabase as initial sync
         const localRatings = migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, []));
         const localLists = migrateLists(loadFromStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS));
         const localWishlist = migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, []));
         const localMeta = loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {});
 
-        await saveUserData(userId, {
+        console.log('[Supabase] No cloud data found, syncing local data to cloud:', localRatings.length, 'ratings,', localLists.length, 'lists');
+
+        const success = await saveUserData(userId, {
           ratings: localRatings,
           lists: localLists,
           wishlist: localWishlist,
           restaurantMeta: localMeta,
         });
+        console.log('[Supabase] Initial sync result:', success ? 'SUCCESS' : 'FAILED');
       }
 
       setCloudLoaded(true);
