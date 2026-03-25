@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, Trash2, ChevronLeft, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useLists } from '../contexts/ListsContext';
+import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
@@ -19,7 +19,7 @@ export const RatingModal: React.FC = () => {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [priceIndex, setPriceIndex] = useState(-1);
   const [priceAmount, setPriceAmount] = useState('');
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
   const [friendSearch, setFriendSearch] = useState('');
@@ -32,6 +32,7 @@ export const RatingModal: React.FC = () => {
 
   const [page, setPage] = useState<Page>('main');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (ratingModalOpen && ratingModalRestaurant) {
@@ -68,41 +69,54 @@ export const RatingModal: React.FC = () => {
 
   const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (ratingModalRestaurant?.price || '$$');
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files) return;
+    if (!files || files.length === 0) return;
+    const newPhotos: PhotoItem[] = [];
+    let loaded = 0;
     Array.from(files).forEach((file) => {
-      if (!file.type.startsWith('image/')) return;
+      if (!file.type.startsWith('image/')) { loaded++; return; }
       const reader = new FileReader();
-      reader.onload = () => { if (typeof reader.result === 'string') setPhotos((prev) => [...prev, reader.result as string]); };
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          newPhotos.push({ url: reader.result, caption: '', isFavorite: false });
+        }
+        loaded++;
+        if (loaded === files.length) {
+          setPhotos((prev) => [...prev, ...newPhotos]);
+          setPage('photos');
+        }
+      };
       reader.readAsDataURL(file);
     });
     e.target.value = '';
-  };
+  }, []);
 
   const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
+  const togglePhotoFavorite = (idx: number) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, isFavorite: !p.isFavorite } : p));
+  const movePhoto = (from: number, to: number) => {
+    setPhotos((prev) => { const next = [...prev]; const [item] = next.splice(from, 1); next.splice(to, 0, item); return next; });
+  };
+
+  const handlePhotosClick = () => {
+    if (photos.length === 0) fileInputRef.current?.click();
+    else setPage('photos');
+  };
 
   const handleCreateList = () => {
     if (!newName.trim()) return;
     createList(newName.trim(), newEmoji);
-    setNewName('');
-    setNewEmoji('📋');
-    setCreatingList(false);
+    setNewName(''); setNewEmoji('📋'); setCreatingList(false);
   };
 
   const handleSave = () => {
     if (!ratingModalRestaurant) return;
     rateRestaurant({
-      restaurantId: ratingModalRestaurant.id,
-      name: ratingModalRestaurant.name,
-      image: ratingModalRestaurant.image,
-      cuisine: ratingModalRestaurant.cuisine,
-      price: resolvedPrice,
-      address: ratingModalRestaurant.address,
-      score, notes, visitDate, wouldReturn,
-      tags: selectedTags, photos,
-      listIds: selectedListIds,
-      createdAt: Date.now(),
+      restaurantId: ratingModalRestaurant.id, name: ratingModalRestaurant.name, image: ratingModalRestaurant.image,
+      cuisine: ratingModalRestaurant.cuisine, price: resolvedPrice, address: ratingModalRestaurant.address,
+      score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+      listIds: selectedListIds, createdAt: Date.now(),
     });
     closeRatingModal();
   };
@@ -124,36 +138,30 @@ export const RatingModal: React.FC = () => {
     return ALL_TAGS.filter((t) => t.toLowerCase().includes(q));
   }, [tagSearch]);
 
-  const MOCK_FRIENDS = ['Alex Chen', 'Maria Garcia', 'James Wilson', 'Sarah Kim', 'David Park', 'Emma Davis', 'Chris Lee', 'Olivia Brown', 'Ryan Martinez', 'Sophie Taylor'];
+  const MOCK_FRIENDS = useMemo(() => ['Alex Chen', 'Maria Garcia', 'James Wilson', 'Sarah Kim', 'David Park', 'Emma Davis', 'Chris Lee', 'Olivia Brown', 'Ryan Martinez', 'Sophie Taylor'], []);
   const filteredFriends = useMemo(() => {
     if (!friendSearch.trim()) return MOCK_FRIENDS;
     const q = friendSearch.toLowerCase();
     return MOCK_FRIENDS.filter((f) => f.toLowerCase().includes(q));
-  }, [friendSearch]);
+  }, [friendSearch, MOCK_FRIENDS]);
 
   const selectedListLabels = lists.filter((l) => selectedListIds.includes(l.id));
+
+  const photoInput = <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />;
 
   return (
     <AnimatePresence>
       {ratingModalOpen && ratingModalRestaurant && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center"
-          onClick={closeRatingModal}
-        >
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
+          onClick={closeRatingModal}>
+          <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className={cn(
-              "bg-surface w-full sm:max-w-md sm:rounded-3xl overflow-hidden flex flex-col",
+            className={cn("bg-surface w-full sm:max-w-md sm:rounded-3xl overflow-hidden flex flex-col",
               "h-[100dvh] sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-3xl"
-            )}
-          >
+            )}>
+            {photoInput}
             <AnimatePresence mode="wait">
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
@@ -166,23 +174,23 @@ export const RatingModal: React.FC = () => {
                     <button onClick={closeRatingModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
 
-                  {/* List dropdown */}
-                  <div className="px-5 pb-2 flex-shrink-0">
-                    <div className="relative">
-                      <button onClick={() => setListDropdownOpen(!listDropdownOpen)}
-                        className={cn("w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-left transition-all",
-                          selectedListLabels.length > 0 ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/10"
-                        )}>
-                        <span className="text-xs text-on-surface/40 flex-shrink-0">List:</span>
-                        <span className="flex-1 text-xs font-semibold truncate">
-                          {selectedListLabels.length > 0 ? selectedListLabels.map((l) => `${l.emoji} ${l.name}`).join(', ') : 'All Restaurants'}
-                        </span>
-                        <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", listDropdownOpen && "rotate-180")} />
-                      </button>
-                      <AnimatePresence>
-                        {listDropdownOpen && (
+                  <div className="px-5 pb-2 flex-shrink-0 relative z-20">
+                    <button onClick={() => setListDropdownOpen(!listDropdownOpen)}
+                      className={cn("w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-left transition-all",
+                        selectedListLabels.length > 0 ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/10"
+                      )}>
+                      <span className="text-xs text-on-surface/40 flex-shrink-0">List:</span>
+                      <span className="flex-1 text-xs font-semibold truncate">
+                        {selectedListLabels.length > 0 ? selectedListLabels.map((l) => `${l.emoji} ${l.name}`).join(', ') : 'All Restaurants'}
+                      </span>
+                      <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", listDropdownOpen && "rotate-180")} />
+                    </button>
+                    <AnimatePresence>
+                      {listDropdownOpen && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setListDropdownOpen(false)} />
                           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}
-                            className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-20 max-h-56 overflow-y-auto">
+                            className="absolute top-full left-0 right-0 mt-1 mx-5 bg-white rounded-xl shadow-lg border border-on-surface/10 z-20 max-h-56 overflow-y-auto">
                             {lists.map((list) => {
                               const selected = selectedListIds.includes(list.id);
                               return (
@@ -217,12 +225,12 @@ export const RatingModal: React.FC = () => {
                               </button>
                             )}
                           </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                        </>
+                      )}
+                    </AnimatePresence>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto overscroll-contain px-5" onClick={() => listDropdownOpen && setListDropdownOpen(false)}>
+                  <div className="flex-1 overflow-y-auto overscroll-contain px-5">
                     <div className="flex flex-col items-center pt-3 sm:pt-5">
                       <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
                         <div className="text-center">
@@ -230,7 +238,6 @@ export const RatingModal: React.FC = () => {
                           <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
                         </div>
                       </div>
-
                       <div className="w-full max-w-[260px] mb-1.5">
                         <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
                           className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
@@ -238,26 +245,17 @@ export const RatingModal: React.FC = () => {
                           <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
                         </div>
                       </div>
-
                       <p className="text-xs font-medium text-on-surface/40 mb-4">
                         {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
                       </p>
-
                       <div className="w-full max-w-[260px] mb-5">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 text-center mb-2">Would you go back?</p>
                         <div className="flex gap-2">
-                          <button onClick={() => setWouldReturn(true)}
-                            className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all",
-                              wouldReturn ? "bg-green-50 border-green-200 text-green-700" : "bg-white border-on-surface/10 text-on-surface/40"
-                            )}>Yes!</button>
-                          <button onClick={() => setWouldReturn(false)}
-                            className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all",
-                              !wouldReturn ? "bg-red-50 border-red-200 text-red-600" : "bg-white border-on-surface/10 text-on-surface/40"
-                            )}>Nah</button>
+                          <button onClick={() => setWouldReturn(true)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", wouldReturn ? "bg-green-50 border-green-200 text-green-700" : "bg-white border-on-surface/10 text-on-surface/40")}>Yes!</button>
+                          <button onClick={() => setWouldReturn(false)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", !wouldReturn ? "bg-red-50 border-red-200 text-red-600" : "bg-white border-on-surface/10 text-on-surface/40")}>Nah</button>
                         </div>
                       </div>
                     </div>
-
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Add details</p>
                       <div className="grid grid-cols-3 gap-2">
@@ -265,12 +263,11 @@ export const RatingModal: React.FC = () => {
                         <DetailBtn icon={<DollarSign size={17} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
                         <DetailBtn icon={<CalendarDays size={17} />} label="Date" active sub={dateLabel} onClick={() => setPage('date')} />
                         <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
-                        <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={() => setPage('photos')} />
+                        <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
                         <DetailBtn icon={<Users size={17} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} />
                       </div>
                     </div>
                   </div>
-
                   <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
                     <button onClick={handleSave} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                       {existing ? 'Update Rating' : 'Save Rating'}
@@ -281,9 +278,8 @@ export const RatingModal: React.FC = () => {
 
               {page === 'notes' && (
                 <SubPage key="notes" onBack={() => setPage('main')} title="Notes">
-                  <div className="flex-1 overflow-y-auto px-5 py-5">
-                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
-                      placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8} autoFocus
+                  <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8} autoFocus
                       className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed" />
                   </div>
                   <BottomBtn label={hasNotes ? 'Update Notes' : 'Save Notes'} onClick={() => setPage('main')} />
@@ -292,7 +288,7 @@ export const RatingModal: React.FC = () => {
 
               {page === 'price' && (
                 <SubPage key="price" onBack={() => setPage('main')} title="Price Range">
-                  <div className="flex-1 overflow-y-auto px-5 py-6 flex flex-col items-center">
+                  <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-6 flex flex-col items-center">
                     <p className="text-xs text-on-surface/40 mb-5 text-center">How much per person?</p>
                     <div className="flex gap-2.5 w-full max-w-xs mb-6">
                       {PRICE_RANGES.map((p, idx) => (
@@ -321,15 +317,13 @@ export const RatingModal: React.FC = () => {
 
               {page === 'date' && (
                 <SubPage key="date" onBack={() => setPage('main')} title="Date Visited">
-                  <div className="flex-1 overflow-y-auto px-5 py-5">
-                    <Calendar value={visitDate} onChange={setVisitDate} />
-                  </div>
+                  <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5"><Calendar value={visitDate} onChange={setVisitDate} /></div>
                   <BottomBtn label="Done" onClick={() => setPage('main')} />
                 </SubPage>
               )}
 
               {page === 'tags' && (
-                <SubPage key="tags" onBack={() => setPage('main')} title="Tags">
+                <SubPage key="tags" onBack={() => { setPage('main'); setTagSearch(''); }} title="Tags">
                   <div className="px-5 pt-4 pb-2 flex-shrink-0">
                     <div className="relative">
                       <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
@@ -346,51 +340,63 @@ export const RatingModal: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div className="flex-1 overflow-y-auto px-5 pb-3">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3" onTouchMove={(e) => e.stopPropagation()}>
                     {filteredTags.map((tag) => {
                       const sel = selectedTags.includes(tag);
                       return (
                         <button key={tag} onClick={() => toggleTag(tag)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
-                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
-                          )}>
-                          <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0",
-                            sel ? "bg-primary border-primary text-white" : "border-on-surface/20"
-                          )}>{sel && <Check size={12} strokeWidth={3} />}</div>
+                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors", sel ? "bg-primary/3" : "hover:bg-on-surface/3")}>
+                          <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0", sel ? "bg-primary border-primary text-white" : "border-on-surface/20")}>{sel && <Check size={12} strokeWidth={3} />}</div>
                           <span className={cn("text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{tag}</span>
                         </button>
                       );
                     })}
                     {filteredTags.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No tags match "{tagSearch}"</p>}
                   </div>
-                  <BottomBtn label={hasTags ? `Done (${selectedTags.length})` : 'Done'} onClick={() => setPage('main')} />
+                  <BottomBtn label={hasTags ? `Done (${selectedTags.length})` : 'Done'} onClick={() => { setPage('main'); setTagSearch(''); }} />
                 </SubPage>
               )}
 
               {page === 'photos' && (
-                <SubPage key="photos" onBack={() => setPage('main')} title="Photos">
-                  <div className="flex-1 overflow-y-auto px-5 py-5">
-                    <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />
+                <SubPage key="photos" onBack={() => setPage('main')} title="Photos" rightAction={
+                  <button onClick={() => fileInputRef.current?.click()} className="text-xs font-semibold text-primary">Add More</button>
+                }>
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" onTouchMove={(e) => e.stopPropagation()}>
                     {photos.length === 0 ? (
-                      <button onClick={() => fileInputRef.current?.click()}
-                        className="w-full py-16 rounded-2xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-2 text-on-surface/30 hover:border-primary hover:text-primary transition-all">
-                        <Camera size={28} /><span className="text-sm font-semibold">Tap to add photos</span>
-                      </button>
+                      <div className="px-5 py-16 flex flex-col items-center justify-center text-on-surface/30">
+                        <Camera size={28} className="mb-2" /><p className="text-sm font-semibold">No photos yet</p>
+                        <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
+                      </div>
                     ) : (
-                      <div className="grid grid-cols-3 gap-2 mb-4">
+                      <div className="divide-y divide-on-surface/8">
                         {photos.map((photo, idx) => (
-                          <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden group/photo">
-                            <img src={photo} alt="" className="w-full h-full object-cover" />
-                            <button onClick={() => removePhoto(idx)}
-                              className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover/photo:opacity-100 transition-opacity">
-                              <Trash2 size={13} className="text-white" />
-                            </button>
+                          <div key={idx} className="flex gap-3 px-5 py-4">
+                            <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
+                              <img src={photo.url} alt="" className="w-full h-full object-cover" />
+                              <button onClick={() => removePhoto(idx)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
+                                <X size={10} className="text-white" />
+                              </button>
+                            </div>
+                            <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                              <input type="text" value={photo.caption} onChange={(e) => updatePhotoCaption(idx, e.target.value)} placeholder="What's this?"
+                                className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full" />
+                              <button onClick={() => togglePhotoFavorite(idx)}
+                                className={cn("flex items-center gap-2 mt-2 text-xs font-medium transition-colors", photo.isFavorite ? "text-primary" : "text-on-surface/35")}>
+                                <span className="text-on-surface/40">Mark as a favorite dish:</span>
+                                <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                  photo.isFavorite ? "bg-primary border-primary text-white" : "border-on-surface/20"
+                                )}>{photo.isFavorite && <Star size={10} fill="white" />}</div>
+                              </button>
+                            </div>
+                            <div className="flex items-start pt-1 flex-shrink-0">
+                              <div className="text-on-surface/20 cursor-grab active:cursor-grabbing p-1"
+                                onPointerDown={() => setDragIdx(idx)}
+                                onPointerUp={() => { if (dragIdx !== null && dragIdx !== idx) movePhoto(dragIdx, idx); setDragIdx(null); }}>
+                                <GripVertical size={18} />
+                              </div>
+                            </div>
                           </div>
                         ))}
-                        <button onClick={() => fileInputRef.current?.click()}
-                          className="aspect-square rounded-2xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-1 text-on-surface/30 hover:border-primary hover:text-primary transition-all">
-                          <Plus size={20} /><span className="text-[10px] font-semibold">Add more</span>
-                        </button>
                       </div>
                     )}
                   </div>
@@ -399,7 +405,7 @@ export const RatingModal: React.FC = () => {
               )}
 
               {page === 'friends' && (
-                <SubPage key="friends" onBack={() => setPage('main')} title="Went With">
+                <SubPage key="friends" onBack={() => { setPage('main'); setFriendSearch(''); }} title="Went With">
                   <div className="px-5 pt-4 pb-2 flex-shrink-0">
                     <div className="relative">
                       <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
@@ -416,15 +422,13 @@ export const RatingModal: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div className="flex-1 overflow-y-auto px-5 pb-3">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3" onTouchMove={(e) => e.stopPropagation()}>
                     <p className="text-[10px] text-on-surface/30 mb-3 px-1">Select friends who joined you</p>
                     {filteredFriends.map((name) => {
                       const sel = selectedFriends.includes(name);
                       return (
                         <button key={name} onClick={() => toggleFriend(name)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
-                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
-                          )}>
+                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors", sel ? "bg-primary/3" : "hover:bg-on-surface/3")}>
                           <div className="w-8 h-8 rounded-full bg-on-surface/8 flex items-center justify-center text-xs font-bold text-on-surface/40 flex-shrink-0">
                             {name.split(' ').map((n) => n[0]).join('')}
                           </div>
@@ -435,7 +439,7 @@ export const RatingModal: React.FC = () => {
                     })}
                     {filteredFriends.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No friends match "{friendSearch}"</p>}
                   </div>
-                  <BottomBtn label={hasFriends ? `Done (${selectedFriends.length})` : 'Done'} onClick={() => setPage('main')} />
+                  <BottomBtn label={hasFriends ? `Done (${selectedFriends.length})` : 'Done'} onClick={() => { setPage('main'); setFriendSearch(''); }} />
                 </SubPage>
               )}
             </AnimatePresence>
@@ -445,8 +449,6 @@ export const RatingModal: React.FC = () => {
     </AnimatePresence>
   );
 };
-
-/* ── Shared sub-components ── */
 
 const DetailBtn: React.FC<{
   icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
@@ -462,15 +464,16 @@ const DetailBtn: React.FC<{
 );
 
 const SubPage: React.FC<{
-  children: React.ReactNode; onBack: () => void; title: string;
-}> = ({ children, onBack, title }) => (
+  children: React.ReactNode; onBack: () => void; title: string; rightAction?: React.ReactNode;
+}> = ({ children, onBack, title, rightAction }) => (
   <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-    className="flex flex-col h-full">
+    className="flex flex-col h-full" onTouchMove={(e) => e.stopPropagation()}>
     <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
       <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
         <ChevronLeft size={22} />
       </button>
-      <h2 className="font-serif font-bold text-lg">{title}</h2>
+      <h2 className="font-serif font-bold text-lg flex-1">{title}</h2>
+      {rightAction}
     </div>
     {children}
   </motion.div>

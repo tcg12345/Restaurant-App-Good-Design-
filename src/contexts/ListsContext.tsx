@@ -2,6 +2,12 @@ import React, { createContext, useContext, useState, useCallback, type ReactNode
 
 /* ── Types ── */
 
+export interface PhotoItem {
+  url: string;            // base64 data-url
+  caption: string;        // dish name / description
+  isFavorite: boolean;    // marked as favorite dish
+}
+
 export interface RestaurantRating {
   restaurantId: string;
   name: string;
@@ -14,7 +20,7 @@ export interface RestaurantRating {
   visitDate: string;      // ISO date string
   wouldReturn: boolean;
   tags: string[];         // e.g. "Great cocktails", "Romantic", etc.
-  photos: string[];       // base64 data-urls of user-uploaded photos
+  photos: PhotoItem[];    // user-uploaded photos with captions
   listIds: string[];      // which lists this rating belongs to
   createdAt: number;      // timestamp
 }
@@ -142,7 +148,9 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
   return ratings.map((r) => ({
     ...r,
     listIds: r.listIds ?? [],
-    photos: r.photos ?? [],
+    photos: (r.photos ?? []).map((p: any) =>
+      typeof p === 'string' ? { url: p, caption: '', isFavorite: false } : p
+    ),
   }));
 }
 
