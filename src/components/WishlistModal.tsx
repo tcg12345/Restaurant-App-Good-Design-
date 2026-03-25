@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
-import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Heart } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
@@ -28,18 +27,6 @@ export const WishlistModal: React.FC = () => {
   const [creatingList, setCreatingList] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmoji, setNewEmoji] = useState('📋');
-
-  // Drag to dismiss
-  const dragY = useMotionValue(0);
-  const backdropOpacity = useTransform(dragY, [0, 300], [1, 0]);
-  const handleDragEnd = (_: any, info: PanInfo) => {
-    if (info.offset.y > 100 || info.velocity.y > 500) closeWishlistModal();
-    else dragY.set(0);
-  };
-
-  useEffect(() => {
-    if (wishlistModalOpen) dragY.set(0);
-  }, [wishlistModalOpen, dragY]);
 
   useEffect(() => {
     if (wishlistModalOpen && restaurant) {
@@ -86,32 +73,26 @@ export const WishlistModal: React.FC = () => {
     closeWishlistModal();
   };
 
-  return createPortal(
+  return (
     <AnimatePresence>
       {wishlistModalOpen && restaurant && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          style={phoneMode ? { opacity: backdropOpacity } : undefined}
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center"
           onClick={closeWishlistModal}
         >
           <motion.div
-            initial={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
-            animate={phoneMode ? { y: 0 } : { y: 0, opacity: 1 }}
-            exit={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            drag={phoneMode ? 'y' : false}
-            dragConstraints={{ top: 0 }}
-            dragElastic={0.2}
-            onDragEnd={handleDragEnd}
-            style={phoneMode ? { y: dragY } : undefined}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               "bg-surface overflow-hidden flex flex-col",
               phoneMode
-                ? "w-full rounded-t-3xl max-h-[90vh]"
+                ? "w-full rounded-t-3xl max-h-[85vh]"
                 : "w-full max-w-md rounded-3xl max-h-[85vh] shadow-2xl"
             )}
           >
@@ -232,7 +213,6 @@ export const WishlistModal: React.FC = () => {
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>,
-    document.body
+    </AnimatePresence>
   );
 };
