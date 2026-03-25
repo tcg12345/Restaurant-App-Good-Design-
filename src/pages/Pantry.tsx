@@ -664,106 +664,154 @@ const ListDetailView: React.FC<{
   );
 };
 
-/* ── Filter Popup ── */
-const FilterPopup: React.FC<{
+/* ── Full Filter Sheet ── */
+const FilterSheet: React.FC<{
   open: boolean;
   onClose: () => void;
+  sortBy: string;
+  onSortBy: (v: any) => void;
   scoreRange: [number, number];
   onScoreRange: (r: [number, number]) => void;
-  showWouldReturn: boolean;
-  onShowWouldReturn: (v: boolean) => void;
-  sortBy: 'recent' | 'highest' | 'lowest';
-  onSortBy: (v: 'recent' | 'highest' | 'lowest') => void;
-}> = ({ open, onClose, scoreRange, onScoreRange, showWouldReturn, onShowWouldReturn, sortBy, onSortBy }) => {
-  if (!open) return null;
+  cityFilter: string | null;
+  onCityFilter: (v: string | null) => void;
+  cuisineFilter: string | null;
+  onCuisineFilter: (v: string | null) => void;
+  priceFilter: string | null;
+  onPriceFilter: (v: string | null) => void;
+  allCities: string[];
+  allCuisines: string[];
+  onReset: () => void;
+}> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, allCities, allCuisines, onReset }) => {
+  const { phoneMode } = useSettings();
+  const [citySearch, setCitySearch] = useState('');
+  const [cuisineSearch, setCuisineSearch] = useState('');
+
+  const filteredCities = citySearch.trim() ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase())) : allCities;
+  const filteredCuisines = cuisineSearch.trim() ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase())) : allCuisines;
 
   return (
     <AnimatePresence>
       {open && (
         <>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={onClose} />
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/30 z-40"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-3xl max-h-[70vh] overflow-y-auto"
+            drag={phoneMode ? 'y' : false}
+            dragConstraints={{ top: 0 }}
+            dragElastic={{ top: 0, bottom: 0.4 }}
+            onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) onClose(); }}
+            className={cn("fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+              phoneMode ? "max-h-[85vh]" : "max-h-[70vh]")}
           >
-            <div className="p-5">
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="font-serif font-bold text-lg">Filters</h3>
-                <button onClick={onClose} className="p-1 text-on-surface/40 hover:text-on-surface">
-                  <X size={20} />
-                </button>
+            {/* Drag handle */}
+            {phoneMode && (
+              <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing flex-shrink-0">
+                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
               </div>
+            )}
 
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
+              <h3 className="font-serif font-bold text-lg">Filters</h3>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors">
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
               {/* Sort */}
-              <div className="mb-5">
-                <p className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2.5">Sort by</p>
-                <div className="flex gap-2">
-                  {([['recent', 'Recent'], ['highest', 'Highest rated'], ['lowest', 'Lowest rated']] as const).map(([key, label]) => (
-                    <button
-                      key={key}
-                      onClick={() => onSortBy(key)}
-                      className={cn(
-                        "px-3.5 py-2 rounded-full text-xs font-semibold transition-all",
-                        sortBy === key ? "bg-primary text-white" : "bg-on-surface/5 text-on-surface/50"
-                      )}
-                    >
-                      {label}
-                    </button>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
+                <div className="flex flex-wrap gap-2">
+                  {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => onSortBy(key)}
+                      className={cn("px-3.5 py-2 rounded-full text-xs font-semibold transition-all",
+                        sortBy === key ? "bg-primary text-white" : "bg-on-surface/5 text-on-surface/50 hover:bg-on-surface/10")}>{label}</button>
                   ))}
                 </div>
               </div>
 
               {/* Score range */}
-              <div className="mb-5">
-                <p className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2.5">
-                  Rating: {scoreRange[0]}–{scoreRange[1]}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">
+                  Score: {scoreRange[0]} – {scoreRange[1]}
                 </p>
                 <div className="flex items-center gap-3">
-                  <input
-                    type="range"
-                    min={0} max={10} step={1}
-                    value={scoreRange[0]}
+                  <span className="text-[10px] text-on-surface/30 w-4 text-center">{scoreRange[0]}</span>
+                  <input type="range" min={0} max={10} step={1} value={scoreRange[0]}
                     onChange={(e) => onScoreRange([Math.min(+e.target.value, scoreRange[1]), scoreRange[1]])}
-                    className="flex-1 accent-primary"
-                  />
-                  <input
-                    type="range"
-                    min={0} max={10} step={1}
-                    value={scoreRange[1]}
+                    className="flex-1 accent-primary h-1" />
+                  <input type="range" min={0} max={10} step={1} value={scoreRange[1]}
                     onChange={(e) => onScoreRange([scoreRange[0], Math.max(+e.target.value, scoreRange[0])])}
-                    className="flex-1 accent-primary"
-                  />
+                    className="flex-1 accent-primary h-1" />
+                  <span className="text-[10px] text-on-surface/30 w-4 text-center">{scoreRange[1]}</span>
                 </div>
               </div>
 
-              {/* Would return */}
-              <div className="mb-5">
-                <button
-                  onClick={() => onShowWouldReturn(!showWouldReturn)}
-                  className={cn(
-                    "px-3.5 py-2 rounded-full text-xs font-semibold transition-all",
-                    showWouldReturn ? "bg-primary text-white" : "bg-on-surface/5 text-on-surface/50"
-                  )}
-                >
-                  Would return only
-                </button>
+              {/* Price */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Price</p>
+                <div className="flex gap-2">
+                  {['$', '$$', '$$$', '$$$$'].map((p) => (
+                    <button key={p} onClick={() => onPriceFilter(priceFilter === p ? null : p)}
+                      className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2",
+                        priceFilter === p ? "border-primary bg-primary/5 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{p}</button>
+                  ))}
+                </div>
               </div>
 
-              <button
-                onClick={onClose}
-                className="w-full py-3 rounded-2xl bg-primary text-white text-sm font-bold"
-              >
-                Apply
-              </button>
+              {/* Cuisine */}
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
+                  {cuisineFilter && <button onClick={() => onCuisineFilter(null)} className="text-[10px] text-primary font-semibold">Clear</button>}
+                </div>
+                <div className="relative mb-2">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                  <input type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)} placeholder="Search cuisines..."
+                    className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                  {filteredCuisines.map((c) => (
+                    <button key={c} onClick={() => onCuisineFilter(cuisineFilter === c ? null : c)}
+                      className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                        cuisineFilter === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
+                  ))}
+                  {filteredCuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
+                </div>
+              </div>
+
+              {/* City */}
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
+                  {cityFilter && <button onClick={() => onCityFilter(null)} className="text-[10px] text-primary font-semibold">Clear</button>}
+                </div>
+                <div className="relative mb-2">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                  <input type="text" value={citySearch} onChange={(e) => setCitySearch(e.target.value)} placeholder="Search locations..."
+                    className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                  {filteredCities.map((c) => (
+                    <button key={c} onClick={() => onCityFilter(cityFilter === c ? null : c)}
+                      className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                        cityFilter === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
+                  ))}
+                  {filteredCities.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex-shrink-0 border-t border-on-surface/6 px-5 py-4 flex gap-3">
+              <button onClick={onReset}
+                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors">Reset</button>
+              <button onClick={onClose}
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25">Apply</button>
             </div>
           </motion.div>
         </>
@@ -786,14 +834,17 @@ export const Pantry: React.FC = () => {
   // Filters
   const [cityFilter, setCityFilter] = useState<string | null>(null);
   const [cuisineFilter, setCuisineFilter] = useState<string | null>(null);
+  const [priceFilter, setPriceFilter] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
-  const [showWouldReturn, setShowWouldReturn] = useState(false);
-  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest'>('recent');
+  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added'>('recent');
 
-  // Dropdowns
+  // Quick filter dropdowns
   const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
   const [cuisineDropdownOpen, setCuisineDropdownOpen] = useState(false);
+  const [priceDropdownOpen, setPriceDropdownOpen] = useState(false);
+
+  const closeAllDropdowns = () => { setCityDropdownOpen(false); setCuisineDropdownOpen(false); setPriceDropdownOpen(false); };
 
   const {
     lists, createList,
@@ -817,14 +868,13 @@ export const Pantry: React.FC = () => {
     return Array.from(cities).sort();
   }, [ratings]);
 
-  // Extract unique cuisines from ratings
   const allCuisines = useMemo(() => {
     const cuisines = new Set<string>();
-    ratings.forEach((r) => {
-      if (r.cuisine) cuisines.add(r.cuisine);
-    });
+    ratings.forEach((r) => { if (r.cuisine) cuisines.add(r.cuisine); });
     return Array.from(cuisines).sort();
   }, [ratings]);
+
+  const allPrices = ['$', '$$', '$$$', '$$$$'];
 
   // Filter and sort rated restaurants
   const filteredRatings = useMemo(() => {
@@ -836,24 +886,24 @@ export const Pantry: React.FC = () => {
         return parts.some((p) => p === cityFilter);
       });
     }
-
-    if (cuisineFilter) {
-      result = result.filter((r) => r.cuisine === cuisineFilter);
-    }
-
-    if (showWouldReturn) {
-      result = result.filter((r) => r.wouldReturn);
-    }
-
+    if (cuisineFilter) result = result.filter((r) => r.cuisine === cuisineFilter);
+    if (priceFilter) result = result.filter((r) => r.price === priceFilter);
     result = result.filter((r) => r.score >= scoreRange[0] && r.score <= scoreRange[1]);
 
     if (sortBy === 'highest') result.sort((a, b) => b.score - a.score);
     else if (sortBy === 'lowest') result.sort((a, b) => a.score - b.score);
+    else if (sortBy === 'added') result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return result;
-  }, [ratings, cityFilter, cuisineFilter, showWouldReturn, scoreRange, sortBy]);
+  }, [ratings, cityFilter, cuisineFilter, priceFilter, scoreRange, sortBy]);
 
-  const hasActiveFilters = cityFilter || cuisineFilter || showWouldReturn || scoreRange[0] > 0 || scoreRange[1] < 10 || sortBy !== 'recent';
+  const activeFilterCount = (cityFilter ? 1 : 0) + (cuisineFilter ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
+  const hasActiveFilters = activeFilterCount > 0;
+
+  const handleResetFilters = () => {
+    setCityFilter(null); setCuisineFilter(null); setPriceFilter(null);
+    setScoreRange([0, 10]); setSortBy('recent');
+  };
 
   // Keep selectedList in sync
   const currentList = selectedList ? lists.find((l) => l.id === selectedList.id) ?? null : null;
@@ -900,113 +950,103 @@ export const Pantry: React.FC = () => {
               </div>
             </div>
 
-            {/* ── Filter chips ── */}
-            <div className="flex gap-2 mb-5 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-              {/* City filter */}
-              <div className="relative flex-shrink-0">
-                <button
-                  onClick={() => { setCityDropdownOpen(!cityDropdownOpen); setCuisineDropdownOpen(false); }}
-                  className={cn(
-                    "flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-                    cityFilter
-                      ? "bg-primary/10 text-primary border-primary/20"
-                      : "bg-on-surface/5 text-on-surface/50 border-transparent"
-                  )}
-                >
-                  <MapPin size={12} />
-                  <span>{cityFilter || 'City'}</span>
-                  {cityFilter ? (
-                    <button onClick={(e) => { e.stopPropagation(); setCityFilter(null); setCityDropdownOpen(false); }} className="ml-0.5">
-                      <X size={11} />
-                    </button>
-                  ) : (
-                    <ChevronDown size={11} />
-                  )}
-                </button>
-                {cityDropdownOpen && allCities.length > 0 && (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setCityDropdownOpen(false)} />
-                    <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-40 min-w-[10rem] max-h-48 overflow-y-auto">
-                      {allCities.map((city) => (
-                        <button
-                          key={city}
-                          onClick={() => { setCityFilter(city); setCityDropdownOpen(false); }}
-                          className={cn(
-                            "w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-on-surface/5 transition-colors first:rounded-t-xl last:rounded-b-xl",
-                            cityFilter === city ? "text-primary bg-primary/5" : "text-on-surface/70"
-                          )}
-                        >
-                          {city}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Cuisine filter */}
-              <div className="relative flex-shrink-0">
-                <button
-                  onClick={() => { setCuisineDropdownOpen(!cuisineDropdownOpen); setCityDropdownOpen(false); }}
-                  className={cn(
-                    "flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-                    cuisineFilter
-                      ? "bg-primary/10 text-primary border-primary/20"
-                      : "bg-on-surface/5 text-on-surface/50 border-transparent"
-                  )}
-                >
-                  <span>{cuisineFilter || 'Cuisine'}</span>
-                  {cuisineFilter ? (
-                    <button onClick={(e) => { e.stopPropagation(); setCuisineFilter(null); setCuisineDropdownOpen(false); }} className="ml-0.5">
-                      <X size={11} />
-                    </button>
-                  ) : (
-                    <ChevronDown size={11} />
-                  )}
-                </button>
-                {cuisineDropdownOpen && allCuisines.length > 0 && (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setCuisineDropdownOpen(false)} />
-                    <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-40 min-w-[10rem] max-h-48 overflow-y-auto">
-                      {allCuisines.map((c) => (
-                        <button
-                          key={c}
-                          onClick={() => { setCuisineFilter(c); setCuisineDropdownOpen(false); }}
-                          className={cn(
-                            "w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-on-surface/5 transition-colors first:rounded-t-xl last:rounded-b-xl",
-                            cuisineFilter === c ? "text-primary bg-primary/5" : "text-on-surface/70"
-                          )}
-                        >
-                          {c}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Filters button */}
+            {/* ── Filter bar ── */}
+            <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+              {/* Filters button — always first */}
               <button
-                onClick={() => { setFiltersOpen(true); setCityDropdownOpen(false); setCuisineDropdownOpen(false); }}
+                onClick={() => { setFiltersOpen(true); closeAllDropdowns(); }}
                 className={cn(
-                  "flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  (showWouldReturn || scoreRange[0] > 0 || scoreRange[1] < 10 || sortBy !== 'recent')
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
+                  activeFilterCount > 0
                     ? "bg-primary/10 text-primary border-primary/20"
                     : "bg-on-surface/5 text-on-surface/50 border-transparent"
                 )}
               >
                 <SlidersHorizontal size={12} />
                 <span>Filters</span>
+                {activeFilterCount > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">{activeFilterCount}</span>
+                )}
               </button>
+
+              {/* Quick: City */}
+              <div className="relative flex-shrink-0">
+                <button
+                  onClick={() => { setCityDropdownOpen(!cityDropdownOpen); setCuisineDropdownOpen(false); setPriceDropdownOpen(false); }}
+                  className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
+                    cityFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+                >
+                  <MapPin size={11} />
+                  <span>{cityFilter || 'City'}</span>
+                  {cityFilter ? <button onClick={(e) => { e.stopPropagation(); setCityFilter(null); setCityDropdownOpen(false); }} className="ml-0.5"><X size={10} /></button> : <ChevronDown size={10} />}
+                </button>
+                {cityDropdownOpen && allCities.length > 0 && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setCityDropdownOpen(false)} />
+                    <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-40 min-w-[10rem] max-h-48 overflow-y-auto">
+                      {allCities.map((city) => (
+                        <button key={city} onClick={() => { setCityFilter(city); setCityDropdownOpen(false); }}
+                          className={cn("w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-on-surface/5 transition-colors first:rounded-t-xl last:rounded-b-xl",
+                            cityFilter === city ? "text-primary bg-primary/5" : "text-on-surface/70")}>{city}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Quick: Cuisine */}
+              <div className="relative flex-shrink-0">
+                <button
+                  onClick={() => { setCuisineDropdownOpen(!cuisineDropdownOpen); setCityDropdownOpen(false); setPriceDropdownOpen(false); }}
+                  className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
+                    cuisineFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+                >
+                  <span>{cuisineFilter || 'Cuisine'}</span>
+                  {cuisineFilter ? <button onClick={(e) => { e.stopPropagation(); setCuisineFilter(null); setCuisineDropdownOpen(false); }} className="ml-0.5"><X size={10} /></button> : <ChevronDown size={10} />}
+                </button>
+                {cuisineDropdownOpen && allCuisines.length > 0 && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setCuisineDropdownOpen(false)} />
+                    <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-40 min-w-[10rem] max-h-48 overflow-y-auto">
+                      {allCuisines.map((c) => (
+                        <button key={c} onClick={() => { setCuisineFilter(c); setCuisineDropdownOpen(false); }}
+                          className={cn("w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-on-surface/5 transition-colors first:rounded-t-xl last:rounded-b-xl",
+                            cuisineFilter === c ? "text-primary bg-primary/5" : "text-on-surface/70")}>{c}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Quick: Price */}
+              <div className="relative flex-shrink-0">
+                <button
+                  onClick={() => { setPriceDropdownOpen(!priceDropdownOpen); setCityDropdownOpen(false); setCuisineDropdownOpen(false); }}
+                  className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
+                    priceFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+                >
+                  <span>{priceFilter || 'Price'}</span>
+                  {priceFilter ? <button onClick={(e) => { e.stopPropagation(); setPriceFilter(null); setPriceDropdownOpen(false); }} className="ml-0.5"><X size={10} /></button> : <ChevronDown size={10} />}
+                </button>
+                {priceDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setPriceDropdownOpen(false)} />
+                    <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-40 min-w-[6rem]">
+                      {allPrices.map((p) => (
+                        <button key={p} onClick={() => { setPriceFilter(p); setPriceDropdownOpen(false); }}
+                          className={cn("w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-on-surface/5 transition-colors first:rounded-t-xl last:rounded-b-xl",
+                            priceFilter === p ? "text-primary bg-primary/5" : "text-on-surface/70")}>{p}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
 
               {/* Clear all */}
               {hasActiveFilters && (
-                <button
-                  onClick={() => { setCityFilter(null); setCuisineFilter(null); setShowWouldReturn(false); setScoreRange([0, 10]); setSortBy('recent'); }}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0"
-                >
-                  <X size={11} />
-                  <span>Clear</span>
+                <button onClick={handleResetFilters}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+                  <X size={10} /><span>Clear</span>
                 </button>
               )}
             </div>
@@ -1120,16 +1160,23 @@ export const Pantry: React.FC = () => {
         )}
       </main>
 
-      {/* Filter popup */}
-      <FilterPopup
+      {/* Filter sheet */}
+      <FilterSheet
         open={filtersOpen}
         onClose={() => setFiltersOpen(false)}
-        scoreRange={scoreRange}
-        onScoreRange={setScoreRange}
-        showWouldReturn={showWouldReturn}
-        onShowWouldReturn={setShowWouldReturn}
         sortBy={sortBy}
         onSortBy={setSortBy}
+        scoreRange={scoreRange}
+        onScoreRange={setScoreRange}
+        cityFilter={cityFilter}
+        onCityFilter={setCityFilter}
+        cuisineFilter={cuisineFilter}
+        onCuisineFilter={setCuisineFilter}
+        priceFilter={priceFilter}
+        onPriceFilter={setPriceFilter}
+        allCities={allCities}
+        allCuisines={allCuisines}
+        onReset={handleResetFilters}
       />
 
       {/* Create list bottom sheet */}
