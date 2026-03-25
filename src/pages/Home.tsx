@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { CircleActivity } from '../components/CircleActivity';
-import { Search, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft } from 'lucide-react';
+import { Search, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { useLists } from '../contexts/ListsContext';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
+import { Link } from 'react-router-dom';
 import { SocialFeed } from '../components/SocialFeed';
 
 // Default location (NYC)
@@ -151,8 +152,61 @@ function clearSearchState() {
 
 export const Home: React.FC = () => {
   const { phoneMode, setHideBottomNav } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings } = useLists();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
+
+  // Recent views from localStorage
+  const recentViews = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('gourmad-recent-views');
+      return raw ? JSON.parse(raw) as Array<PlaceResult & { viewedAt: number }> : [];
+    } catch { return []; }
+  }, []);
+
+  // Recommendations algorithm based on user's rated restaurants
+  const recommendations = useMemo(() => {
+    if (recentViews.length === 0) return [];
+    // Build preference profile from ratings
+    const cuisineCounts: Record<string, number> = {};
+    const priceCounts: Record<number, number> = {};
+    ratings.forEach((r) => {
+      // Weight by score: highly rated restaurants count more
+      const weight = r.score >= 7 ? 2 : 1;
+      // Count tags as pseudo-cuisines
+      r.tags.forEach((t) => { cuisineCounts[t] = (cuisineCounts[t] || 0) + weight; });
+      // Extract price preference
+      const priceNum = r.price.length; // '$' = 1, '$$' = 2, etc.
+      priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
+    });
+
+    // Score recent views as potential recommendations
+    // (restaurants the user has seen but not rated yet)
+    const ratedIds = new Set(ratings.map((r) => r.restaurantId));
+    const candidates = recentViews.filter((v) => !ratedIds.has(v.id));
+
+    const scored = candidates.map((place) => {
+      let score = 0;
+      // Boost by matching types to user's preferred tags/cuisines
+      (place.types || []).forEach((t: string) => {
+        const label = t.replace(/_/g, ' ').replace(/restaurant/g, '').trim();
+        Object.entries(cuisineCounts).forEach(([tag, count]) => {
+          if (tag.toLowerCase().includes(label) || label.includes(tag.toLowerCase())) {
+            score += count * 2;
+          }
+        });
+      });
+      // Boost by matching price level
+      if (priceCounts[place.priceLevel]) score += priceCounts[place.priceLevel];
+      // Boost highly rated places
+      score += (place.rating || 0) * 0.5;
+      // Boost popular places
+      score += Math.min((place.userRatingCount || 0) / 500, 2);
+      return { ...place, recScore: score };
+    });
+
+    scored.sort((a, b) => b.recScore - a.recScore);
+    return scored.slice(0, 8);
+  }, [recentViews, ratings]);
 
   // Restore saved search state on mount (survives navigation to detail page and back)
   const savedState = useRef(loadSearchState());
@@ -627,7 +681,7 @@ export const Home: React.FC = () => {
                 </AnimatePresence>
 
                 {/* Quick filters */}
-                <div className={cn("flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-4", !phoneMode && "ml-9")}>
+                <div className={cn("flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-4 mt-3", !phoneMode && "ml-9")}>
                   {QUICK_FILTERS.map((filter) => (
                     <button
                       key={filter}
@@ -656,10 +710,73 @@ export const Home: React.FC = () => {
                       <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
                     </div>
                   ) : places.length === 0 ? (
-                    <div className="text-center py-16">
-                      <Search size={32} className="mx-auto text-on-surface/15 mb-3" />
-                      <p className="text-sm font-medium text-on-surface/40">Search for restaurants</p>
-                      <p className="text-xs text-on-surface/30 mt-1">Type a name, cuisine, or use the filters above</p>
+                    <div className="space-y-8">
+                      {/* Recent Searches */}
+                      {recentViews.length > 0 && (
+                        <section>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Clock size={15} className="text-on-surface/35" />
+                            <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
+                          </div>
+                          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                            {recentViews.slice(0, 8).map((place) => (
+                              <Link key={place.id} to={`/restaurant/${place.id}`}
+                                className="flex-shrink-0 w-32 group">
+                                <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                                  {place.image ? (
+                                    <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  ) : (place as any).photoUrl ? (
+                                    <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
+                                  )}
+                                </div>
+                                <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
+                                {place.rating > 0 && (
+                                  <div className="flex items-center gap-0.5 mt-0.5">
+                                    <Star size={10} className="fill-primary text-primary" />
+                                    <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                                  </div>
+                                )}
+                              </Link>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Recommendations */}
+                      {recommendations.length > 0 ? (
+                        <section>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Sparkles size={15} className="text-primary/60" />
+                            <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                          </div>
+                          <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                            {recommendations.map((place) => {
+                              const props = placeToCardProps(place as any);
+                              return (
+                                <RestaurantCard key={place.id} {...props}
+                                  isWishlisted={isWishlisted(place.id)}
+                                  onAdd={() => openAddRestaurantModal({
+                                    id: place.id, name: place.name, image: props.image,
+                                    cuisine: props.cuisine, price: props.price, address: place.address,
+                                  })}
+                                  onHeart={() => openWishlistModal({
+                                    id: place.id, name: place.name, image: props.image,
+                                    cuisine: props.cuisine, price: props.price, address: place.address,
+                                  })}
+                                />
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ) : recentViews.length === 0 ? (
+                        <div className="text-center py-16">
+                          <Search size={32} className="mx-auto text-on-surface/15 mb-3" />
+                          <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
+                          <p className="text-xs text-on-surface/30 mt-1">Search by name, cuisine, or use the filters above</p>
+                        </div>
+                      ) : null}
                     </div>
                   ) : (() => {
                     const initialCount = phoneMode ? 8 : 8;
