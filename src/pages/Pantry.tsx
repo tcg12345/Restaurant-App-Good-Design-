@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown } from 'lucide-react';
@@ -672,10 +672,10 @@ const FilterSheet: React.FC<{
   onSortBy: (v: any) => void;
   scoreRange: [number, number];
   onScoreRange: (r: [number, number]) => void;
-  cityFilter: string | null;
-  onCityFilter: (v: string | null) => void;
-  cuisineFilter: string | null;
-  onCuisineFilter: (v: string | null) => void;
+  cityFilter: string[];
+  onCityFilter: (v: string[]) => void;
+  cuisineFilter: string[];
+  onCuisineFilter: (v: string[]) => void;
   priceFilter: string | null;
   onPriceFilter: (v: string | null) => void;
   allCities: string[];
@@ -775,10 +775,10 @@ const FilterSheet: React.FC<{
                   className="flex items-center justify-between w-full mb-2">
                   <div className="flex items-center gap-2">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
-                    {cuisineFilter && <span className="text-[10px] font-semibold text-primary">{cuisineFilter}</span>}
+                    {cuisineFilter.length > 0 && <span className="text-[10px] font-semibold text-primary">{cuisineFilter.join(", ")}</span>}
                   </div>
                   <div className="flex items-center gap-2">
-                    {cuisineFilter && <button onClick={(e) => { e.stopPropagation(); onCuisineFilter(null); }} className="text-[10px] text-primary font-semibold">Clear</button>}
+                    {cuisineFilter.length > 0 && <button onClick={(e) => { e.stopPropagation(); onCuisineFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
                     <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cuisineOpen && "rotate-180")} />
                   </div>
                 </button>
@@ -792,9 +792,9 @@ const FilterSheet: React.FC<{
                       </div>
                       <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
                         {filteredCuisines.map((c) => (
-                          <button key={c} onClick={() => onCuisineFilter(cuisineFilter === c ? null : c)}
+                          <button key={c} onClick={() => onCuisineFilter(cuisineFilter.includes(c) ? cuisineFilter.filter((x) => x !== c) : [...cuisineFilter, c])}
                             className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                              cuisineFilter === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
+                              cuisineFilter.includes(c) ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
                         ))}
                         {filteredCuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
                       </div>
@@ -809,10 +809,10 @@ const FilterSheet: React.FC<{
                   className="flex items-center justify-between w-full mb-2">
                   <div className="flex items-center gap-2">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
-                    {cityFilter && <span className="text-[10px] font-semibold text-primary">{cityFilter}</span>}
+                    {cityFilter.length > 0 && <span className="text-[10px] font-semibold text-primary">{cityFilter.join(", ")}</span>}
                   </div>
                   <div className="flex items-center gap-2">
-                    {cityFilter && <button onClick={(e) => { e.stopPropagation(); onCityFilter(null); }} className="text-[10px] text-primary font-semibold">Clear</button>}
+                    {cityFilter.length > 0 && <button onClick={(e) => { e.stopPropagation(); onCityFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
                     <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cityOpen && "rotate-180")} />
                   </div>
                 </button>
@@ -826,9 +826,9 @@ const FilterSheet: React.FC<{
                       </div>
                       <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
                         {filteredCities.map((c) => (
-                          <button key={c} onClick={() => onCityFilter(cityFilter === c ? null : c)}
+                          <button key={c} onClick={() => onCityFilter(cityFilter.includes(c) ? cityFilter.filter((x) => x !== c) : [...cityFilter, c])}
                             className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                              cityFilter === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
+                              cityFilter.includes(c) ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
                         ))}
                         {filteredCities.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
                       </div>
@@ -858,14 +858,21 @@ export const Pantry: React.FC = () => {
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const navigate = useNavigate();
-  const { phoneMode } = useSettings();
+  const { phoneMode, setHideBottomNav } = useSettings();
+
+  // Hide bottom nav when filter/city/cuisine sheets are open
+  useEffect(() => {
+    const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen;
+    setHideBottomNav(anyOpen);
+    return () => setHideBottomNav(false);
+  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, setHideBottomNav]);
 
   // On phone, always use list view
   const effectiveViewMode = phoneMode ? 'list' : viewMode;
 
   // Filters
-  const [cityFilter, setCityFilter] = useState<string | null>(null);
-  const [cuisineFilter, setCuisineFilter] = useState<string | null>(null);
+  const [cityFilter, setCityFilter] = useState<string[]>([]);
+  const [cuisineFilter, setCuisineFilter] = useState<string[]>([]);
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
@@ -915,13 +922,13 @@ export const Pantry: React.FC = () => {
   const filteredRatings = useMemo(() => {
     let result = [...ratings];
 
-    if (cityFilter) {
+    if (cityFilter.length > 0) {
       result = result.filter((r) => {
         const parts = r.address?.split(',').map((s) => s.trim()) || [];
-        return parts.some((p) => p === cityFilter);
+        return parts.some((p) => cityFilter.includes(p));
       });
     }
-    if (cuisineFilter) result = result.filter((r) => r.cuisine === cuisineFilter);
+    if (cuisineFilter.length > 0) result = result.filter((r) => cuisineFilter.includes(r.cuisine));
     if (priceFilter) result = result.filter((r) => r.price === priceFilter);
     result = result.filter((r) => r.score >= scoreRange[0] && r.score <= scoreRange[1]);
 
@@ -932,13 +939,16 @@ export const Pantry: React.FC = () => {
     return result;
   }, [ratings, cityFilter, cuisineFilter, priceFilter, scoreRange, sortBy]);
 
-  const activeFilterCount = (cityFilter ? 1 : 0) + (cuisineFilter ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
+  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
 
   const handleResetFilters = () => {
-    setCityFilter(null); setCuisineFilter(null); setPriceFilter(null);
+    setCityFilter([]); setCuisineFilter([]); setPriceFilter(null);
     setScoreRange([0, 10]); setSortBy('recent');
   };
+
+  const toggleCityFilter = (city: string) => setCityFilter((prev) => prev.includes(city) ? prev.filter((c) => c !== city) : [...prev, city]);
+  const toggleCuisineFilter = (cuisine: string) => setCuisineFilter((prev) => prev.includes(cuisine) ? prev.filter((c) => c !== cuisine) : [...prev, cuisine]);
 
   // Keep selectedList in sync
   const currentList = selectedList ? lists.find((l) => l.id === selectedList.id) ?? null : null;
@@ -1008,21 +1018,21 @@ export const Pantry: React.FC = () => {
               <button
                 onClick={() => setCityDropdownOpen(true)}
                 className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  cityFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+                  cityFilter.length > 0 ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
               >
                 <MapPin size={11} />
-                <span>{cityFilter || 'City'}</span>
-                {cityFilter ? <span onClick={(e) => { e.stopPropagation(); setCityFilter(null); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
+                <span>{cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}</span>
+                {cityFilter.length > 0 ? <span onClick={(e) => { e.stopPropagation(); setCityFilter([]); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
               </button>
 
               {/* Quick: Cuisine → opens full page sheet */}
               <button
                 onClick={() => setCuisineDropdownOpen(true)}
                 className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  cuisineFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+                  cuisineFilter.length > 0 ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
               >
-                <span>{cuisineFilter || 'Cuisine'}</span>
-                {cuisineFilter ? <span onClick={(e) => { e.stopPropagation(); setCuisineFilter(null); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
+                <span>{cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}</span>
+                {cuisineFilter.length > 0 ? <span onClick={(e) => { e.stopPropagation(); setCuisineFilter([]); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
               </button>
 
               {/* Quick: Price → opens small bottom sheet */}
@@ -1228,11 +1238,11 @@ export const Pantry: React.FC = () => {
                   const q = input?.value?.toLowerCase() || '';
                   return !q || c.toLowerCase().includes(q);
                 }).map((city) => (
-                  <button key={city} onClick={() => { setCityFilter(cityFilter === city ? null : city); setCityDropdownOpen(false); }}
+                  <button key={city} onClick={() => toggleCityFilter(city)}
                     className={cn("w-full flex items-center justify-between px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
-                      cityFilter === city ? "text-primary" : "text-on-surface/70 hover:bg-on-surface/3")}>
+                      cityFilter.includes(city) ? "text-primary bg-primary/3" : "text-on-surface/70 hover:bg-on-surface/3")}>
                     <span className="text-sm font-medium">{city}</span>
-                    {cityFilter === city && <Check size={16} className="text-primary" />}
+                    {cityFilter.includes(city) && <Check size={16} className="text-primary" />}
                   </button>
                 ))}
               </div>
@@ -1276,11 +1286,11 @@ export const Pantry: React.FC = () => {
                   const q = input?.value?.toLowerCase() || '';
                   return !q || c.toLowerCase().includes(q);
                 }).map((cuisine) => (
-                  <button key={cuisine} onClick={() => { setCuisineFilter(cuisineFilter === cuisine ? null : cuisine); setCuisineDropdownOpen(false); }}
+                  <button key={cuisine} onClick={() => toggleCuisineFilter(cuisine)}
                     className={cn("w-full flex items-center justify-between px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
-                      cuisineFilter === cuisine ? "text-primary" : "text-on-surface/70 hover:bg-on-surface/3")}>
+                      cuisineFilter.includes(cuisine) ? "text-primary bg-primary/3" : "text-on-surface/70 hover:bg-on-surface/3")}>
                     <span className="text-sm font-medium">{cuisine}</span>
-                    {cuisineFilter === cuisine && <Check size={16} className="text-primary" />}
+                    {cuisineFilter.includes(cuisine) && <Check size={16} className="text-primary" />}
                   </button>
                 ))}
               </div>
