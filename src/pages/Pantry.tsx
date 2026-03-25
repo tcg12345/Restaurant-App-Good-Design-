@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type CustomList } from '../contexts/ListsContext';
 import { Link } from 'react-router-dom';
@@ -111,18 +111,74 @@ const RestaurantRow: React.FC<{
   );
 };
 
+/* ── Wishlist row (simpler, no score) ── */
+const WishlistRow: React.FC<{
+  restaurantId: string;
+  name: string;
+  image: string;
+  cuisine: string;
+  price: string;
+  notes?: string;
+  onRemove?: () => void;
+}> = ({ restaurantId, name, image, cuisine, price, notes, onRemove }) => {
+  return (
+    <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex">
+      <Link to={`/restaurant/${restaurantId}`} className="w-20 sm:w-24 flex-shrink-0 block">
+        {image ? (
+          <img src={image} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="w-full h-full min-h-[5rem] bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-2xl font-serif font-bold">
+            {name.charAt(0)}
+          </div>
+        )}
+      </Link>
+      <div className="flex-1 p-3 min-w-0 flex flex-col justify-between">
+        <div>
+          <Link to={`/restaurant/${restaurantId}`}>
+            <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
+          </Link>
+          <p className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
+            {cuisine}{price ? ` · ${price}` : ''}
+          </p>
+          {notes && (
+            <p className="text-xs text-on-surface/40 mt-1 line-clamp-2 italic">&ldquo;{notes}&rdquo;</p>
+          )}
+        </div>
+        {onRemove && (
+          <div className="flex justify-end mt-1.5 pt-1.5 border-t border-on-surface/5">
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
+              className="text-[10px] font-bold text-red-400 uppercase tracking-wider hover:text-red-500"
+            >
+              Remove
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 /* ── List Detail View ── */
 const ListDetailView: React.FC<{
   list: CustomList;
   onBack: () => void;
 }> = ({ list, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, openRatingModal, deleteList } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openRatingModal, deleteList, wishlist } = useLists();
 
-  const restaurants = list.restaurantIds.map((id) => {
+  const ratedRestaurants = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
     const rating = ratings.find((r) => r.restaurantId === id);
     return { id, info, rating };
   });
+
+  const wishlistedRestaurants = (list.wishlistIds || []).map((id) => {
+    const info = getRestaurantInfo(id);
+    const wishItem = wishlist.find((w) => w.restaurantId === id);
+    return { id, info, wishItem };
+  }).filter(({ info }) => info); // only show if we have metadata
+
+  const totalCount = list.restaurantIds.length + (list.wishlistIds?.length || 0);
 
   return (
     <div>
@@ -134,7 +190,7 @@ const ListDetailView: React.FC<{
         <div className="flex-1 min-w-0">
           <h2 className="font-serif font-bold text-xl">{list.name}</h2>
           <p className="text-xs text-on-surface/40">
-            {list.restaurantIds.length} restaurant{list.restaurantIds.length !== 1 ? 's' : ''}
+            {totalCount} restaurant{totalCount !== 1 ? 's' : ''}
           </p>
         </div>
         <button
@@ -145,32 +201,67 @@ const ListDetailView: React.FC<{
         </button>
       </div>
 
-      {restaurants.length === 0 ? (
+      {totalCount === 0 ? (
         <div className="text-center py-16">
           <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
           <p className="text-sm font-medium text-on-surface/40">This list is empty</p>
-          <p className="text-xs text-on-surface/30 mt-1">Add restaurants from their detail page</p>
+          <p className="text-xs text-on-surface/30 mt-1">Add restaurants from the + button or heart icon</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {restaurants.map(({ id, info, rating }) => (
-            <RestaurantRow
-              key={id}
-              restaurantId={id}
-              name={info?.name ?? id}
-              image={info?.image ?? ''}
-              cuisine={info?.cuisine ?? ''}
-              price={info?.price ?? ''}
-              address={info?.address ?? ''}
-              score={rating?.score}
-              tags={rating?.tags}
-              notes={rating?.notes}
-              visitDate={rating?.visitDate}
-              wouldReturn={rating?.wouldReturn}
-              onEdit={info ? () => openRatingModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
-              onRemove={() => removeFromList(list.id, id)}
-            />
-          ))}
+        <div className="space-y-5">
+          {/* Rated section */}
+          {ratedRestaurants.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Star size={14} className="text-primary" />
+                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Rated ({ratedRestaurants.length})</h3>
+              </div>
+              <div className="space-y-3">
+                {ratedRestaurants.map(({ id, info, rating }) => (
+                  <RestaurantRow
+                    key={id}
+                    restaurantId={id}
+                    name={info?.name ?? id}
+                    image={info?.image ?? ''}
+                    cuisine={info?.cuisine ?? ''}
+                    price={info?.price ?? ''}
+                    address={info?.address ?? ''}
+                    score={rating?.score}
+                    tags={rating?.tags}
+                    notes={rating?.notes}
+                    visitDate={rating?.visitDate}
+                    wouldReturn={rating?.wouldReturn}
+                    onEdit={info ? () => openRatingModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
+                    onRemove={() => removeFromList(list.id, id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Wishlist section */}
+          {wishlistedRestaurants.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Heart size={14} className="text-red-400" />
+                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurants.length})</h3>
+              </div>
+              <div className="space-y-3">
+                {wishlistedRestaurants.map(({ id, info, wishItem }) => (
+                  <WishlistRow
+                    key={id}
+                    restaurantId={id}
+                    name={info?.name ?? id}
+                    image={info?.image ?? ''}
+                    cuisine={info?.cuisine ?? ''}
+                    price={info?.price ?? ''}
+                    notes={wishItem?.notes}
+                    onRemove={() => removeFromWishlistInList(list.id, id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -307,6 +398,7 @@ export const Pantry: React.FC = () => {
   const {
     lists, createList,
     ratings, openRatingModal,
+    wishlist,
     getListsForRestaurant,
   } = useLists();
 
@@ -327,7 +419,6 @@ export const Pantry: React.FC = () => {
     ratings.forEach((r) => {
       if (r.address) {
         const parts = r.address.split(',').map((s) => s.trim());
-        // Second part is usually city for short addresses
         if (parts.length >= 2) cities.add(parts[parts.length - 1]);
         else if (parts.length === 1 && parts[0]) cities.add(parts[0]);
       }
@@ -367,7 +458,6 @@ export const Pantry: React.FC = () => {
 
     if (sortBy === 'highest') result.sort((a, b) => b.score - a.score);
     else if (sortBy === 'lowest') result.sort((a, b) => a.score - b.score);
-    // 'recent' is default order (already sorted by createdAt desc)
 
     return result;
   }, [ratings, cityFilter, cuisineFilter, showWouldReturn, scoreRange, sortBy]);
@@ -393,17 +483,20 @@ export const Pantry: React.FC = () => {
                 className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-5 px-5"
                 style={{ WebkitOverflowScrolling: 'touch' }}
               >
-                {lists.map((list) => (
-                  <button
-                    key={list.id}
-                    onClick={() => setSelectedList(list)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-white rounded-full border border-on-surface/10 shadow-sm hover:shadow-md transition-all flex-shrink-0"
-                  >
-                    <span className="text-sm">{list.emoji}</span>
-                    <span className="text-xs font-semibold text-on-surface/70 whitespace-nowrap">{list.name}</span>
-                    <span className="text-[10px] text-on-surface/30 font-medium">{list.restaurantIds.length}</span>
-                  </button>
-                ))}
+                {lists.map((list) => {
+                  const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
+                  return (
+                    <button
+                      key={list.id}
+                      onClick={() => setSelectedList(list)}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-white rounded-full border border-on-surface/10 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                    >
+                      <span className="text-sm">{list.emoji}</span>
+                      <span className="text-xs font-semibold text-on-surface/70 whitespace-nowrap">{list.name}</span>
+                      <span className="text-[10px] text-on-surface/30 font-medium">{total}</span>
+                    </button>
+                  );
+                })}
 
                 {/* Create new list pill */}
                 {creatingList ? null : (
@@ -594,45 +687,79 @@ export const Pantry: React.FC = () => {
                     Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span>/10
                   </p>
                 )}
+                {wishlist.length > 0 && (
+                  <p className="text-xs text-on-surface/40">
+                    <Heart size={10} className="inline text-red-400 fill-red-400 mr-0.5" />
+                    <span className="font-bold text-on-surface">{wishlist.length}</span> wishlisted
+                  </p>
+                )}
               </div>
             )}
 
             {/* ── Restaurant list ── */}
-            {ratings.length === 0 ? (
+            {ratings.length === 0 && wishlist.length === 0 ? (
               <div className="text-center py-16">
                 <Star size={32} className="mx-auto text-on-surface/15 mb-3" />
-                <p className="text-sm font-medium text-on-surface/40">No ratings yet</p>
-                <p className="text-xs text-on-surface/30 mt-1">Rate restaurants from their detail page</p>
-              </div>
-            ) : filteredRatings.length === 0 ? (
-              <div className="text-center py-16">
-                <SlidersHorizontal size={28} className="mx-auto text-on-surface/15 mb-3" />
-                <p className="text-sm font-medium text-on-surface/40">No matches</p>
-                <p className="text-xs text-on-surface/30 mt-1">Try adjusting your filters</p>
+                <p className="text-sm font-medium text-on-surface/40">No restaurants yet</p>
+                <p className="text-xs text-on-surface/30 mt-1">Use the + button to rate or heart to wishlist</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {filteredRatings.map((r) => {
-                  const inLists = getListsForRestaurant(r.restaurantId);
-                  return (
-                    <RestaurantRow
-                      key={r.restaurantId}
-                      restaurantId={r.restaurantId}
-                      name={r.name}
-                      image={r.image}
-                      cuisine={r.cuisine}
-                      price={r.price}
-                      address={r.address}
-                      score={r.score}
-                      tags={r.tags}
-                      notes={r.notes}
-                      visitDate={r.visitDate}
-                      wouldReturn={r.wouldReturn}
-                      listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
-                      onEdit={() => openRatingModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
-                    />
-                  );
-                })}
+              <div className="space-y-5">
+                {/* Rated section */}
+                {filteredRatings.length > 0 ? (
+                  <div className="space-y-3">
+                    {filteredRatings.map((r) => {
+                      const inLists = getListsForRestaurant(r.restaurantId);
+                      return (
+                        <RestaurantRow
+                          key={r.restaurantId}
+                          restaurantId={r.restaurantId}
+                          name={r.name}
+                          image={r.image}
+                          cuisine={r.cuisine}
+                          price={r.price}
+                          address={r.address}
+                          score={r.score}
+                          tags={r.tags}
+                          notes={r.notes}
+                          visitDate={r.visitDate}
+                          wouldReturn={r.wouldReturn}
+                          listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
+                          onEdit={() => openRatingModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : ratings.length > 0 ? (
+                  <div className="text-center py-8">
+                    <SlidersHorizontal size={28} className="mx-auto text-on-surface/15 mb-3" />
+                    <p className="text-sm font-medium text-on-surface/40">No matches</p>
+                    <p className="text-xs text-on-surface/30 mt-1">Try adjusting your filters</p>
+                  </div>
+                ) : null}
+
+                {/* Wishlist section (global) */}
+                {wishlist.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-3 mt-2">
+                      <Heart size={14} className="text-red-400 fill-red-400" />
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlist.length})</h3>
+                    </div>
+                    <div className="space-y-3">
+                      {wishlist.map((w) => (
+                        <WishlistRow
+                          key={w.restaurantId}
+                          restaurantId={w.restaurantId}
+                          name={w.name}
+                          image={w.image}
+                          cuisine={w.cuisine}
+                          price={w.price}
+                          notes={w.notes}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>

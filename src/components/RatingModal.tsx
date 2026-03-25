@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ChevronRight, ChevronLeft, Camera, Trash2 } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, Camera, Trash2, Plus, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
 
@@ -9,6 +9,8 @@ const TAGS = [
   'Cozy Atmosphere', 'Outdoor Seating', 'Live Music', 'Kid Friendly',
   'Late Night', 'Good Value', 'Special Occasion', 'Quick Bite',
 ];
+
+const EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎', '⚡', '🌮', '🍜', '☕', '🎉', '🌿', '🔥', '👨‍🍳', '🏖️', '🌃'];
 
 const PRICE_RANGES: { signs: string; label: string }[] = [
   { signs: '$', label: '$1–20' },
@@ -25,7 +27,7 @@ function priceIndexFromAmount(amount: number): number {
 }
 
 export const RatingModal: React.FC = () => {
-  const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating } = useLists();
+  const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList } = useLists();
 
   const existing = ratingModalRestaurant ? getRating(ratingModalRestaurant.id) : undefined;
 
@@ -38,7 +40,13 @@ export const RatingModal: React.FC = () => {
   const [priceIndex, setPriceIndex] = useState(-1);
   const [priceAmount, setPriceAmount] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
+  const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // List creation
+  const [creatingList, setCreatingList] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newEmoji, setNewEmoji] = useState('📋');
 
   useEffect(() => {
     if (ratingModalOpen && ratingModalRestaurant) {
@@ -50,13 +58,20 @@ export const RatingModal: React.FC = () => {
       setWouldReturn(ex?.wouldReturn ?? true);
       setSelectedTags(ex?.tags ?? []);
       setPhotos(ex?.photos ?? []);
+      setSelectedListIds(ex?.listIds ?? []);
       setPriceIndex(-1);
       setPriceAmount('');
+      setCreatingList(false);
+      setNewName('');
     }
   }, [ratingModalOpen, ratingModalRestaurant]);
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
+  };
+
+  const toggleList = (listId: string) => {
+    setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
   };
 
   const handlePriceSignClick = (idx: number) => {
@@ -88,6 +103,14 @@ export const RatingModal: React.FC = () => {
 
   const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
 
+  const handleCreateList = () => {
+    if (!newName.trim()) return;
+    createList(newName.trim(), newEmoji);
+    setNewName('');
+    setNewEmoji('📋');
+    setCreatingList(false);
+  };
+
   const handleSave = () => {
     if (!ratingModalRestaurant) return;
     rateRestaurant({
@@ -103,6 +126,7 @@ export const RatingModal: React.FC = () => {
       wouldReturn,
       tags: selectedTags,
       photos,
+      listIds: selectedListIds,
       createdAt: Date.now(),
     });
     closeRatingModal();
@@ -131,12 +155,10 @@ export const RatingModal: React.FC = () => {
             className="bg-surface w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl overflow-hidden flex flex-col"
             style={{ maxHeight: '92vh' }}
           >
-            {/* Drag handle */}
             <div className="flex justify-center pt-3 pb-1 sm:hidden">
               <div className="w-10 h-1 rounded-full bg-on-surface/15" />
             </div>
 
-            {/* Header */}
             <div className="px-5 pt-2 sm:pt-5 pb-3 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 {step > 1 && (
@@ -146,13 +168,12 @@ export const RatingModal: React.FC = () => {
                 )}
                 <div className="min-w-0">
                   <h2 className="font-serif font-bold text-base sm:text-lg truncate">
-                    {step === 1 ? (existing ? 'Update Rating' : 'Rate Restaurant') : 'Details'}
+                    {step === 1 ? (existing ? 'Update Rating' : 'Rate Restaurant') : 'Details & Lists'}
                   </h2>
                   <p className="text-xs text-on-surface/40 truncate">{ratingModalRestaurant.name}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {/* Step dots */}
                 <div className="flex gap-1.5 mr-1">
                   {[1, 2].map((s) => (
                     <div key={s} className={cn("w-1.5 h-1.5 rounded-full transition-all", s === step ? "bg-primary w-4" : "bg-on-surface/15")} />
@@ -164,19 +185,11 @@ export const RatingModal: React.FC = () => {
               </div>
             </div>
 
-            {/* Content */}
             <div className="flex-1 overflow-y-auto overscroll-contain">
               <AnimatePresence mode="wait">
                 {step === 1 ? (
-                  <motion.div
-                    key="step1"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.15 }}
-                    className="px-5 pb-5 flex flex-col items-center"
-                  >
-                    {/* Big score circle */}
+                  <motion.div key="step1" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.15 }}
+                    className="px-5 pb-5 flex flex-col items-center">
                     <div className={cn("relative w-36 h-36 sm:w-40 sm:h-40 rounded-full flex items-center justify-center mt-4 mb-5 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
                       <div className="text-center">
                         <div className={cn("text-5xl sm:text-6xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>
@@ -186,95 +199,97 @@ export const RatingModal: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Slider */}
                     <div className="w-full max-w-xs mb-3">
-                      <input
-                        type="range"
-                        min="1"
-                        max="10"
-                        step="0.1"
-                        value={score}
-                        onChange={(e) => setScore(parseFloat(e.target.value))}
-                        className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary"
-                      />
+                      <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
+                        className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
                       <div className="flex justify-between mt-1.5 text-[10px] text-on-surface/25 font-semibold px-0.5">
-                        <span>1</span>
-                        <span>3</span>
-                        <span>5</span>
-                        <span>7</span>
-                        <span>10</span>
+                        <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
                       </div>
                     </div>
 
-                    {/* Score label */}
                     <p className="text-sm font-medium text-on-surface/40 mb-6">
                       {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
                     </p>
 
-                    {/* Would Return — compact inline */}
                     <div className="w-full max-w-xs mb-4">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 text-center mb-2">Would you go back?</p>
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => setWouldReturn(true)}
-                          className={cn(
-                            "flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all",
+                        <button onClick={() => setWouldReturn(true)}
+                          className={cn("flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all",
                             wouldReturn ? "bg-green-50 border-green-200 text-green-700" : "bg-white border-on-surface/10 text-on-surface/40"
-                          )}
-                        >
-                          Yes!
-                        </button>
-                        <button
-                          onClick={() => setWouldReturn(false)}
-                          className={cn(
-                            "flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all",
+                          )}>Yes!</button>
+                        <button onClick={() => setWouldReturn(false)}
+                          className={cn("flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all",
                             !wouldReturn ? "bg-red-50 border-red-200 text-red-600" : "bg-white border-on-surface/10 text-on-surface/40"
-                          )}
-                        >
-                          Nah
-                        </button>
+                          )}>Nah</button>
                       </div>
                     </div>
 
-                    {/* Next button */}
-                    <button
-                      onClick={() => setStep(2)}
-                      className="w-full max-w-xs py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform mt-2"
-                    >
-                      Add Details
-                      <ChevronRight size={16} />
+                    <button onClick={() => setStep(2)}
+                      className="w-full max-w-xs py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform mt-2">
+                      Add Details <ChevronRight size={16} />
                     </button>
-                    <button
-                      onClick={handleSave}
-                      className="text-xs text-on-surface/35 font-medium mt-3 hover:text-primary transition-colors"
-                    >
+                    <button onClick={handleSave} className="text-xs text-on-surface/35 font-medium mt-3 hover:text-primary transition-colors">
                       Skip &amp; save just the rating
                     </button>
                   </motion.div>
                 ) : (
-                  <motion.div
-                    key="step2"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    transition={{ duration: 0.15 }}
-                    className="px-5 pb-5 space-y-4"
-                  >
+                  <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.15 }}
+                    className="px-5 pb-5 space-y-4">
+                    {/* Add to Lists */}
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2 block">Add to Lists</label>
+                      <div className="space-y-1.5">
+                        {lists.map((list) => {
+                          const selected = selectedListIds.includes(list.id);
+                          return (
+                            <button key={list.id} onClick={() => toggleList(list.id)}
+                              className={cn("w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all text-left",
+                                selected ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8"
+                              )}>
+                              <span className="text-base">{list.emoji}</span>
+                              <span className="flex-1 text-xs font-semibold truncate">{list.name}</span>
+                              <div className={cn("w-5 h-5 rounded-full flex items-center justify-center border-2 transition-all",
+                                selected ? "bg-primary border-primary text-white" : "border-on-surface/15"
+                              )}>{selected && <Check size={11} strokeWidth={3} />}</div>
+                            </button>
+                          );
+                        })}
+                        {creatingList ? (
+                          <div className="p-3 rounded-xl border border-primary/20 bg-primary/5 space-y-2.5">
+                            <div className="flex flex-wrap gap-1.5">
+                              {EMOJI_OPTIONS.map((e) => (
+                                <button key={e} onClick={() => setNewEmoji(e)}
+                                  className={cn("w-7 h-7 rounded-lg flex items-center justify-center text-sm transition-all", newEmoji === e ? "bg-primary/10 ring-2 ring-primary/30" : "hover:bg-on-surface/5")}
+                                >{e}</button>
+                              ))}
+                            </div>
+                            <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="List name..." autoFocus
+                              className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              onKeyDown={(e) => e.key === 'Enter' && handleCreateList()} />
+                            <div className="flex gap-2">
+                              <button onClick={() => { setCreatingList(false); setNewName(''); }} className="flex-1 py-1.5 rounded-xl border border-on-surface/10 text-xs font-medium text-on-surface/50">Cancel</button>
+                              <button onClick={handleCreateList} disabled={!newName.trim()} className="flex-1 py-1.5 rounded-xl bg-primary text-white text-xs font-semibold disabled:opacity-40">Create</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button onClick={() => setCreatingList(true)}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border border-dashed border-on-surface/15 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
+                            <Plus size={14} /><span className="text-xs font-semibold">New List</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
                     {/* Price */}
                     <div>
                       <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2 block">Price Range</label>
                       <div className="flex gap-1.5 mb-1.5">
                         {PRICE_RANGES.map((p, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => handlePriceSignClick(idx)}
-                            className={cn(
-                              "flex-1 py-2 rounded-lg text-xs font-bold border transition-all text-center",
-                              priceIndex === idx
-                                ? "bg-primary/10 border-primary/30 text-primary"
-                                : "bg-white border-on-surface/10 text-on-surface/40"
-                            )}
-                          >
+                          <button key={idx} onClick={() => handlePriceSignClick(idx)}
+                            className={cn("flex-1 py-2 rounded-lg text-xs font-bold border transition-all text-center",
+                              priceIndex === idx ? "bg-primary/10 border-primary/30 text-primary" : "bg-white border-on-surface/10 text-on-surface/40"
+                            )}>
                             <div className="text-sm">{p.signs}</div>
                             <div className="text-[8px] font-medium opacity-50 mt-0.5">{p.label}</div>
                           </button>
@@ -284,13 +299,8 @@ export const RatingModal: React.FC = () => {
                         <span className="text-[10px] text-on-surface/35">or per person:</span>
                         <div className="relative flex-1">
                           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-on-surface/25">$</span>
-                          <input
-                            type="number"
-                            value={priceAmount}
-                            onChange={(e) => handlePriceAmountChange(e.target.value)}
-                            placeholder="0"
-                            className="w-full bg-white border border-on-surface/10 rounded-lg pl-6 pr-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                          />
+                          <input type="number" value={priceAmount} onChange={(e) => handlePriceAmountChange(e.target.value)} placeholder="0"
+                            className="w-full bg-white border border-on-surface/10 rounded-lg pl-6 pr-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                         </div>
                       </div>
                     </div>
@@ -298,12 +308,8 @@ export const RatingModal: React.FC = () => {
                     {/* Visit Date */}
                     <div>
                       <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5 block">Date Visited</label>
-                      <input
-                        type="date"
-                        value={visitDate}
-                        onChange={(e) => setVisitDate(e.target.value)}
-                        className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      />
+                      <input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)}
+                        className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     </div>
 
                     {/* Tags */}
@@ -311,18 +317,10 @@ export const RatingModal: React.FC = () => {
                       <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2 block">Tags</label>
                       <div className="flex flex-wrap gap-1.5">
                         {TAGS.map((tag) => (
-                          <button
-                            key={tag}
-                            onClick={() => toggleTag(tag)}
-                            className={cn(
-                              "px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all",
-                              selectedTags.includes(tag)
-                                ? "bg-primary/10 border-primary/30 text-primary"
-                                : "bg-white border-on-surface/10 text-on-surface/40"
-                            )}
-                          >
-                            {tag}
-                          </button>
+                          <button key={tag} onClick={() => toggleTag(tag)}
+                            className={cn("px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all",
+                              selectedTags.includes(tag) ? "bg-primary/10 border-primary/30 text-primary" : "bg-white border-on-surface/10 text-on-surface/40"
+                            )}>{tag}</button>
                         ))}
                       </div>
                     </div>
@@ -330,13 +328,8 @@ export const RatingModal: React.FC = () => {
                     {/* Notes */}
                     <div>
                       <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5 block">Notes</label>
-                      <textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Any favorite dishes or thoughts?"
-                        rows={2}
-                        className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                      />
+                      <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Any favorite dishes or thoughts?" rows={2}
+                        className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none" />
                     </div>
 
                     {/* Photos */}
@@ -352,21 +345,15 @@ export const RatingModal: React.FC = () => {
                             </button>
                           </div>
                         ))}
-                        <button
-                          onClick={() => fileInputRef.current?.click()}
-                          className="w-14 h-14 rounded-xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-0.5 text-on-surface/30 hover:border-primary hover:text-primary transition-all"
-                        >
-                          <Camera size={14} />
-                          <span className="text-[8px] font-semibold">Add</span>
+                        <button onClick={() => fileInputRef.current?.click()}
+                          className="w-14 h-14 rounded-xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-0.5 text-on-surface/30 hover:border-primary hover:text-primary transition-all">
+                          <Camera size={14} /><span className="text-[8px] font-semibold">Add</span>
                         </button>
                       </div>
                     </div>
 
-                    {/* Save */}
-                    <button
-                      onClick={handleSave}
-                      className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform"
-                    >
+                    <button onClick={handleSave}
+                      className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                       {existing ? 'Update Rating' : 'Save Rating'}
                     </button>
                   </motion.div>

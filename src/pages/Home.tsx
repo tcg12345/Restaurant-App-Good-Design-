@@ -152,7 +152,7 @@ function clearSearchState() {
 
 export const Home: React.FC = () => {
   const { phoneMode, setHideBottomNav } = useSettings();
-  const { openAddRestaurantModal } = useLists();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
 
   // Restore saved search state on mount (survives navigation to detail page and back)
@@ -709,7 +709,16 @@ export const Home: React.FC = () => {
                               <RestaurantCard
                                 key={place.id}
                                 {...props}
+                                isWishlisted={isWishlisted(place.id)}
                                 onAdd={() => openAddRestaurantModal({
+                                  id: place.id,
+                                  name: place.name,
+                                  image: props.image,
+                                  cuisine: props.cuisine,
+                                  price: props.price,
+                                  address: place.address,
+                                })}
+                                onHeart={() => openWishlistModal({
                                   id: place.id,
                                   name: place.name,
                                   image: props.image,

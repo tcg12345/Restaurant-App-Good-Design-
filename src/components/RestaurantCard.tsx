@@ -15,6 +15,8 @@ interface RestaurantCardProps {
   friendReviews?: number;
   expertReviews?: number;
   onAdd?: () => void;
+  onHeart?: () => void;
+  isWishlisted?: boolean;
 
   className?: string;
 }
@@ -29,6 +31,8 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   friendReviews = 0,
   expertReviews = 0,
   onAdd,
+  onHeart,
+  isWishlisted = false,
 
   className,
 }) => {
@@ -54,10 +58,14 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              onHeart?.();
             }}
-            className="absolute top-2.5 right-2.5 sm:top-2 sm:right-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full text-on-surface/60 hover:text-primary transition-colors z-10"
+            className={cn(
+              "absolute top-2.5 right-2.5 sm:top-2 sm:right-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full transition-colors z-10",
+              isWishlisted ? "text-red-400" : "text-on-surface/60 hover:text-red-400"
+            )}
           >
-            <Heart size={18} className="sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5" />
+            <Heart size={18} className={cn("sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5", isWishlisted && "fill-red-400")} />
           </button>
 
           {onAdd && (

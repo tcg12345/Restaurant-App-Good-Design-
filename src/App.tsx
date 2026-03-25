@@ -21,6 +21,7 @@ import { ListsProvider } from './contexts/ListsContext';
 import { RatingModal } from './components/RatingModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
+import { WishlistModal } from './components/WishlistModal';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 
@@ -122,6 +123,7 @@ export default function App() {
             <RatingModal />
             <AddToListModal />
             <AddRestaurantModal />
+            <WishlistModal />
           </ListsProvider>
         </SettingsProvider>
       </AuthProvider>
