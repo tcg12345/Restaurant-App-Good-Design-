@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3 } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type CustomList } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -464,11 +464,72 @@ const WishlistRow: React.FC<{
   );
 };
 
+/* ── Grid card for desktop grid view ── */
+const RestaurantGridCard: React.FC<{
+  restaurantId: string;
+  name: string;
+  image: string;
+  cuisine: string;
+  price: string;
+  score?: number;
+  onEdit?: () => void;
+}> = ({ restaurantId, name, image, cuisine, price, score, onEdit }) => {
+  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+  return (
+    <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden">
+      <Link to={`/restaurant/${restaurantId}`} className="block aspect-[4/3] overflow-hidden">
+        {image ? (
+          <img src={image} alt={name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="w-full h-full bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-3xl font-serif font-bold">
+            {name.charAt(0)}
+          </div>
+        )}
+      </Link>
+      <div className="p-3">
+        <div className="flex items-start justify-between gap-2">
+          <Link to={`/restaurant/${restaurantId}`} className="min-w-0 flex-1">
+            <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
+          </Link>
+          {score !== undefined && score > 0 && (
+            <span className={cn("text-base font-serif font-bold flex-shrink-0", scoreColor(score))}>{score.toFixed(1)}</span>
+          )}
+        </div>
+        <p className="text-[10px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
+          {cuisine}{price ? ` · ${price}` : ''}
+        </p>
+        {onEdit && (
+          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+            className="mt-2 text-[10px] font-bold text-primary uppercase tracking-wider hover:text-primary/70">Edit</button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/* ── View mode toggle (desktop only) ── */
+const ViewModeToggle: React.FC<{ mode: 'list' | 'grid'; onChange: (m: 'list' | 'grid') => void }> = ({ mode, onChange }) => {
+  const { phoneMode } = useSettings();
+  if (phoneMode) return null;
+  return (
+    <div className="flex items-center gap-1 bg-on-surface/5 rounded-lg p-0.5">
+      <button onClick={() => onChange('list')} className={cn("p-1.5 rounded-md transition-all", mode === 'list' ? "bg-white shadow-sm text-primary" : "text-on-surface/30 hover:text-on-surface/50")}>
+        <List size={15} />
+      </button>
+      <button onClick={() => onChange('grid')} className={cn("p-1.5 rounded-md transition-all", mode === 'grid' ? "bg-white shadow-sm text-primary" : "text-on-surface/30 hover:text-on-surface/50")}>
+        <LayoutGrid size={15} />
+      </button>
+    </div>
+  );
+};
+
 /* ── List Detail View ── */
 const ListDetailView: React.FC<{
   list: CustomList;
+  viewMode: 'list' | 'grid';
+  onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
-}> = ({ list, onBack }) => {
+}> = ({ list, viewMode, onViewModeChange, onBack }) => {
   const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openRatingModal, deleteList, wishlist } = useLists();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
 
@@ -514,6 +575,13 @@ const ListDetailView: React.FC<{
         </button>
       </div>
 
+      {/* View mode toggle for desktop */}
+      {totalCount > 0 && (
+        <div className="flex justify-end mb-3">
+          <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
+        </div>
+      )}
+
       {totalCount === 0 ? (
         <div className="text-center py-16">
           <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
@@ -533,8 +601,19 @@ const ListDetailView: React.FC<{
                 <Star size={14} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Rated ({ratedRestaurants.length})</h3>
               </div>
-              <div className="space-y-3">
-                {ratedRestaurants.map(({ id, info, rating }) => (
+              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" : "space-y-3"}>
+                {ratedRestaurants.map(({ id, info, rating }) => viewMode === 'grid' ? (
+                  <RestaurantGridCard
+                    key={id}
+                    restaurantId={id}
+                    name={info?.name ?? id}
+                    image={info?.image ?? ''}
+                    cuisine={info?.cuisine ?? ''}
+                    price={info?.price ?? ''}
+                    score={rating?.score}
+                    onEdit={info ? () => openRatingModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
+                  />
+                ) : (
                   <RestaurantRow
                     key={id}
                     restaurantId={id}
@@ -704,6 +783,7 @@ const FilterPopup: React.FC<{
 export const Pantry: React.FC = () => {
   const [selectedList, setSelectedList] = useState<CustomList | null>(null);
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const navigate = useNavigate();
 
   // Filters
@@ -787,7 +867,7 @@ export const Pantry: React.FC = () => {
 
       <main className="px-3">
         {currentList ? (
-          <ListDetailView list={currentList} onBack={() => setSelectedList(null)} />
+          <ListDetailView list={currentList} viewMode={viewMode} onViewModeChange={setViewMode} onBack={() => setSelectedList(null)} />
         ) : (
           <>
             {/* ── Horizontal list row ── */}
@@ -952,6 +1032,9 @@ export const Pantry: React.FC = () => {
                     <span className="font-bold text-on-surface">{wishlist.length}</span> wishlisted
                   </p>
                 )}
+                <div className="ml-auto">
+                  <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+                </div>
               </div>
             )}
 
@@ -970,10 +1053,21 @@ export const Pantry: React.FC = () => {
               <div className="space-y-5">
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
-                  <div className="space-y-3">
+                  <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" : "space-y-3"}>
                     {filteredRatings.map((r) => {
                       const inLists = getListsForRestaurant(r.restaurantId);
-                      return (
+                      return viewMode === 'grid' ? (
+                        <RestaurantGridCard
+                          key={r.restaurantId}
+                          restaurantId={r.restaurantId}
+                          name={r.name}
+                          image={r.image}
+                          cuisine={r.cuisine}
+                          price={r.price}
+                          score={r.score}
+                          onEdit={() => openRatingModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                        />
+                      ) : (
                         <RestaurantRow
                           key={r.restaurantId}
                           restaurantId={r.restaurantId}
