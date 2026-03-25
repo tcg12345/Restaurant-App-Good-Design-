@@ -860,13 +860,6 @@ export const Pantry: React.FC = () => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
 
-  // Hide bottom nav when filter/city/cuisine sheets are open
-  useEffect(() => {
-    const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen;
-    setHideBottomNav(anyOpen);
-    return () => setHideBottomNav(false);
-  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, setHideBottomNav]);
-
   // On phone, always use list view
   const effectiveViewMode = phoneMode ? 'list' : viewMode;
 
@@ -887,6 +880,13 @@ export const Pantry: React.FC = () => {
   const closeAllDropdowns = () => { setCityDropdownOpen(false); setCuisineDropdownOpen(false); setPriceDropdownOpen(false); setSortDropdownOpen(false); };
 
   const sortLabels: Record<string, string> = { recent: 'Recent', highest: 'Highest', lowest: 'Lowest', added: 'Date Added' };
+
+  // Hide bottom nav when filter/city/cuisine sheets are open
+  useEffect(() => {
+    const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen;
+    setHideBottomNav(anyOpen);
+    return () => setHideBottomNav(false);
+  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, setHideBottomNav]);
 
   const {
     lists, createList,
