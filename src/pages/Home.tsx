@@ -851,9 +851,19 @@ export const Home: React.FC = () => {
                       animate={{ y: 0 }}
                       exit={{ y: '100%' }}
                       transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-                      className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-[2rem] shadow-2xl max-h-[85vh] flex flex-col"
+                      drag="y"
+                      dragConstraints={{ top: 0, bottom: 0 }}
+                      dragElastic={{ top: 0, bottom: 0.6 }}
+                      onDragEnd={(_e, info) => {
+                        if (info.offset.y > 100 || info.velocity.y > 300) setShowFilters(false);
+                      }}
+                      className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col overflow-hidden"
                     >
-                      <div className="flex-shrink-0 bg-surface z-10 px-6 pt-5 pb-4 border-b border-black/5">
+                      {/* Drag handle */}
+                      <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
+                        <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+                      </div>
+                      <div className="flex-shrink-0 bg-surface z-10 px-6 pt-2 pb-4 border-b border-black/5">
                         <div className="flex items-center justify-between">
                           <h2 className="text-lg font-serif font-bold text-on-surface">Filters</h2>
                           <button
