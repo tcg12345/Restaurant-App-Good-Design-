@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Images, Users, UserCircle, ListPlus, Search, Share2, Heart,
+  Navigation, ExternalLink, X, Images, Users, UserCircle, Search, Share2, Heart,
 } from 'lucide-react';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
@@ -123,7 +123,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     photos, directionsUrl, mapsUrl,
   } = useRestaurantDetail();
 
-  const { openRatingModal, openAddToListModal, addToWishlist, removeFromWishlist, isWishlisted, getRating } = useLists();
+  const { openRatingModal, openWishlistModal, isWishlisted, getRating } = useLists();
 
   if (loading) {
     return (
@@ -250,8 +250,8 @@ export const RestaurantDetailMobile: React.FC = () => {
       {/* ── Main Content ── */}
       <main className="px-5 pt-6">
 
-        {/* Action buttons — Rate, Add to List, Wishlist */}
-        <div className="grid grid-cols-3 gap-2 mb-3">
+        {/* Action buttons — Rate, Wishlist */}
+        <div className="grid grid-cols-2 gap-2 mb-3">
           <button
             onClick={() => place && openRatingModal({
               id: place.id, name: place.name,
@@ -267,27 +267,12 @@ export const RestaurantDetailMobile: React.FC = () => {
             {place && getRating(place.id) ? `${getRating(place.id)!.score.toFixed(1)}` : 'Rate'}
           </button>
           <button
-            onClick={() => place && openAddToListModal(place.id, { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.address })}
-            className="flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-primary text-white font-medium text-sm active:scale-[0.98] transition-transform"
-          >
-            <ListPlus size={16} />
-            List
-          </button>
-          <button
-            onClick={() => {
-              if (!place) return;
-              if (isWishlisted(place.id)) {
-                removeFromWishlist(place.id);
-              } else {
-                addToWishlist({
-                  restaurantId: place.id, name: place.name,
-                  image: place.photoUrl || '',
-                  cuisine, price: priceStr,
-                  address: place.address,
-                  addedAt: Date.now(),
-                });
-              }
-            }}
+            onClick={() => place && openWishlistModal({
+              id: place.id, name: place.name,
+              image: place.photoUrl || '',
+              cuisine, price: priceStr,
+              address: place.address,
+            })}
             className={`flex items-center justify-center gap-1.5 py-3 rounded-2xl font-medium text-sm active:scale-[0.98] transition-transform border ${
               place && isWishlisted(place.id) ? 'bg-secondary/10 text-secondary border-secondary/30' : 'bg-white text-on-surface/60 border-on-surface/12'
             }`}

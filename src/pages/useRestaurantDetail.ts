@@ -86,6 +86,31 @@ export function useRestaurantDetail() {
     };
   }, [place]);
 
+  // Track recently viewed restaurants
+  useEffect(() => {
+    if (!place) return;
+    try {
+      const key = 'gourmad-recent-views';
+      const raw = localStorage.getItem(key);
+      const views: any[] = raw ? JSON.parse(raw) : [];
+      const entry = {
+        id: place.id,
+        name: place.name,
+        image: place.photoUrl || '',
+        rating: place.rating,
+        priceLevel: place.priceLevel,
+        address: place.address,
+        fullAddress: place.fullAddress || place.address,
+        types: place.types,
+        userRatingCount: place.userRatingCount,
+        viewedAt: Date.now(),
+      };
+      const filtered = views.filter((v: any) => v.id !== place.id);
+      const next = [entry, ...filtered].slice(0, 20);
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch {}
+  }, [place]);
+
   const priceStr = place ? priceLevelToString(place.priceLevel) : '';
   const cuisine = place ? getCuisineLabel(place.types) : '';
 

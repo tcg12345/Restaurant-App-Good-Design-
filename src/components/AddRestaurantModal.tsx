@@ -8,11 +8,16 @@ import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar }
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
-export const RatingModal: React.FC = () => {
-  const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList } = useLists();
+export const AddRestaurantModal: React.FC = () => {
+  const {
+    addRestaurantModalOpen, addRestaurantModalMeta, closeAddRestaurantModal,
+    rateRestaurant, getRating,
+    lists, createList,
+  } = useLists();
   const { phoneMode } = useSettings();
 
-  const existing = ratingModalRestaurant ? getRating(ratingModalRestaurant.id) : undefined;
+  const restaurant = addRestaurantModalMeta;
+  const existing = restaurant ? getRating(restaurant.id) : undefined;
 
   const [score, setScore] = useState(7);
   const [notes, setNotes] = useState('');
@@ -37,8 +42,8 @@ export const RatingModal: React.FC = () => {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
   useEffect(() => {
-    if (ratingModalOpen && ratingModalRestaurant) {
-      const ex = getRating(ratingModalRestaurant.id);
+    if (addRestaurantModalOpen && restaurant) {
+      const ex = getRating(restaurant.id);
       setScore(ex?.score ?? 7);
       setNotes(ex?.notes ?? '');
       setVisitDate(ex?.visitDate ?? '');
@@ -56,7 +61,7 @@ export const RatingModal: React.FC = () => {
       setTagSearch('');
       setFriendSearch('');
     }
-  }, [ratingModalOpen, ratingModalRestaurant]);
+  }, [addRestaurantModalOpen, restaurant]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
@@ -69,7 +74,7 @@ export const RatingModal: React.FC = () => {
     if (!isNaN(num) && num > 0) setPriceIndex(priceIndexFromAmount(num));
   };
 
-  const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (ratingModalRestaurant?.price || '$$');
+  const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '$$');
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -88,6 +93,7 @@ export const RatingModal: React.FC = () => {
         if (loaded === totalFiles.length) {
           setPhotos((prev) => {
             const updated = [...prev, ...newPhotos];
+            // Use setTimeout to let React process the state update before page change
             setTimeout(() => setPage('photos'), 0);
             return updated;
           });
@@ -102,29 +108,38 @@ export const RatingModal: React.FC = () => {
   const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
   const togglePhotoFavorite = (idx: number) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, isFavorite: !p.isFavorite } : p));
   const movePhoto = (from: number, to: number) => {
-    setPhotos((prev) => { const next = [...prev]; const [item] = next.splice(from, 1); next.splice(to, 0, item); return next; });
+    setPhotos((prev) => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
   };
 
+  // Photo button: if no photos, open picker. If photos exist, go to edit page.
   const handlePhotosClick = () => {
-    if (photos.length === 0) fileInputRef.current?.click();
-    else setPage('photos');
+    if (photos.length === 0) {
+      fileInputRef.current?.click();
+    } else {
+      setPage('photos');
+    }
+  };
+
+  const handleSaveRating = () => {
+    if (!restaurant) return;
+    rateRestaurant({
+      restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
+      cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+      score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+      listIds: selectedListIds, createdAt: Date.now(),
+    });
+    closeAddRestaurantModal();
   };
 
   const handleCreateList = () => {
     if (!newName.trim()) return;
     createList(newName.trim(), newEmoji);
     setNewName(''); setNewEmoji('📋'); setCreatingList(false);
-  };
-
-  const handleSave = () => {
-    if (!ratingModalRestaurant) return;
-    rateRestaurant({
-      restaurantId: ratingModalRestaurant.id, name: ratingModalRestaurant.name, image: ratingModalRestaurant.image,
-      cuisine: ratingModalRestaurant.cuisine, price: resolvedPrice, address: ratingModalRestaurant.address,
-      score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
-      listIds: selectedListIds, createdAt: Date.now(),
-    });
-    closeRatingModal();
   };
 
   const scoreColor = score >= 8 ? 'text-green-400' : score >= 5 ? 'text-yellow-400' : 'text-red-400';
@@ -154,37 +169,44 @@ export const RatingModal: React.FC = () => {
 
   const selectedListLabels = lists.filter((l) => selectedListIds.includes(l.id));
 
+  // Hidden file input for photos
   const photoInput = <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />;
 
   return (
     <AnimatePresence>
-      {ratingModalOpen && ratingModalRestaurant && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      {addRestaurantModalOpen && restaurant && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
             phoneMode ? "items-end" : "items-end sm:items-center"
           )}
-          onClick={closeRatingModal}>
-          <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+          onClick={closeAddRestaurantModal}
+        >
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
                 ? "h-full rounded-none"
                 : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl"
-            )}>
+            )}
+          >
             {photoInput}
             <AnimatePresence mode="wait">
+              {/* ═══════════ MAIN PAGE ═══════════ */}
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col h-full">
                   <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
                     <div className="min-w-0">
                       <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Restaurant'}</h2>
-                      <p className="text-xs text-on-surface/40 truncate">{ratingModalRestaurant.name}</p>
+                      <p className="text-xs text-on-surface/40 truncate">{restaurant.name}</p>
                     </div>
-                    <button onClick={closeRatingModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
+                    <button onClick={closeAddRestaurantModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
 
+                  {/* List selector */}
                   <div className="px-5 pb-2 flex-shrink-0 relative z-20">
                     <button onClick={() => setListDropdownOpen(!listDropdownOpen)}
                       className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all",
@@ -283,23 +305,26 @@ export const RatingModal: React.FC = () => {
                     </div>
                   </div>
                   <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                    <button onClick={handleSave} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
+                    <button onClick={handleSaveRating} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                       {existing ? 'Update Rating' : 'Save Rating'}
                     </button>
                   </div>
                 </motion.div>
               )}
 
+              {/* ═══════════ NOTES ═══════════ */}
               {page === 'notes' && (
                 <SubPage key="notes" onBack={() => setPage('main')} title="Notes">
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8} autoFocus
+                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
+                      placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8} autoFocus
                       className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed" />
                   </div>
                   <BottomBtn label={hasNotes ? 'Update Notes' : 'Save Notes'} onClick={() => setPage('main')} />
                 </SubPage>
               )}
 
+              {/* ═══════════ PRICE ═══════════ */}
               {page === 'price' && (
                 <SubPage key="price" onBack={() => setPage('main')} title="Price Range">
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-6 flex flex-col items-center">
@@ -329,13 +354,17 @@ export const RatingModal: React.FC = () => {
                 </SubPage>
               )}
 
+              {/* ═══════════ DATE ═══════════ */}
               {page === 'date' && (
                 <SubPage key="date" onBack={() => setPage('main')} title="Date Visited">
-                  <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5"><Calendar value={visitDate} onChange={setVisitDate} onClear={() => setVisitDate('')} /></div>
+                  <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+                    <Calendar value={visitDate} onChange={setVisitDate} onClear={() => setVisitDate('')} />
+                  </div>
                   <BottomBtn label="Done" onClick={() => setPage('main')} />
                 </SubPage>
               )}
 
+              {/* ═══════════ TAGS ═══════════ */}
               {page === 'tags' && (
                 <SubPage key="tags" onBack={() => { setPage('main'); setTagSearch(''); }} title="Tags">
                   <div className="px-5 pt-4 pb-2 flex-shrink-0">
@@ -354,13 +383,18 @@ export const RatingModal: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3" onTouchMove={(e) => e.stopPropagation()}>
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3"
+                    onTouchMove={(e) => e.stopPropagation()}>
                     {filteredTags.map((tag) => {
                       const sel = selectedTags.includes(tag);
                       return (
                         <button key={tag} onClick={() => toggleTag(tag)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors", sel ? "bg-primary/3" : "hover:bg-on-surface/3")}>
-                          <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0", sel ? "bg-primary border-primary text-white" : "border-on-surface/20")}>{sel && <Check size={12} strokeWidth={3} />}</div>
+                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
+                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
+                          )}>
+                          <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0",
+                            sel ? "bg-primary border-primary text-white" : "border-on-surface/20"
+                          )}>{sel && <Check size={12} strokeWidth={3} />}</div>
                           <span className={cn("text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{tag}</span>
                         </button>
                       );
@@ -371,14 +405,19 @@ export const RatingModal: React.FC = () => {
                 </SubPage>
               )}
 
+              {/* ═══════════ PHOTOS ═══════════ */}
               {page === 'photos' && (
                 <SubPage key="photos" onBack={() => setPage('main')} title="Photos" rightAction={
-                  <button onClick={() => fileInputRef.current?.click()} className="text-xs font-semibold text-primary">Add More</button>
+                  <button onClick={() => fileInputRef.current?.click()} className="text-xs font-semibold text-primary">
+                    Add More
+                  </button>
                 }>
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" onTouchMove={(e) => e.stopPropagation()}>
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+                    onTouchMove={(e) => e.stopPropagation()}>
                     {photos.length === 0 ? (
                       <div className="px-5 py-16 flex flex-col items-center justify-center text-on-surface/30">
-                        <Camera size={28} className="mb-2" /><p className="text-sm font-semibold">No photos yet</p>
+                        <Camera size={28} className="mb-2" />
+                        <p className="text-sm font-semibold">No photos yet</p>
                         <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
                       </div>
                     ) : (
@@ -387,25 +426,38 @@ export const RatingModal: React.FC = () => {
                           <div key={idx} className="flex gap-3 px-5 py-4">
                             <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
                               <img src={photo.url} alt="" className="w-full h-full object-cover" />
-                              <button onClick={() => removePhoto(idx)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
+                              <button onClick={() => removePhoto(idx)}
+                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
                                 <X size={10} className="text-white" />
                               </button>
                             </div>
                             <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                              <input type="text" value={photo.caption} onChange={(e) => updatePhotoCaption(idx, e.target.value)} placeholder="What's this?"
-                                className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full" />
+                              <input
+                                type="text"
+                                value={photo.caption}
+                                onChange={(e) => updatePhotoCaption(idx, e.target.value)}
+                                placeholder="What's this?"
+                                className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full"
+                              />
                               <button onClick={() => togglePhotoFavorite(idx)}
-                                className={cn("flex items-center gap-2 mt-2 text-xs font-medium transition-colors", photo.isFavorite ? "text-primary" : "text-on-surface/35")}>
+                                className={cn("flex items-center gap-2 mt-2 text-xs font-medium transition-colors",
+                                  photo.isFavorite ? "text-primary" : "text-on-surface/35"
+                                )}>
                                 <span className="text-on-surface/40">Mark as a favorite dish:</span>
                                 <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
                                   photo.isFavorite ? "bg-primary border-primary text-white" : "border-on-surface/20"
-                                )}>{photo.isFavorite && <Star size={10} fill="white" />}</div>
+                                )}>
+                                  {photo.isFavorite && <Star size={10} fill="white" />}
+                                </div>
                               </button>
                             </div>
                             <div className="flex items-start pt-1 flex-shrink-0">
                               <div className="text-on-surface/20 cursor-grab active:cursor-grabbing p-1"
                                 onPointerDown={() => setDragIdx(idx)}
-                                onPointerUp={() => { if (dragIdx !== null && dragIdx !== idx) movePhoto(dragIdx, idx); setDragIdx(null); }}>
+                                onPointerUp={() => {
+                                  if (dragIdx !== null && dragIdx !== idx) movePhoto(dragIdx, idx);
+                                  setDragIdx(null);
+                                }}>
                                 <GripVertical size={18} />
                               </div>
                             </div>
@@ -418,6 +470,7 @@ export const RatingModal: React.FC = () => {
                 </SubPage>
               )}
 
+              {/* ═══════════ FRIENDS ═══════════ */}
               {page === 'friends' && (
                 <SubPage key="friends" onBack={() => { setPage('main'); setFriendSearch(''); }} title="Went With">
                   <div className="px-5 pt-4 pb-2 flex-shrink-0">
@@ -436,13 +489,16 @@ export const RatingModal: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3" onTouchMove={(e) => e.stopPropagation()}>
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3"
+                    onTouchMove={(e) => e.stopPropagation()}>
                     <p className="text-[10px] text-on-surface/30 mb-3 px-1">Select friends who joined you</p>
                     {filteredFriends.map((name) => {
                       const sel = selectedFriends.includes(name);
                       return (
                         <button key={name} onClick={() => toggleFriend(name)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors", sel ? "bg-primary/3" : "hover:bg-on-surface/3")}>
+                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
+                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
+                          )}>
                           <div className="w-8 h-8 rounded-full bg-on-surface/8 flex items-center justify-center text-xs font-bold text-on-surface/40 flex-shrink-0">
                             {name.split(' ').map((n) => n[0]).join('')}
                           </div>
@@ -463,6 +519,8 @@ export const RatingModal: React.FC = () => {
     </AnimatePresence>
   );
 };
+
+/* ── Shared sub-components ── */
 
 const DetailBtn: React.FC<{
   icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;

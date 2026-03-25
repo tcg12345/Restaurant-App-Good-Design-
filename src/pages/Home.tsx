@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { CircleActivity } from '../components/CircleActivity';
-import { Search, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft } from 'lucide-react';
+import { Search, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { useLists } from '../contexts/ListsContext';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
+import { Link } from 'react-router-dom';
 import { SocialFeed } from '../components/SocialFeed';
 
 // Default location (NYC)
@@ -33,7 +35,6 @@ const PRICE_LEVELS = [
   { value: 4, label: '$$$$' },
 ];
 
-const COLLECTION_NAMES = ['Date Nights', 'Hidden Gems', 'Best Cocktails', 'Quick Bites'];
 
 const RATED_SPOTS = [
   {
@@ -54,6 +55,45 @@ const RATED_SPOTS = [
   },
 ];
 
+// US state name → abbreviation
+const STATE_ABBR: Record<string, string> = {
+  'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA',
+  'Colorado':'CO','Connecticut':'CT','Delaware':'DE','Florida':'FL','Georgia':'GA',
+  'Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS',
+  'Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA',
+  'Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT',
+  'Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM',
+  'New York':'NY','North Carolina':'NC','North Dakota':'ND','Ohio':'OH','Oklahoma':'OK',
+  'Oregon':'OR','Pennsylvania':'PA','Rhode Island':'RI','South Carolina':'SC',
+  'South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT',
+  'Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY',
+  'District of Columbia':'DC',
+};
+
+function extractCityState(fullAddress: string, shortAddress: string): string {
+  // fullAddress is like "256 Post Rd E, Westport, CT 06880, USA"
+  // shortAddress is like "256 Post Rd E, Westport"
+  const parts = fullAddress.split(',').map((s) => s.trim());
+  if (parts.length >= 3) {
+    // Try to get city from second-to-last US part and state from the state+zip part
+    // Typical: ["256 Post Rd E", "Westport", "CT 06880", "USA"]
+    const city = parts[parts.length - 3] || '';
+    const stateZip = parts[parts.length - 2] || '';
+    const stateMatch = stateZip.match(/^([A-Z]{2})\b/);
+    if (stateMatch) {
+      return `${city}, ${stateMatch[1]}`;
+    }
+    // Try full state name
+    for (const [name, abbr] of Object.entries(STATE_ABBR)) {
+      if (stateZip.startsWith(name)) return `${city}, ${abbr}`;
+    }
+    return city || shortAddress.split(',')[0];
+  }
+  // Fallback: last part of short address
+  const shortParts = shortAddress.split(',').map((s) => s.trim());
+  return shortParts[shortParts.length - 1] || shortAddress;
+}
+
 function placeToCardProps(place: PlaceResult) {
   return {
     id: place.id,
@@ -61,8 +101,10 @@ function placeToCardProps(place: PlaceResult) {
     image: place.photoUrl || 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=800',
     rating: place.rating,
     price: priceLevelToString(place.priceLevel),
-    cuisine: place.address.split(',')[0],
-    distance: '',
+    cuisine: extractCityState(place.fullAddress, place.address),
+    address: place.address,
+    friendReviews: 0,
+    expertReviews: 0,
   };
 }
 
@@ -99,17 +141,72 @@ function saveSearchState(state: any) {
 function loadSearchState(): any | null {
   try {
     const raw = sessionStorage.getItem(SEARCH_STATE_KEY);
-    if (raw) {
-      sessionStorage.removeItem(SEARCH_STATE_KEY);
-      return JSON.parse(raw);
-    }
+    if (raw) return JSON.parse(raw);
   } catch {}
   return null;
 }
 
+function clearSearchState() {
+  try { sessionStorage.removeItem(SEARCH_STATE_KEY); } catch {}
+}
+
 export const Home: React.FC = () => {
   const { phoneMode, setHideBottomNav } = useSettings();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings } = useLists();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
+
+  // Recent views from localStorage
+  const recentViews = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('gourmad-recent-views');
+      return raw ? JSON.parse(raw) as Array<PlaceResult & { viewedAt: number }> : [];
+    } catch { return []; }
+  }, []);
+
+  // Recommendations algorithm based on user's rated restaurants
+  const recommendations = useMemo(() => {
+    if (recentViews.length === 0) return [];
+    // Build preference profile from ratings
+    const cuisineCounts: Record<string, number> = {};
+    const priceCounts: Record<number, number> = {};
+    ratings.forEach((r) => {
+      // Weight by score: highly rated restaurants count more
+      const weight = r.score >= 7 ? 2 : 1;
+      // Count tags as pseudo-cuisines
+      r.tags.forEach((t) => { cuisineCounts[t] = (cuisineCounts[t] || 0) + weight; });
+      // Extract price preference
+      const priceNum = r.price.length; // '$' = 1, '$$' = 2, etc.
+      priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
+    });
+
+    // Score recent views as potential recommendations
+    // (restaurants the user has seen but not rated yet)
+    const ratedIds = new Set(ratings.map((r) => r.restaurantId));
+    const candidates = recentViews.filter((v) => !ratedIds.has(v.id));
+
+    const scored = candidates.map((place) => {
+      let score = 0;
+      // Boost by matching types to user's preferred tags/cuisines
+      (place.types || []).forEach((t: string) => {
+        const label = t.replace(/_/g, ' ').replace(/restaurant/g, '').trim();
+        Object.entries(cuisineCounts).forEach(([tag, count]) => {
+          if (tag.toLowerCase().includes(label) || label.includes(tag.toLowerCase())) {
+            score += count * 2;
+          }
+        });
+      });
+      // Boost by matching price level
+      if (priceCounts[place.priceLevel]) score += priceCounts[place.priceLevel];
+      // Boost highly rated places
+      score += (place.rating || 0) * 0.5;
+      // Boost popular places
+      score += Math.min((place.userRatingCount || 0) / 500, 2);
+      return { ...place, recScore: score };
+    });
+
+    scored.sort((a, b) => b.recScore - a.recScore);
+    return scored.slice(0, 8);
+  }, [recentViews, ratings]);
 
   // Restore saved search state on mount (survives navigation to detail page and back)
   const savedState = useRef(loadSearchState());
@@ -162,8 +259,9 @@ export const Home: React.FC = () => {
     setPlaces(applyLocalFilters(rawPlaces, sortBy, selectedPrice));
   }, [rawPlaces, sortBy, selectedPrice]);
 
-  // Get user location on mount
+  // Get user location on mount (skip if we restored a custom location from saved state)
   useEffect(() => {
+    if (ss?.locationLabel) return; // restored state has a custom location — don't override
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -245,10 +343,16 @@ export const Home: React.FC = () => {
   }, [userLat, userLng, locationLabel]);
 
   // Auto-search after user stops typing for 500ms
+  // Skip the first trigger if we restored saved state (results are already loaded)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipInitialSearch = useRef(!!ss);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!searchQuery.trim() || !searchActive) return;
+    if (skipInitialSearch.current) {
+      skipInitialSearch.current = false;
+      return;
+    }
     debounceRef.current = setTimeout(() => {
       handleSearch(searchQuery);
     }, 500);
@@ -308,7 +412,7 @@ export const Home: React.FC = () => {
     setActiveFilter(null);
     setShowAllResults(false);
     setShowLocationResults(false);
-    try { sessionStorage.removeItem(SEARCH_STATE_KEY); } catch {}
+    clearSearchState();
   };
 
   return (
@@ -359,34 +463,6 @@ export const Home: React.FC = () => {
                   Search restaurant, cuisine, occasion...
                 </div>
               </button>
-
-              {/* Collections */}
-              <section className="mb-12">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-serif font-bold">Collections</h2>
-                  <button className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1">
-                    New Collection <ChevronRight size={14} />
-                  </button>
-                </div>
-
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
-                  {COLLECTION_NAMES.map((list) => (
-                    <motion.button
-                      key={list}
-                      whileHover={{ y: -5 }}
-                      className="flex-shrink-0 w-40 h-48 rounded-3xl bg-secondary/10 p-6 flex flex-col justify-between group hover:bg-secondary hover:text-white transition-all duration-500"
-                    >
-                      <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-secondary shadow-sm group-hover:text-primary transition-colors">
-                        <Bookmark size={20} />
-                      </div>
-                      <div>
-                        <h4 className="font-serif font-bold text-lg mb-1">{list}</h4>
-                        <p className="text-[10px] uppercase tracking-widest opacity-60">12 items</p>
-                      </div>
-                    </motion.button>
-                  ))}
-                </div>
-              </section>
 
               {/* Rated Spots */}
               <section className="mb-12">
@@ -605,7 +681,7 @@ export const Home: React.FC = () => {
                 </AnimatePresence>
 
                 {/* Quick filters */}
-                <div className={cn("flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-4", !phoneMode && "ml-9")}>
+                <div className={cn("flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-4 mt-3", !phoneMode && "ml-9")}>
                   {QUICK_FILTERS.map((filter) => (
                     <button
                       key={filter}
@@ -634,10 +710,73 @@ export const Home: React.FC = () => {
                       <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
                     </div>
                   ) : places.length === 0 ? (
-                    <div className="text-center py-16">
-                      <Search size={32} className="mx-auto text-on-surface/15 mb-3" />
-                      <p className="text-sm font-medium text-on-surface/40">Search for restaurants</p>
-                      <p className="text-xs text-on-surface/30 mt-1">Type a name, cuisine, or use the filters above</p>
+                    <div className="space-y-8">
+                      {/* Recent Searches */}
+                      {recentViews.length > 0 && (
+                        <section>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Clock size={15} className="text-on-surface/35" />
+                            <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
+                          </div>
+                          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                            {recentViews.slice(0, 8).map((place) => (
+                              <Link key={place.id} to={`/restaurant/${place.id}`}
+                                className="flex-shrink-0 w-32 group">
+                                <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                                  {place.image ? (
+                                    <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  ) : (place as any).photoUrl ? (
+                                    <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
+                                  )}
+                                </div>
+                                <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
+                                {place.rating > 0 && (
+                                  <div className="flex items-center gap-0.5 mt-0.5">
+                                    <Star size={10} className="fill-primary text-primary" />
+                                    <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                                  </div>
+                                )}
+                              </Link>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Recommendations */}
+                      {recommendations.length > 0 ? (
+                        <section>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Sparkles size={15} className="text-primary/60" />
+                            <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                          </div>
+                          <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                            {recommendations.map((place) => {
+                              const props = placeToCardProps(place as any);
+                              return (
+                                <RestaurantCard key={place.id} {...props}
+                                  isWishlisted={isWishlisted(place.id)}
+                                  onAdd={() => openAddRestaurantModal({
+                                    id: place.id, name: place.name, image: props.image,
+                                    cuisine: props.cuisine, price: props.price, address: place.address,
+                                  })}
+                                  onHeart={() => openWishlistModal({
+                                    id: place.id, name: place.name, image: props.image,
+                                    cuisine: props.cuisine, price: props.price, address: place.address,
+                                  })}
+                                />
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ) : recentViews.length === 0 ? (
+                        <div className="text-center py-16">
+                          <Search size={32} className="mx-auto text-on-surface/15 mb-3" />
+                          <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
+                          <p className="text-xs text-on-surface/30 mt-1">Search by name, cuisine, or use the filters above</p>
+                        </div>
+                      ) : null}
                     </div>
                   ) : (() => {
                     const initialCount = phoneMode ? 8 : 8;
@@ -652,12 +791,32 @@ export const Home: React.FC = () => {
                           </span>
                         </div>
                         <div className={cn("grid gap-3 sm:gap-4", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
-                          {visiblePlaces.map((place) => (
-                            <RestaurantCard
-                              key={place.id}
-                              {...placeToCardProps(place)}
-                            />
-                          ))}
+                          {visiblePlaces.map((place) => {
+                            const props = placeToCardProps(place);
+                            return (
+                              <RestaurantCard
+                                key={place.id}
+                                {...props}
+                                isWishlisted={isWishlisted(place.id)}
+                                onAdd={() => openAddRestaurantModal({
+                                  id: place.id,
+                                  name: place.name,
+                                  image: props.image,
+                                  cuisine: props.cuisine,
+                                  price: props.price,
+                                  address: place.address,
+                                })}
+                                onHeart={() => openWishlistModal({
+                                  id: place.id,
+                                  name: place.name,
+                                  image: props.image,
+                                  cuisine: props.cuisine,
+                                  price: props.price,
+                                  address: place.address,
+                                })}
+                              />
+                            );
+                          })}
                         </div>
                         {hasMore && (
                           <button
@@ -692,9 +851,19 @@ export const Home: React.FC = () => {
                       animate={{ y: 0 }}
                       exit={{ y: '100%' }}
                       transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-                      className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-[2rem] shadow-2xl max-h-[85vh] flex flex-col"
+                      drag="y"
+                      dragConstraints={{ top: 0, bottom: 0 }}
+                      dragElastic={{ top: 0, bottom: 0.6 }}
+                      onDragEnd={(_e, info) => {
+                        if (info.offset.y > 100 || info.velocity.y > 300) setShowFilters(false);
+                      }}
+                      className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col overflow-hidden"
                     >
-                      <div className="flex-shrink-0 bg-surface z-10 px-6 pt-5 pb-4 border-b border-black/5">
+                      {/* Drag handle */}
+                      <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
+                        <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+                      </div>
+                      <div className="flex-shrink-0 bg-surface z-10 px-6 pt-2 pb-4 border-b border-black/5">
                         <div className="flex items-center justify-between">
                           <h2 className="text-lg font-serif font-bold text-on-surface">Filters</h2>
                           <button

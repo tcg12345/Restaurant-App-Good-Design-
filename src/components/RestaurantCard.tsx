@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, MapPin, Heart } from 'lucide-react';
+import { Star, Heart, Users, Award, Plus } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -11,7 +11,12 @@ interface RestaurantCardProps {
   rating: number;
   price: string;
   cuisine: string;
-  distance: string;
+  distance?: string;
+  friendReviews?: number;
+  expertReviews?: number;
+  onAdd?: () => void;
+  onHeart?: () => void;
+  isWishlisted?: boolean;
 
   className?: string;
 }
@@ -23,7 +28,11 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   rating,
   price,
   cuisine,
-  distance,
+  friendReviews = 0,
+  expertReviews = 0,
+  onAdd,
+  onHeart,
+  isWishlisted = false,
 
   className,
 }) => {
@@ -49,11 +58,28 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              onHeart?.();
             }}
-            className="absolute top-2.5 right-2.5 sm:top-2 sm:right-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full text-on-surface/60 hover:text-primary transition-colors z-10"
+            className={cn(
+              "absolute top-2.5 right-2.5 sm:top-2 sm:right-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full transition-colors z-10",
+              isWishlisted ? "text-red-400" : "text-on-surface/60 hover:text-red-400"
+            )}
           >
-            <Heart size={18} className="sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5" />
+            <Heart size={18} className={cn("sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5", isWishlisted && "fill-red-400")} />
           </button>
+
+          {onAdd && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onAdd();
+              }}
+              className="absolute top-2.5 left-2.5 sm:top-2 sm:left-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full text-on-surface/60 hover:text-primary transition-colors z-10"
+            >
+              <Plus size={18} className="sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5" />
+            </button>
+          )}
         </div>
 
         <div className="p-3 sm:p-3">
@@ -71,9 +97,15 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
             <span>{price}</span>
           </div>
 
-          <div className="mt-1.5 flex items-center gap-1 text-[11px] sm:text-xs lg:text-[10px] text-on-surface/60">
-            <MapPin size={12} className="sm:w-3 sm:h-3 lg:w-2.5 lg:h-2.5" />
-            <span>{distance}</span>
+          <div className="mt-1.5 flex items-center gap-2.5 text-[10px] sm:text-[11px] lg:text-[10px] text-on-surface/40 font-medium">
+            <span className="flex items-center gap-0.5">
+              <Users size={10} className="sm:w-2.5 sm:h-2.5" />
+              {friendReviews} friends
+            </span>
+            <span className="flex items-center gap-0.5">
+              <Award size={10} className="sm:w-2.5 sm:h-2.5" />
+              {expertReviews} experts
+            </span>
           </div>
         </div>
       </motion.div>

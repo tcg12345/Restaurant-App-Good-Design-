@@ -20,6 +20,8 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ListsProvider } from './contexts/ListsContext';
 import { RatingModal } from './components/RatingModal';
 import { AddToListModal } from './components/AddToListModal';
+import { AddRestaurantModal } from './components/AddRestaurantModal';
+import { WishlistModal } from './components/WishlistModal';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 
@@ -106,6 +108,10 @@ const AppContent: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
+        <RatingModal />
+        <AddToListModal />
+        <AddRestaurantModal />
+        <WishlistModal />
       </div>
     </div>
   );
@@ -118,8 +124,6 @@ export default function App() {
         <SettingsProvider>
           <ListsProvider>
             <AppContent />
-            <RatingModal />
-            <AddToListModal />
           </ListsProvider>
         </SettingsProvider>
       </AuthProvider>
