@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } from 'motion/react';
@@ -107,9 +107,15 @@ const CreateListSheet: React.FC<{
 
   const dragY = useMotionValue(0);
   const backdropOpacity = useTransform(dragY, [0, 300], [1, 0]);
-  const handleDragEnd = (_: any, info: PanInfo) => { if (info.offset.y > 100 || info.velocity.y > 500) handleClose(); };
+  const handleDragEnd = (_: any, info: PanInfo) => {
+    if (info.offset.y > 100 || info.velocity.y > 500) { handleClose(); }
+    else { dragY.set(0); }
+  };
 
-  const content = (
+  // Reset drag position when sheet opens
+  useEffect(() => { if (open) dragY.set(0); }, [open, dragY]);
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div style={phoneMode ? { opacity: backdropOpacity } : undefined} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -212,10 +218,9 @@ const CreateListSheet: React.FC<{
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
-
-  return createPortal(content, document.body);
 };
 
 /* ── Add From Rated Bottom Sheet ── */
@@ -244,9 +249,15 @@ const AddFromRatedSheet: React.FC<{
 
   const dragY = useMotionValue(0);
   const backdropOpacity = useTransform(dragY, [0, 300], [1, 0]);
-  const handleDragEnd = (_: any, info: PanInfo) => { if (info.offset.y > 100 || info.velocity.y > 500) onClose(); };
+  const handleDragEnd = (_: any, info: PanInfo) => {
+    if (info.offset.y > 100 || info.velocity.y > 500) { onClose(); }
+    else { dragY.set(0); }
+  };
 
-  const content = (
+  // Reset drag position when sheet opens
+  useEffect(() => { if (open) dragY.set(0); }, [open, dragY]);
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div style={phoneMode ? { opacity: backdropOpacity } : undefined} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -305,10 +316,9 @@ const AddFromRatedSheet: React.FC<{
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
-
-  return createPortal(content, document.body);
 };
 
 /* ── Restaurant row card ── */
