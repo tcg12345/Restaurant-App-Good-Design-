@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, MapPin, Heart } from 'lucide-react';
+import { Star, Heart, Users, Award } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -11,7 +11,9 @@ interface RestaurantCardProps {
   rating: number;
   price: string;
   cuisine: string;
-  distance: string;
+  distance?: string;
+  friendReviews?: number;
+  expertReviews?: number;
 
   className?: string;
 }
@@ -23,7 +25,8 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   rating,
   price,
   cuisine,
-  distance,
+  friendReviews = 0,
+  expertReviews = 0,
 
   className,
 }) => {
@@ -71,9 +74,15 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
             <span>{price}</span>
           </div>
 
-          <div className="mt-1.5 flex items-center gap-1 text-[11px] sm:text-xs lg:text-[10px] text-on-surface/60">
-            <MapPin size={12} className="sm:w-3 sm:h-3 lg:w-2.5 lg:h-2.5" />
-            <span>{distance}</span>
+          <div className="mt-1.5 flex items-center gap-2.5 text-[10px] sm:text-[11px] lg:text-[10px] text-on-surface/40 font-medium">
+            <span className="flex items-center gap-0.5">
+              <Users size={10} className="sm:w-2.5 sm:h-2.5" />
+              {friendReviews} friends
+            </span>
+            <span className="flex items-center gap-0.5">
+              <Award size={10} className="sm:w-2.5 sm:h-2.5" />
+              {expertReviews} experts
+            </span>
           </div>
         </div>
       </motion.div>

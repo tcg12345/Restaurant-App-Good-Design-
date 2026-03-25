@@ -54,6 +54,45 @@ const RATED_SPOTS = [
   },
 ];
 
+// US state name → abbreviation
+const STATE_ABBR: Record<string, string> = {
+  'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA',
+  'Colorado':'CO','Connecticut':'CT','Delaware':'DE','Florida':'FL','Georgia':'GA',
+  'Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS',
+  'Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA',
+  'Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT',
+  'Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM',
+  'New York':'NY','North Carolina':'NC','North Dakota':'ND','Ohio':'OH','Oklahoma':'OK',
+  'Oregon':'OR','Pennsylvania':'PA','Rhode Island':'RI','South Carolina':'SC',
+  'South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT',
+  'Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY',
+  'District of Columbia':'DC',
+};
+
+function extractCityState(fullAddress: string, shortAddress: string): string {
+  // fullAddress is like "256 Post Rd E, Westport, CT 06880, USA"
+  // shortAddress is like "256 Post Rd E, Westport"
+  const parts = fullAddress.split(',').map((s) => s.trim());
+  if (parts.length >= 3) {
+    // Try to get city from second-to-last US part and state from the state+zip part
+    // Typical: ["256 Post Rd E", "Westport", "CT 06880", "USA"]
+    const city = parts[parts.length - 3] || '';
+    const stateZip = parts[parts.length - 2] || '';
+    const stateMatch = stateZip.match(/^([A-Z]{2})\b/);
+    if (stateMatch) {
+      return `${city}, ${stateMatch[1]}`;
+    }
+    // Try full state name
+    for (const [name, abbr] of Object.entries(STATE_ABBR)) {
+      if (stateZip.startsWith(name)) return `${city}, ${abbr}`;
+    }
+    return city || shortAddress.split(',')[0];
+  }
+  // Fallback: last part of short address
+  const shortParts = shortAddress.split(',').map((s) => s.trim());
+  return shortParts[shortParts.length - 1] || shortAddress;
+}
+
 function placeToCardProps(place: PlaceResult) {
   return {
     id: place.id,
@@ -61,8 +100,9 @@ function placeToCardProps(place: PlaceResult) {
     image: place.photoUrl || 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=800',
     rating: place.rating,
     price: priceLevelToString(place.priceLevel),
-    cuisine: place.address.split(',')[0],
-    distance: '',
+    cuisine: extractCityState(place.fullAddress, place.address),
+    friendReviews: 0,
+    expertReviews: 0,
   };
 }
 

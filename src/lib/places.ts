@@ -12,6 +12,7 @@ export interface PlaceResult {
   rating: number;
   priceLevel: number;
   address: string;
+  fullAddress: string;
   photoUrl: string | null;
   types: string[];
   userRatingCount: number;
@@ -65,6 +66,7 @@ function mapPlaces(places: any[]): PlaceResult[] {
     rating: p.rating ?? 0,
     priceLevel: parsePriceLevel(p.priceLevel),
     address: p.shortFormattedAddress || p.formattedAddress || '',
+    fullAddress: p.formattedAddress || p.shortFormattedAddress || '',
     photoUrl: photoUrl(p.photos?.[0]?.name),
     types: p.types || [],
     userRatingCount: p.userRatingCount ?? 0,
@@ -341,6 +343,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     rating: p.rating ?? 0,
     priceLevel: parsePriceLevel(p.priceLevel),
     address: p.shortFormattedAddress || p.formattedAddress || '',
+    fullAddress: p.formattedAddress || p.shortFormattedAddress || '',
     photoUrl: photos[0] || null,
     photoUrls: photos,
     types: p.types || [],
