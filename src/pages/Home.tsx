@@ -163,50 +163,78 @@ export const Home: React.FC = () => {
     } catch { return []; }
   }, []);
 
-  // Recommendations algorithm based on user's rated restaurants
-  const recommendations = useMemo(() => {
-    if (recentViews.length === 0) return [];
-    // Build preference profile from ratings
+  // Build preference profile from user's ratings
+  const userPreferences = useMemo(() => {
     const cuisineCounts: Record<string, number> = {};
     const priceCounts: Record<number, number> = {};
+    const topCuisines: string[] = [];
+
     ratings.forEach((r) => {
-      // Weight by score: highly rated restaurants count more
       const weight = r.score >= 7 ? 2 : 1;
-      // Count tags as pseudo-cuisines
+      if (r.cuisine) {
+        cuisineCounts[r.cuisine] = (cuisineCounts[r.cuisine] || 0) + weight;
+      }
       r.tags.forEach((t) => { cuisineCounts[t] = (cuisineCounts[t] || 0) + weight; });
-      // Extract price preference
-      const priceNum = r.price.length; // '$' = 1, '$$' = 2, etc.
+      const priceNum = r.price.length;
       priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
     });
 
-    // Score recent views as potential recommendations
-    // (restaurants the user has seen but not rated yet)
+    // Get top 3 cuisines by weighted count
+    const sorted = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]);
+    sorted.slice(0, 3).forEach(([cuisine]) => topCuisines.push(cuisine));
+
+    return { cuisineCounts, priceCounts, topCuisines };
+  }, [ratings]);
+
+  // Score-based recommendations from recentViews
+  const recentRecommendations = useMemo(() => {
+    if (recentViews.length === 0) return [];
     const ratedIds = new Set(ratings.map((r) => r.restaurantId));
     const candidates = recentViews.filter((v) => !ratedIds.has(v.id));
 
     const scored = candidates.map((place) => {
       let score = 0;
-      // Boost by matching types to user's preferred tags/cuisines
       (place.types || []).forEach((t: string) => {
         const label = t.replace(/_/g, ' ').replace(/restaurant/g, '').trim();
-        Object.entries(cuisineCounts).forEach(([tag, count]) => {
+        Object.entries(userPreferences.cuisineCounts).forEach(([tag, count]) => {
           if (tag.toLowerCase().includes(label) || label.includes(tag.toLowerCase())) {
             score += count * 2;
           }
         });
       });
-      // Boost by matching price level
-      if (priceCounts[place.priceLevel]) score += priceCounts[place.priceLevel];
-      // Boost highly rated places
+      if (userPreferences.priceCounts[place.priceLevel]) score += userPreferences.priceCounts[place.priceLevel];
       score += (place.rating || 0) * 0.5;
-      // Boost popular places
       score += Math.min((place.userRatingCount || 0) / 500, 2);
       return { ...place, recScore: score };
     });
 
     scored.sort((a, b) => b.recScore - a.recScore);
     return scored.slice(0, 8);
-  }, [recentViews, ratings]);
+  }, [recentViews, ratings, userPreferences]);
+
+  // Fetch API-based recommendations using user's top cuisines (effect moved after userLat/userLng declarations below)
+  const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
+  const [recsLoading, setRecsLoading] = useState(false);
+  const recsFetchedRef = useRef(false);
+
+  // Combine recommendations: API-based first, then scored recent views
+  const recommendations = useMemo(() => {
+    const combined = [...apiRecommendations, ...recentRecommendations];
+    const seen = new Set<string>();
+    return combined.filter((p) => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    }).slice(0, 8);
+  }, [apiRecommendations, recentRecommendations]);
+
+  // User's top rated restaurants (for when there's no other content)
+  const topRated = useMemo(() => {
+    return [...ratings]
+      .filter((r) => r.score >= 7 && r.image)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6);
+  }, [ratings]);
 
   // Restore saved search state on mount (survives navigation to detail page and back)
   const savedState = useRef(loadSearchState());
@@ -242,6 +270,36 @@ export const Home: React.FC = () => {
   const [showLocationResults, setShowLocationResults] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch API-based recommendations using user's top cuisines
+  useEffect(() => {
+    if (recsFetchedRef.current || ratings.length === 0) return;
+    recsFetchedRef.current = true;
+
+    const ratedIds = new Set(ratings.map((r) => r.restaurantId));
+    const recentIds = new Set(recentViews.map((v) => v.id));
+    const topCuisines = userPreferences.topCuisines;
+    if (topCuisines.length === 0) return;
+
+    setRecsLoading(true);
+
+    const queries = topCuisines.slice(0, 2).map((cuisine) =>
+      searchPlacesByText(`best ${cuisine} restaurants`, userLat, userLng)
+        .catch(() => [] as PlaceResult[])
+    );
+
+    Promise.all(queries).then((results) => {
+      const all = results.flat();
+      const seen = new Set<string>();
+      const fresh = all.filter((p) => {
+        if (seen.has(p.id) || ratedIds.has(p.id) || recentIds.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
+      setApiRecommendations(fresh.slice(0, 8));
+      setRecsLoading(false);
+    });
+  }, [ratings, userPreferences.topCuisines, userLat, userLng, recentViews]);
 
   // Save search state to sessionStorage whenever search is active (so it persists across navigation)
   useEffect(() => {
@@ -745,7 +803,18 @@ export const Home: React.FC = () => {
                       )}
 
                       {/* Recommendations */}
-                      {recommendations.length > 0 ? (
+                      {recsLoading ? (
+                        <section>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Sparkles size={15} className="text-primary/60" />
+                            <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                          </div>
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 size={20} className="text-primary/40 animate-spin" />
+                            <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
+                          </div>
+                        </section>
+                      ) : recommendations.length > 0 ? (
                         <section>
                           <div className="flex items-center gap-2 mb-3">
                             <Sparkles size={15} className="text-primary/60" />
@@ -770,13 +839,45 @@ export const Home: React.FC = () => {
                             })}
                           </div>
                         </section>
-                      ) : recentViews.length === 0 ? (
+                      ) : null}
+
+                      {/* Your Top Rated — shown when user has ratings */}
+                      {topRated.length > 0 && (
+                        <section>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Star size={15} className="text-primary/60 fill-primary/60" />
+                            <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Your Top Rated</h3>
+                          </div>
+                          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                            {topRated.map((r) => (
+                              <Link key={r.restaurantId} to={`/restaurant/${r.restaurantId}`}
+                                className="flex-shrink-0 w-32 group">
+                                <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                                  {r.image ? (
+                                    <img src={r.image} alt={r.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{r.name.charAt(0)}</div>
+                                  )}
+                                </div>
+                                <p className="text-xs font-semibold truncate leading-tight">{r.name}</p>
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <span className={cn("text-[10px] font-bold", r.score >= 8 ? "text-green-600" : r.score >= 5 ? "text-yellow-600" : "text-red-500")}>{r.score.toFixed(1)}</span>
+                                  <span className="text-[10px] text-on-surface/30">/ 10</span>
+                                </div>
+                              </Link>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+
+                      {/* Empty state — only if nothing at all to show */}
+                      {recentViews.length === 0 && recommendations.length === 0 && topRated.length === 0 && !recsLoading && (
                         <div className="text-center py-16">
                           <Search size={32} className="mx-auto text-on-surface/15 mb-3" />
                           <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
                           <p className="text-xs text-on-surface/30 mt-1">Search by name, cuisine, or use the filters above</p>
                         </div>
-                      ) : null}
+                      )}
                     </div>
                   ) : (() => {
                     const initialCount = phoneMode ? 8 : 8;
