@@ -243,14 +243,16 @@ export const Map: React.FC = () => {
       `)
       .addTo(map);
 
-    // Attach click handlers — use setTimeout to ensure DOM is rendered
+    // Attach click handlers — try multiple times to ensure DOM is ready
     const attachHandlers = () => {
-      const el = (popup as any).getElement();
-      if (!el) return;
+      const el = (popup as any).getElement?.() ?? (popup as any)._container ?? (popup as any)._content?.parentElement;
+      if (!el) return false;
 
       const body = el.querySelector('.popup-card-body');
       if (body) {
-        body.addEventListener('click', () => {
+        body.addEventListener('click', (e: Event) => {
+          e.stopPropagation();
+          popup.remove();
           navigateRef.current(`/restaurant/${place.id}`);
         });
       }
@@ -259,6 +261,8 @@ export const Map: React.FC = () => {
       if (rateBtn) {
         rateBtn.addEventListener('click', (e: Event) => {
           e.stopPropagation();
+          e.preventDefault();
+          popup.remove();
           openAddRestaurantModalRef.current(meta);
         });
       }
@@ -267,12 +271,25 @@ export const Map: React.FC = () => {
       if (wishBtn) {
         wishBtn.addEventListener('click', (e: Event) => {
           e.stopPropagation();
+          e.preventDefault();
+          popup.remove();
           openWishlistModalRef.current(meta);
         });
       }
+
+      return !!(body || rateBtn || wishBtn);
     };
 
-    popup.once('open', () => setTimeout(attachHandlers, 0));
+    // Try attaching immediately, then retry with delays if DOM isn't ready
+    popup.once('open', () => {
+      if (!attachHandlers()) {
+        setTimeout(() => {
+          if (!attachHandlers()) {
+            setTimeout(attachHandlers, 100);
+          }
+        }, 0);
+      }
+    });
 
     popup.on('close', () => {
       setSelectedMarker(null);
