@@ -186,6 +186,14 @@ export const Map: React.FC = () => {
   }, []);
 
   // Show popup for a place
+  // Use refs for callbacks so DOM event handlers always get the latest
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const openAddRestaurantModalRef = useRef(openAddRestaurantModal);
+  openAddRestaurantModalRef.current = openAddRestaurantModal;
+  const openWishlistModalRef = useRef(openWishlistModal);
+  openWishlistModalRef.current = openWishlistModal;
+
   const showPopup = useCallback((place: PlaceResult, map: mapboxgl.Map) => {
     if (popupRef.current) popupRef.current.remove();
     const cuisine = getCuisineLabel(place.types);
@@ -199,6 +207,13 @@ export const Map: React.FC = () => {
         </div>`
       : '';
 
+    const meta = {
+      id: place.id, name: place.name,
+      image: place.photoUrl || '', cuisine,
+      price: priceLevelToString(place.priceLevel),
+      address: place.address,
+    };
+
     const popup = new mapboxgl.Popup({
       offset: 25,
       closeButton: true,
@@ -208,66 +223,56 @@ export const Map: React.FC = () => {
     })
       .setLngLat([place.lng, place.lat])
       .setHTML(`
-        <div class="popup-card" data-place-id="${place.id}" style="font-family:inherit;padding:4px 0;cursor:pointer;">
-          ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
-          <div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${place.name}</div>
-          <div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${cuisine}</div>
-          ${ratingHtml}
-          <div style="font-size:11px;color:#999;">${cityState}</div>
+        <div style="font-family:inherit;padding:4px 0;">
+          <div class="popup-card-body" style="cursor:pointer;">
+            ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
+            <div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${place.name}</div>
+            <div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${cuisine}</div>
+            ${ratingHtml}
+            <div style="font-size:11px;color:#999;">${cityState}</div>
+          </div>
           <div style="display:flex;gap:6px;margin-top:8px;">
-            <button data-action="rate" style="flex:1;display:flex;align-items:center;justify-content:center;gap:4px;padding:6px 0;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;font-size:11px;font-weight:600;color:#666;cursor:pointer;">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Rate
+            <button data-action="rate" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
-            <button data-action="wishlist" style="flex:1;display:flex;align-items:center;justify-content:center;gap:4px;padding:6px 0;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;font-size:11px;font-weight:600;color:#666;cursor:pointer;">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-              Wishlist
+            <button data-action="wishlist" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
             </button>
           </div>
         </div>
       `)
       .addTo(map);
 
-    // Attach click handlers after popup renders
-    popup.once('open', () => {
+    // Attach click handlers — use setTimeout to ensure DOM is rendered
+    const attachHandlers = () => {
       const el = (popup as any).getElement();
       if (!el) return;
-      // Whole card click → navigate
-      const card = el.querySelector('.popup-card');
-      if (card) {
-        card.addEventListener('click', (e: Event) => {
-          const target = e.target as HTMLElement;
-          if (target.closest('[data-action]')) return; // don't navigate on button clicks
-          navigate(`/restaurant/${place.id}`);
+
+      const body = el.querySelector('.popup-card-body');
+      if (body) {
+        body.addEventListener('click', () => {
+          navigateRef.current(`/restaurant/${place.id}`);
         });
       }
-      // Rate button
+
       const rateBtn = el.querySelector('[data-action="rate"]');
       if (rateBtn) {
         rateBtn.addEventListener('click', (e: Event) => {
           e.stopPropagation();
-          openAddRestaurantModal({
-            id: place.id, name: place.name,
-            image: place.photoUrl || '', cuisine,
-            price: priceLevelToString(place.priceLevel),
-            address: place.address,
-          });
+          openAddRestaurantModalRef.current(meta);
         });
       }
-      // Wishlist button
+
       const wishBtn = el.querySelector('[data-action="wishlist"]');
       if (wishBtn) {
         wishBtn.addEventListener('click', (e: Event) => {
           e.stopPropagation();
-          openWishlistModal({
-            id: place.id, name: place.name,
-            image: place.photoUrl || '', cuisine,
-            price: priceLevelToString(place.priceLevel),
-            address: place.address,
-          });
+          openWishlistModalRef.current(meta);
         });
       }
-    });
+    };
+
+    popup.once('open', () => setTimeout(attachHandlers, 0));
 
     popup.on('close', () => {
       setSelectedMarker(null);
@@ -276,7 +281,7 @@ export const Map: React.FC = () => {
     });
 
     popupRef.current = popup;
-  }, [navigate, openAddRestaurantModal, openWishlistModal]);
+  }, []);
 
   // Sync markers on map when places change — keeps existing markers, animates new ones in
   const syncMarkers = useCallback((newPlaces: PlaceResult[]) => {
