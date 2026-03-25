@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { useLists } from '../contexts/ListsContext';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { SocialFeed } from '../components/SocialFeed';
 
@@ -101,6 +102,7 @@ function placeToCardProps(place: PlaceResult) {
     rating: place.rating,
     price: priceLevelToString(place.priceLevel),
     cuisine: extractCityState(place.fullAddress, place.address),
+    address: place.address,
     friendReviews: 0,
     expertReviews: 0,
   };
@@ -150,6 +152,7 @@ function clearSearchState() {
 
 export const Home: React.FC = () => {
   const { phoneMode, setHideBottomNav } = useSettings();
+  const { openAddRestaurantModal } = useLists();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
 
   // Restore saved search state on mount (survives navigation to detail page and back)
@@ -700,12 +703,23 @@ export const Home: React.FC = () => {
                           </span>
                         </div>
                         <div className={cn("grid gap-3 sm:gap-4", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
-                          {visiblePlaces.map((place) => (
-                            <RestaurantCard
-                              key={place.id}
-                              {...placeToCardProps(place)}
-                            />
-                          ))}
+                          {visiblePlaces.map((place) => {
+                            const props = placeToCardProps(place);
+                            return (
+                              <RestaurantCard
+                                key={place.id}
+                                {...props}
+                                onAdd={() => openAddRestaurantModal({
+                                  id: place.id,
+                                  name: place.name,
+                                  image: props.image,
+                                  cuisine: props.cuisine,
+                                  price: props.price,
+                                  address: place.address,
+                                })}
+                              />
+                            );
+                          })}
                         </div>
                         {hasMore && (
                           <button

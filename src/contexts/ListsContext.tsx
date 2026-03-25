@@ -14,6 +14,7 @@ export interface RestaurantRating {
   visitDate: string;      // ISO date string
   wouldReturn: boolean;
   tags: string[];         // e.g. "Great cocktails", "Romantic", etc.
+  photos: string[];       // base64 data-urls of user-uploaded photos
   createdAt: number;      // timestamp
 }
 
@@ -82,6 +83,12 @@ interface ListsContextValue {
   addToListRestaurantId: string | null;
   openAddToListModal: (restaurantId: string, meta?: RestaurantMeta) => void;
   closeAddToListModal: () => void;
+
+  // Unified add restaurant modal
+  addRestaurantModalOpen: boolean;
+  addRestaurantModalMeta: RestaurantMeta | null;
+  openAddRestaurantModal: (restaurant: RestaurantMeta) => void;
+  closeAddRestaurantModal: () => void;
 }
 
 const STORAGE_KEY_RATINGS = 'gourmad-ratings';
@@ -121,6 +128,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [ratingModalRestaurant, setRatingModalRestaurant] = useState<RestaurantMeta | null>(null);
   const [addToListModalOpen, setAddToListModalOpen] = useState(false);
   const [addToListRestaurantId, setAddToListRestaurantId] = useState<string | null>(null);
+  const [addRestaurantModalOpen, setAddRestaurantModalOpen] = useState(false);
+  const [addRestaurantModalMeta, setAddRestaurantModalMeta] = useState<RestaurantMeta | null>(null);
 
   // Restaurant metadata cache
   const cacheRestaurantMeta = useCallback((meta: RestaurantMeta) => {
@@ -254,6 +263,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta]);
   const closeAddToListModal = useCallback(() => { setAddToListModalOpen(false); setAddToListRestaurantId(null); }, []);
 
+  const openAddRestaurantModal = useCallback((restaurant: RestaurantMeta) => {
+    cacheRestaurantMeta(restaurant);
+    setAddRestaurantModalMeta(restaurant);
+    setAddRestaurantModalOpen(true);
+  }, [cacheRestaurantMeta]);
+  const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); }, []);
+
   return (
     <ListsContext.Provider value={{
       ratings, rateRestaurant, updateRating, removeRating, getRating,
@@ -262,6 +278,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       wishlist, addToWishlist, removeFromWishlist, isWishlisted,
       ratingModalOpen, ratingModalRestaurant, openRatingModal, closeRatingModal,
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
+      addRestaurantModalOpen, addRestaurantModalMeta, openAddRestaurantModal, closeAddRestaurantModal,
     }}>
       {children}
     </ListsContext.Provider>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, Heart, Users, Award } from 'lucide-react';
+import { Star, Heart, Users, Award, Plus } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -14,6 +14,7 @@ interface RestaurantCardProps {
   distance?: string;
   friendReviews?: number;
   expertReviews?: number;
+  onAdd?: () => void;
 
   className?: string;
 }
@@ -27,6 +28,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   cuisine,
   friendReviews = 0,
   expertReviews = 0,
+  onAdd,
 
   className,
 }) => {
@@ -57,6 +59,19 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           >
             <Heart size={18} className="sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5" />
           </button>
+
+          {onAdd && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onAdd();
+              }}
+              className="absolute top-2.5 left-2.5 sm:top-2 sm:left-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full text-on-surface/60 hover:text-primary transition-colors z-10"
+            >
+              <Plus size={18} className="sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5" />
+            </button>
+          )}
         </div>
 
         <div className="p-3 sm:p-3">

@@ -51,6 +51,7 @@ export const RatingModal: React.FC = () => {
       visitDate,
       wouldReturn,
       tags: selectedTags,
+      photos: existing?.photos ?? [],
       createdAt: Date.now(),
     });
     closeRatingModal();
