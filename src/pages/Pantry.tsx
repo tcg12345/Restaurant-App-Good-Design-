@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { TopBar } from '../components/TopBar';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } from 'motion/react';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type CustomList } from '../contexts/ListsContext';
@@ -104,20 +105,29 @@ const CreateListSheet: React.FC<{
   const handleCreateCustom = () => { if (!customName.trim()) return; onCreate(customName.trim(), customEmoji); handleClose(); };
   const handleClose = () => { setSearch(''); setMode('browse'); setCustomName(''); setCustomEmoji('📋'); onClose(); };
 
-  return (
+  const dragY = useMotionValue(0);
+  const backdropOpacity = useTransform(dragY, [0, 300], [1, 0]);
+  const handleDragEnd = (_: any, info: PanInfo) => { if (info.offset.y > 100 || info.velocity.y > 500) handleClose(); };
+
+  const content = (
     <AnimatePresence>
       {open && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        <motion.div style={phoneMode ? { opacity: backdropOpacity } : undefined} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center" onClick={handleClose}>
           <motion.div
             initial={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
             animate={phoneMode ? { y: 0 } : { y: 0, opacity: 1 }}
             exit={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            drag={phoneMode ? 'y' : false}
+            dragConstraints={{ top: 0 }}
+            dragElastic={0.2}
+            onDragEnd={handleDragEnd}
+            style={phoneMode ? { y: dragY } : undefined}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface overflow-hidden flex flex-col", phoneMode ? "w-full rounded-t-3xl max-h-[90vh]" : "w-full max-w-md rounded-3xl max-h-[75vh] shadow-2xl")}
           >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            {phoneMode && <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
             <div className="flex items-center justify-between px-5 pt-4 pb-3">
               <h2 className="font-serif font-bold text-lg">{mode === 'browse' ? 'New List' : 'Create Custom List'}</h2>
               <button onClick={handleClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
@@ -204,6 +214,8 @@ const CreateListSheet: React.FC<{
       )}
     </AnimatePresence>
   );
+
+  return createPortal(content, document.body);
 };
 
 /* ── Add From Rated Bottom Sheet ── */
@@ -230,20 +242,29 @@ const AddFromRatedSheet: React.FC<{
 
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
 
-  return (
+  const dragY = useMotionValue(0);
+  const backdropOpacity = useTransform(dragY, [0, 300], [1, 0]);
+  const handleDragEnd = (_: any, info: PanInfo) => { if (info.offset.y > 100 || info.velocity.y > 500) onClose(); };
+
+  const content = (
     <AnimatePresence>
       {open && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        <motion.div style={phoneMode ? { opacity: backdropOpacity } : undefined} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center" onClick={onClose}>
           <motion.div
             initial={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
             animate={phoneMode ? { y: 0 } : { y: 0, opacity: 1 }}
             exit={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            drag={phoneMode ? 'y' : false}
+            dragConstraints={{ top: 0 }}
+            dragElastic={0.2}
+            onDragEnd={handleDragEnd}
+            style={phoneMode ? { y: dragY } : undefined}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface overflow-hidden flex flex-col", phoneMode ? "w-full rounded-t-3xl max-h-[85vh]" : "w-full max-w-md rounded-3xl max-h-[70vh] shadow-2xl")}
           >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            {phoneMode && <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
             <div className="flex items-center justify-between px-5 pt-4 pb-3">
               <h2 className="font-serif font-bold text-lg">Add Rated Restaurants</h2>
               <button onClick={onClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
@@ -286,6 +307,8 @@ const AddFromRatedSheet: React.FC<{
       )}
     </AnimatePresence>
   );
+
+  return createPortal(content, document.body);
 };
 
 /* ── Restaurant row card ── */
