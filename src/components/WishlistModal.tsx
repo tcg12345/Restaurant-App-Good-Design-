@@ -80,7 +80,9 @@ export const WishlistModal: React.FC = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center"
+          className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
+            phoneMode ? "items-end" : "items-end sm:items-center"
+          )}
           onClick={closeWishlistModal}
         >
           <motion.div
@@ -89,20 +91,12 @@ export const WishlistModal: React.FC = () => {
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className={cn(
-              "bg-surface overflow-hidden flex flex-col",
+            className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
-                ? "w-full rounded-t-3xl max-h-[85vh]"
-                : "w-full max-w-md rounded-3xl max-h-[85vh] shadow-2xl"
+                ? "h-full rounded-none"
+                : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
-            {/* Drag handle (phone) */}
-            {phoneMode && (
-              <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
-            )}
-
             {/* Saved state */}
             {saved ? (
               <div className="text-center py-12">
@@ -114,9 +108,9 @@ export const WishlistModal: React.FC = () => {
             ) : (
               <>
                 {/* Header */}
-                <div className="px-5 pt-2 sm:pt-5 pb-3 flex items-center justify-between flex-shrink-0">
+                <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
                   <div className="min-w-0">
-                    <h2 className="font-serif font-bold text-base sm:text-lg truncate">
+                    <h2 className="font-serif font-bold text-lg truncate">
                       {alreadyWishlisted ? 'Edit Wishlist' : 'Add to Wishlist'}
                     </h2>
                     <p className="text-xs text-on-surface/40 truncate">{restaurant.name}</p>
