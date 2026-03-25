@@ -70,3 +70,25 @@
 .restaurant-popup .mapboxgl-popup-tip {
   border-top-color: white;
 }
+
+/* Rating slider custom styling */
+input[type="range"].accent-primary::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(159, 48, 18, 0.3);
+  cursor: pointer;
+  border: 3px solid white;
+}
+input[type="range"].accent-primary::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(159, 48, 18, 0.3);
+  cursor: pointer;
+  border: 3px solid white;
+}
