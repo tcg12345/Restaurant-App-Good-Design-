@@ -290,7 +290,7 @@ export const RestaurantDetailMobile: React.FC = () => {
       </div>
 
       {/* ── Main Content ── */}
-      <main className="px-5 pt-6">
+      <main className="px-3 pt-6">
 
         {/* Action buttons — Rate, Wishlist */}
         <div className="grid grid-cols-2 gap-2 mb-3">

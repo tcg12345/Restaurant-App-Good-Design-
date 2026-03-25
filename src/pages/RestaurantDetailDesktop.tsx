@@ -257,7 +257,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
       </div>
 
       {/* ── Content — centered with max-width ── */}
-      <main className="px-8 pt-2 max-w-2xl mx-auto">
+      <main className="px-3 pt-2 max-w-2xl mx-auto">
 
         {/* Name + badges */}
         <div className="mb-6">
