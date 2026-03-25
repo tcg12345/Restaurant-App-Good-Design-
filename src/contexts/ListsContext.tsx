@@ -1,4 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { supabaseConfigured } from '../lib/supabase';
+import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData } from '../lib/supabase-db';
+import { useAuth } from './AuthContext';
 
 /* ── Types ── */
 
@@ -166,10 +169,82 @@ function migrateWishlist(items: WishlistItem[]): WishlistItem[] {
 const ListsContext = createContext<ListsContextValue | null>(null);
 
 export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+
   const [ratings, setRatings] = useState<RestaurantRating[]>(() => migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, [])));
   const [lists, setLists] = useState<CustomList[]>(() => migrateLists(loadFromStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS)));
   const [wishlist, setWishlist] = useState<WishlistItem[]>(() => migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, [])));
   const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
+  const [cloudLoaded, setCloudLoaded] = useState(false);
+
+  // Track userId for cloud save helpers
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+
+  // ── Load data from Supabase when user signs in ──
+  useEffect(() => {
+    if (!userId || !supabaseConfigured) return;
+
+    let cancelled = false;
+    (async () => {
+      const cloud = await loadUserData(userId);
+      if (cancelled) return;
+
+      if (cloud) {
+        // Cloud data found — use it (merge: cloud wins, but keep any local-only items)
+        const cloudRatings = migrateRatings(cloud.ratings || []);
+        const cloudLists = migrateLists(cloud.lists.length > 0 ? cloud.lists : DEFAULT_LISTS);
+        const cloudWishlist = migrateWishlist(cloud.wishlist || []);
+        const cloudMeta = cloud.restaurantMeta || {};
+
+        setRatings(cloudRatings);
+        setLists(cloudLists);
+        setWishlist(cloudWishlist);
+        setRestaurantMeta(cloudMeta);
+
+        // Also update localStorage as cache
+        saveToStorage(STORAGE_KEY_RATINGS, cloudRatings);
+        saveToStorage(STORAGE_KEY_LISTS, cloudLists);
+        saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
+        saveToStorage(STORAGE_KEY_META, cloudMeta);
+
+        console.log('[Supabase] Loaded user data from cloud:', cloudRatings.length, 'ratings,', cloudLists.length, 'lists');
+      } else {
+        // No cloud data — push current localStorage data to Supabase as initial sync
+        console.log('[Supabase] No cloud data found, syncing local data to cloud...');
+        const localRatings = migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, []));
+        const localLists = migrateLists(loadFromStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS));
+        const localWishlist = migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, []));
+        const localMeta = loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {});
+
+        await saveUserData(userId, {
+          ratings: localRatings,
+          lists: localLists,
+          wishlist: localWishlist,
+          restaurantMeta: localMeta,
+        });
+      }
+
+      setCloudLoaded(true);
+    })();
+
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  // ── Helper to save to Supabase in the background ──
+  const syncRatingsToCloud = useCallback((data: RestaurantRating[]) => {
+    if (userIdRef.current && supabaseConfigured) saveRatings(userIdRef.current, data);
+  }, []);
+  const syncListsToCloud = useCallback((data: CustomList[]) => {
+    if (userIdRef.current && supabaseConfigured) saveLists(userIdRef.current, data);
+  }, []);
+  const syncWishlistToCloud = useCallback((data: WishlistItem[]) => {
+    if (userIdRef.current && supabaseConfigured) saveWishlistData(userIdRef.current, data);
+  }, []);
+  const syncMetaToCloud = useCallback((data: Record<string, RestaurantMeta>) => {
+    if (userIdRef.current && supabaseConfigured) saveMetaData(userIdRef.current, data);
+  }, []);
 
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
   const [ratingModalRestaurant, setRatingModalRestaurant] = useState<RestaurantMeta | null>(null);
@@ -185,9 +260,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setRestaurantMeta((prev) => {
       const next = { ...prev, [meta.id]: meta };
       saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncMetaToCloud]);
 
   const getRestaurantInfo = useCallback((restaurantId: string): RestaurantMeta | undefined => {
     if (restaurantMeta[restaurantId]) return restaurantMeta[restaurantId];
@@ -203,6 +279,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setRatings((prev) => {
       const next = [rating, ...prev.filter((r) => r.restaurantId !== rating.restaurantId)];
       saveToStorage(STORAGE_KEY_RATINGS, next);
+      syncRatingsToCloud(next);
       return next;
     });
     // Update lists to include this restaurant in selected lists
@@ -218,27 +295,30 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           return l;
         });
         saveToStorage(STORAGE_KEY_LISTS, next);
+        syncListsToCloud(next);
         return next;
       });
     }
     cacheRestaurantMeta({ id: rating.restaurantId, name: rating.name, image: rating.image, cuisine: rating.cuisine, price: rating.price, address: rating.address });
-  }, [cacheRestaurantMeta]);
+  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
       const next = prev.map((r) => r.restaurantId === restaurantId ? { ...r, ...partial } : r);
       saveToStorage(STORAGE_KEY_RATINGS, next);
+      syncRatingsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncRatingsToCloud]);
 
   const removeRating = useCallback((restaurantId: string) => {
     setRatings((prev) => {
       const next = prev.filter((r) => r.restaurantId !== restaurantId);
       saveToStorage(STORAGE_KEY_RATINGS, next);
+      syncRatingsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncRatingsToCloud]);
 
   const getRating = useCallback((restaurantId: string) => ratings.find((r) => r.restaurantId === restaurantId), [ratings]);
 
@@ -247,25 +327,28 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setLists((prev) => {
       const next = [...prev, { id: `list-${Date.now()}`, name, emoji, restaurantIds: [], wishlistIds: [], createdAt: Date.now() }];
       saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncListsToCloud]);
 
   const deleteList = useCallback((id: string) => {
     setLists((prev) => {
       const next = prev.filter((l) => l.id !== id);
       saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncListsToCloud]);
 
   const renameList = useCallback((id: string, name: string, emoji: string) => {
     setLists((prev) => {
       const next = prev.map((l) => l.id === id ? { ...l, name, emoji } : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncListsToCloud]);
 
   const addToList = useCallback((listId: string, restaurantId: string) => {
     setLists((prev) => {
@@ -273,9 +356,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         ? { ...l, restaurantIds: [...l.restaurantIds, restaurantId] }
         : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncListsToCloud]);
 
   const removeFromList = useCallback((listId: string, restaurantId: string) => {
     setLists((prev) => {
@@ -283,9 +367,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         ? { ...l, restaurantIds: l.restaurantIds.filter((r) => r !== restaurantId) }
         : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncListsToCloud]);
 
   const addToWishlistInList = useCallback((listId: string, restaurantId: string) => {
     setLists((prev) => {
@@ -293,9 +378,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         ? { ...l, wishlistIds: [...l.wishlistIds, restaurantId] }
         : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncListsToCloud]);
 
   const removeFromWishlistInList = useCallback((listId: string, restaurantId: string) => {
     setLists((prev) => {
@@ -303,24 +389,24 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         ? { ...l, wishlistIds: l.wishlistIds.filter((r) => r !== restaurantId) }
         : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncListsToCloud]);
 
   const getListsForRestaurant = useCallback((restaurantId: string) => lists.filter((l) => l.restaurantIds.includes(restaurantId)), [lists]);
 
   // Wishlist
   const addToWishlist = useCallback((item: WishlistItem) => {
     setWishlist((prev) => {
-      // Update if exists, add if new
       const existing = prev.find((w) => w.restaurantId === item.restaurantId);
       const next = existing
         ? prev.map((w) => w.restaurantId === item.restaurantId ? item : w)
         : [item, ...prev];
       saveToStorage(STORAGE_KEY_WISHLIST, next);
+      syncWishlistToCloud(next);
       return next;
     });
-    // Update lists to include this in wishlistIds
     if (item.listIds && item.listIds.length > 0) {
       setLists((prev) => {
         const next = prev.map((l) => {
@@ -333,27 +419,29 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           return l;
         });
         saveToStorage(STORAGE_KEY_LISTS, next);
+        syncListsToCloud(next);
         return next;
       });
     }
     cacheRestaurantMeta({ id: item.restaurantId, name: item.name, image: item.image, cuisine: item.cuisine, price: item.price, address: item.address });
-  }, [cacheRestaurantMeta]);
+  }, [cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud]);
 
   const removeFromWishlist = useCallback((restaurantId: string) => {
     setWishlist((prev) => {
       const next = prev.filter((w) => w.restaurantId !== restaurantId);
       saveToStorage(STORAGE_KEY_WISHLIST, next);
+      syncWishlistToCloud(next);
       return next;
     });
-    // Also remove from all list wishlistIds
     setLists((prev) => {
       const next = prev.map((l) => l.wishlistIds.includes(restaurantId)
         ? { ...l, wishlistIds: l.wishlistIds.filter((r) => r !== restaurantId) }
         : l);
       saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
       return next;
     });
-  }, []);
+  }, [syncWishlistToCloud, syncListsToCloud]);
 
   const isWishlisted = useCallback((restaurantId: string) => wishlist.some((w) => w.restaurantId === restaurantId), [wishlist]);
 
