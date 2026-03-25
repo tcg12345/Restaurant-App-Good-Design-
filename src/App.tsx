@@ -24,6 +24,7 @@ import { AddRestaurantModal } from './components/AddRestaurantModal';
 import { WishlistModal } from './components/WishlistModal';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
+import { ImportRestaurants } from './pages/ImportRestaurants';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
@@ -60,6 +61,7 @@ const AppContent: React.FC = () => {
           <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
             <Routes location={location}>
               <Route path="/auth" element={<Auth />} />
+              <Route path="/import" element={<ImportRestaurants />} />
               <Route path="*" element={<SignIn />} />
             </Routes>
           </div>
@@ -93,6 +95,7 @@ const AppContent: React.FC = () => {
               <Route path="/pantry" element={<Pantry />} />
               <Route path="/restaurant/:id" element={<RestaurantDetail />} />
               <Route path="/onboarding" element={<Onboarding />} />
+              <Route path="/import" element={<ImportRestaurants />} />
             </Routes>
           </AnimatePresence>
         </div>
