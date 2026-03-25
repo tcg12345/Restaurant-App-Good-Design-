@@ -159,7 +159,7 @@ export const RatingModal: React.FC = () => {
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full sm:max-w-md sm:rounded-3xl overflow-hidden flex flex-col",
-              "h-[100dvh] sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-3xl"
+              "h-full sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-3xl"
             )}>
             {photoInput}
             <AnimatePresence mode="wait">

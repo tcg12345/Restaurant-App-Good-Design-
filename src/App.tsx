@@ -108,6 +108,10 @@ const AppContent: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
+        <RatingModal />
+        <AddToListModal />
+        <AddRestaurantModal />
+        <WishlistModal />
       </div>
     </div>
   );
@@ -120,10 +124,6 @@ export default function App() {
         <SettingsProvider>
           <ListsProvider>
             <AppContent />
-            <RatingModal />
-            <AddToListModal />
-            <AddRestaurantModal />
-            <WishlistModal />
           </ListsProvider>
         </SettingsProvider>
       </AuthProvider>
