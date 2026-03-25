@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
-import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData } from '../lib/supabase-db';
+import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews } from '../lib/supabase-db';
 import { useAuth } from './AuthContext';
 
 /* ── Types ── */
@@ -203,6 +203,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const cloudLists = migrateLists(cloud.lists.length > 0 ? cloud.lists : DEFAULT_LISTS);
         const cloudWishlist = migrateWishlist(cloud.wishlist || []);
         const cloudMeta = cloud.restaurantMeta || {};
+        const cloudRecentViews = cloud.recentViews || [];
 
         setRatings(cloudRatings);
         setLists(cloudLists);
@@ -214,14 +215,19 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_LISTS, cloudLists);
         saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
         saveToStorage(STORAGE_KEY_META, cloudMeta);
+        if (cloudRecentViews.length > 0) {
+          localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews));
+        }
 
-        console.log('[Supabase] Loaded user data from cloud:', cloudRatings.length, 'ratings,', cloudLists.length, 'lists,', cloudWishlist.length, 'wishlist');
+        console.log('[Supabase] Loaded user data from cloud:', cloudRatings.length, 'ratings,', cloudLists.length, 'lists,', cloudWishlist.length, 'wishlist,', cloudRecentViews.length, 'recent views');
       } else {
         // No cloud data or empty — push current localStorage data to Supabase as initial sync
         const localRatings = migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, []));
         const localLists = migrateLists(loadFromStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS));
         const localWishlist = migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, []));
         const localMeta = loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {});
+        let localRecentViews: any[] = [];
+        try { const raw = localStorage.getItem('gourmad-recent-views'); localRecentViews = raw ? JSON.parse(raw) : []; } catch {}
 
         console.log('[Supabase] No cloud data found, syncing local data to cloud:', localRatings.length, 'ratings,', localLists.length, 'lists');
 
@@ -230,6 +236,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           lists: localLists,
           wishlist: localWishlist,
           restaurantMeta: localMeta,
+          recentViews: localRecentViews,
         });
         console.log('[Supabase] Initial sync result:', success ? 'SUCCESS' : 'FAILED');
       }

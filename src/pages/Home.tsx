@@ -8,6 +8,9 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { useLists } from '../contexts/ListsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { supabaseConfigured } from '../lib/supabase';
+import { saveRecentViews } from '../lib/supabase-db';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { Link } from 'react-router-dom';
 import { SocialFeed } from '../components/SocialFeed';
@@ -153,15 +156,25 @@ function clearSearchState() {
 export const Home: React.FC = () => {
   const { phoneMode, setHideBottomNav } = useSettings();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings } = useLists();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
 
-  // Recent views from localStorage
-  const recentViews = useMemo(() => {
+  // Recent views from localStorage (stateful so we can remove items)
+  const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
     try {
       const raw = localStorage.getItem('gourmad-recent-views');
-      return raw ? JSON.parse(raw) as Array<PlaceResult & { viewedAt: number }> : [];
+      return raw ? JSON.parse(raw) : [];
     } catch { return []; }
-  }, []);
+  });
+
+  const removeRecentView = useCallback((id: string) => {
+    setRecentViews((prev) => {
+      const next = prev.filter((v) => v.id !== id);
+      localStorage.setItem('gourmad-recent-views', JSON.stringify(next));
+      if (user?.id && supabaseConfigured) saveRecentViews(user.id, next);
+      return next;
+    });
+  }, [user]);
 
   // Build preference profile from user's ratings
   const userPreferences = useMemo(() => {
@@ -594,7 +607,7 @@ export const Home: React.FC = () => {
             className="fixed inset-0 z-40 bg-surface overflow-y-auto"
           >
             <div className="pb-32 min-h-full">
-              <div className="px-5 pt-4">
+              <div className="px-3 pt-4">
                 {/* Phone: back arrow on its own row above search bars */}
                 {phoneMode && (
                   <button
@@ -778,25 +791,32 @@ export const Home: React.FC = () => {
                           </div>
                           <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
                             {recentViews.slice(0, 8).map((place) => (
-                              <Link key={place.id} to={`/restaurant/${place.id}`}
-                                className="flex-shrink-0 w-32 group">
-                                <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                                  {place.image ? (
-                                    <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                                  ) : (place as any).photoUrl ? (
-                                    <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
-                                  )}
-                                </div>
-                                <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
-                                {place.rating > 0 && (
-                                  <div className="flex items-center gap-0.5 mt-0.5">
-                                    <Star size={10} className="fill-primary text-primary" />
-                                    <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                              <div key={place.id} className="flex-shrink-0 w-32 relative group">
+                                <button
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
+                                  className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <X size={10} className="text-white" />
+                                </button>
+                                <Link to={`/restaurant/${place.id}`}>
+                                  <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                                    {place.image ? (
+                                      <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                    ) : (place as any).photoUrl ? (
+                                      <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
+                                    )}
                                   </div>
-                                )}
-                              </Link>
+                                  <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
+                                  {place.rating > 0 && (
+                                    <div className="flex items-center gap-0.5 mt-0.5">
+                                      <Star size={10} className="fill-primary text-primary" />
+                                      <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                                    </div>
+                                  )}
+                                </Link>
+                              </div>
                             ))}
                           </div>
                         </section>

@@ -705,7 +705,7 @@ const FilterSheet: React.FC<{
             dragElastic={{ top: 0, bottom: 0.4 }}
             onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) onClose(); }}
             className={cn("fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              phoneMode ? "max-h-[92vh]" : "max-h-[75vh]")}
+              phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
           >
             {/* Drag handle */}
             {phoneMode && (

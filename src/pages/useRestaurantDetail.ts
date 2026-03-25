@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
+import { supabaseConfigured } from '../lib/supabase';
+import { saveRecentViews } from '../lib/supabase-db';
+import { useAuth } from '../contexts/AuthContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, priceLevelToString, CUISINE_TYPES, type PlaceDetails } from '../lib/places';
@@ -41,6 +44,7 @@ export function getTodayHours(hours: string[]): string {
 export function useRestaurantDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [place, setPlace] = useState<PlaceDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,8 +112,10 @@ export function useRestaurantDetail() {
       const filtered = views.filter((v: any) => v.id !== place.id);
       const next = [entry, ...filtered].slice(0, 20);
       localStorage.setItem(key, JSON.stringify(next));
+      // Sync to Supabase
+      if (user?.id && supabaseConfigured) saveRecentViews(user.id, next);
     } catch {}
-  }, [place]);
+  }, [place, user]);
 
   const priceStr = place ? priceLevelToString(place.priceLevel) : '';
   const cuisine = place ? getCuisineLabel(place.types) : '';

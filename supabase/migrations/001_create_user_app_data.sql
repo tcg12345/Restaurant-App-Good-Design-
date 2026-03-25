@@ -9,8 +9,15 @@ CREATE TABLE IF NOT EXISTS public.user_app_data (
   lists JSONB NOT NULL DEFAULT '[]'::jsonb,
   wishlist JSONB NOT NULL DEFAULT '[]'::jsonb,
   restaurant_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+  recent_views JSONB NOT NULL DEFAULT '[]'::jsonb,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Add recent_views column if table already exists (safe migration)
+DO $$ BEGIN
+  ALTER TABLE public.user_app_data ADD COLUMN IF NOT EXISTS recent_views JSONB NOT NULL DEFAULT '[]'::jsonb;
+EXCEPTION WHEN others THEN NULL;
+END $$;
 
 -- Enable Row Level Security so users can only access their own data
 ALTER TABLE public.user_app_data ENABLE ROW LEVEL SECURITY;
