@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type CustomList } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -875,8 +875,11 @@ export const Pantry: React.FC = () => {
   const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
   const [cuisineDropdownOpen, setCuisineDropdownOpen] = useState(false);
   const [priceDropdownOpen, setPriceDropdownOpen] = useState(false);
+  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
 
-  const closeAllDropdowns = () => { setCityDropdownOpen(false); setCuisineDropdownOpen(false); setPriceDropdownOpen(false); };
+  const closeAllDropdowns = () => { setCityDropdownOpen(false); setCuisineDropdownOpen(false); setPriceDropdownOpen(false); setSortDropdownOpen(false); };
+
+  const sortLabels: Record<string, string> = { recent: 'Recent', highest: 'Highest', lowest: 'Lowest', added: 'Date Added' };
 
   const {
     lists, createList,
@@ -1030,6 +1033,17 @@ export const Pantry: React.FC = () => {
               >
                 <span>{priceFilter || 'Price'}</span>
                 {priceFilter ? <span onClick={(e) => { e.stopPropagation(); setPriceFilter(null); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
+              </button>
+
+              {/* Quick: Sort → opens small bottom sheet */}
+              <button
+                onClick={() => setSortDropdownOpen(true)}
+                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
+                  sortBy !== 'recent' ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+              >
+                <ArrowUpDown size={11} />
+                <span>{sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}</span>
+                {sortBy !== 'recent' ? <span onClick={(e) => { e.stopPropagation(); setSortBy('recent'); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
               </button>
 
               {/* Clear all */}
@@ -1269,6 +1283,41 @@ export const Pantry: React.FC = () => {
                     {cuisineFilter === cuisine && <Check size={16} className="text-primary" />}
                   </button>
                 ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Sort picker — small bottom sheet */}
+      <AnimatePresence>
+        {sortDropdownOpen && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/30 z-[60]" onClick={() => setSortDropdownOpen(false)} />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 350 }}
+              className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
+            >
+              {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+              <div className="px-5 pt-3 pb-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-serif font-bold text-base">Sort By</h3>
+                  <button onClick={() => setSortDropdownOpen(false)} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
+                    <X size={14} className="text-on-surface/60" />
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => { setSortBy(key); setSortDropdownOpen(false); }}
+                      className={cn("w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left",
+                        sortBy === key ? "bg-primary/5 text-primary" : "text-on-surface/70 hover:bg-on-surface/3")}>
+                      <span className="text-sm font-medium">{label}</span>
+                      {sortBy === key && <Check size={16} className="text-primary" />}
+                    </button>
+                  ))}
+                </div>
               </div>
             </motion.div>
           </>
