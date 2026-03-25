@@ -22,6 +22,7 @@ import { RatingModal } from './components/RatingModal';
 import { AddToListModal } from './components/AddToListModal';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
+import { ImportRestaurants } from './pages/ImportRestaurants';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
@@ -91,6 +92,7 @@ const AppContent: React.FC = () => {
               <Route path="/pantry" element={<Pantry />} />
               <Route path="/restaurant/:id" element={<RestaurantDetail />} />
               <Route path="/onboarding" element={<Onboarding />} />
+              <Route path="/import" element={<ImportRestaurants />} />
             </Routes>
           </AnimatePresence>
         </div>
