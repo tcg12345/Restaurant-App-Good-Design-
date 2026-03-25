@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -46,7 +46,7 @@ export const AddRestaurantModal: React.FC = () => {
       const ex = getRating(restaurant.id);
       setScore(ex?.score ?? 7);
       setNotes(ex?.notes ?? '');
-      setVisitDate(ex?.visitDate ?? new Date().toISOString().slice(0, 10));
+      setVisitDate(ex?.visitDate ?? '');
       setWouldReturn(ex?.wouldReturn ?? true);
       setSelectedTags(ex?.tags ?? []);
       setPhotos(ex?.photos ?? []);
@@ -76,28 +76,33 @@ export const AddRestaurantModal: React.FC = () => {
 
   const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '$$');
 
-  const handlePhotoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    const totalFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
+    if (totalFiles.length === 0) return;
     const newPhotos: PhotoItem[] = [];
     let loaded = 0;
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith('image/')) { loaded++; return; }
+    totalFiles.forEach((file) => {
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
           newPhotos.push({ url: reader.result, caption: '', isFavorite: false });
         }
         loaded++;
-        if (loaded === files.length) {
-          setPhotos((prev) => [...prev, ...newPhotos]);
-          setPage('photos');
+        if (loaded === totalFiles.length) {
+          setPhotos((prev) => {
+            const updated = [...prev, ...newPhotos];
+            // Use setTimeout to let React process the state update before page change
+            setTimeout(() => setPage('photos'), 0);
+            return updated;
+          });
         }
       };
       reader.readAsDataURL(file);
     });
     e.target.value = '';
-  }, []);
+  };
 
   const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
   const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
@@ -146,7 +151,8 @@ export const AddRestaurantModal: React.FC = () => {
   const hasTags = selectedTags.length > 0;
   const hasPhotos = photos.length > 0;
   const hasFriends = selectedFriends.length > 0;
-  const dateLabel = new Date(visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const hasDate = visitDate !== '';
+  const dateLabel = hasDate ? new Date(visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined;
 
   const filteredTags = useMemo(() => {
     if (!tagSearch.trim()) return ALL_TAGS;
@@ -200,31 +206,34 @@ export const AddRestaurantModal: React.FC = () => {
                     <button onClick={closeAddRestaurantModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
 
-                  {/* List dropdown */}
+                  {/* List selector */}
                   <div className="px-5 pb-2 flex-shrink-0 relative z-20">
                     <button onClick={() => setListDropdownOpen(!listDropdownOpen)}
-                      className={cn("w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-left transition-all",
-                        selectedListLabels.length > 0 ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/10"
+                      className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all",
+                        selectedListLabels.length > 0
+                          ? "bg-primary/10 text-primary"
+                          : "bg-on-surface/5 text-on-surface/50"
                       )}>
-                      <span className="text-xs text-on-surface/40 flex-shrink-0">List:</span>
-                      <span className="flex-1 text-xs font-semibold truncate">
-                        {selectedListLabels.length > 0 ? selectedListLabels.map((l) => `${l.emoji} ${l.name}`).join(', ') : 'All Restaurants'}
-                      </span>
-                      <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", listDropdownOpen && "rotate-180")} />
+                      {selectedListLabels.length > 0
+                        ? selectedListLabels.map((l) => `${l.emoji} ${l.name}`).join(', ')
+                        : 'All Restaurants'}
+                      <ChevronDown size={12} className={cn("transition-transform", listDropdownOpen && "rotate-180")} />
                     </button>
                     <AnimatePresence>
                       {listDropdownOpen && (
                         <>
                           <div className="fixed inset-0 z-10" onClick={() => setListDropdownOpen(false)} />
-                          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}
-                            className="absolute top-full left-0 right-0 mt-1 mx-5 bg-white rounded-xl shadow-lg border border-on-surface/10 z-20 max-h-56 overflow-y-auto">
+                          <motion.div initial={{ opacity: 0, y: -4, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.97 }} transition={{ duration: 0.12 }}
+                            className="absolute top-full left-0 mt-1.5 bg-white rounded-2xl shadow-xl border border-on-surface/8 z-20 max-h-56 overflow-y-auto min-w-[220px]">
                             {lists.map((list) => {
                               const selected = selectedListIds.includes(list.id);
                               return (
                                 <button key={list.id} onClick={() => toggleList(list.id)}
-                                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-on-surface/3 transition-colors text-left">
+                                  className={cn("w-full flex items-center gap-2.5 px-4 py-3 transition-colors text-left",
+                                    selected ? "bg-primary/5" : "hover:bg-on-surface/3"
+                                  )}>
                                   <span className="text-base">{list.emoji}</span>
-                                  <span className="flex-1 text-xs font-semibold truncate">{list.name}</span>
+                                  <span className={cn("flex-1 text-sm font-medium truncate", selected ? "text-primary" : "text-on-surface/70")}>{list.name}</span>
                                   {selected && <Check size={14} className="text-primary flex-shrink-0" />}
                                 </button>
                               );
@@ -288,7 +297,7 @@ export const AddRestaurantModal: React.FC = () => {
                       <div className="grid grid-cols-3 gap-2">
                         <DetailBtn icon={<StickyNote size={17} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
                         <DetailBtn icon={<DollarSign size={17} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
-                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active sub={dateLabel} onClick={() => setPage('date')} />
+                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
                         <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
                         <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
                         <DetailBtn icon={<Users size={17} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} />
@@ -349,7 +358,7 @@ export const AddRestaurantModal: React.FC = () => {
               {page === 'date' && (
                 <SubPage key="date" onBack={() => setPage('main')} title="Date Visited">
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-                    <Calendar value={visitDate} onChange={setVisitDate} />
+                    <Calendar value={visitDate} onChange={setVisitDate} onClear={() => setVisitDate('')} />
                   </div>
                   <BottomBtn label="Done" onClick={() => setPage('main')} />
                 </SubPage>
@@ -529,7 +538,8 @@ const DetailBtn: React.FC<{
 const SubPage: React.FC<{
   children: React.ReactNode; onBack: () => void; title: string; rightAction?: React.ReactNode;
 }> = ({ children, onBack, title, rightAction }) => (
-  <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+  <motion.div initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
+    transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
     className="flex flex-col h-full" onTouchMove={(e) => e.stopPropagation()}>
     <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
       <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
