@@ -7,7 +7,7 @@ import { useSettings } from '../contexts/SettingsContext';
 
 const navItems = [
   { icon: Home, label: 'Home', path: '/' },
-  { icon: Search, label: 'Search', path: '/search' },
+  { icon: Search, label: 'Discover', path: '/search' },
   { icon: ListPlus, label: 'Lists', path: '/pantry' },
   { icon: Users, label: 'Circle', path: '/circle' },
   { icon: User, label: 'Profile', path: '/profile' },

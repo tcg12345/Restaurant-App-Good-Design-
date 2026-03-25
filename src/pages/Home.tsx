@@ -34,7 +34,6 @@ const PRICE_LEVELS = [
   { value: 4, label: '$$$$' },
 ];
 
-const COLLECTION_NAMES = ['Date Nights', 'Hidden Gems', 'Best Cocktails', 'Quick Bites'];
 
 const RATED_SPOTS = [
   {
@@ -410,34 +409,6 @@ export const Home: React.FC = () => {
                   Search restaurant, cuisine, occasion...
                 </div>
               </button>
-
-              {/* Collections */}
-              <section className="mb-12">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-serif font-bold">Collections</h2>
-                  <button className="text-primary text-xs font-bold uppercase tracking-widest flex items-center gap-1">
-                    New Collection <ChevronRight size={14} />
-                  </button>
-                </div>
-
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
-                  {COLLECTION_NAMES.map((list) => (
-                    <motion.button
-                      key={list}
-                      whileHover={{ y: -5 }}
-                      className="flex-shrink-0 w-40 h-48 rounded-3xl bg-secondary/10 p-6 flex flex-col justify-between group hover:bg-secondary hover:text-white transition-all duration-500"
-                    >
-                      <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center text-secondary shadow-sm group-hover:text-primary transition-colors">
-                        <Bookmark size={20} />
-                      </div>
-                      <div>
-                        <h4 className="font-serif font-bold text-lg mb-1">{list}</h4>
-                        <p className="text-[10px] uppercase tracking-widest opacity-60">12 items</p>
-                      </div>
-                    </motion.button>
-                  ))}
-                </div>
-              </section>
 
               {/* Rated Spots */}
               <section className="mb-12">
