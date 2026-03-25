@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Heart } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
+import { useSettings } from '../contexts/SettingsContext';
 
 const EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎', '⚡', '🌮', '🍜', '☕', '🎉', '🌿', '🔥', '👨‍🍳', '🏖️', '🌃'];
 
@@ -12,6 +13,7 @@ export const WishlistModal: React.FC = () => {
     addToWishlist, isWishlisted, removeFromWishlist, getWishlistItem,
     lists, createList,
   } = useLists();
+  const { phoneMode } = useSettings();
 
   const restaurant = wishlistModalMeta;
   const alreadyWishlisted = restaurant ? isWishlisted(restaurant.id) : false;
@@ -78,7 +80,9 @@ export const WishlistModal: React.FC = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center"
+          className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
+            phoneMode ? "items-end" : "items-end sm:items-center"
+          )}
           onClick={closeWishlistModal}
         >
           <motion.div
@@ -87,14 +91,12 @@ export const WishlistModal: React.FC = () => {
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl overflow-hidden flex flex-col"
-            style={{ maxHeight: '85vh' }}
+            className={cn("bg-surface w-full overflow-hidden flex flex-col",
+              phoneMode
+                ? "h-full rounded-none"
+                : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl"
+            )}
           >
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1 sm:hidden">
-              <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-            </div>
-
             {/* Saved state */}
             {saved ? (
               <div className="text-center py-12">
@@ -106,9 +108,9 @@ export const WishlistModal: React.FC = () => {
             ) : (
               <>
                 {/* Header */}
-                <div className="px-5 pt-2 sm:pt-5 pb-3 flex items-center justify-between flex-shrink-0">
+                <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
                   <div className="min-w-0">
-                    <h2 className="font-serif font-bold text-base sm:text-lg truncate">
+                    <h2 className="font-serif font-bold text-lg truncate">
                       {alreadyWishlisted ? 'Edit Wishlist' : 'Add to Wishlist'}
                     </h2>
                     <p className="text-xs text-on-surface/40 truncate">{restaurant.name}</p>
@@ -118,7 +120,7 @@ export const WishlistModal: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-5 space-y-4">
+                <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-4 space-y-4">
                   {/* Lists */}
                   <div>
                     <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2 block">Add to Lists</label>
@@ -185,8 +187,10 @@ export const WishlistModal: React.FC = () => {
                       className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                     />
                   </div>
+                </div>
 
-                  {/* Actions */}
+                {/* Sticky footer */}
+                <div className="flex-shrink-0 border-t border-on-surface/8 px-5 py-4 space-y-2">
                   <button onClick={handleSave}
                     className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform flex items-center justify-center gap-2">
                     <Heart size={16} />

@@ -26,8 +26,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       .single();
 
     if (error) {
-      // PGRST116 = no rows found — not an error, just no data yet
-      if (error.code === 'PGRST116') return null;
+      if (error.code === 'PGRST116') return null; // no rows found
       console.error('[Supabase] loadUserData error:', error);
       return null;
     }
@@ -46,6 +45,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
 
 /**
  * Save all user data to Supabase (upsert — creates row if needed).
+ * This is the ONLY function that should create new rows.
  */
 export async function saveUserData(userId: string, data: UserAppData): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
@@ -67,6 +67,7 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
       return false;
     }
 
+    console.log('[Supabase] Saved all user data');
     return true;
   } catch (err) {
     console.error('[Supabase] saveUserData exception:', err);
@@ -75,56 +76,79 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
 }
 
 /**
- * Save only ratings to Supabase (partial update for performance).
+ * Ensure a row exists for this user. Call once after first sign-in.
+ */
+async function ensureRow(userId: string): Promise<void> {
+  const { data } = await supabase
+    .from('user_app_data')
+    .select('user_id')
+    .eq('user_id', userId)
+    .single();
+
+  if (!data) {
+    // Create the row with defaults
+    await supabase.from('user_app_data').insert({
+      user_id: userId,
+      ratings: [],
+      lists: [],
+      wishlist: [],
+      restaurant_meta: {},
+      updated_at: new Date().toISOString(),
+    });
+  }
+}
+
+/**
+ * Partial update helpers — use UPDATE (not upsert) to avoid overwriting other columns.
+ * These only work if the row already exists (ensured by loadUserData/saveUserData).
  */
 export async function saveRatings(userId: string, ratings: RestaurantRating[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
+    await ensureRow(userId);
     const { error } = await supabase
       .from('user_app_data')
-      .upsert({ user_id: userId, ratings, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      .update({ ratings, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
     if (error) { console.error('[Supabase] saveRatings error:', error); return false; }
     return true;
   } catch (err) { console.error('[Supabase] saveRatings exception:', err); return false; }
 }
 
-/**
- * Save only lists to Supabase (partial update for performance).
- */
 export async function saveLists(userId: string, lists: CustomList[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
+    await ensureRow(userId);
     const { error } = await supabase
       .from('user_app_data')
-      .upsert({ user_id: userId, lists, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      .update({ lists, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
     if (error) { console.error('[Supabase] saveLists error:', error); return false; }
     return true;
   } catch (err) { console.error('[Supabase] saveLists exception:', err); return false; }
 }
 
-/**
- * Save only wishlist to Supabase (partial update for performance).
- */
 export async function saveWishlistData(userId: string, wishlist: WishlistItem[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
+    await ensureRow(userId);
     const { error } = await supabase
       .from('user_app_data')
-      .upsert({ user_id: userId, wishlist, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      .update({ wishlist, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
     if (error) { console.error('[Supabase] saveWishlist error:', error); return false; }
     return true;
   } catch (err) { console.error('[Supabase] saveWishlist exception:', err); return false; }
 }
 
-/**
- * Save only restaurant metadata to Supabase.
- */
 export async function saveMetaData(userId: string, restaurantMeta: Record<string, RestaurantMeta>): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
+    await ensureRow(userId);
     const { error } = await supabase
       .from('user_app_data')
-      .upsert({ user_id: userId, restaurant_meta: restaurantMeta, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      .update({ restaurant_meta: restaurantMeta, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
     if (error) { console.error('[Supabase] saveMeta error:', error); return false; }
     return true;
   } catch (err) { console.error('[Supabase] saveMeta exception:', err); return false; }

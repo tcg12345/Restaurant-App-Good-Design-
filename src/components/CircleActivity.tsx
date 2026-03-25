@@ -47,15 +47,48 @@ export const CircleActivity: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState<'all' | SourceType>('all');
   const [listFilter, setListFilter] = useState<'all' | ListType>('all');
+  const [cuisineFilter, setCuisineFilter] = useState<string | null>(null);
+  const [cityFilter, setCityFilter] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'recent' | 'rating' | 'name'>('recent');
   const [showFilters, setShowFilters] = useState(false);
+  const [cuisineSearch, setCuisineSearch] = useState('');
+  const [citySearch, setCitySearch] = useState('');
 
-  const activeFilterCount = (sourceFilter !== 'all' ? 1 : 0) + (listFilter !== 'all' ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
+  // Extract unique cuisines and cities from data
+  const allCuisines = useMemo(() => {
+    const set = new Set(MOCK_CIRCLE_RESTAURANTS.map((r) => r.cuisine));
+    return Array.from(set).sort();
+  }, []);
+
+  const allCities = useMemo(() => {
+    const set = new Set<string>();
+    MOCK_CIRCLE_RESTAURANTS.forEach((r) => {
+      const parts = r.address.split(',').map((s) => s.trim());
+      if (parts.length >= 2) set.add(parts[parts.length - 1]);
+    });
+    return Array.from(set).sort();
+  }, []);
+
+  const filteredCuisines = useMemo(() => {
+    if (!cuisineSearch.trim()) return allCuisines;
+    const q = cuisineSearch.toLowerCase();
+    return allCuisines.filter((c) => c.toLowerCase().includes(q));
+  }, [allCuisines, cuisineSearch]);
+
+  const filteredCities = useMemo(() => {
+    if (!citySearch.trim()) return allCities;
+    const q = citySearch.toLowerCase();
+    return allCities.filter((c) => c.toLowerCase().includes(q));
+  }, [allCities, citySearch]);
+
+  const activeFilterCount = (sourceFilter !== 'all' ? 1 : 0) + (listFilter !== 'all' ? 1 : 0) + (cuisineFilter ? 1 : 0) + (cityFilter ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
 
   const filtered = useMemo(() => {
     let items = MOCK_CIRCLE_RESTAURANTS;
     if (sourceFilter !== 'all') items = items.filter((r) => r.source === sourceFilter);
     if (listFilter !== 'all') items = items.filter((r) => r.listType === listFilter);
+    if (cuisineFilter) items = items.filter((r) => r.cuisine === cuisineFilter);
+    if (cityFilter) items = items.filter((r) => r.address.includes(cityFilter));
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       items = items.filter((r) =>
@@ -72,12 +105,16 @@ export const CircleActivity: React.FC = () => {
       default: break;
     }
     return sorted;
-  }, [searchQuery, sourceFilter, listFilter, sortBy]);
+  }, [searchQuery, sourceFilter, listFilter, cuisineFilter, cityFilter, sortBy]);
 
   const handleReset = () => {
     setSourceFilter('all');
     setListFilter('all');
+    setCuisineFilter(null);
+    setCityFilter(null);
     setSortBy('recent');
+    setCuisineSearch('');
+    setCitySearch('');
   };
 
   return (
@@ -128,6 +165,20 @@ export const CircleActivity: React.FC = () => {
             <button onClick={() => setListFilter('all')}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
               {listFilter === 'rated' ? 'Rated' : 'Wishlisted'}
+              <X size={11} />
+            </button>
+          )}
+          {cuisineFilter && (
+            <button onClick={() => setCuisineFilter(null)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
+              {cuisineFilter}
+              <X size={11} />
+            </button>
+          )}
+          {cityFilter && (
+            <button onClick={() => setCityFilter(null)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
+              {cityFilter}
               <X size={11} />
             </button>
           )}
@@ -281,6 +332,78 @@ export const CircleActivity: React.FC = () => {
                         {f.label}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Cuisine */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <Star size={14} className="text-primary" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">Cuisine</h3>
+                    {cuisineFilter && (
+                      <button onClick={() => setCuisineFilter(null)} className="ml-auto text-[10px] text-primary font-semibold">Clear</button>
+                    )}
+                  </div>
+                  <div className="relative mb-2">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                    <input
+                      type="text"
+                      value={cuisineSearch}
+                      onChange={(e) => setCuisineSearch(e.target.value)}
+                      placeholder="Search cuisines..."
+                      className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                    {filteredCuisines.map((cuisine) => (
+                      <button key={cuisine} onClick={() => setCuisineFilter(cuisineFilter === cuisine ? null : cuisine)}
+                        className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                          cuisineFilter === cuisine
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
+                        )}>
+                        {cuisine}
+                      </button>
+                    ))}
+                    {filteredCuisines.length === 0 && (
+                      <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* City / Location */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <MapPin size={14} className="text-primary" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">Location</h3>
+                    {cityFilter && (
+                      <button onClick={() => setCityFilter(null)} className="ml-auto text-[10px] text-primary font-semibold">Clear</button>
+                    )}
+                  </div>
+                  <div className="relative mb-2">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                    <input
+                      type="text"
+                      value={citySearch}
+                      onChange={(e) => setCitySearch(e.target.value)}
+                      placeholder="Search locations..."
+                      className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                    {filteredCities.map((city) => (
+                      <button key={city} onClick={() => setCityFilter(cityFilter === city ? null : city)}
+                        className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                          cityFilter === city
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
+                        )}>
+                        {city}
+                      </button>
+                    ))}
+                    {filteredCities.length === 0 && (
+                      <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>
+                    )}
                   </div>
                 </div>
 
