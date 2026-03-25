@@ -120,7 +120,7 @@ export const WishlistModal: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-5 space-y-4">
+                <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-4 space-y-4">
                   {/* Lists */}
                   <div>
                     <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2 block">Add to Lists</label>
@@ -187,8 +187,10 @@ export const WishlistModal: React.FC = () => {
                       className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                     />
                   </div>
+                </div>
 
-                  {/* Actions */}
+                {/* Sticky footer */}
+                <div className="flex-shrink-0 border-t border-on-surface/8 px-5 py-4 space-y-2">
                   <button onClick={handleSave}
                     className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform flex items-center justify-center gap-2">
                     <Heart size={16} />
