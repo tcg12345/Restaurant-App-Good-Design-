@@ -305,18 +305,21 @@ const RestaurantRow: React.FC<{
   removeLabel?: string;
 }> = ({ restaurantId, name, image, cuisine, price, address, score, tags, notes, visitDate, wouldReturn, listBadges, onEdit, onRemove, removeLabel }) => {
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+  const { phoneMode } = useSettings();
 
   return (
     <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex">
-      <Link to={`/restaurant/${restaurantId}`} className="w-24 sm:w-28 flex-shrink-0 block">
-        {image ? (
-          <img src={image} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-        ) : (
-          <div className="w-full h-full min-h-[6rem] bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-2xl font-serif font-bold">
-            {name.charAt(0)}
-          </div>
-        )}
-      </Link>
+      {!phoneMode && (
+        <Link to={`/restaurant/${restaurantId}`} className="w-24 sm:w-28 flex-shrink-0 block">
+          {image ? (
+            <img src={image} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          ) : (
+            <div className="w-full h-full min-h-[6rem] bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-2xl font-serif font-bold">
+              {name.charAt(0)}
+            </div>
+          )}
+        </Link>
+      )}
       <div className="flex-1 p-3.5 min-w-0 flex flex-col justify-between">
         <div>
           <div className="flex items-start justify-between gap-2">
@@ -360,10 +363,9 @@ const RestaurantRow: React.FC<{
                 )}
               </div>
             )}
-            {!listBadges?.length && (
+            {!listBadges?.length && visitDate && (
               <span className="text-[10px] text-on-surface/30">
-                {visitDate ? new Date(visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-                {wouldReturn && (visitDate ? ' · ' : '') + 'Would return'}
+                {new Date(visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
               </span>
             )}
           </div>
