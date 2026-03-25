@@ -423,7 +423,7 @@ export const Home: React.FC = () => {
       <div className="pb-32">
         <TopBar />
 
-        <main className="px-6">
+        <main className="px-3">
           <div className="flex items-center gap-6 mb-8 border-b border-muted">
             <button
               onClick={() => setActiveTab('general')}

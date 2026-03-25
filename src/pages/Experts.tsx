@@ -55,7 +55,7 @@ export const Experts: React.FC = () => {
     <div className="pb-32">
       <TopBar title="Tastemakers" />
       
-      <main className="px-6">
+      <main className="px-3">
         <section className="mb-12">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-serif font-bold">Meet the Experts</h2>

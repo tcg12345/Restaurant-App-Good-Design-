@@ -14,7 +14,7 @@ export const Circle: React.FC = () => {
     <div className="pb-32">
       <TopBar title="The Social Circle" />
       
-      <main className="px-6">
+      <main className="px-3">
         <section className="mb-12">
           <div className="relative mb-8">
             <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
