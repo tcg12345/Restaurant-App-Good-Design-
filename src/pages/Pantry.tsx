@@ -1001,78 +1001,36 @@ export const Pantry: React.FC = () => {
                 )}
               </button>
 
-              {/* Quick: City */}
-              <div className="relative flex-shrink-0">
-                <button
-                  onClick={() => { setCityDropdownOpen(!cityDropdownOpen); setCuisineDropdownOpen(false); setPriceDropdownOpen(false); }}
-                  className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-                    cityFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-                >
-                  <MapPin size={11} />
-                  <span>{cityFilter || 'City'}</span>
-                  {cityFilter ? <button onClick={(e) => { e.stopPropagation(); setCityFilter(null); setCityDropdownOpen(false); }} className="ml-0.5"><X size={10} /></button> : <ChevronDown size={10} />}
-                </button>
-                {cityDropdownOpen && allCities.length > 0 && (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setCityDropdownOpen(false)} />
-                    <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-40 min-w-[10rem] max-h-48 overflow-y-auto">
-                      {allCities.map((city) => (
-                        <button key={city} onClick={() => { setCityFilter(city); setCityDropdownOpen(false); }}
-                          className={cn("w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-on-surface/5 transition-colors first:rounded-t-xl last:rounded-b-xl",
-                            cityFilter === city ? "text-primary bg-primary/5" : "text-on-surface/70")}>{city}</button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
+              {/* Quick: City → opens full page sheet */}
+              <button
+                onClick={() => setCityDropdownOpen(true)}
+                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
+                  cityFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+              >
+                <MapPin size={11} />
+                <span>{cityFilter || 'City'}</span>
+                {cityFilter ? <span onClick={(e) => { e.stopPropagation(); setCityFilter(null); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
+              </button>
 
-              {/* Quick: Cuisine */}
-              <div className="relative flex-shrink-0">
-                <button
-                  onClick={() => { setCuisineDropdownOpen(!cuisineDropdownOpen); setCityDropdownOpen(false); setPriceDropdownOpen(false); }}
-                  className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-                    cuisineFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-                >
-                  <span>{cuisineFilter || 'Cuisine'}</span>
-                  {cuisineFilter ? <button onClick={(e) => { e.stopPropagation(); setCuisineFilter(null); setCuisineDropdownOpen(false); }} className="ml-0.5"><X size={10} /></button> : <ChevronDown size={10} />}
-                </button>
-                {cuisineDropdownOpen && allCuisines.length > 0 && (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setCuisineDropdownOpen(false)} />
-                    <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-40 min-w-[10rem] max-h-48 overflow-y-auto">
-                      {allCuisines.map((c) => (
-                        <button key={c} onClick={() => { setCuisineFilter(c); setCuisineDropdownOpen(false); }}
-                          className={cn("w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-on-surface/5 transition-colors first:rounded-t-xl last:rounded-b-xl",
-                            cuisineFilter === c ? "text-primary bg-primary/5" : "text-on-surface/70")}>{c}</button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
+              {/* Quick: Cuisine → opens full page sheet */}
+              <button
+                onClick={() => setCuisineDropdownOpen(true)}
+                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
+                  cuisineFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+              >
+                <span>{cuisineFilter || 'Cuisine'}</span>
+                {cuisineFilter ? <span onClick={(e) => { e.stopPropagation(); setCuisineFilter(null); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
+              </button>
 
-              {/* Quick: Price */}
-              <div className="relative flex-shrink-0">
-                <button
-                  onClick={() => { setPriceDropdownOpen(!priceDropdownOpen); setCityDropdownOpen(false); setCuisineDropdownOpen(false); }}
-                  className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-                    priceFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-                >
-                  <span>{priceFilter || 'Price'}</span>
-                  {priceFilter ? <button onClick={(e) => { e.stopPropagation(); setPriceFilter(null); setPriceDropdownOpen(false); }} className="ml-0.5"><X size={10} /></button> : <ChevronDown size={10} />}
-                </button>
-                {priceDropdownOpen && (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setPriceDropdownOpen(false)} />
-                    <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-40 min-w-[6rem]">
-                      {allPrices.map((p) => (
-                        <button key={p} onClick={() => { setPriceFilter(p); setPriceDropdownOpen(false); }}
-                          className={cn("w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-on-surface/5 transition-colors first:rounded-t-xl last:rounded-b-xl",
-                            priceFilter === p ? "text-primary bg-primary/5" : "text-on-surface/70")}>{p}</button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
+              {/* Quick: Price → opens small bottom sheet */}
+              <button
+                onClick={() => setPriceDropdownOpen(true)}
+                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
+                  priceFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+              >
+                <span>{priceFilter || 'Price'}</span>
+                {priceFilter ? <span onClick={(e) => { e.stopPropagation(); setPriceFilter(null); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
+              </button>
 
               {/* Clear all */}
               {hasActiveFilters && (
@@ -1218,6 +1176,136 @@ export const Pantry: React.FC = () => {
         onCreate={(name, emoji) => createList(name, emoji)}
         existingListNames={lists.map((l) => l.name)}
       />
+
+      {/* City picker — full page sheet */}
+      <AnimatePresence>
+        {cityDropdownOpen && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]" onClick={() => setCityDropdownOpen(false)} />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className={cn("fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+                phoneMode ? "max-h-[92vh]" : "max-h-[70vh]")}
+            >
+              {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+              <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
+                <h3 className="font-serif font-bold text-lg">Select City</h3>
+                <button onClick={() => setCityDropdownOpen(false)} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                  <X size={16} className="text-on-surface/60" />
+                </button>
+              </div>
+              <div className="px-5 pt-3 pb-2 flex-shrink-0">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                  <input type="text" placeholder="Search cities..."
+                    className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    onChange={(e) => setCityDropdownOpen(true) /* keep open; filter inline */}
+                    ref={(el) => { if (el) el.value = ''; }}
+                    onInput={(e) => { (e.target as HTMLInputElement).dataset.q = (e.target as HTMLInputElement).value; setCityDropdownOpen(true); }}
+                    id="city-picker-search"
+                  />
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 pb-5">
+                {allCities.filter((c) => {
+                  const input = document.getElementById('city-picker-search') as HTMLInputElement | null;
+                  const q = input?.value?.toLowerCase() || '';
+                  return !q || c.toLowerCase().includes(q);
+                }).map((city) => (
+                  <button key={city} onClick={() => { setCityFilter(cityFilter === city ? null : city); setCityDropdownOpen(false); }}
+                    className={cn("w-full flex items-center justify-between px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
+                      cityFilter === city ? "text-primary" : "text-on-surface/70 hover:bg-on-surface/3")}>
+                    <span className="text-sm font-medium">{city}</span>
+                    {cityFilter === city && <Check size={16} className="text-primary" />}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Cuisine picker — full page sheet */}
+      <AnimatePresence>
+        {cuisineDropdownOpen && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]" onClick={() => setCuisineDropdownOpen(false)} />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className={cn("fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+                phoneMode ? "max-h-[92vh]" : "max-h-[70vh]")}
+            >
+              {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+              <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
+                <h3 className="font-serif font-bold text-lg">Select Cuisine</h3>
+                <button onClick={() => setCuisineDropdownOpen(false)} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                  <X size={16} className="text-on-surface/60" />
+                </button>
+              </div>
+              <div className="px-5 pt-3 pb-2 flex-shrink-0">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                  <input type="text" placeholder="Search cuisines..."
+                    className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    id="cuisine-picker-search"
+                    onInput={() => setCuisineDropdownOpen(true)}
+                  />
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 pb-5">
+                {allCuisines.filter((c) => {
+                  const input = document.getElementById('cuisine-picker-search') as HTMLInputElement | null;
+                  const q = input?.value?.toLowerCase() || '';
+                  return !q || c.toLowerCase().includes(q);
+                }).map((cuisine) => (
+                  <button key={cuisine} onClick={() => { setCuisineFilter(cuisineFilter === cuisine ? null : cuisine); setCuisineDropdownOpen(false); }}
+                    className={cn("w-full flex items-center justify-between px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
+                      cuisineFilter === cuisine ? "text-primary" : "text-on-surface/70 hover:bg-on-surface/3")}>
+                    <span className="text-sm font-medium">{cuisine}</span>
+                    {cuisineFilter === cuisine && <Check size={16} className="text-primary" />}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Price picker — small bottom sheet */}
+      <AnimatePresence>
+        {priceDropdownOpen && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/30 z-[60]" onClick={() => setPriceDropdownOpen(false)} />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 350 }}
+              className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
+            >
+              {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+              <div className="px-5 pt-3 pb-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-serif font-bold text-base">Price Range</h3>
+                  <button onClick={() => setPriceDropdownOpen(false)} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
+                    <X size={14} className="text-on-surface/60" />
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  {['$', '$$', '$$$', '$$$$'].map((p) => (
+                    <button key={p} onClick={() => { setPriceFilter(priceFilter === p ? null : p); setPriceDropdownOpen(false); }}
+                      className={cn("flex-1 py-3 rounded-xl text-sm font-bold transition-all border-2",
+                        priceFilter === p ? "border-primary bg-primary/5 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{p}</button>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
