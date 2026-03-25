@@ -1,13 +1,15 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
+import { useLists } from '../contexts/ListsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { getCuisineLabel } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Fix mapbox-gl worker for Vite production builds
@@ -48,9 +50,29 @@ const PRICE_LEVELS = [
   { value: 4, label: '$$$$' },
 ];
 
+// Extract "City, ST" from full or short address
+function extractCityState(fullAddress: string, shortAddress: string): string {
+  // fullAddress is like "123 Main St, Westport, CT 06880, USA"
+  // Try to extract city and state from fullAddress
+  const parts = fullAddress.split(',').map((s) => s.trim());
+  if (parts.length >= 3) {
+    const city = parts[parts.length - 3]; // e.g. "Westport"
+    const stateZip = parts[parts.length - 2]; // e.g. "CT 06880"
+    const state = stateZip?.replace(/\d+/g, '').trim(); // e.g. "CT"
+    if (city && state && state.length <= 3) return `${city}, ${state}`;
+    // If state part is longer (like country name), try city only
+    if (city) return city;
+  }
+  // Fallback: use second part of short address
+  const shortParts = shortAddress.split(',').map((s) => s.trim());
+  if (shortParts.length >= 2) return shortParts.slice(1).join(', ');
+  return shortParts[0] || '';
+}
+
 export const Map: React.FC = () => {
   const navigate = useNavigate();
-  const { setHideBottomNav } = useSettings();
+  const { setHideBottomNav, phoneMode } = useSettings();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
@@ -166,17 +188,16 @@ export const Map: React.FC = () => {
   // Show popup for a place
   const showPopup = useCallback((place: PlaceResult, map: mapboxgl.Map) => {
     if (popupRef.current) popupRef.current.remove();
+    const cuisine = getCuisineLabel(place.types);
+    const cityState = extractCityState(place.fullAddress, place.address);
     const ratingHtml = place.rating > 0
-      ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="#8B4513" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          <span style="font-size:12px;font-weight:700;color:#8B4513;">${place.rating.toFixed(1)}</span>
-          <span style="font-size:11px;color:#999;margin-left:2px;">(${place.userRatingCount})</span>
+      ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span style="font-size:12px;font-weight:700;color:#9f3012;">${place.rating.toFixed(1)}</span>
+          <span style="font-size:11px;color:#aaa;margin-left:2px;">(${place.userRatingCount})</span>
+          ${place.priceLevel > 0 ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;font-weight:600;">${'$'.repeat(place.priceLevel)}</span>` : ''}
         </div>`
       : '';
-    const priceHtml = place.priceLevel > 0
-      ? `<span style="font-size:11px;color:#666;font-weight:600;">${'$'.repeat(place.priceLevel)}</span>`
-      : '';
-    const addressShort = place.address.split(',').slice(0, 2).join(', ');
 
     const popup = new mapboxgl.Popup({
       offset: 25,
@@ -187,25 +208,63 @@ export const Map: React.FC = () => {
     })
       .setLngLat([place.lng, place.lat])
       .setHTML(`
-        <div style="font-family:inherit;padding:4px 0;">
+        <div class="popup-card" data-place-id="${place.id}" style="font-family:inherit;padding:4px 0;cursor:pointer;">
           ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
-          <div style="font-size:14px;font-weight:700;margin-bottom:4px;line-height:1.3;">${place.name}</div>
+          <div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${place.name}</div>
+          <div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${cuisine}</div>
           ${ratingHtml}
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span style="font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${addressShort}</span>
-            ${priceHtml ? `<span style="color:#ccc;">·</span>${priceHtml}` : ''}
+          <div style="font-size:11px;color:#999;">${cityState}</div>
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <button data-action="rate" style="flex:1;display:flex;align-items:center;justify-content:center;gap:4px;padding:6px 0;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;font-size:11px;font-weight:600;color:#666;cursor:pointer;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Rate
+            </button>
+            <button data-action="wishlist" style="flex:1;display:flex;align-items:center;justify-content:center;gap:4px;padding:6px 0;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;font-size:11px;font-weight:600;color:#666;cursor:pointer;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              Wishlist
+            </button>
           </div>
-          <button data-place-id="${place.id}" class="popup-view-btn" style="width:100%;margin-top:8px;padding:6px 0;background:#9f3012;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.05em;text-transform:uppercase;">View Details</button>
         </div>
       `)
       .addTo(map);
 
-    // Attach click handler after popup renders
+    // Attach click handlers after popup renders
     popup.once('open', () => {
-      const btn = (popup as any).getElement()?.querySelector('.popup-view-btn');
-      if (btn) {
-        btn.addEventListener('click', () => {
+      const el = (popup as any).getElement();
+      if (!el) return;
+      // Whole card click → navigate
+      const card = el.querySelector('.popup-card');
+      if (card) {
+        card.addEventListener('click', (e: Event) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('[data-action]')) return; // don't navigate on button clicks
           navigate(`/restaurant/${place.id}`);
+        });
+      }
+      // Rate button
+      const rateBtn = el.querySelector('[data-action="rate"]');
+      if (rateBtn) {
+        rateBtn.addEventListener('click', (e: Event) => {
+          e.stopPropagation();
+          openAddRestaurantModal({
+            id: place.id, name: place.name,
+            image: place.photoUrl || '', cuisine,
+            price: priceLevelToString(place.priceLevel),
+            address: place.address,
+          });
+        });
+      }
+      // Wishlist button
+      const wishBtn = el.querySelector('[data-action="wishlist"]');
+      if (wishBtn) {
+        wishBtn.addEventListener('click', (e: Event) => {
+          e.stopPropagation();
+          openWishlistModal({
+            id: place.id, name: place.name,
+            image: place.photoUrl || '', cuisine,
+            price: priceLevelToString(place.priceLevel),
+            address: place.address,
+          });
         });
       }
     });
@@ -217,7 +276,7 @@ export const Map: React.FC = () => {
     });
 
     popupRef.current = popup;
-  }, [navigate]);
+  }, [navigate, openAddRestaurantModal, openWishlistModal]);
 
   // Sync markers on map when places change — keeps existing markers, animates new ones in
   const syncMarkers = useCallback((newPlaces: PlaceResult[]) => {
@@ -814,7 +873,7 @@ export const Map: React.FC = () => {
         </div>
 
         {/* Search Bar & Filters */}
-        <div className="px-6 pb-4 flex-shrink-0">
+        <div className={cn("pb-4 flex-shrink-0", phoneMode ? "px-3" : "px-6")}>
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
@@ -914,7 +973,7 @@ export const Map: React.FC = () => {
         </div>
 
         {/* Results List */}
-        <div className="px-6 flex-1 overflow-y-auto no-scrollbar pb-32">
+        <div className={cn("flex-1 overflow-y-auto no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
           {isSearching && places.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 size={24} className="text-primary animate-spin" />
@@ -927,69 +986,77 @@ export const Map: React.FC = () => {
               <p className="text-xs text-on-surface/30 mt-1">Try searching or move the map</p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {places.map((place) => {
-                const cityState = place.address
-                  .split(',')
-                  .slice(1, 3)
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-                  .join(', ') || place.address.split(',')[0]?.trim() || '';
+                const cityState = extractCityState(place.fullAddress, place.address);
+                const cuisine = getCuisineLabel(place.types);
+                const wishlisted = isWishlisted(place.id);
 
                 return (
                   <div
                     key={place.id}
                     className={cn(
-                      "flex gap-3.5 group cursor-pointer rounded-2xl p-3 bg-white shadow-sm border border-on-surface/5 transition-all hover:shadow-md",
+                      "flex gap-3 group cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 transition-all hover:shadow-md",
                       selectedMarker === place.id && "ring-2 ring-primary/20"
                     )}
-                    onClick={() => flyToPlace(place)}
+                    onClick={() => navigate(`/restaurant/${place.id}`)}
                   >
-                    <div className="w-[92px] h-[92px] rounded-xl overflow-hidden flex-shrink-0 bg-muted self-center">
+                    <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-muted self-center relative">
                       {place.photoUrl ? (
-                        <img
-                          src={place.photoUrl}
-                          alt={place.name}
-                          className="h-full w-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
+                        <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <div className="h-full w-full flex items-center justify-center bg-on-surface/5">
-                          <MapPinned size={24} className="text-on-surface/20" />
+                          <MapPinned size={20} className="text-on-surface/20" />
                         </div>
                       )}
                     </div>
                     <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
                       <div>
-                        <h3 className="font-serif font-bold text-[15px] leading-snug"
-                            style={{ fontSize: place.name.length > 24 ? '13px' : '15px' }}
-                        >
-                          {place.name}
-                        </h3>
+                        <h3 className="font-serif font-bold text-sm leading-snug truncate">{place.name}</h3>
+                        <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
                         {place.rating > 0 && (
-                          <div className="flex items-center gap-1 mt-1">
-                            <Star size={13} className="fill-primary text-primary" />
-                            <span className="text-sm font-bold text-primary">{place.rating.toFixed(1)}</span>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <Star size={11} className="fill-primary text-primary" />
+                            <span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>
                             {place.priceLevel > 0 && (
-                              <span className="text-xs font-semibold text-on-surface/55 ml-1">{priceLevelToString(place.priceLevel)}</span>
+                              <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>
                             )}
                           </div>
                         )}
-                        <p className="text-xs text-on-surface/40 mt-1 leading-snug">
-                          {cityState}
-                        </p>
+                        <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
                       </div>
-                      <div className="flex justify-end mt-1.5">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/restaurant/${place.id}`);
-                          }}
-                          className="px-4 py-1 rounded-full border border-primary/30 text-primary text-[11px] font-semibold hover:bg-primary/5 transition-colors"
-                        >
-                          View
-                        </button>
-                      </div>
+                    </div>
+                    <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openAddRestaurantModal({
+                            id: place.id, name: place.name,
+                            image: place.photoUrl || '', cuisine,
+                            price: priceLevelToString(place.priceLevel),
+                            address: place.address,
+                          });
+                        }}
+                        className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"
+                      >
+                        <Plus size={15} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openWishlistModal({
+                            id: place.id, name: place.name,
+                            image: place.photoUrl || '', cuisine,
+                            price: priceLevelToString(place.priceLevel),
+                            address: place.address,
+                          });
+                        }}
+                        className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                          wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50"
+                        )}
+                      >
+                        <Heart size={14} className={wishlisted ? "fill-red-400" : ""} />
+                      </button>
                     </div>
                   </div>
                 );
