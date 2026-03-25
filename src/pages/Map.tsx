@@ -243,21 +243,20 @@ export const Map: React.FC = () => {
       `)
       .addTo(map);
 
-    // Attach click handlers — try multiple times to ensure DOM is ready
-    const attachHandlers = () => {
-      const el = (popup as any).getElement?.() ?? (popup as any)._container ?? (popup as any)._content?.parentElement;
-      if (!el) return false;
-
-      const body = el.querySelector('.popup-card-body');
+    // Attach click handlers using MutationObserver to reliably wait for DOM
+    const attachHandlers = (container: Element) => {
+      const body = container.querySelector('.popup-card-body');
       if (body) {
+        (body as HTMLElement).style.cursor = 'pointer';
         body.addEventListener('click', (e: Event) => {
           e.stopPropagation();
+          e.preventDefault();
           popup.remove();
           navigateRef.current(`/restaurant/${place.id}`);
         });
       }
 
-      const rateBtn = el.querySelector('[data-action="rate"]');
+      const rateBtn = container.querySelector('[data-action="rate"]');
       if (rateBtn) {
         rateBtn.addEventListener('click', (e: Event) => {
           e.stopPropagation();
@@ -267,7 +266,7 @@ export const Map: React.FC = () => {
         });
       }
 
-      const wishBtn = el.querySelector('[data-action="wishlist"]');
+      const wishBtn = container.querySelector('[data-action="wishlist"]');
       if (wishBtn) {
         wishBtn.addEventListener('click', (e: Event) => {
           e.stopPropagation();
@@ -276,20 +275,28 @@ export const Map: React.FC = () => {
           openWishlistModalRef.current(meta);
         });
       }
-
-      return !!(body || rateBtn || wishBtn);
     };
 
-    // Try attaching immediately, then retry with delays if DOM isn't ready
-    popup.once('open', () => {
-      if (!attachHandlers()) {
-        setTimeout(() => {
-          if (!attachHandlers()) {
-            setTimeout(attachHandlers, 100);
-          }
-        }, 0);
-      }
-    });
+    // Use multiple strategies to find and attach handlers
+    const tryAttach = () => {
+      // Strategy 1: getElement()
+      const el = (popup as any).getElement?.();
+      if (el) { attachHandlers(el); return; }
+      // Strategy 2: query the map container for the popup
+      const mapPopup = map.getContainer().querySelector('.mapboxgl-popup-content');
+      if (mapPopup) { attachHandlers(mapPopup); return; }
+      // Strategy 3: retry
+      setTimeout(() => {
+        const el2 = (popup as any).getElement?.();
+        if (el2) attachHandlers(el2);
+        else {
+          const mp2 = map.getContainer().querySelector('.mapboxgl-popup-content');
+          if (mp2) attachHandlers(mp2);
+        }
+      }, 150);
+    };
+
+    popup.once('open', () => setTimeout(tryAttach, 10));
 
     popup.on('close', () => {
       setSelectedMarker(null);

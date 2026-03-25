@@ -760,6 +760,10 @@ export const Pantry: React.FC = () => {
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const navigate = useNavigate();
+  const { phoneMode } = useSettings();
+
+  // On phone, always use list view
+  const effectiveViewMode = phoneMode ? 'list' : viewMode;
 
   // Filters
   const [cityFilter, setCityFilter] = useState<string | null>(null);
@@ -842,7 +846,7 @@ export const Pantry: React.FC = () => {
 
       <main className="px-3">
         {currentList ? (
-          <ListDetailView list={currentList} viewMode={viewMode} onViewModeChange={setViewMode} onBack={() => setSelectedList(null)} />
+          <ListDetailView list={currentList} viewMode={effectiveViewMode} onViewModeChange={setViewMode} onBack={() => setSelectedList(null)} />
         ) : (
           <>
             {/* ── Horizontal list row ── */}
@@ -1008,7 +1012,7 @@ export const Pantry: React.FC = () => {
                   </p>
                 )}
                 <div className="ml-auto">
-                  <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+                  <ViewModeToggle mode={effectiveViewMode} onChange={setViewMode} />
                 </div>
               </div>
             )}
@@ -1028,10 +1032,10 @@ export const Pantry: React.FC = () => {
               <div className="space-y-5">
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
-                  <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" : "space-y-3"}>
+                  <div className={effectiveViewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" : "space-y-3"}>
                     {filteredRatings.map((r) => {
                       const inLists = getListsForRestaurant(r.restaurantId);
-                      return viewMode === 'grid' ? (
+                      return effectiveViewMode === 'grid' ? (
                         <RestaurantGridCard
                           key={r.restaurantId}
                           restaurantId={r.restaurantId}
