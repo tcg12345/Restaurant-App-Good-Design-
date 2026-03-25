@@ -685,6 +685,8 @@ const FilterSheet: React.FC<{
   const { phoneMode } = useSettings();
   const [citySearch, setCitySearch] = useState('');
   const [cuisineSearch, setCuisineSearch] = useState('');
+  const [cuisineOpen, setCuisineOpen] = useState(false);
+  const [cityOpen, setCityOpen] = useState(false);
 
   const filteredCities = citySearch.trim() ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase())) : allCities;
   const filteredCuisines = cuisineSearch.trim() ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase())) : allCuisines;
@@ -703,7 +705,7 @@ const FilterSheet: React.FC<{
             dragElastic={{ top: 0, bottom: 0.4 }}
             onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) onClose(); }}
             className={cn("fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              phoneMode ? "max-h-[85vh]" : "max-h-[70vh]")}
+              phoneMode ? "max-h-[92vh]" : "max-h-[75vh]")}
           >
             {/* Drag handle */}
             {phoneMode && (
@@ -734,20 +736,24 @@ const FilterSheet: React.FC<{
                 </div>
               </div>
 
-              {/* Score range */}
+              {/* Score range — single track with two thumbs via stacked inputs */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">
                   Score: {scoreRange[0]} – {scoreRange[1]}
                 </p>
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] text-on-surface/30 w-4 text-center">{scoreRange[0]}</span>
+                <div className="relative h-6 flex items-center">
+                  <div className="absolute inset-x-0 h-1 bg-on-surface/10 rounded-full" />
+                  <div className="absolute h-1 bg-primary rounded-full" style={{ left: `${scoreRange[0] * 10}%`, right: `${100 - scoreRange[1] * 10}%` }} />
                   <input type="range" min={0} max={10} step={1} value={scoreRange[0]}
                     onChange={(e) => onScoreRange([Math.min(+e.target.value, scoreRange[1]), scoreRange[1]])}
-                    className="flex-1 accent-primary h-1" />
+                    className="absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer" />
                   <input type="range" min={0} max={10} step={1} value={scoreRange[1]}
                     onChange={(e) => onScoreRange([scoreRange[0], Math.max(+e.target.value, scoreRange[0])])}
-                    className="flex-1 accent-primary h-1" />
-                  <span className="text-[10px] text-on-surface/30 w-4 text-center">{scoreRange[1]}</span>
+                    className="absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer" />
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-[10px] text-on-surface/30">0</span>
+                  <span className="text-[10px] text-on-surface/30">10</span>
                 </div>
               </div>
 
@@ -763,46 +769,72 @@ const FilterSheet: React.FC<{
                 </div>
               </div>
 
-              {/* Cuisine */}
+              {/* Cuisine — collapsible dropdown */}
               <div>
-                <div className="flex items-center justify-between mb-2.5">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
-                  {cuisineFilter && <button onClick={() => onCuisineFilter(null)} className="text-[10px] text-primary font-semibold">Clear</button>}
-                </div>
-                <div className="relative mb-2">
-                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                  <input type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)} placeholder="Search cuisines..."
-                    className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                </div>
-                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
-                  {filteredCuisines.map((c) => (
-                    <button key={c} onClick={() => onCuisineFilter(cuisineFilter === c ? null : c)}
-                      className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                        cuisineFilter === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
-                  ))}
-                  {filteredCuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
-                </div>
+                <button onClick={() => setCuisineOpen(!cuisineOpen)}
+                  className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
+                    {cuisineFilter && <span className="text-[10px] font-semibold text-primary">{cuisineFilter}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {cuisineFilter && <button onClick={(e) => { e.stopPropagation(); onCuisineFilter(null); }} className="text-[10px] text-primary font-semibold">Clear</button>}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cuisineOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence>
+                  {cuisineOpen && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      <div className="relative mb-2">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                        <input type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)} placeholder="Search cuisines..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filteredCuisines.map((c) => (
+                          <button key={c} onClick={() => onCuisineFilter(cuisineFilter === c ? null : c)}
+                            className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                              cuisineFilter === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
+                        ))}
+                        {filteredCuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
-              {/* City */}
+              {/* City — collapsible dropdown */}
               <div>
-                <div className="flex items-center justify-between mb-2.5">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
-                  {cityFilter && <button onClick={() => onCityFilter(null)} className="text-[10px] text-primary font-semibold">Clear</button>}
-                </div>
-                <div className="relative mb-2">
-                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                  <input type="text" value={citySearch} onChange={(e) => setCitySearch(e.target.value)} placeholder="Search locations..."
-                    className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                </div>
-                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
-                  {filteredCities.map((c) => (
-                    <button key={c} onClick={() => onCityFilter(cityFilter === c ? null : c)}
-                      className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
-                        cityFilter === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
-                  ))}
-                  {filteredCities.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
-                </div>
+                <button onClick={() => setCityOpen(!cityOpen)}
+                  className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
+                    {cityFilter && <span className="text-[10px] font-semibold text-primary">{cityFilter}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {cityFilter && <button onClick={(e) => { e.stopPropagation(); onCityFilter(null); }} className="text-[10px] text-primary font-semibold">Clear</button>}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cityOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence>
+                  {cityOpen && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      <div className="relative mb-2">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                        <input type="text" value={citySearch} onChange={(e) => setCitySearch(e.target.value)} placeholder="Search locations..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filteredCities.map((c) => (
+                          <button key={c} onClick={() => onCityFilter(cityFilter === c ? null : c)}
+                            className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                              cityFilter === c ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20")}>{c}</button>
+                        ))}
+                        {filteredCities.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
