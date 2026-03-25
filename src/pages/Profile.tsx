@@ -25,7 +25,7 @@ export const Profile: React.FC = () => {
     <div className="pb-32">
       <TopBar title="My Profile" />
       
-      <main className="px-6">
+      <main className="px-3">
         <section className="flex flex-col items-center mb-12">
           <div className="relative mb-6">
             <div className="w-32 h-32 rounded-full border-4 border-primary p-1">

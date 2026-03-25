@@ -1,10 +1,292 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type CustomList } from '../contexts/ListsContext';
-import { Link } from 'react-router-dom';
+import { useSettings } from '../contexts/SettingsContext';
+import { Link, useNavigate } from 'react-router-dom';
+
+/* ── Preset list suggestions ── */
+interface PresetList { name: string; emoji: string; category: string; }
+
+const PRESET_LISTS: PresetList[] = [
+  { name: 'Best Date Night Spots', emoji: '🕯️', category: 'Occasion & Vibe' },
+  { name: 'Birthday & Celebrations', emoji: '🎂', category: 'Occasion & Vibe' },
+  { name: 'Late Night Eats', emoji: '🌙', category: 'Occasion & Vibe' },
+  { name: 'Solo Dining Friendly', emoji: '🧘', category: 'Occasion & Vibe' },
+  { name: 'Group Dinner & Big Tables', emoji: '👥', category: 'Occasion & Vibe' },
+  { name: 'Business Dinners', emoji: '💼', category: 'Occasion & Vibe' },
+  { name: 'Outdoor Dining & Patios', emoji: '🌳', category: 'Occasion & Vibe' },
+  { name: 'Cozy & Intimate', emoji: '🪵', category: 'Occasion & Vibe' },
+  { name: 'Live Music & Dining', emoji: '🎵', category: 'Occasion & Vibe' },
+  { name: 'Airport Food', emoji: '✈️', category: 'Travel & Location' },
+  { name: 'Hotel Restaurants', emoji: '🏨', category: 'Travel & Location' },
+  { name: 'Hotel Breakfasts', emoji: '🛏️', category: 'Travel & Location' },
+  { name: 'Vacation Eats', emoji: '🏖️', category: 'Travel & Location' },
+  { name: 'Road Trip Stops', emoji: '🚗', category: 'Travel & Location' },
+  { name: 'Ski Resort Dining', emoji: '⛷️', category: 'Travel & Location' },
+  { name: 'Beach Town Eats', emoji: '🏝️', category: 'Travel & Location' },
+  { name: 'College Town Favorites', emoji: '🎓', category: 'Travel & Location' },
+  { name: 'Hidden Gems', emoji: '💎', category: 'Insider & Opinion' },
+  { name: 'Overrated Places', emoji: '👎', category: 'Insider & Opinion' },
+  { name: 'Best Bang for Your Buck', emoji: '💰', category: 'Insider & Opinion' },
+  { name: 'Worth the Hype', emoji: '🔥', category: 'Insider & Opinion' },
+  { name: 'Tourist Traps vs Local Faves', emoji: '🗺️', category: 'Insider & Opinion' },
+  { name: "Places I'd Never Go Back To", emoji: '🚫', category: 'Insider & Opinion' },
+  { name: 'Underrated Spots', emoji: '🤫', category: 'Insider & Opinion' },
+  { name: 'Best Burgers', emoji: '🍔', category: 'Food-Specific' },
+  { name: 'Best Pizza', emoji: '🍕', category: 'Food-Specific' },
+  { name: 'Best Pasta', emoji: '🍝', category: 'Food-Specific' },
+  { name: 'Best Coffee Shops', emoji: '☕', category: 'Food-Specific' },
+  { name: 'Best Desserts', emoji: '🍰', category: 'Food-Specific' },
+  { name: 'Best Brunch', emoji: '🥞', category: 'Food-Specific' },
+  { name: 'Best Steak', emoji: '🥩', category: 'Food-Specific' },
+  { name: 'Best Sushi & Omakase', emoji: '🍣', category: 'Food-Specific' },
+  { name: 'Best Cocktails', emoji: '🍸', category: 'Food-Specific' },
+  { name: 'Best Tacos', emoji: '🌮', category: 'Food-Specific' },
+  { name: 'Best Ramen & Noodles', emoji: '🍜', category: 'Food-Specific' },
+  { name: 'Best Seafood', emoji: '🦞', category: 'Food-Specific' },
+  { name: 'Michelin Star Experiences', emoji: '⭐', category: 'Luxury & Lifestyle' },
+  { name: 'Best Tasting Menus', emoji: '🍽️', category: 'Luxury & Lifestyle' },
+  { name: 'Luxury Dining', emoji: '👑', category: 'Luxury & Lifestyle' },
+  { name: 'Best Rooftop Restaurants', emoji: '🏙️', category: 'Luxury & Lifestyle' },
+  { name: 'Best Views', emoji: '🌅', category: 'Luxury & Lifestyle' },
+  { name: "Chef's Table Experiences", emoji: '👨‍🍳', category: 'Luxury & Lifestyle' },
+  { name: 'Quick Bites', emoji: '⚡', category: 'Functional & Daily' },
+  { name: 'Best Takeout', emoji: '📦', category: 'Functional & Daily' },
+  { name: 'Delivery Favorites', emoji: '🚲', category: 'Functional & Daily' },
+  { name: 'Healthy Options', emoji: '🥗', category: 'Functional & Daily' },
+  { name: 'Vegetarian & Vegan', emoji: '🌿', category: 'Functional & Daily' },
+  { name: 'Gluten-Free Friendly', emoji: '🌾', category: 'Functional & Daily' },
+  { name: 'Kid-Friendly', emoji: '👶', category: 'Functional & Daily' },
+  { name: 'Budget Eats', emoji: '🪙', category: 'Functional & Daily' },
+  { name: "Friends' Favorites", emoji: '👯', category: 'Social' },
+  { name: "Places We've Been Together", emoji: '🤝', category: 'Social' },
+  { name: 'Friend Recommendations', emoji: '💬', category: 'Social' },
+  { name: 'Want to Try Together', emoji: '📌', category: 'Social' },
+];
+
+const PRESET_CATEGORIES = [...new Set(PRESET_LISTS.map((p) => p.category))];
+const CUSTOM_EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎', '⚡', '🌮', '🍜', '☕', '🎉', '🌿', '🔥', '👨‍🍳', '🏖️', '🌃', '🍔', '🥩', '🍝', '🍰', '🌙', '👥', '💼', '✈️', '🏨', '🎂', '⭐', '👑', '🏙️', '🥗', '🪙', '👶'];
+
+/* ── Create New List Bottom Sheet ── */
+const CreateListSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  onCreate: (name: string, emoji: string) => void;
+  existingListNames: string[];
+}> = ({ open, onClose, onCreate, existingListNames }) => {
+  const { phoneMode } = useSettings();
+  const [search, setSearch] = useState('');
+  const [mode, setMode] = useState<'browse' | 'custom'>('browse');
+  const [customName, setCustomName] = useState('');
+  const [customEmoji, setCustomEmoji] = useState('📋');
+
+  const existingNamesLower = useMemo(() => new Set(existingListNames.map((n) => n.toLowerCase())), [existingListNames]);
+
+  const filteredPresets = useMemo(() => {
+    if (!search.trim()) return PRESET_LISTS;
+    const q = search.toLowerCase();
+    return PRESET_LISTS.filter((p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
+  }, [search]);
+
+  const groupedPresets = useMemo(() => {
+    const groups: Record<string, PresetList[]> = {};
+    for (const preset of filteredPresets) {
+      if (!groups[preset.category]) groups[preset.category] = [];
+      groups[preset.category].push(preset);
+    }
+    return groups;
+  }, [filteredPresets]);
+
+  const handleSelectPreset = (preset: PresetList) => { onCreate(preset.name, preset.emoji); handleClose(); };
+  const handleCreateCustom = () => { if (!customName.trim()) return; onCreate(customName.trim(), customEmoji); handleClose(); };
+  const handleClose = () => { setSearch(''); setMode('browse'); setCustomName(''); setCustomEmoji('📋'); onClose(); };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center" onClick={handleClose}>
+          <motion.div
+            initial={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
+            animate={phoneMode ? { y: 0 } : { y: 0, opacity: 1 }}
+            exit={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            onClick={(e) => e.stopPropagation()}
+            className={cn("bg-surface overflow-hidden flex flex-col", phoneMode ? "w-full rounded-t-3xl max-h-[90vh]" : "w-full max-w-md rounded-3xl max-h-[75vh] shadow-2xl")}
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="flex items-center justify-between px-5 pt-4 pb-3">
+              <h2 className="font-serif font-bold text-lg">{mode === 'browse' ? 'New List' : 'Create Custom List'}</h2>
+              <button onClick={handleClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
+            </div>
+
+            {mode === 'browse' ? (
+              <>
+                <div className="px-5 pb-3">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                    <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search lists..."
+                      className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+                  </div>
+                </div>
+                <div className="px-5 pb-3">
+                  <button onClick={() => setMode('custom')} className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-primary/20 text-primary hover:bg-primary/5 transition-all">
+                    <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center"><Edit3 size={16} /></div>
+                    <div className="text-left">
+                      <p className="text-sm font-semibold">Create Custom List</p>
+                      <p className="text-[11px] text-primary/60">Choose your own name & emoji</p>
+                    </div>
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-5 pb-5">
+                  {Object.keys(groupedPresets).length === 0 ? (
+                    <div className="text-center py-12">
+                      <p className="text-sm text-on-surface/40">No matching lists found</p>
+                      <button onClick={() => { setMode('custom'); setCustomName(search); }} className="mt-3 text-sm font-semibold text-primary">Create "{search}" as custom list</button>
+                    </div>
+                  ) : (
+                    PRESET_CATEGORIES.filter((cat) => groupedPresets[cat]).map((category) => (
+                      <div key={category} className="mb-4">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30 mb-2 px-1">{category}</p>
+                        <div className="space-y-1.5">
+                          {groupedPresets[category].map((preset) => {
+                            const alreadyExists = existingNamesLower.has(preset.name.toLowerCase());
+                            return (
+                              <button key={preset.name} onClick={() => !alreadyExists && handleSelectPreset(preset)} disabled={alreadyExists}
+                                className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left",
+                                  alreadyExists ? "bg-on-surface/3 border-on-surface/5 opacity-50 cursor-not-allowed" : "bg-white border-on-surface/8 hover:border-primary/30 hover:bg-primary/3 active:bg-primary/5")}>
+                                <span className="text-xl flex-shrink-0">{preset.emoji}</span>
+                                <span className="text-sm font-medium flex-1 truncate">{preset.name}</span>
+                                {alreadyExists ? <span className="text-[10px] text-on-surface/30 font-medium flex-shrink-0">Added</span> : <Plus size={16} className="text-on-surface/20 flex-shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="px-5 pb-5 space-y-4">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2">Choose an emoji</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CUSTOM_EMOJI_OPTIONS.map((e) => (
+                      <button key={e} onClick={() => setCustomEmoji(e)}
+                        className={cn("w-10 h-10 rounded-lg flex items-center justify-center text-lg transition-all", customEmoji === e ? "bg-primary/10 ring-2 ring-primary/30 scale-110" : "hover:bg-on-surface/5")}>{e}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2">List name</p>
+                  <input type="text" value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="Enter list name..." autoFocus
+                    className="w-full bg-white border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    onKeyDown={(e) => e.key === 'Enter' && handleCreateCustom()} />
+                </div>
+                {customName.trim() && (
+                  <div className="flex items-center gap-3 p-3 bg-primary/5 rounded-xl border border-primary/10">
+                    <span className="text-2xl">{customEmoji}</span>
+                    <span className="text-sm font-semibold">{customName.trim()}</span>
+                  </div>
+                )}
+                <div className="flex gap-3 pt-1">
+                  <button onClick={() => { setMode('browse'); setCustomName(''); setCustomEmoji('📋'); }} className="flex-1 py-3 rounded-xl border border-on-surface/10 text-sm font-medium text-on-surface/50">Back</button>
+                  <button onClick={handleCreateCustom} disabled={!customName.trim()} className="flex-1 py-3 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-40 transition-colors">Create List</button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+/* ── Add From Rated Bottom Sheet ── */
+const AddFromRatedSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  listId: string;
+  listRestaurantIds: string[];
+}> = ({ open, onClose, listId, listRestaurantIds }) => {
+  const { ratings, addToList, removeFromList } = useLists();
+  const { phoneMode } = useSettings();
+  const [search, setSearch] = useState('');
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return ratings;
+    const q = search.toLowerCase();
+    return ratings.filter((r) => r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.address.toLowerCase().includes(q));
+  }, [ratings, search]);
+
+  const handleToggle = (restaurantId: string) => {
+    if (listRestaurantIds.includes(restaurantId)) removeFromList(listId, restaurantId);
+    else addToList(listId, restaurantId);
+  };
+
+  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center" onClick={onClose}>
+          <motion.div
+            initial={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
+            animate={phoneMode ? { y: 0 } : { y: 0, opacity: 1 }}
+            exit={phoneMode ? { y: '100%' } : { y: 40, opacity: 0 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            onClick={(e) => e.stopPropagation()}
+            className={cn("bg-surface overflow-hidden flex flex-col", phoneMode ? "w-full rounded-t-3xl max-h-[85vh]" : "w-full max-w-md rounded-3xl max-h-[70vh] shadow-2xl")}
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="flex items-center justify-between px-5 pt-4 pb-3">
+              <h2 className="font-serif font-bold text-lg">Add Rated Restaurants</h2>
+              <button onClick={onClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
+            </div>
+            <div className="px-5 pb-3">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, cuisine, or location..."
+                  className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+              </div>
+            </div>
+            <div className="px-5 pb-2">
+              <p className="text-[11px] text-on-surface/40 font-medium">{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}{listRestaurantIds.length > 0 && ` · ${listRestaurantIds.length} in list`}</p>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-1.5">
+              {filtered.length === 0 ? (
+                <div className="text-center py-12"><p className="text-sm text-on-surface/40">{ratings.length === 0 ? 'No rated restaurants yet' : 'No matches found'}</p></div>
+              ) : filtered.map((r) => {
+                const isInList = listRestaurantIds.includes(r.restaurantId);
+                return (
+                  <button key={r.restaurantId} onClick={() => handleToggle(r.restaurantId)}
+                    className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left", isInList ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
+                    <div className="w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5">
+                      {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold text-sm">{r.name.charAt(0)}</div>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{r.name}</p>
+                      <p className="text-[11px] text-on-surface/40 truncate">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
+                    </div>
+                    {r.score > 0 && <span className={cn("text-sm font-serif font-bold flex-shrink-0", scoreColor(r.score))}>{r.score.toFixed(1)}</span>}
+                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all flex-shrink-0", isInList ? "bg-primary border-primary text-white" : "border-on-surface/15")}>
+                      {isInList && <Check size={14} strokeWidth={3} />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
 
 /* ── Restaurant row card ── */
 const RestaurantRow: React.FC<{
@@ -165,6 +447,7 @@ const ListDetailView: React.FC<{
   onBack: () => void;
 }> = ({ list, onBack }) => {
   const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openRatingModal, deleteList, wishlist } = useLists();
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
 
   const ratedRestaurants = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
@@ -194,6 +477,13 @@ const ListDetailView: React.FC<{
           </p>
         </div>
         <button
+          onClick={() => setAddSheetOpen(true)}
+          className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors"
+          title="Add restaurants"
+        >
+          <Plus size={20} />
+        </button>
+        <button
           onClick={() => { deleteList(list.id); onBack(); }}
           className="p-2 text-red-400 hover:text-red-500 transition-colors"
         >
@@ -205,7 +495,11 @@ const ListDetailView: React.FC<{
         <div className="text-center py-16">
           <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
           <p className="text-sm font-medium text-on-surface/40">This list is empty</p>
-          <p className="text-xs text-on-surface/30 mt-1">Add restaurants from the + button or heart icon</p>
+          <p className="text-xs text-on-surface/30 mt-1">Add restaurants from your rated collection</p>
+          <button onClick={() => setAddSheetOpen(true)}
+            className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
+            <Plus size={14} />Add Restaurants
+          </button>
         </div>
       ) : (
         <div className="space-y-5">
@@ -262,8 +556,15 @@ const ListDetailView: React.FC<{
               </div>
             </div>
           )}
+          {/* Add more button */}
+          <button onClick={() => setAddSheetOpen(true)}
+            className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
+            <Plus size={16} /><span className="text-sm font-semibold">Add Restaurants</span>
+          </button>
         </div>
       )}
+
+      <AddFromRatedSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)} listId={list.id} listRestaurantIds={list.restaurantIds} />
     </div>
   );
 };
@@ -379,9 +680,8 @@ const FilterPopup: React.FC<{
 /* ── Main Page ── */
 export const Pantry: React.FC = () => {
   const [selectedList, setSelectedList] = useState<CustomList | null>(null);
-  const [creatingList, setCreatingList] = useState(false);
-  const [newListName, setNewListName] = useState('');
-  const [newListEmoji, setNewListEmoji] = useState('📋');
+  const [createSheetOpen, setCreateSheetOpen] = useState(false);
+  const navigate = useNavigate();
 
   // Filters
   const [cityFilter, setCityFilter] = useState<string | null>(null);
@@ -402,16 +702,7 @@ export const Pantry: React.FC = () => {
     getListsForRestaurant,
   } = useLists();
 
-  const EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎', '⚡', '🌮', '🍜', '☕', '🎉', '🌿', '🔥', '👨‍🍳', '🏖️', '🌃'];
   const listScrollRef = useRef<HTMLDivElement>(null);
-
-  const handleCreateList = () => {
-    if (!newListName.trim()) return;
-    createList(newListName.trim(), newListEmoji);
-    setNewListName('');
-    setNewListEmoji('📋');
-    setCreatingList(false);
-  };
 
   // Extract unique cities from addresses
   const allCities = useMemo(() => {
@@ -471,7 +762,7 @@ export const Pantry: React.FC = () => {
     <div className="pb-32">
       <TopBar title="My Lists" />
 
-      <main className="px-5">
+      <main className="px-3">
         {currentList ? (
           <ListDetailView list={currentList} onBack={() => setSelectedList(null)} />
         ) : (
@@ -480,7 +771,7 @@ export const Pantry: React.FC = () => {
             <div className="mb-4">
               <div
                 ref={listScrollRef}
-                className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-5 px-5"
+                className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-3 px-3"
                 style={{ WebkitOverflowScrolling: 'touch' }}
               >
                 {lists.map((list) => {
@@ -499,73 +790,18 @@ export const Pantry: React.FC = () => {
                 })}
 
                 {/* Create new list pill */}
-                {creatingList ? null : (
-                  <button
-                    onClick={() => setCreatingList(true)}
-                    className="flex items-center gap-1 px-3 py-2 rounded-full border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all flex-shrink-0"
-                  >
-                    <Plus size={14} />
-                    <span className="text-xs font-semibold whitespace-nowrap">New List</span>
-                  </button>
-                )}
+                <button
+                  onClick={() => setCreateSheetOpen(true)}
+                  className="flex items-center gap-1 px-3 py-2 rounded-full border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all flex-shrink-0"
+                >
+                  <Plus size={14} />
+                  <span className="text-xs font-semibold whitespace-nowrap">New List</span>
+                </button>
               </div>
-
-              {/* Inline create list form */}
-              <AnimatePresence>
-                {creatingList && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="mt-3 p-4 bg-white rounded-2xl border border-primary/20 shadow-sm space-y-3">
-                      <div className="flex flex-wrap gap-1.5">
-                        {EMOJI_OPTIONS.map((e) => (
-                          <button
-                            key={e}
-                            onClick={() => setNewListEmoji(e)}
-                            className={cn(
-                              "w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all",
-                              newListEmoji === e ? "bg-primary/10 ring-2 ring-primary/30" : "hover:bg-on-surface/5"
-                            )}
-                          >
-                            {e}
-                          </button>
-                        ))}
-                      </div>
-                      <input
-                        type="text"
-                        value={newListName}
-                        onChange={(e) => setNewListName(e.target.value)}
-                        placeholder="List name..."
-                        autoFocus
-                        className="w-full bg-surface border border-on-surface/10 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        onKeyDown={(e) => e.key === 'Enter' && handleCreateList()}
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => { setCreatingList(false); setNewListName(''); }}
-                          className="flex-1 py-2 rounded-xl border border-on-surface/10 text-sm font-medium text-on-surface/50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleCreateList}
-                          disabled={!newListName.trim()}
-                          className="flex-1 py-2 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-40"
-                        >
-                          Create
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
 
             {/* ── Filter chips ── */}
-            <div className="flex gap-2 mb-5 overflow-x-auto scrollbar-hide -mx-5 px-5 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+            <div className="flex gap-2 mb-5 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
               {/* City filter */}
               <div className="relative flex-shrink-0">
                 <button
@@ -702,6 +938,10 @@ export const Pantry: React.FC = () => {
                 <Star size={32} className="mx-auto text-on-surface/15 mb-3" />
                 <p className="text-sm font-medium text-on-surface/40">No restaurants yet</p>
                 <p className="text-xs text-on-surface/30 mt-1">Use the + button to rate or heart to wishlist</p>
+                <button onClick={() => navigate('/import')}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
+                  <Upload size={14} />Import Previous Ratings
+                </button>
               </div>
             ) : (
               <div className="space-y-5">
@@ -776,6 +1016,14 @@ export const Pantry: React.FC = () => {
         onShowWouldReturn={setShowWouldReturn}
         sortBy={sortBy}
         onSortBy={setSortBy}
+      />
+
+      {/* Create list bottom sheet */}
+      <CreateListSheet
+        open={createSheetOpen}
+        onClose={() => setCreateSheetOpen(false)}
+        onCreate={(name, emoji) => createList(name, emoji)}
+        existingListNames={lists.map((l) => l.name)}
       />
     </div>
   );
