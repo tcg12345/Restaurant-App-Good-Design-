@@ -3,12 +3,14 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
 export const RatingModal: React.FC = () => {
   const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList } = useLists();
+  const { phoneMode } = useSettings();
 
   const existing = ratingModalRestaurant ? getRating(ratingModalRestaurant.id) : undefined;
 
@@ -153,13 +155,17 @@ export const RatingModal: React.FC = () => {
     <AnimatePresence>
       {ratingModalOpen && ratingModalRestaurant && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center"
+          className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
+            phoneMode ? "items-end" : "items-end sm:items-center"
+          )}
           onClick={closeRatingModal}>
           <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
-            className={cn("bg-surface w-full sm:max-w-md sm:rounded-3xl overflow-hidden flex flex-col",
-              "h-full sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-3xl"
+            className={cn("bg-surface w-full overflow-hidden flex flex-col",
+              phoneMode
+                ? "h-full rounded-none"
+                : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl"
             )}>
             {photoInput}
             <AnimatePresence mode="wait">
