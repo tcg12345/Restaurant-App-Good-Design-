@@ -36,6 +36,14 @@
   margin-bottom: 1rem;
 }
 
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes user-pulse {
   0% { transform: scale(1); opacity: 1; }
   100% { transform: scale(3); opacity: 0; }
