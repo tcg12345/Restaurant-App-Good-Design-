@@ -214,6 +214,30 @@ export const Map: React.FC = () => {
       address: place.address,
     };
 
+    // Register global callbacks so inline onclick in popup HTML can call them
+    const callbackId = `popup_${Date.now()}`;
+    (window as any)[`${callbackId}_nav`] = () => {
+      popupRef.current?.remove();
+      navigateRef.current(`/restaurant/${place.id}`);
+      delete (window as any)[`${callbackId}_nav`];
+      delete (window as any)[`${callbackId}_rate`];
+      delete (window as any)[`${callbackId}_wish`];
+    };
+    (window as any)[`${callbackId}_rate`] = () => {
+      popupRef.current?.remove();
+      openAddRestaurantModalRef.current(meta);
+      delete (window as any)[`${callbackId}_nav`];
+      delete (window as any)[`${callbackId}_rate`];
+      delete (window as any)[`${callbackId}_wish`];
+    };
+    (window as any)[`${callbackId}_wish`] = () => {
+      popupRef.current?.remove();
+      openWishlistModalRef.current(meta);
+      delete (window as any)[`${callbackId}_nav`];
+      delete (window as any)[`${callbackId}_rate`];
+      delete (window as any)[`${callbackId}_wish`];
+    };
+
     const popup = new mapboxgl.Popup({
       offset: 25,
       closeButton: true,
@@ -224,7 +248,7 @@ export const Map: React.FC = () => {
       .setLngLat([place.lng, place.lat])
       .setHTML(`
         <div style="font-family:inherit;padding:4px 0;">
-          <div class="popup-card-body" style="cursor:pointer;">
+          <div onclick="window.${callbackId}_nav()" style="cursor:pointer;">
             ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
             <div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${place.name}</div>
             <div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${cuisine}</div>
@@ -232,10 +256,10 @@ export const Map: React.FC = () => {
             <div style="font-size:11px;color:#999;">${cityState}</div>
           </div>
           <div style="display:flex;gap:6px;margin-top:8px;">
-            <button data-action="rate" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
+            <button onclick="event.stopPropagation();window.${callbackId}_rate()" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
-            <button data-action="wishlist" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
+            <button onclick="event.stopPropagation();window.${callbackId}_wish()" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
             </button>
           </div>
@@ -243,65 +267,14 @@ export const Map: React.FC = () => {
       `)
       .addTo(map);
 
-    // Attach click handlers using MutationObserver to reliably wait for DOM
-    const attachHandlers = (container: Element) => {
-      const body = container.querySelector('.popup-card-body');
-      if (body) {
-        (body as HTMLElement).style.cursor = 'pointer';
-        body.addEventListener('click', (e: Event) => {
-          e.stopPropagation();
-          e.preventDefault();
-          popup.remove();
-          navigateRef.current(`/restaurant/${place.id}`);
-        });
-      }
-
-      const rateBtn = container.querySelector('[data-action="rate"]');
-      if (rateBtn) {
-        rateBtn.addEventListener('click', (e: Event) => {
-          e.stopPropagation();
-          e.preventDefault();
-          popup.remove();
-          openAddRestaurantModalRef.current(meta);
-        });
-      }
-
-      const wishBtn = container.querySelector('[data-action="wishlist"]');
-      if (wishBtn) {
-        wishBtn.addEventListener('click', (e: Event) => {
-          e.stopPropagation();
-          e.preventDefault();
-          popup.remove();
-          openWishlistModalRef.current(meta);
-        });
-      }
-    };
-
-    // Use multiple strategies to find and attach handlers
-    const tryAttach = () => {
-      // Strategy 1: getElement()
-      const el = (popup as any).getElement?.();
-      if (el) { attachHandlers(el); return; }
-      // Strategy 2: query the map container for the popup
-      const mapPopup = map.getContainer().querySelector('.mapboxgl-popup-content');
-      if (mapPopup) { attachHandlers(mapPopup); return; }
-      // Strategy 3: retry
-      setTimeout(() => {
-        const el2 = (popup as any).getElement?.();
-        if (el2) attachHandlers(el2);
-        else {
-          const mp2 = map.getContainer().querySelector('.mapboxgl-popup-content');
-          if (mp2) attachHandlers(mp2);
-        }
-      }, 150);
-    };
-
-    popup.once('open', () => setTimeout(tryAttach, 10));
-
     popup.on('close', () => {
       setSelectedMarker(null);
       isMarkerSelectedRef.current = false;
       popupRef.current = null;
+      // Clean up global callbacks
+      delete (window as any)[`${callbackId}_nav`];
+      delete (window as any)[`${callbackId}_rate`];
+      delete (window as any)[`${callbackId}_wish`];
     });
 
     popupRef.current = popup;
