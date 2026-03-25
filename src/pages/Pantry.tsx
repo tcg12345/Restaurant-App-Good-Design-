@@ -307,34 +307,50 @@ const RestaurantRow: React.FC<{
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
   const { phoneMode } = useSettings();
 
+  // Extract city, state from address
+  const location = (() => {
+    if (!address) return '';
+    const parts = address.split(',').map((s) => s.trim());
+    if (parts.length >= 2) return parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
+    return parts[0] || '';
+  })();
+
   return (
-    <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex">
-      {!phoneMode && (
-        <Link to={`/restaurant/${restaurantId}`} className="w-24 sm:w-28 flex-shrink-0 block">
-          {image ? (
-            <img src={image} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-          ) : (
-            <div className="w-full h-full min-h-[6rem] bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-2xl font-serif font-bold">
-              {name.charAt(0)}
-            </div>
-          )}
-        </Link>
-      )}
-      <div className="flex-1 p-3.5 min-w-0 flex flex-col justify-between">
-        <div>
+    <Link to={`/restaurant/${restaurantId}`} className="block">
+      <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex active:scale-[0.99] transition-transform">
+        {!phoneMode && (
+          <div className="w-24 sm:w-28 flex-shrink-0">
+            {image ? (
+              <img src={image} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="w-full h-full min-h-[5rem] bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-2xl font-serif font-bold">
+                {name.charAt(0)}
+              </div>
+            )}
+          </div>
+        )}
+        <div className={cn("flex-1 min-w-0", phoneMode ? "px-3.5 py-2.5" : "p-3.5")}>
           <div className="flex items-start justify-between gap-2">
-            <Link to={`/restaurant/${restaurantId}`} className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
-            </Link>
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                <span className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider">
+                  {cuisine}{price ? ` · ${price}` : ''}
+                </span>
+                {location && (
+                  <>
+                    <span className="text-on-surface/20 text-[10px]">|</span>
+                    <span className="text-[10px] text-on-surface/35 truncate">{location}</span>
+                  </>
+                )}
+              </div>
+            </div>
             {score !== undefined && (
-              <div className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none", scoreColor(score))}>
+              <div className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(score))}>
                 {score.toFixed(1)}
               </div>
             )}
           </div>
-          <p className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
-            {cuisine}{price ? ` · ${price}` : ''}
-          </p>
           {tags && tags.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1.5">
               {tags.slice(0, 3).map((tag) => (
@@ -346,50 +362,50 @@ const RestaurantRow: React.FC<{
             </div>
           )}
           {notes && (
-            <p className="text-xs text-on-surface/40 mt-1.5 line-clamp-2 italic">&ldquo;{notes}&rdquo;</p>
+            <p className="text-[10px] text-on-surface/40 mt-1 line-clamp-1 italic">&ldquo;{notes}&rdquo;</p>
           )}
-        </div>
-        <div className="flex items-center justify-between mt-2 pt-2 border-t border-on-surface/5">
-          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-            {listBadges && listBadges.length > 0 && (
-              <div className="flex gap-1 overflow-hidden">
-                {listBadges.slice(0, 2).map((l, i) => (
-                  <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/8 text-secondary/60 font-medium whitespace-nowrap">
-                    {l.emoji} {l.name}
-                  </span>
-                ))}
-                {listBadges.length > 2 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-on-surface/5 text-on-surface/30 font-medium">+{listBadges.length - 2}</span>
-                )}
-              </div>
-            )}
-            {!listBadges?.length && visitDate && (
-              <span className="text-[10px] text-on-surface/30">
-                {new Date(visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-3 flex-shrink-0">
-            {onEdit && (
-              <button
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                className="text-[10px] font-bold text-primary uppercase tracking-wider hover:text-primary/70"
-              >
-                Edit
-              </button>
-            )}
-            {onRemove && (
-              <button
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
-                className="text-[10px] font-bold text-red-400 uppercase tracking-wider hover:text-red-500"
-              >
-                {removeLabel || 'Remove'}
-              </button>
-            )}
+          <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-on-surface/5">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              {listBadges && listBadges.length > 0 && (
+                <div className="flex gap-1 overflow-hidden">
+                  {listBadges.slice(0, 2).map((l, i) => (
+                    <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/8 text-secondary/60 font-medium whitespace-nowrap">
+                      {l.emoji} {l.name}
+                    </span>
+                  ))}
+                  {listBadges.length > 2 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-on-surface/5 text-on-surface/30 font-medium">+{listBadges.length - 2}</span>
+                  )}
+                </div>
+              )}
+              {!listBadges?.length && visitDate && (
+                <span className="text-[10px] text-on-surface/30">
+                  {new Date(visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {onEdit && (
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+                  className="text-[10px] font-bold text-primary uppercase tracking-wider hover:text-primary/70"
+                >
+                  Edit
+                </button>
+              )}
+              {onRemove && (
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
+                  className="text-[10px] font-bold text-red-400 uppercase tracking-wider hover:text-red-500"
+                >
+                  {removeLabel || 'Remove'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Link>
   );
 };
 
