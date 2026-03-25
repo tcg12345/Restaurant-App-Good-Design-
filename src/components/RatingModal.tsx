@@ -1,32 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, Trash2, ChevronLeft, DollarSign, CalendarDays, Tag, StickyNote, Image, ListPlus } from 'lucide-react';
+import { X, Plus, Check, Camera, Trash2, ChevronLeft, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
+import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 
-const TAGS = [
-  'Great Service', 'Romantic', 'Good for Groups', 'Great Cocktails',
-  'Cozy Atmosphere', 'Outdoor Seating', 'Live Music', 'Kid Friendly',
-  'Late Night', 'Good Value', 'Special Occasion', 'Quick Bite',
-];
-
-const EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎', '⚡', '🌮', '🍜', '☕', '🎉', '🌿', '🔥', '👨‍🍳', '🏖️', '🌃'];
-
-const PRICE_RANGES: { signs: string; label: string }[] = [
-  { signs: '$', label: '$1–20' },
-  { signs: '$$', label: '$20–50' },
-  { signs: '$$$', label: '$50–100' },
-  { signs: '$$$$', label: '$100+' },
-];
-
-function priceIndexFromAmount(amount: number): number {
-  if (amount <= 20) return 0;
-  if (amount <= 50) return 1;
-  if (amount <= 100) return 2;
-  return 3;
-}
-
-type Page = 'main' | 'notes' | 'tags' | 'photos' | 'lists' | 'price' | 'date';
+type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
 export const RatingModal: React.FC = () => {
   const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList } = useLists();
@@ -42,7 +21,11 @@ export const RatingModal: React.FC = () => {
   const [priceAmount, setPriceAmount] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
+  const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
+  const [friendSearch, setFriendSearch] = useState('');
+  const [tagSearch, setTagSearch] = useState('');
 
+  const [listDropdownOpen, setListDropdownOpen] = useState(false);
   const [creatingList, setCreatingList] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmoji, setNewEmoji] = useState('📋');
@@ -60,16 +43,21 @@ export const RatingModal: React.FC = () => {
       setSelectedTags(ex?.tags ?? []);
       setPhotos(ex?.photos ?? []);
       setSelectedListIds(ex?.listIds ?? []);
+      setSelectedFriends([]);
       setPriceIndex(-1);
       setPriceAmount('');
       setPage('main');
       setCreatingList(false);
       setNewName('');
+      setListDropdownOpen(false);
+      setTagSearch('');
+      setFriendSearch('');
     }
   }, [ratingModalOpen, ratingModalRestaurant]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
+  const toggleFriend = (name: string) => setSelectedFriends((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]);
 
   const handlePriceSignClick = (idx: number) => { setPriceIndex(idx); setPriceAmount(''); };
   const handlePriceAmountChange = (val: string) => {
@@ -127,17 +115,23 @@ export const RatingModal: React.FC = () => {
   const hasPrice = priceIndex >= 0;
   const hasTags = selectedTags.length > 0;
   const hasPhotos = photos.length > 0;
-  const hasLists = selectedListIds.length > 0;
+  const hasFriends = selectedFriends.length > 0;
   const dateLabel = new Date(visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-  const SubHeader: React.FC<{ title: string }> = ({ title }) => (
-    <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
-      <button onClick={() => setPage('main')} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
-        <ChevronLeft size={22} />
-      </button>
-      <h2 className="font-serif font-bold text-lg">{title}</h2>
-    </div>
-  );
+  const filteredTags = useMemo(() => {
+    if (!tagSearch.trim()) return ALL_TAGS;
+    const q = tagSearch.toLowerCase();
+    return ALL_TAGS.filter((t) => t.toLowerCase().includes(q));
+  }, [tagSearch]);
+
+  const MOCK_FRIENDS = ['Alex Chen', 'Maria Garcia', 'James Wilson', 'Sarah Kim', 'David Park', 'Emma Davis', 'Chris Lee', 'Olivia Brown', 'Ryan Martinez', 'Sophie Taylor'];
+  const filteredFriends = useMemo(() => {
+    if (!friendSearch.trim()) return MOCK_FRIENDS;
+    const q = friendSearch.toLowerCase();
+    return MOCK_FRIENDS.filter((f) => f.toLowerCase().includes(q));
+  }, [friendSearch]);
+
+  const selectedListLabels = lists.filter((l) => selectedListIds.includes(l.id));
 
   return (
     <AnimatePresence>
@@ -161,7 +155,6 @@ export const RatingModal: React.FC = () => {
             )}
           >
             <AnimatePresence mode="wait">
-              {/* ═══════════ MAIN PAGE ═══════════ */}
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col h-full">
@@ -170,21 +163,75 @@ export const RatingModal: React.FC = () => {
                       <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Restaurant'}</h2>
                       <p className="text-xs text-on-surface/40 truncate">{ratingModalRestaurant.name}</p>
                     </div>
-                    <button onClick={closeRatingModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors">
-                      <X size={20} />
-                    </button>
+                    <button onClick={closeRatingModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto overscroll-contain px-5">
-                    <div className="flex flex-col items-center pt-4 sm:pt-6">
-                      <div className={cn("relative w-32 h-32 sm:w-36 sm:h-36 rounded-full flex items-center justify-center mb-4 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
+                  {/* List dropdown */}
+                  <div className="px-5 pb-2 flex-shrink-0">
+                    <div className="relative">
+                      <button onClick={() => setListDropdownOpen(!listDropdownOpen)}
+                        className={cn("w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-left transition-all",
+                          selectedListLabels.length > 0 ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/10"
+                        )}>
+                        <span className="text-xs text-on-surface/40 flex-shrink-0">List:</span>
+                        <span className="flex-1 text-xs font-semibold truncate">
+                          {selectedListLabels.length > 0 ? selectedListLabels.map((l) => `${l.emoji} ${l.name}`).join(', ') : 'All Restaurants'}
+                        </span>
+                        <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", listDropdownOpen && "rotate-180")} />
+                      </button>
+                      <AnimatePresence>
+                        {listDropdownOpen && (
+                          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.15 }}
+                            className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-20 max-h-56 overflow-y-auto">
+                            {lists.map((list) => {
+                              const selected = selectedListIds.includes(list.id);
+                              return (
+                                <button key={list.id} onClick={() => toggleList(list.id)}
+                                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-on-surface/3 transition-colors text-left">
+                                  <span className="text-base">{list.emoji}</span>
+                                  <span className="flex-1 text-xs font-semibold truncate">{list.name}</span>
+                                  {selected && <Check size={14} className="text-primary flex-shrink-0" />}
+                                </button>
+                              );
+                            })}
+                            {creatingList ? (
+                              <div className="p-3 border-t border-on-surface/6 space-y-2">
+                                <div className="flex flex-wrap gap-1">
+                                  {EMOJI_OPTIONS.map((e) => (
+                                    <button key={e} onClick={() => setNewEmoji(e)}
+                                      className={cn("w-7 h-7 rounded text-sm", newEmoji === e ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-on-surface/5")}>{e}</button>
+                                  ))}
+                                </div>
+                                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="List name..." autoFocus
+                                  className="w-full border border-on-surface/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                  onKeyDown={(e) => e.key === 'Enter' && handleCreateList()} />
+                                <div className="flex gap-2">
+                                  <button onClick={() => { setCreatingList(false); setNewName(''); }} className="flex-1 py-1.5 rounded-lg border border-on-surface/10 text-[11px] font-medium text-on-surface/50">Cancel</button>
+                                  <button onClick={handleCreateList} disabled={!newName.trim()} className="flex-1 py-1.5 rounded-lg bg-primary text-white text-[11px] font-semibold disabled:opacity-40">Create</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button onClick={() => setCreatingList(true)}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 border-t border-on-surface/6 text-on-surface/35 hover:text-primary transition-colors">
+                                <Plus size={14} /><span className="text-xs font-semibold">New List</span>
+                              </button>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto overscroll-contain px-5" onClick={() => listDropdownOpen && setListDropdownOpen(false)}>
+                    <div className="flex flex-col items-center pt-3 sm:pt-5">
+                      <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
                         <div className="text-center">
-                          <div className={cn("text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
-                          <div className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
+                          <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
+                          <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
                         </div>
                       </div>
 
-                      <div className="w-full max-w-[280px] mb-2">
+                      <div className="w-full max-w-[260px] mb-1.5">
                         <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
                           className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
                         <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
@@ -192,58 +239,34 @@ export const RatingModal: React.FC = () => {
                         </div>
                       </div>
 
-                      <p className="text-sm font-medium text-on-surface/40 mb-5">
+                      <p className="text-xs font-medium text-on-surface/40 mb-4">
                         {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
                       </p>
 
-                      <div className="w-full max-w-[280px] mb-6">
+                      <div className="w-full max-w-[260px] mb-5">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 text-center mb-2">Would you go back?</p>
                         <div className="flex gap-2">
                           <button onClick={() => setWouldReturn(true)}
-                            className={cn("flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all",
+                            className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all",
                               wouldReturn ? "bg-green-50 border-green-200 text-green-700" : "bg-white border-on-surface/10 text-on-surface/40"
                             )}>Yes!</button>
                           <button onClick={() => setWouldReturn(false)}
-                            className={cn("flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all",
+                            className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all",
                               !wouldReturn ? "bg-red-50 border-red-200 text-red-600" : "bg-white border-on-surface/10 text-on-surface/40"
                             )}>Nah</button>
                         </div>
                       </div>
                     </div>
 
-                    <div className="border-t border-on-surface/6 pt-4 pb-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Add details to your review</p>
+                    <div className="border-t border-on-surface/6 pt-3 pb-2">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Add details</p>
                       <div className="grid grid-cols-3 gap-2">
-                        <button onClick={() => setPage('notes')} className={cn("flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all", hasNotes ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
-                          <StickyNote size={18} className={hasNotes ? "text-primary" : "text-on-surface/30"} />
-                          <span className={cn("text-[10px] font-semibold", hasNotes ? "text-primary" : "text-on-surface/40")}>Notes</span>
-                          {hasNotes && <span className="text-[9px] text-primary/60 line-clamp-1 w-full text-center">{notes.slice(0, 20)}...</span>}
-                        </button>
-                        <button onClick={() => setPage('price')} className={cn("flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all", hasPrice ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
-                          <DollarSign size={18} className={hasPrice ? "text-primary" : "text-on-surface/30"} />
-                          <span className={cn("text-[10px] font-semibold", hasPrice ? "text-primary" : "text-on-surface/40")}>Price</span>
-                          {hasPrice && <span className="text-[9px] text-primary/60 font-bold">{PRICE_RANGES[priceIndex].signs}</span>}
-                        </button>
-                        <button onClick={() => setPage('date')} className="flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all bg-primary/5 border-primary/20">
-                          <CalendarDays size={18} className="text-primary" />
-                          <span className="text-[10px] font-semibold text-primary">Date</span>
-                          <span className="text-[9px] text-primary/60">{dateLabel}</span>
-                        </button>
-                        <button onClick={() => setPage('tags')} className={cn("flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all", hasTags ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
-                          <Tag size={18} className={hasTags ? "text-primary" : "text-on-surface/30"} />
-                          <span className={cn("text-[10px] font-semibold", hasTags ? "text-primary" : "text-on-surface/40")}>Tags</span>
-                          {hasTags && <span className="text-[9px] text-primary/60">{selectedTags.length} selected</span>}
-                        </button>
-                        <button onClick={() => setPage('photos')} className={cn("flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all", hasPhotos ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
-                          <Image size={18} className={hasPhotos ? "text-primary" : "text-on-surface/30"} />
-                          <span className={cn("text-[10px] font-semibold", hasPhotos ? "text-primary" : "text-on-surface/40")}>Photos</span>
-                          {hasPhotos && <span className="text-[9px] text-primary/60">{photos.length} added</span>}
-                        </button>
-                        <button onClick={() => setPage('lists')} className={cn("flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all", hasLists ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
-                          <ListPlus size={18} className={hasLists ? "text-primary" : "text-on-surface/30"} />
-                          <span className={cn("text-[10px] font-semibold", hasLists ? "text-primary" : "text-on-surface/40")}>Lists</span>
-                          {hasLists && <span className="text-[9px] text-primary/60">{selectedListIds.length} lists</span>}
-                        </button>
+                        <DetailBtn icon={<StickyNote size={17} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
+                        <DetailBtn icon={<DollarSign size={17} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
+                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active sub={dateLabel} onClick={() => setPage('date')} />
+                        <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
+                        <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={() => setPage('photos')} />
+                        <DetailBtn icon={<Users size={17} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} />
                       </div>
                     </div>
                   </div>
@@ -257,28 +280,25 @@ export const RatingModal: React.FC = () => {
               )}
 
               {page === 'notes' && (
-                <motion.div key="notes" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }} className="flex flex-col h-full">
-                  <SubHeader title="Notes" />
+                <SubPage key="notes" onBack={() => setPage('main')} title="Notes">
                   <div className="flex-1 overflow-y-auto px-5 py-5">
-                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8} autoFocus
+                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
+                      placeholder="What did you enjoy? Any favorite dishes, standout moments, or things to remember?" rows={8} autoFocus
                       className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed" />
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                    <button onClick={() => setPage('main')} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{hasNotes ? 'Update Notes' : 'Save Notes'}</button>
-                  </div>
-                </motion.div>
+                  <BottomBtn label={hasNotes ? 'Update Notes' : 'Save Notes'} onClick={() => setPage('main')} />
+                </SubPage>
               )}
 
               {page === 'price' && (
-                <motion.div key="price" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }} className="flex flex-col h-full">
-                  <SubHeader title="Price Range" />
+                <SubPage key="price" onBack={() => setPage('main')} title="Price Range">
                   <div className="flex-1 overflow-y-auto px-5 py-6 flex flex-col items-center">
                     <p className="text-xs text-on-surface/40 mb-5 text-center">How much per person?</p>
                     <div className="flex gap-2.5 w-full max-w-xs mb-6">
                       {PRICE_RANGES.map((p, idx) => (
                         <button key={idx} onClick={() => handlePriceSignClick(idx)}
                           className={cn("flex-1 py-4 rounded-2xl border-2 transition-all text-center",
-                            priceIndex === idx ? "bg-primary/10 border-primary/30 text-primary shadow-sm" : "bg-white border-on-surface/10 text-on-surface/40 hover:border-on-surface/20"
+                            priceIndex === idx ? "bg-primary/10 border-primary/30 text-primary shadow-sm" : "bg-white border-on-surface/10 text-on-surface/40"
                           )}>
                           <div className="text-xl font-bold">{p.signs}</div>
                           <div className="text-[10px] font-medium opacity-60 mt-1">{p.label}</div>
@@ -295,65 +315,74 @@ export const RatingModal: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                    <button onClick={() => setPage('main')} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">Done</button>
-                  </div>
-                </motion.div>
+                  <BottomBtn label="Done" onClick={() => setPage('main')} />
+                </SubPage>
               )}
 
               {page === 'date' && (
-                <motion.div key="date" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }} className="flex flex-col h-full">
-                  <SubHeader title="Date Visited" />
-                  <div className="flex-1 overflow-y-auto px-5 py-6 flex flex-col items-center">
-                    <p className="text-xs text-on-surface/40 mb-5 text-center">When did you visit?</p>
-                    <div className="w-full max-w-xs">
-                      <input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)}
-                        className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-4 text-base font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 text-center" />
-                    </div>
-                    <p className="text-sm font-semibold text-on-surface/60 mt-4">{dateLabel}</p>
+                <SubPage key="date" onBack={() => setPage('main')} title="Date Visited">
+                  <div className="flex-1 overflow-y-auto px-5 py-5">
+                    <Calendar value={visitDate} onChange={setVisitDate} />
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                    <button onClick={() => setPage('main')} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">Done</button>
-                  </div>
-                </motion.div>
+                  <BottomBtn label="Done" onClick={() => setPage('main')} />
+                </SubPage>
               )}
 
               {page === 'tags' && (
-                <motion.div key="tags" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }} className="flex flex-col h-full">
-                  <SubHeader title="Tags" />
-                  <div className="flex-1 overflow-y-auto px-5 py-5">
-                    <p className="text-xs text-on-surface/40 mb-4">What best describes this restaurant?</p>
-                    <div className="flex flex-wrap gap-2.5">
-                      {TAGS.map((tag) => (
-                        <button key={tag} onClick={() => toggleTag(tag)}
-                          className={cn("px-4 py-2.5 rounded-2xl text-sm font-semibold border-2 transition-all",
-                            selectedTags.includes(tag) ? "bg-primary/10 border-primary/25 text-primary" : "bg-white border-on-surface/10 text-on-surface/40 hover:border-on-surface/20"
-                          )}>{tag}</button>
-                      ))}
+                <SubPage key="tags" onBack={() => setPage('main')} title="Tags">
+                  <div className="px-5 pt-4 pb-2 flex-shrink-0">
+                    <div className="relative">
+                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                      <input type="text" value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags..."
+                        className="w-full bg-white border border-on-surface/10 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     </div>
+                    {hasTags && (
+                      <div className="flex flex-wrap gap-1.5 mt-2.5">
+                        {selectedTags.map((tag) => (
+                          <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
+                            {tag}<button onClick={() => toggleTag(tag)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                    <button onClick={() => setPage('main')} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{hasTags ? `Done (${selectedTags.length})` : 'Done'}</button>
+                  <div className="flex-1 overflow-y-auto px-5 pb-3">
+                    {filteredTags.map((tag) => {
+                      const sel = selectedTags.includes(tag);
+                      return (
+                        <button key={tag} onClick={() => toggleTag(tag)}
+                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
+                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
+                          )}>
+                          <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0",
+                            sel ? "bg-primary border-primary text-white" : "border-on-surface/20"
+                          )}>{sel && <Check size={12} strokeWidth={3} />}</div>
+                          <span className={cn("text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{tag}</span>
+                        </button>
+                      );
+                    })}
+                    {filteredTags.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No tags match "{tagSearch}"</p>}
                   </div>
-                </motion.div>
+                  <BottomBtn label={hasTags ? `Done (${selectedTags.length})` : 'Done'} onClick={() => setPage('main')} />
+                </SubPage>
               )}
 
               {page === 'photos' && (
-                <motion.div key="photos" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }} className="flex flex-col h-full">
-                  <SubHeader title="Photos" />
+                <SubPage key="photos" onBack={() => setPage('main')} title="Photos">
                   <div className="flex-1 overflow-y-auto px-5 py-5">
                     <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />
                     {photos.length === 0 ? (
                       <button onClick={() => fileInputRef.current?.click()}
                         className="w-full py-16 rounded-2xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-2 text-on-surface/30 hover:border-primary hover:text-primary transition-all">
-                        <Camera size={28} /><span className="text-sm font-semibold">Tap to add photos</span><span className="text-[11px] opacity-60">Share your experience</span>
+                        <Camera size={28} /><span className="text-sm font-semibold">Tap to add photos</span>
                       </button>
                     ) : (
                       <div className="grid grid-cols-3 gap-2 mb-4">
                         {photos.map((photo, idx) => (
                           <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden group/photo">
                             <img src={photo} alt="" className="w-full h-full object-cover" />
-                            <button onClick={() => removePhoto(idx)} className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover/photo:opacity-100 transition-opacity">
+                            <button onClick={() => removePhoto(idx)}
+                              className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover/photo:opacity-100 transition-opacity">
                               <Trash2 size={13} className="text-white" />
                             </button>
                           </div>
@@ -365,64 +394,49 @@ export const RatingModal: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                    <button onClick={() => setPage('main')} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{hasPhotos ? `Done (${photos.length})` : 'Done'}</button>
-                  </div>
-                </motion.div>
+                  <BottomBtn label={hasPhotos ? `Done (${photos.length})` : 'Done'} onClick={() => setPage('main')} />
+                </SubPage>
               )}
 
-              {page === 'lists' && (
-                <motion.div key="lists" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }} className="flex flex-col h-full">
-                  <SubHeader title="Add to Lists" />
-                  <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
-                    {lists.map((list) => {
-                      const selected = selectedListIds.includes(list.id);
+              {page === 'friends' && (
+                <SubPage key="friends" onBack={() => setPage('main')} title="Went With">
+                  <div className="px-5 pt-4 pb-2 flex-shrink-0">
+                    <div className="relative">
+                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                      <input type="text" value={friendSearch} onChange={(e) => setFriendSearch(e.target.value)} placeholder="Search friends..."
+                        className="w-full bg-white border border-on-surface/10 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    </div>
+                    {hasFriends && (
+                      <div className="flex flex-wrap gap-1.5 mt-2.5">
+                        {selectedFriends.map((name) => (
+                          <span key={name} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
+                            {name}<button onClick={() => toggleFriend(name)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-5 pb-3">
+                    <p className="text-[10px] text-on-surface/30 mb-3 px-1">Select friends who joined you</p>
+                    {filteredFriends.map((name) => {
+                      const sel = selectedFriends.includes(name);
                       return (
-                        <button key={list.id} onClick={() => toggleList(list.id)}
-                          className={cn("w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-all text-left",
-                            selected ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
+                        <button key={name} onClick={() => toggleFriend(name)}
+                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
+                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
                           )}>
-                          <span className="text-xl">{list.emoji}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold truncate">{list.name}</p>
-                            <p className="text-[11px] text-on-surface/40">{list.restaurantIds.length + (list.wishlistIds?.length || 0)} restaurants</p>
+                          <div className="w-8 h-8 rounded-full bg-on-surface/8 flex items-center justify-center text-xs font-bold text-on-surface/40 flex-shrink-0">
+                            {name.split(' ').map((n) => n[0]).join('')}
                           </div>
-                          <div className={cn("w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all",
-                            selected ? "bg-primary border-primary text-white" : "border-on-surface/15"
-                          )}>{selected && <Check size={14} strokeWidth={3} />}</div>
+                          <span className={cn("flex-1 text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{name}</span>
+                          {sel && <Check size={16} className="text-primary flex-shrink-0" />}
                         </button>
                       );
                     })}
-                    {creatingList ? (
-                      <div className="p-4 rounded-2xl border border-primary/20 bg-primary/5 space-y-3">
-                        <div className="flex flex-wrap gap-1.5">
-                          {EMOJI_OPTIONS.map((e) => (
-                            <button key={e} onClick={() => setNewEmoji(e)}
-                              className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all",
-                                newEmoji === e ? "bg-primary/10 ring-2 ring-primary/30" : "hover:bg-on-surface/5"
-                              )}>{e}</button>
-                          ))}
-                        </div>
-                        <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="List name..." autoFocus
-                          className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                          onKeyDown={(e) => e.key === 'Enter' && handleCreateList()} />
-                        <div className="flex gap-2">
-                          <button onClick={() => { setCreatingList(false); setNewName(''); }} className="flex-1 py-2 rounded-xl border border-on-surface/10 text-sm font-medium text-on-surface/50">Cancel</button>
-                          <button onClick={handleCreateList} disabled={!newName.trim()} className="flex-1 py-2 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-40">Create</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => setCreatingList(true)}
-                        className="w-full flex items-center gap-3 p-3.5 rounded-2xl border border-dashed border-on-surface/15 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-on-surface/5"><Plus size={16} /></div>
-                        <span className="text-sm font-semibold">Create New List</span>
-                      </button>
-                    )}
+                    {filteredFriends.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No friends match "{friendSearch}"</p>}
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                    <button onClick={() => setPage('main')} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{hasLists ? `Done (${selectedListIds.length})` : 'Done'}</button>
-                  </div>
-                </motion.div>
+                  <BottomBtn label={hasFriends ? `Done (${selectedFriends.length})` : 'Done'} onClick={() => setPage('main')} />
+                </SubPage>
               )}
             </AnimatePresence>
           </motion.div>
@@ -431,3 +445,39 @@ export const RatingModal: React.FC = () => {
     </AnimatePresence>
   );
 };
+
+/* ── Shared sub-components ── */
+
+const DetailBtn: React.FC<{
+  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
+}> = ({ icon, label, active, sub, onClick }) => (
+  <button onClick={onClick}
+    className={cn("flex flex-col items-center gap-1 p-2.5 rounded-2xl border transition-all",
+      active ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
+    )}>
+    <span className={active ? "text-primary" : "text-on-surface/30"}>{icon}</span>
+    <span className={cn("text-[10px] font-semibold", active ? "text-primary" : "text-on-surface/40")}>{label}</span>
+    {sub && <span className="text-[9px] text-primary/60 line-clamp-1 w-full text-center">{sub}</span>}
+  </button>
+);
+
+const SubPage: React.FC<{
+  children: React.ReactNode; onBack: () => void; title: string;
+}> = ({ children, onBack, title }) => (
+  <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+    className="flex flex-col h-full">
+    <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
+      <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
+        <ChevronLeft size={22} />
+      </button>
+      <h2 className="font-serif font-bold text-lg">{title}</h2>
+    </div>
+    {children}
+  </motion.div>
+);
+
+const BottomBtn: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
+  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+    <button onClick={onClick} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{label}</button>
+  </div>
+);
