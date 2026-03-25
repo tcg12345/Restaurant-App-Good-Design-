@@ -59,6 +59,7 @@ const AppContent: React.FC = () => {
           <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
             <Routes location={location}>
               <Route path="/auth" element={<Auth />} />
+              <Route path="/import" element={<ImportRestaurants />} />
               <Route path="*" element={<SignIn />} />
             </Routes>
           </div>
