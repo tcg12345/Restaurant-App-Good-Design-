@@ -8,6 +8,33 @@ import {
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { priceLevelToString } from '../lib/places';
+
+/** Parse hours array to find next opening time when currently closed */
+function getNextOpenTime(hours: string[]): string {
+  if (!hours || hours.length === 0) return '';
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const now = new Date();
+  const todayIdx = now.getDay();
+
+  // Look at today first, then upcoming days
+  for (let offset = 0; offset < 7; offset++) {
+    const dayIdx = (todayIdx + offset) % 7;
+    const dayName = days[dayIdx];
+    const entry = hours.find((h) => h.startsWith(dayName));
+    if (!entry) continue;
+    // Skip "Closed" days
+    if (/closed/i.test(entry)) continue;
+    // Extract opening time — format: "Monday: 11:30 AM – 10:00 PM" or "Monday: 5:00 – 11:00 PM"
+    const timePart = entry.split(':').slice(1).join(':').trim();
+    const openMatch = timePart.match(/^(\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)/i);
+    if (!openMatch) continue;
+    const openTime = openMatch[1].trim();
+    if (offset === 0) return `today at ${openTime}`;
+    if (offset === 1) return `tomorrow at ${openTime}`;
+    return `${dayName} at ${openTime}`;
+  }
+  return '';
+}
 import { RadarChart } from '../components/RadarChart';
 import { getFlavorProfile, getTopFlavors } from '../lib/flavorProfile';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -243,6 +270,21 @@ export const RestaurantDetailMobile: React.FC = () => {
             <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{cuisine}</span>
             <span className="text-white/50">·</span>
             <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{priceStr}</span>
+            {place.isOpen !== null && (
+              <>
+                <span className="text-white/50">·</span>
+                {place.isOpen ? (
+                  <span className="text-[11px] font-semibold text-green-400">Open</span>
+                ) : (
+                  <span className="text-[11px] font-semibold text-red-400">
+                    Closed{(() => {
+                      const next = getNextOpenTime(place.hours);
+                      return next ? ` · Opens ${next}` : '';
+                    })()}
+                  </span>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
