@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { getFriends, addFriend, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, type FriendInfo, type CommunityRating, type UserProfile } from '../lib/supabase-community';
+import { getFriends, sendFriendRequest, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { Link } from 'react-router-dom';
 
 type Tab = 'friends' | 'experts';
@@ -16,7 +16,7 @@ const MOCK_EXPERTS = [
 ];
 
 export const Circle: React.FC = () => {
-  const { user } = useAuth();
+  const { user, refreshPendingRequests } = useAuth();
   const userId = user?.id ?? null;
   const [activeTab, setActiveTab] = useState<Tab>('friends');
 
@@ -24,6 +24,8 @@ export const Circle: React.FC = () => {
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [activityProfiles, setActivityProfiles] = useState<Record<string, UserProfile>>({});
+  const [pendingRequests, setPendingRequests] = useState<FriendRequest[]>([]);
+  const [requestProfiles, setRequestProfiles] = useState<Record<string, UserProfile>>({});
   const [loading, setLoading] = useState(true);
 
   // Add friend sheet
@@ -39,14 +41,22 @@ export const Circle: React.FC = () => {
   const loadData = useCallback(async () => {
     if (!userId) { setLoading(false); return; }
     setLoading(true);
-    const friendList = await getFriends(userId);
+    const [friendList, requests] = await Promise.all([getFriends(userId), getPendingRequests(userId)]);
     setFriends(friendList);
+    setPendingRequests(requests);
+
+    // Load profiles for pending requests
+    const reqIds = requests.map((r) => r.user_id);
+    if (reqIds.length > 0) {
+      const reqProf = await getProfilesByIds(reqIds);
+      setRequestProfiles(reqProf);
+    }
+
     if (friendList.length > 0) {
       const ids = friendList.map((f) => f.friend_id);
       const [profiles, act] = await Promise.all([getProfilesByIds(ids), getFriendActivity(ids, 20)]);
       setFriendProfiles(profiles);
       setActivity(act);
-      // Get profiles for activity feed
       const actIds = [...new Set(act.map((a) => a.user_id))];
       if (actIds.length > 0) {
         const actProf = await getProfilesByIds(actIds);
@@ -71,13 +81,25 @@ export const Circle: React.FC = () => {
 
   const handleAddFriend = async (friendId: string, friendName: string) => {
     if (!userId) return;
-    const ok = await addFriend(userId, friendId);
+    const ok = await sendFriendRequest(userId, friendId);
     if (ok) {
       setAddSuccess(friendName);
       setSearchResults((prev) => prev.filter((r) => r.user_id !== friendId));
       setTimeout(() => { setAddSuccess(null); }, 1500);
-      loadData();
     }
+  };
+
+  const handleAcceptRequest = async (req: FriendRequest) => {
+    if (!userId) return;
+    await acceptFriendRequest(req.id, userId, req.user_id);
+    await refreshPendingRequests();
+    loadData();
+  };
+
+  const handleDeclineRequest = async (req: FriendRequest) => {
+    await declineFriendRequest(req.id);
+    await refreshPendingRequests();
+    loadData();
   };
 
   const handleRemoveFriend = async (friendId: string) => {
@@ -113,6 +135,41 @@ export const Circle: React.FC = () => {
         {/* ── Friends Tab ── */}
         {activeTab === 'friends' && (
           <>
+            {/* Pending Requests */}
+            {pendingRequests.length > 0 && (
+              <section className="mb-6">
+                <h2 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider mb-3">
+                  Friend Requests ({pendingRequests.length})
+                </h2>
+                <div className="space-y-2">
+                  {pendingRequests.map((req) => {
+                    const p = requestProfiles[req.user_id];
+                    return (
+                      <div key={req.id} className="flex items-center gap-3 bg-primary/5 rounded-xl border border-primary/15 px-3 py-2.5">
+                        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <UserCircle size={18} className="text-primary/50" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate">{p?.display_name || 'User'}</p>
+                          <p className="text-[10px] text-on-surface/35">@{p?.username || req.user_id.slice(0, 8)} wants to follow you</p>
+                        </div>
+                        <div className="flex gap-1.5 flex-shrink-0">
+                          <button onClick={() => handleAcceptRequest(req)}
+                            className="px-2.5 py-1.5 bg-primary text-white text-[10px] font-semibold rounded-lg">
+                            Accept
+                          </button>
+                          <button onClick={() => handleDeclineRequest(req)}
+                            className="px-2.5 py-1.5 border border-on-surface/15 text-[10px] font-semibold text-on-surface/50 rounded-lg">
+                            Decline
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
             <section className="mb-6">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">My Friends ({friends.length})</h2>
@@ -245,7 +302,7 @@ export const Circle: React.FC = () => {
               {addSuccess && (
                 <div className="mx-5 mt-2 flex items-center gap-1.5 px-3 py-2 bg-green-50 border border-green-200 rounded-xl">
                   <Check size={14} className="text-green-600" />
-                  <span className="text-xs font-semibold text-green-700">Added {addSuccess}!</span>
+                  <span className="text-xs font-semibold text-green-700">Request sent to {addSuccess}!</span>
                 </div>
               )}
 

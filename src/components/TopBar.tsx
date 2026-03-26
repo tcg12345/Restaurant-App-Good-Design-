@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bell, Settings, Smartphone, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -8,7 +9,8 @@ export const TopBar: React.FC<{ title?: string }> = ({ title = "Gourmet Canvas" 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { phoneMode, togglePhoneMode } = useSettings();
-  const { signOut } = useAuth();
+  const { signOut, pendingRequestCount } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -86,9 +88,13 @@ export const TopBar: React.FC<{ title?: string }> = ({ title = "Gourmet Canvas" 
             )}
           </AnimatePresence>
         </div>
-        <button className="p-2 hover:bg-muted rounded-full transition-colors relative">
+        <button className="p-2 hover:bg-muted rounded-full transition-colors relative" onClick={() => navigate('/circle')}>
           <Bell size={20} />
-          <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full border-2 border-surface"></span>
+          {pendingRequestCount > 0 && (
+            <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border-2 border-surface">
+              {pendingRequestCount}
+            </span>
+          )}
         </button>
       </div>
     </header>

@@ -224,29 +224,81 @@ export async function getProfilesByIds(userIds: string[]): Promise<Record<string
 
 export interface FriendInfo {
   friend_id: string;
-  email?: string;
+  status: string; // 'pending' | 'accepted'
 }
 
-/** Get the current user's friend list */
+export interface FriendRequest {
+  id: string;
+  user_id: string;
+  friend_id: string;
+  status: string;
+  created_at: string;
+  profile?: UserProfile;
+}
+
+/** Get accepted friends */
 export async function getFriends(userId: string): Promise<FriendInfo[]> {
   if (!supabaseConfigured || !userId) return [];
   try {
     const { data, error } = await supabase.from('user_friends')
-      .select('friend_id').eq('user_id', userId);
+      .select('friend_id, status').eq('user_id', userId).eq('status', 'accepted');
     if (error) { console.error('[Friends] getFriends error:', error); return []; }
     return (data || []) as FriendInfo[];
   } catch (err) { console.error('[Friends] getFriends exception:', err); return []; }
 }
 
-/** Add a friend by their user ID */
-export async function addFriend(userId: string, friendId: string): Promise<boolean> {
+/** Get pending friend requests sent TO you */
+export async function getPendingRequests(userId: string): Promise<FriendRequest[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('user_friends')
+      .select('id, user_id, friend_id, status, created_at')
+      .eq('friend_id', userId).eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    if (error) { console.error('[Friends] getPendingRequests error:', error); return []; }
+    return (data || []) as FriendRequest[];
+  } catch (err) { console.error('[Friends] getPendingRequests exception:', err); return []; }
+}
+
+/** Send a friend request (status = 'pending') */
+export async function sendFriendRequest(userId: string, friendId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId || !friendId || userId === friendId) return false;
   try {
     const { error } = await supabase.from('user_friends')
-      .insert({ user_id: userId, friend_id: friendId });
-    if (error) { console.error('[Friends] addFriend error:', error); return false; }
+      .insert({ user_id: userId, friend_id: friendId, status: 'pending' });
+    if (error) { console.error('[Friends] sendRequest error:', error); return false; }
     return true;
-  } catch (err) { console.error('[Friends] addFriend exception:', err); return false; }
+  } catch (err) { console.error('[Friends] sendRequest exception:', err); return false; }
+}
+
+/** Accept a friend request (updates status and creates reverse follow) */
+export async function acceptFriendRequest(requestId: string, userId: string, requesterId: string): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  try {
+    // Update the request to accepted
+    const { error: updateErr } = await supabase.from('user_friends')
+      .update({ status: 'accepted' }).eq('id', requestId);
+    if (updateErr) { console.error('[Friends] accept update error:', updateErr); return false; }
+    // Create reverse friendship (so both can see each other)
+    await supabase.from('user_friends')
+      .upsert({ user_id: userId, friend_id: requesterId, status: 'accepted' }, { onConflict: 'user_id,friend_id' });
+    return true;
+  } catch (err) { console.error('[Friends] accept exception:', err); return false; }
+}
+
+/** Decline/delete a friend request */
+export async function declineFriendRequest(requestId: string): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  try {
+    const { error } = await supabase.from('user_friends').delete().eq('id', requestId);
+    if (error) { console.error('[Friends] decline error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[Friends] decline exception:', err); return false; }
+}
+
+/** Add a friend by their user ID (legacy - now sends request) */
+export async function addFriend(userId: string, friendId: string): Promise<boolean> {
+  return sendFriendRequest(userId, friendId);
 }
 
 /** Remove a friend */

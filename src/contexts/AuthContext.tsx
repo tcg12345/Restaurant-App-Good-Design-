@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, supabaseConfigured } from '../lib/supabase';
-import { getProfile, type UserProfile } from '../lib/supabase-community';
+import { getProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
@@ -13,6 +13,8 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  pendingRequestCount: number;
+  refreshPendingRequests: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -25,6 +27,8 @@ const AuthContext = createContext<AuthContextType>({
   signUp: async () => ({ error: null }),
   signOut: async () => {},
   refreshProfile: async () => {},
+  pendingRequestCount: 0,
+  refreshPendingRequests: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -34,13 +38,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
 
   const loadProfile = useCallback(async (userId: string) => {
     setProfileLoaded(false);
     const p = await getProfile(userId);
     setProfile(p);
     setProfileLoaded(true);
+    // Also load pending requests
+    const reqs = await getPendingRequests(userId);
+    setPendingRequestCount(reqs.length);
   }, []);
+
+  const refreshPendingRequests = useCallback(async () => {
+    if (user?.id) {
+      const reqs = await getPendingRequests(user.id);
+      setPendingRequestCount(reqs.length);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!supabaseConfigured) {
@@ -109,7 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isFullyLoaded = !loading && profileLoaded;
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading: !isFullyLoaded, signIn, signUp, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading: !isFullyLoaded, signIn, signUp, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests }}>
       {children}
     </AuthContext.Provider>
   );
