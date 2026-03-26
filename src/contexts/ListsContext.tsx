@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews } from '../lib/supabase-db';
+import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 
 /* ── Types ── */
@@ -315,6 +316,17 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
     }
     cacheRestaurantMeta({ id: rating.restaurantId, name: rating.name, image: rating.image, cuisine: rating.cuisine, price: rating.price, address: rating.address });
+    // Publish to community
+    if (userIdRef.current) {
+      publishCommunityRating(userIdRef.current, rating.restaurantId, {
+        name: rating.name, score: rating.score, notes: rating.notes,
+        cuisine: rating.cuisine, price: rating.price, address: rating.address,
+        visitDate: rating.visitDate, tags: rating.tags, wouldReturn: rating.wouldReturn,
+      });
+      if (rating.photos && rating.photos.length > 0) {
+        publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos);
+      }
+    }
   }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
@@ -333,6 +345,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncRatingsToCloud(next);
       return next;
     });
+    if (userIdRef.current) removeCommunityRating(userIdRef.current, restaurantId);
   }, [syncRatingsToCloud]);
 
   const getRating = useCallback((restaurantId: string) => ratings.find((r) => r.restaurantId === restaurantId), [ratings]);

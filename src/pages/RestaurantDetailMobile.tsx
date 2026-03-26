@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Images, Users, UserCircle, Search, Share2, Heart,
 } from 'lucide-react';
+import { cn } from '../lib/utils';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { priceLevelToString } from '../lib/places';
@@ -148,6 +149,8 @@ export const RestaurantDetailMobile: React.FC = () => {
     mapContainerRef,
     priceStr, cuisine,
     photos, directionsUrl, mapsUrl,
+    communityStats, friendsStats, communityPhotos,
+    showFriendsDetail, setShowFriendsDetail,
   } = useRestaurantDetail();
 
   const { openRatingModal, openWishlistModal, isWishlisted, getRating } = useLists();
@@ -381,31 +384,59 @@ export const RestaurantDetailMobile: React.FC = () => {
           </div>
 
           {/* Friends */}
-          <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
+          <button onClick={() => friendsStats.totalRatings > 0 && setShowFriendsDetail(true)}
+            className="w-full bg-white rounded-2xl p-4 border border-on-surface/8 text-left">
             <div className="flex items-center gap-4">
-              <div className="text-center flex-shrink-0 w-14">
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-                  <UserCircle size={20} className="text-primary/50" />
+              {friendsStats.totalRatings > 0 ? (
+                <div className="text-center flex-shrink-0">
+                  <p className="text-3xl font-serif font-bold leading-none text-primary">{friendsStats.avgScore.toFixed(1)}</p>
+                  <div className="flex gap-0.5 justify-center mt-1.5">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star key={s} size={12} className={s <= Math.round(friendsStats.avgScore / 2) ? 'fill-primary text-primary' : 'text-on-surface/15'} />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="text-center flex-shrink-0 w-14">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                    <UserCircle size={20} className="text-primary/50" />
+                  </div>
+                </div>
+              )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-on-surface">Friends</p>
-                <p className="text-xs text-on-surface/45 mt-0.5">No friends have rated this place yet</p>
+                <p className="text-xs text-on-surface/45 mt-0.5">
+                  {friendsStats.totalRatings > 0 ? `${friendsStats.totalRatings} friend rating${friendsStats.totalRatings !== 1 ? 's' : ''} · Tap to view` : 'No friends have rated this place yet'}
+                </p>
               </div>
+              {friendsStats.totalRatings > 0 && <ChevronRight size={16} className="text-on-surface/30 flex-shrink-0" />}
             </div>
-          </div>
+          </button>
 
           {/* Community */}
           <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
             <div className="flex items-center gap-4">
-              <div className="text-center flex-shrink-0 w-14">
-                <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mx-auto">
-                  <Users size={20} className="text-violet-400" />
+              {communityStats.totalRatings > 0 ? (
+                <div className="text-center flex-shrink-0">
+                  <p className="text-3xl font-serif font-bold leading-none text-violet-600">{communityStats.avgScore.toFixed(1)}</p>
+                  <div className="flex gap-0.5 justify-center mt-1.5">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star key={s} size={12} className={s <= Math.round(communityStats.avgScore / 2) ? 'fill-violet-500 text-violet-500' : 'text-on-surface/15'} />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="text-center flex-shrink-0 w-14">
+                  <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mx-auto">
+                    <Users size={20} className="text-violet-400" />
+                  </div>
+                </div>
+              )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-on-surface">Community</p>
-                <p className="text-xs text-on-surface/45 mt-0.5">No community ratings yet</p>
+                <p className="text-xs text-on-surface/45 mt-0.5">
+                  {communityStats.totalRatings > 0 ? `${communityStats.totalRatings} rating${communityStats.totalRatings !== 1 ? 's' : ''} from the community` : 'No community ratings yet'}
+                </p>
               </div>
             </div>
           </div>
@@ -514,6 +545,56 @@ export const RestaurantDetailMobile: React.FC = () => {
             initialIndex={photoIndex}
             onClose={() => setGalleryOpen(false)}
           />
+        )}
+      </AnimatePresence>
+      {/* Friends ratings detail sheet */}
+      <AnimatePresence>
+        {showFriendsDetail && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setShowFriendsDetail(false)} />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden"
+            >
+              <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>
+              <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-on-surface/6 flex-shrink-0">
+                <div>
+                  <h3 className="font-serif font-bold text-lg">Friends' Ratings</h3>
+                  <p className="text-xs text-on-surface/40">{place.name}</p>
+                </div>
+                <button onClick={() => setShowFriendsDetail(false)} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                  <X size={16} className="text-on-surface/60" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+                {friendsStats.ratings.map((r) => {
+                  const scoreColor = Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500';
+                  return (
+                    <div key={r.id} className="bg-white rounded-xl border border-on-surface/8 p-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
+                            <UserCircle size={14} className="text-primary/50" />
+                          </div>
+                          <span className="text-xs font-semibold text-on-surface/70">Friend</span>
+                        </div>
+                        <span className={cn("text-lg font-serif font-bold", scoreColor)}>{Number(r.score).toFixed(1)}</span>
+                      </div>
+                      {r.notes && <p className="text-xs text-on-surface/50 italic mt-1">"{r.notes}"</p>}
+                      {r.tags && r.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {r.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}
+                        </div>
+                      )}
+                      {r.visit_date && <p className="text-[10px] text-on-surface/30 mt-1.5">{new Date(r.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>
