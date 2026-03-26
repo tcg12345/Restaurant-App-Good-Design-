@@ -38,6 +38,7 @@ export const AddRestaurantModal: React.FC = () => {
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
@@ -55,6 +56,7 @@ export const AddRestaurantModal: React.FC = () => {
       setPriceIndex(-1);
       setPriceAmount('');
       setPage('main');
+      setConfirmDelete(false);
       setCreatingList(false);
       setNewName('');
       setListDropdownOpen(false);
@@ -308,11 +310,20 @@ export const AddRestaurantModal: React.FC = () => {
                     <button onClick={handleSaveRating} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                       {existing ? 'Update Rating' : 'Save Rating'}
                     </button>
-                    {existing && (
-                      <button onClick={() => { if (restaurant) { removeRating(restaurant.id); closeAddRestaurantModal(); } }}
+                    {existing && !confirmDelete && (
+                      <button onClick={() => setConfirmDelete(true)}
                         className="w-full py-2.5 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors">
                         Delete Rating
                       </button>
+                    )}
+                    {existing && confirmDelete && (
+                      <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                        <p className="text-xs text-red-600 font-medium">Delete this rating?</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
+                          <button onClick={() => { if (restaurant) { removeRating(restaurant.id); closeAddRestaurantModal(); } }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 </motion.div>
