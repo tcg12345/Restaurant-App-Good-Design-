@@ -37,62 +37,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [profileLoaded, setProfileLoaded] = useState(false);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
 
   const loadProfile = useCallback(async (userId: string) => {
-    setProfileLoaded(false);
-    const p = await getProfile(userId);
-    setProfile(p);
-    setProfileLoaded(true);
-    // Also load pending requests
-    const reqs = await getPendingRequests(userId);
-    setPendingRequestCount(reqs.length);
-  }, []);
-
-  const refreshPendingRequests = useCallback(async () => {
-    if (user?.id) {
-      const reqs = await getPendingRequests(user.id);
-      setPendingRequestCount(reqs.length);
+    try {
+      const p = await getProfile(userId);
+      setProfile(p);
+    } catch {
+      setProfile(null);
     }
-  }, [user]);
+    try {
+      const reqs = await getPendingRequests(userId);
+      setPendingRequestCount(reqs.length);
+    } catch {
+      setPendingRequestCount(0);
+    }
+  }, []);
 
   useEffect(() => {
     if (!supabaseConfigured) {
       setLoading(false);
-      setProfileLoaded(true);
       return;
     }
 
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!mounted) return;
         const u = session?.user ?? null;
         setUser(u);
-        if (u) {
-          await loadProfile(u.id);
-        } else {
-          setProfileLoaded(true);
-        }
-      })
-      .catch(() => {
-        setProfileLoaded(true);
-      })
-      .finally(() => { setLoading(false); });
+        if (u) await loadProfile(u.id);
+      } catch {
+        // Auth failed — continue as signed out
+      }
+      if (mounted) setLoading(false);
+    })();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event: string, session: Session | null) => {
+      (_event: string, session: Session | null) => {
         const u = session?.user ?? null;
         setUser(u);
-        if (u) {
-          await loadProfile(u.id);
-        } else {
-          setProfile(null);
-          setProfileLoaded(true);
-        }
+        if (u) loadProfile(u.id);
+        else { setProfile(null); setPendingRequestCount(0); }
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => { mounted = false; subscription.unsubscribe(); };
   }, [loadProfile]);
 
   const signIn = useCallback(async (email: string, password: string) => {
@@ -111,20 +103,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!supabaseConfigured) return;
     await supabase.auth.signOut();
     setProfile(null);
-    setProfileLoaded(true);
+    setPendingRequestCount(0);
   }, []);
 
   const refreshProfile = useCallback(async () => {
     if (user?.id) await loadProfile(user.id);
   }, [user, loadProfile]);
 
+  const refreshPendingRequests = useCallback(async () => {
+    if (user?.id) {
+      try {
+        const reqs = await getPendingRequests(user.id);
+        setPendingRequestCount(reqs.length);
+      } catch { setPendingRequestCount(0); }
+    }
+  }, [user]);
+
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
-  // Don't stop showing the loading screen until both auth AND profile are resolved
-  const isFullyLoaded = !loading && profileLoaded;
-
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading: !isFullyLoaded, signIn, signUp, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading, signIn, signUp, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests }}>
       {children}
     </AuthContext.Provider>
   );
