@@ -155,6 +155,71 @@ export async function getCommunityPhotos(restaurantId: string): Promise<Communit
   } catch (err) { console.error('[Community] getPhotos exception:', err); return []; }
 }
 
+/* ── User Profiles ── */
+
+export interface UserProfile {
+  user_id: string;
+  display_name: string;
+  username: string;
+}
+
+export async function getProfile(userId: string): Promise<UserProfile | null> {
+  if (!supabaseConfigured || !userId) return null;
+  try {
+    const { data, error } = await supabase.from('user_profiles')
+      .select('*').eq('user_id', userId).single();
+    if (error) return null;
+    return data as UserProfile;
+  } catch { return null; }
+}
+
+export async function getProfileByUsername(username: string): Promise<UserProfile | null> {
+  if (!supabaseConfigured || !username.trim()) return null;
+  try {
+    const { data, error } = await supabase.from('user_profiles')
+      .select('*').ilike('username', username.trim()).single();
+    if (error) return null;
+    return data as UserProfile;
+  } catch { return null; }
+}
+
+export async function saveProfile(userId: string, displayName: string, username: string): Promise<{ success: boolean; error?: string }> {
+  if (!supabaseConfigured || !userId) return { success: false, error: 'Not configured' };
+  try {
+    const { error } = await supabase.from('user_profiles').upsert({
+      user_id: userId, display_name: displayName, username: username.toLowerCase().trim(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+    if (error) {
+      if (error.code === '23505') return { success: false, error: 'Username is already taken' };
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err) { return { success: false, error: String(err) }; }
+}
+
+export async function searchUsersByUsername(query: string, currentUserId: string): Promise<UserProfile[]> {
+  if (!supabaseConfigured || !query.trim()) return [];
+  try {
+    const { data, error } = await supabase.from('user_profiles')
+      .select('*').ilike('username', `%${query.trim()}%`).neq('user_id', currentUserId).limit(20);
+    if (error) return [];
+    return (data || []) as UserProfile[];
+  } catch { return []; }
+}
+
+export async function getProfilesByIds(userIds: string[]): Promise<Record<string, UserProfile>> {
+  if (!supabaseConfigured || userIds.length === 0) return {};
+  try {
+    const { data, error } = await supabase.from('user_profiles')
+      .select('*').in('user_id', userIds);
+    if (error) return {};
+    const map: Record<string, UserProfile> = {};
+    (data || []).forEach((p: any) => { map[p.user_id] = p as UserProfile; });
+    return map;
+  } catch { return {}; }
+}
+
 /* ── Friend Management ── */
 
 export interface FriendInfo {

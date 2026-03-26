@@ -25,13 +25,14 @@ import { WishlistModal } from './components/WishlistModal';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
+import { ProfileSetup } from './pages/ProfileSetup';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/';
   const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/');
   const { phoneMode } = useSettings();
-  const { isSignedIn, loading } = useAuth();
+  const { isSignedIn, loading, profileComplete } = useAuth();
 
   if (loading) {
     return (
@@ -64,6 +65,21 @@ const AppContent: React.FC = () => {
               <Route path="/import" element={<ImportRestaurants />} />
               <Route path="*" element={<SignIn />} />
             </Routes>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isSignedIn && !profileComplete) {
+    return (
+      <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : ""}>
+        <div
+          className={phoneMode ? "relative bg-surface overflow-hidden rounded-3xl shadow-2xl border border-white/10" : "min-h-screen bg-surface"}
+          style={phoneMode ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' } : undefined}
+        >
+          <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
+            <ProfileSetup />
           </div>
         </div>
       </div>
