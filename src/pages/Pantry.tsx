@@ -513,10 +513,12 @@ const RestaurantGridCard: React.FC<{
   price: string;
   score?: number;
   onEdit?: () => void;
-}> = ({ restaurantId, name, image, cuisine, price, score, onEdit }) => {
+  onRemove?: () => void;
+}> = ({ restaurantId, name, image, cuisine, price, score, onEdit, onRemove }) => {
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
-    <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden relative">
       <Link to={`/restaurant/${restaurantId}`} className="block aspect-[4/3] overflow-hidden">
         {image ? (
           <img src={image} alt={name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" referrerPolicy="no-referrer" />
@@ -531,18 +533,33 @@ const RestaurantGridCard: React.FC<{
           <Link to={`/restaurant/${restaurantId}`} className="min-w-0 flex-1">
             <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
           </Link>
-          {score !== undefined && score > 0 && (
-            <span className={cn("text-base font-serif font-bold flex-shrink-0", scoreColor(score))}>{score.toFixed(1)}</span>
-          )}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {score !== undefined && score > 0 && (
+              <span className={cn("text-base font-serif font-bold", scoreColor(score))}>{score.toFixed(1)}</span>
+            )}
+            {onEdit && (
+              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+                className="p-1 text-on-surface/30 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors"><Edit3 size={12} /></button>
+            )}
+            {onRemove && (
+              <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(true); }}
+                className="p-1 text-on-surface/20 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={12} /></button>
+            )}
+          </div>
         </div>
         <p className="text-[10px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
           {cuisine}{price ? ` · ${price}` : ''}
         </p>
-        {onEdit && (
-          <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-            className="mt-2 text-[10px] font-bold text-primary uppercase tracking-wider hover:text-primary/70">Edit</button>
-        )}
       </div>
+      {confirmDelete && (
+        <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-2 border border-red-200 p-3">
+          <p className="text-xs text-on-surface/60 font-medium text-center">Delete this restaurant?</p>
+          <div className="flex gap-2">
+            <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-on-surface/5">Cancel</button>
+            <button onClick={() => { if (onRemove) onRemove(); }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -689,6 +706,7 @@ const ListDetailView: React.FC<{
                     price={info?.price ?? ''}
                     score={rating?.score}
                     onEdit={info ? () => openRatingModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
+                    onRemove={() => removeFromList(list.id, id)}
                   />
                 ) : (
                   <RestaurantRow
@@ -974,7 +992,7 @@ export const Pantry: React.FC = () => {
 
   const {
     lists, createList,
-    ratings, openRatingModal,
+    ratings, openRatingModal, removeRating,
     wishlist,
     getListsForRestaurant,
   } = useLists();
@@ -1229,6 +1247,7 @@ export const Pantry: React.FC = () => {
                           price={r.price}
                           score={r.score}
                           onEdit={() => openRatingModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                          onRemove={() => removeRating(r.restaurantId)}
                         />
                       ) : (
                         <RestaurantRow

@@ -11,7 +11,7 @@ type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 export const AddRestaurantModal: React.FC = () => {
   const {
     addRestaurantModalOpen, addRestaurantModalMeta, closeAddRestaurantModal,
-    rateRestaurant, getRating,
+    rateRestaurant, getRating, removeRating,
     lists, createList,
   } = useLists();
   const { phoneMode } = useSettings();
@@ -304,10 +304,16 @@ export const AddRestaurantModal: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
                     <button onClick={handleSaveRating} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                       {existing ? 'Update Rating' : 'Save Rating'}
                     </button>
+                    {existing && (
+                      <button onClick={() => { if (restaurant) { removeRating(restaurant.id); closeAddRestaurantModal(); } }}
+                        className="w-full py-2.5 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors">
+                        Delete Rating
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               )}
