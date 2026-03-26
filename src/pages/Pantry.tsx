@@ -306,6 +306,9 @@ const RestaurantRow: React.FC<{
 }> = ({ restaurantId, name, image, cuisine, price, address, score, tags, notes, visitDate, wouldReturn, listBadges, onEdit, onRemove, removeLabel }) => {
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
   const { phoneMode } = useSettings();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [swiped, setSwiped] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
 
   // Extract city, state from address
   const location = (() => {
@@ -315,59 +318,102 @@ const RestaurantRow: React.FC<{
     return parts[0] || '';
   })();
 
+  const handleDelete = () => {
+    if (onRemove) {
+      setDismissed(true);
+      setTimeout(() => onRemove(), 300);
+    }
+  };
+
+  if (dismissed) return null;
+
   return (
-    <Link to={`/restaurant/${restaurantId}`} className="block">
-      <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex active:scale-[0.99] transition-transform">
-        {!phoneMode && (
-          <div className="w-24 sm:w-28 flex-shrink-0">
-            {image ? (
-              <img src={image} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            ) : (
-              <div className="w-full h-full min-h-[5rem] bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-2xl font-serif font-bold">
-                {name.charAt(0)}
-              </div>
-            )}
-          </div>
-        )}
-        <div className={cn("flex-1 min-w-0", phoneMode ? "px-3.5 py-2.5" : "p-3.5")}>
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
-              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                <span className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider">
-                  {cuisine}{price ? ` · ${price}` : ''}
-                </span>
-                {location && (
-                  <>
-                    <span className="text-on-surface/20 text-[10px]">|</span>
-                    <span className="text-[10px] text-on-surface/35 truncate">{location}</span>
-                  </>
+    <div className="relative overflow-hidden rounded-2xl">
+      {/* Swipe-to-delete red background (phone only) */}
+      {phoneMode && onRemove && (
+        <div className="absolute inset-0 bg-red-500 flex items-center justify-end px-5 rounded-2xl">
+          <Trash2 size={18} className="text-white" />
+        </div>
+      )}
+
+      <motion.div
+        drag={phoneMode && onRemove ? 'x' : false}
+        dragConstraints={{ left: -150, right: 0 }}
+        dragElastic={0.1}
+        onDragEnd={(_: any, info: any) => {
+          if (info.offset.x < -120) handleDelete();
+          else if (info.offset.x < -50) setSwiped(true);
+          else setSwiped(false);
+        }}
+        animate={{ x: swiped ? -80 : 0 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="relative z-10"
+      >
+        <Link to={`/restaurant/${restaurantId}`} className="block">
+          <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex active:scale-[0.99] transition-transform">
+            {!phoneMode && (
+              <div className="w-24 sm:w-28 flex-shrink-0">
+                {image ? (
+                  <img src={image} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-full h-full min-h-[5rem] bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-2xl font-serif font-bold">
+                    {name.charAt(0)}
+                  </div>
                 )}
               </div>
-            </div>
-            {score !== undefined && (
-              <div className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(score))}>
-                {score.toFixed(1)}
-              </div>
             )}
-          </div>
-          {tags && tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {tags.slice(0, 3).map((tag) => (
-                <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{tag}</span>
-              ))}
-              {tags.length > 3 && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-on-surface/5 text-on-surface/30 font-medium">+{tags.length - 3}</span>
+            <div className={cn("flex-1 min-w-0", phoneMode ? "px-3.5 py-2.5" : "p-3")}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    <span className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider">
+                      {cuisine}{price ? ` · ${price}` : ''}
+                    </span>
+                    {location && (
+                      <>
+                        <span className="text-on-surface/20 text-[10px]">|</span>
+                        <span className="text-[10px] text-on-surface/35 truncate">{location}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {score !== undefined && (
+                    <span className={cn("text-lg font-serif font-bold leading-none", scoreColor(score))}>
+                      {score.toFixed(1)}
+                    </span>
+                  )}
+                  {onEdit && (
+                    <button
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+                      className="p-1.5 text-on-surface/30 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors"
+                    >
+                      <Edit3 size={13} />
+                    </button>
+                  )}
+                  {!phoneMode && onRemove && (
+                    <button
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(true); }}
+                      className="p-1.5 text-on-surface/20 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              {tags && tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {tags.slice(0, 3).map((tag) => (
+                    <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{tag}</span>
+                  ))}
+                  {tags.length > 3 && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-on-surface/5 text-on-surface/30 font-medium">+{tags.length - 3}</span>
+                  )}
+                </div>
               )}
-            </div>
-          )}
-          {notes && (
-            <p className="text-[10px] text-on-surface/40 mt-1 line-clamp-1 italic">&ldquo;{notes}&rdquo;</p>
-          )}
-          <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-on-surface/5">
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
               {listBadges && listBadges.length > 0 && (
-                <div className="flex gap-1 overflow-hidden">
+                <div className="flex gap-1 mt-1 overflow-hidden">
                   {listBadges.slice(0, 2).map((l, i) => (
                     <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/8 text-secondary/60 font-medium whitespace-nowrap">
                       {l.emoji} {l.name}
@@ -378,34 +424,30 @@ const RestaurantRow: React.FC<{
                   )}
                 </div>
               )}
-              {!listBadges?.length && visitDate && (
-                <span className="text-[10px] text-on-surface/30">
-                  {new Date(visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              {onEdit && (
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                  className="text-[10px] font-bold text-primary uppercase tracking-wider hover:text-primary/70"
-                >
-                  Edit
-                </button>
-              )}
-              {onRemove && (
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
-                  className="text-[10px] font-bold text-red-400 uppercase tracking-wider hover:text-red-500"
-                >
-                  {removeLabel || 'Remove'}
-                </button>
-              )}
             </div>
           </div>
+        </Link>
+      </motion.div>
+
+      {/* Swipe action button (phone) */}
+      {phoneMode && swiped && onRemove && (
+        <button
+          onClick={handleDelete}
+          className="absolute right-0 top-0 bottom-0 w-20 bg-red-500 flex items-center justify-center rounded-r-2xl z-0"
+        >
+          <Trash2 size={18} className="text-white" />
+        </button>
+      )}
+
+      {/* Desktop delete confirmation */}
+      {confirmDelete && (
+        <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex items-center justify-center gap-3 border border-red-200">
+          <p className="text-xs text-on-surface/60 font-medium">Delete this restaurant?</p>
+          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-on-surface/5">Cancel</button>
+          <button onClick={handleDelete} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
         </div>
-      </div>
-    </Link>
+      )}
+    </div>
   );
 };
 
