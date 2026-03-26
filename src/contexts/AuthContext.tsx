@@ -33,33 +33,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
   const loadProfile = useCallback(async (userId: string) => {
+    setProfileLoaded(false);
     const p = await getProfile(userId);
     setProfile(p);
+    setProfileLoaded(true);
   }, []);
 
   useEffect(() => {
     if (!supabaseConfigured) {
       setLoading(false);
+      setProfileLoaded(true);
       return;
     }
 
     supabase.auth.getSession()
-      .then(({ data: { session } }) => {
+      .then(async ({ data: { session } }) => {
         const u = session?.user ?? null;
         setUser(u);
-        if (u) loadProfile(u.id);
+        if (u) {
+          await loadProfile(u.id);
+        } else {
+          setProfileLoaded(true);
+        }
       })
-      .catch(() => {})
+      .catch(() => {
+        setProfileLoaded(true);
+      })
       .finally(() => { setLoading(false); });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: string, session: Session | null) => {
+      async (_event: string, session: Session | null) => {
         const u = session?.user ?? null;
         setUser(u);
-        if (u) loadProfile(u.id);
-        else setProfile(null);
+        if (u) {
+          await loadProfile(u.id);
+        } else {
+          setProfile(null);
+          setProfileLoaded(true);
+        }
       }
     );
 
@@ -82,6 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!supabaseConfigured) return;
     await supabase.auth.signOut();
     setProfile(null);
+    setProfileLoaded(true);
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -90,8 +105,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
+  // Don't stop showing the loading screen until both auth AND profile are resolved
+  const isFullyLoaded = !loading && profileLoaded;
+
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading, signIn, signUp, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading: !isFullyLoaded, signIn, signUp, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
