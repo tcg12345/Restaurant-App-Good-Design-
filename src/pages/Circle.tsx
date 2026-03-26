@@ -86,6 +86,9 @@ export const Circle: React.FC = () => {
       setAddSuccess(friendName);
       setSearchResults((prev) => prev.filter((r) => r.user_id !== friendId));
       setTimeout(() => { setAddSuccess(null); }, 1500);
+    } else {
+      setAddSuccess(null);
+      alert('Could not send request. Make sure the friend request migration SQL has been run.');
     }
   };
 
@@ -326,7 +329,7 @@ export const Circle: React.FC = () => {
                       </div>
                       <button onClick={() => handleAddFriend(u.user_id, u.display_name)}
                         className="px-3 py-1.5 bg-primary text-white text-[10px] font-semibold rounded-lg">
-                        Follow
+                        Send Request
                       </button>
                     </div>
                   ))
