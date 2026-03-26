@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -296,7 +296,7 @@ export const AddRestaurantModal: React.FC = () => {
                     </div>
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Add details</p>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-2">
                         <DetailBtn icon={<StickyNote size={17} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
                         <DetailBtn icon={<DollarSign size={17} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
                         <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
@@ -543,12 +543,13 @@ const DetailBtn: React.FC<{
   icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
 }> = ({ icon, label, active, sub, onClick }) => (
   <button onClick={onClick}
-    className={cn("flex flex-col items-center gap-1 p-2.5 rounded-2xl border transition-all",
+    className={cn("w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left",
       active ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
     )}>
-    <span className={active ? "text-primary" : "text-on-surface/30"}>{icon}</span>
-    <span className={cn("text-[10px] font-semibold", active ? "text-primary" : "text-on-surface/40")}>{label}</span>
-    {sub && <span className="text-[9px] text-primary/60 line-clamp-1 w-full text-center">{sub}</span>}
+    <span className={cn("flex-shrink-0", active ? "text-primary" : "text-on-surface/30")}>{icon}</span>
+    <span className={cn("text-xs font-semibold flex-1", active ? "text-primary" : "text-on-surface/50")}>{label}</span>
+    {sub && <span className="text-[11px] text-primary/60 flex-shrink-0">{sub}</span>}
+    <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
   </button>
 );
 
