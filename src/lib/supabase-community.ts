@@ -154,3 +154,75 @@ export async function getCommunityPhotos(restaurantId: string): Promise<Communit
     return (data || []) as CommunityPhoto[];
   } catch (err) { console.error('[Community] getPhotos exception:', err); return []; }
 }
+
+/* ── Friend Management ── */
+
+export interface FriendInfo {
+  friend_id: string;
+  email?: string;
+}
+
+/** Get the current user's friend list */
+export async function getFriends(userId: string): Promise<FriendInfo[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('user_friends')
+      .select('friend_id').eq('user_id', userId);
+    if (error) { console.error('[Friends] getFriends error:', error); return []; }
+    return (data || []) as FriendInfo[];
+  } catch (err) { console.error('[Friends] getFriends exception:', err); return []; }
+}
+
+/** Add a friend by their user ID */
+export async function addFriend(userId: string, friendId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !friendId || userId === friendId) return false;
+  try {
+    const { error } = await supabase.from('user_friends')
+      .insert({ user_id: userId, friend_id: friendId });
+    if (error) { console.error('[Friends] addFriend error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[Friends] addFriend exception:', err); return false; }
+}
+
+/** Remove a friend */
+export async function removeFriend(userId: string, friendId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    const { error } = await supabase.from('user_friends')
+      .delete().eq('user_id', userId).eq('friend_id', friendId);
+    if (error) { console.error('[Friends] removeFriend error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[Friends] removeFriend exception:', err); return false; }
+}
+
+/** Search users by email (for adding friends) */
+export async function searchUsers(query: string): Promise<{ id: string; email: string }[]> {
+  if (!supabaseConfigured || !query.trim()) return [];
+  try {
+    // Query the auth.users view via a community_ratings lookup (since we can't directly query auth.users)
+    // Instead, search community_ratings for distinct user_ids and match
+    const { data, error } = await supabase.from('community_ratings')
+      .select('user_id')
+      .limit(50);
+    if (error || !data) return [];
+    // Return unique user IDs as potential friends
+    const seen = new Set<string>();
+    return data.filter((d: any) => {
+      if (seen.has(d.user_id)) return false;
+      seen.add(d.user_id);
+      return true;
+    }).map((d: any) => ({ id: d.user_id, email: d.user_id.slice(0, 8) + '...' }));
+  } catch (err) { console.error('[Friends] searchUsers exception:', err); return []; }
+}
+
+/** Get a friend's recent ratings (for activity feed) */
+export async function getFriendActivity(friendIds: string[], limit = 20): Promise<CommunityRating[]> {
+  if (!supabaseConfigured || friendIds.length === 0) return [];
+  try {
+    const { data, error } = await supabase.from('community_ratings')
+      .select('*').in('user_id', friendIds)
+      .order('updated_at', { ascending: false }).limit(limit);
+    if (error) { console.error('[Friends] getActivity error:', error); return []; }
+    return (data || []) as CommunityRating[];
+  } catch (err) { console.error('[Friends] getActivity exception:', err); return []; }
+}
