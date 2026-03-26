@@ -376,11 +376,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
               {friendsStats.totalRatings > 0 ? (
                 <>
                   <p className="text-3xl font-serif font-bold leading-none text-primary">{friendsStats.avgScore.toFixed(1)}</p>
-                  <div className="flex gap-0.5 justify-center mt-1.5 mb-2">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star key={s} size={11} className={s <= Math.round(friendsStats.avgScore / 2) ? 'fill-primary text-primary' : 'text-on-surface/15'} />
-                    ))}
-                  </div>
+                  <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
                 </>
               ) : (
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
@@ -396,11 +392,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
               {communityStats.totalRatings > 0 ? (
                 <>
                   <p className="text-3xl font-serif font-bold leading-none text-violet-600">{communityStats.avgScore.toFixed(1)}</p>
-                  <div className="flex gap-0.5 justify-center mt-1.5 mb-2">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star key={s} size={11} className={s <= Math.round(communityStats.avgScore / 2) ? 'fill-violet-500 text-violet-500' : 'text-on-surface/15'} />
-                    ))}
-                  </div>
+                  <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
                 </>
               ) : (
                 <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mb-2">
