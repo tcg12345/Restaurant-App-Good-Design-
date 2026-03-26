@@ -310,6 +310,8 @@ const RestaurantRow: React.FC<{
   const [swiped, setSwiped] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
+  const [isDragging, setIsDragging] = useState(false);
+
   // Extract city, state from address
   const location = (() => {
     if (!address) return '';
@@ -329,27 +331,30 @@ const RestaurantRow: React.FC<{
 
   return (
     <div className="relative overflow-hidden rounded-2xl">
-      {/* Swipe-to-delete red background (phone only) */}
-      {phoneMode && onRemove && (
+      {/* Swipe-to-delete red background */}
+      {onRemove && (
         <div className="absolute inset-0 bg-red-500 flex items-center justify-end px-5 rounded-2xl">
           <Trash2 size={18} className="text-white" />
         </div>
       )}
 
       <motion.div
-        drag={phoneMode && onRemove ? 'x' : false}
+        drag={onRemove ? 'x' : false}
         dragConstraints={{ left: -150, right: 0 }}
         dragElastic={0.1}
+        onDragStart={() => setIsDragging(true)}
         onDragEnd={(_: any, info: any) => {
+          setTimeout(() => setIsDragging(false), 50);
           if (info.offset.x < -120) handleDelete();
           else if (info.offset.x < -50) setSwiped(true);
           else setSwiped(false);
         }}
         animate={{ x: swiped ? -80 : 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        style={{ touchAction: 'pan-y' }}
         className="relative z-10"
       >
-        <Link to={`/restaurant/${restaurantId}`} className="block">
+        <Link to={`/restaurant/${restaurantId}`} className="block" onClick={(e) => { if (isDragging || swiped) e.preventDefault(); }}>
           <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex active:scale-[0.99] transition-transform">
             {!phoneMode && (
               <div className="w-24 sm:w-28 flex-shrink-0">
@@ -392,9 +397,9 @@ const RestaurantRow: React.FC<{
                       <Edit3 size={13} />
                     </button>
                   )}
-                  {!phoneMode && onRemove && (
+                  {onRemove && (
                     <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(true); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); phoneMode ? handleDelete() : setConfirmDelete(true); }}
                       className="p-1.5 text-on-surface/20 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                     >
                       <Trash2 size={13} />
@@ -429,8 +434,8 @@ const RestaurantRow: React.FC<{
         </Link>
       </motion.div>
 
-      {/* Swipe action button (phone) */}
-      {phoneMode && swiped && onRemove && (
+      {/* Swipe action button */}
+      {swiped && onRemove && (
         <button
           onClick={handleDelete}
           className="absolute right-0 top-0 bottom-0 w-20 bg-red-500 flex items-center justify-center rounded-r-2xl z-0"
