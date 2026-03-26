@@ -983,6 +983,10 @@ export const Pantry: React.FC = () => {
 
   const sortLabels: Record<string, string> = { recent: 'Recent', highest: 'Highest', lowest: 'Lowest', added: 'Date Added' };
 
+  // Main search
+  const [mainSearchOpen, setMainSearchOpen] = useState(false);
+  const [mainSearchQuery, setMainSearchQuery] = useState('');
+
   // Hide bottom nav when filter/city/cuisine sheets are open
   useEffect(() => {
     const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen;
@@ -1055,10 +1059,6 @@ export const Pantry: React.FC = () => {
 
   const toggleCityFilter = (city: string) => setCityFilter((prev) => prev.includes(city) ? prev.filter((c) => c !== city) : [...prev, city]);
   const toggleCuisineFilter = (cuisine: string) => setCuisineFilter((prev) => prev.includes(cuisine) ? prev.filter((c) => c !== cuisine) : [...prev, cuisine]);
-
-  // Main search
-  const [mainSearchOpen, setMainSearchOpen] = useState(false);
-  const [mainSearchQuery, setMainSearchQuery] = useState('');
 
   // Keep selectedList in sync
   const currentList = selectedList ? lists.find((l) => l.id === selectedList.id) ?? null : null;
