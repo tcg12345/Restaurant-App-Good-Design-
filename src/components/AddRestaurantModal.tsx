@@ -34,6 +34,9 @@ export const AddRestaurantModal: React.FC = () => {
 
   const [listDropdownOpen, setListDropdownOpen] = useState(false);
   const [creatingList, setCreatingList] = useState(false);
+  const [newListSheetOpen, setNewListSheetOpen] = useState(false);
+  const [newListMode, setNewListMode] = useState<'browse' | 'custom'>('browse');
+  const [newListSearch, setNewListSearch] = useState('');
   const [newName, setNewName] = useState('');
   const [newEmoji, setNewEmoji] = useState('📋');
 
@@ -58,6 +61,9 @@ export const AddRestaurantModal: React.FC = () => {
       setPage('main');
       setConfirmDelete(false);
       setCreatingList(false);
+      setNewListSheetOpen(false);
+      setNewListMode('browse');
+      setNewListSearch('');
       setNewName('');
       setListDropdownOpen(false);
       setTagSearch('');
@@ -174,7 +180,34 @@ export const AddRestaurantModal: React.FC = () => {
   // Hidden file input for photos
   const photoInput = <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />;
 
+  const PRESET_LISTS_MODAL = [
+    { name: 'Best Date Night Spots', emoji: '🕯️' }, { name: 'Birthday & Celebrations', emoji: '🎂' },
+    { name: 'Late Night Eats', emoji: '🌙' }, { name: 'Solo Dining Friendly', emoji: '🧘' },
+    { name: 'Group Dinner & Big Tables', emoji: '👥' }, { name: 'Hidden Gems', emoji: '💎' },
+    { name: 'Worth the Hype', emoji: '🔥' }, { name: 'Best Burgers', emoji: '🍔' },
+    { name: 'Best Pizza', emoji: '🍕' }, { name: 'Best Sushi & Omakase', emoji: '🍣' },
+    { name: 'Best Brunch', emoji: '🥞' }, { name: 'Best Cocktails', emoji: '🍸' },
+    { name: 'Michelin Star Experiences', emoji: '⭐' }, { name: 'Best Tasting Menus', emoji: '🍽️' },
+    { name: 'Quick Bites', emoji: '⚡' }, { name: 'Healthy Options', emoji: '🥗' },
+    { name: 'Vacation Eats', emoji: '🏖️' }, { name: 'Hotel Restaurants', emoji: '🏨' },
+  ];
+  const existingListNames = new Set(lists.map((l) => l.name.toLowerCase()));
+  const filteredPresetLists = newListSearch.trim()
+    ? PRESET_LISTS_MODAL.filter((p) => p.name.toLowerCase().includes(newListSearch.toLowerCase()))
+    : PRESET_LISTS_MODAL;
+
+  const handleCreateFromPreset = (name: string, emoji: string) => {
+    createList(name, emoji);
+    setNewListSheetOpen(false); setNewListMode('browse'); setNewListSearch('');
+  };
+  const handleCreateCustomFromSheet = () => {
+    if (!newName.trim()) return;
+    createList(newName.trim(), newEmoji);
+    setNewListSheetOpen(false); setNewListMode('browse'); setNewName(''); setNewEmoji('📋');
+  };
+
   return (
+    <>
     <AnimatePresence>
       {addRestaurantModalOpen && restaurant && (
         <motion.div
@@ -240,28 +273,10 @@ export const AddRestaurantModal: React.FC = () => {
                                 </button>
                               );
                             })}
-                            {creatingList ? (
-                              <div className="p-3 border-t border-on-surface/6 space-y-2">
-                                <div className="flex flex-wrap gap-1">
-                                  {EMOJI_OPTIONS.map((e) => (
-                                    <button key={e} onClick={() => setNewEmoji(e)}
-                                      className={cn("w-7 h-7 rounded text-sm", newEmoji === e ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-on-surface/5")}>{e}</button>
-                                  ))}
-                                </div>
-                                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="List name..." autoFocus
-                                  className="w-full border border-on-surface/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
-                                  onKeyDown={(e) => e.key === 'Enter' && handleCreateList()} />
-                                <div className="flex gap-2">
-                                  <button onClick={() => { setCreatingList(false); setNewName(''); }} className="flex-1 py-1.5 rounded-lg border border-on-surface/10 text-[11px] font-medium text-on-surface/50">Cancel</button>
-                                  <button onClick={handleCreateList} disabled={!newName.trim()} className="flex-1 py-1.5 rounded-lg bg-primary text-white text-[11px] font-semibold disabled:opacity-40">Create</button>
-                                </div>
-                              </div>
-                            ) : (
-                              <button onClick={() => setCreatingList(true)}
+                              <button onClick={() => { setListDropdownOpen(false); setNewListSheetOpen(true); }}
                                 className="w-full flex items-center gap-2.5 px-3.5 py-2.5 border-t border-on-surface/6 text-on-surface/35 hover:text-primary transition-colors">
                                 <Plus size={14} /><span className="text-xs font-semibold">New List</span>
                               </button>
-                            )}
                           </motion.div>
                         </>
                       )}
@@ -534,6 +549,85 @@ export const AddRestaurantModal: React.FC = () => {
         </motion.div>
       )}
     </AnimatePresence>
+
+    {/* New List Sheet */}
+    <AnimatePresence>
+      {newListSheetOpen && (
+        <>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110]" onClick={() => setNewListSheetOpen(false)} />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            className={cn("fixed bottom-0 left-0 right-0 z-[110] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+              phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
+              <h3 className="font-serif font-bold text-lg">{newListMode === 'browse' ? 'New List' : 'Create Custom List'}</h3>
+              <button onClick={() => { setNewListSheetOpen(false); setNewListMode('browse'); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+
+            {newListMode === 'browse' ? (
+              <>
+                <div className="px-5 pt-3 pb-2 flex-shrink-0">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                    <input type="text" value={newListSearch} onChange={(e) => setNewListSearch(e.target.value)} placeholder="Search lists..."
+                      className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  </div>
+                </div>
+                <div className="px-5 pb-2 flex-shrink-0">
+                  <button onClick={() => setNewListMode('custom')}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-primary/20 text-primary hover:bg-primary/5 transition-all">
+                    <span className="text-sm font-semibold">Create Custom List</span>
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-1.5">
+                  {filteredPresetLists.map((preset) => {
+                    const exists = existingListNames.has(preset.name.toLowerCase());
+                    return (
+                      <button key={preset.name} onClick={() => !exists && handleCreateFromPreset(preset.name, preset.emoji)} disabled={exists}
+                        className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left",
+                          exists ? "bg-on-surface/3 border-on-surface/5 opacity-50" : "bg-white border-on-surface/8 hover:border-primary/30 active:bg-primary/5")}>
+                        <span className="text-xl">{preset.emoji}</span>
+                        <span className="text-sm font-medium flex-1 truncate">{preset.name}</span>
+                        {exists ? <span className="text-[10px] text-on-surface/30">Added</span> : <Plus size={16} className="text-on-surface/20" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="px-5 py-4 space-y-4">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2">Choose an emoji</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {EMOJI_OPTIONS.map((e) => (
+                      <button key={e} onClick={() => setNewEmoji(e)}
+                        className={cn("w-10 h-10 rounded-lg flex items-center justify-center text-lg transition-all", newEmoji === e ? "bg-primary/10 ring-2 ring-primary/30 scale-110" : "hover:bg-on-surface/5")}>{e}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2">List name</p>
+                  <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Enter list name..." autoFocus
+                    className="w-full bg-white border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    onKeyDown={(e) => e.key === 'Enter' && handleCreateCustomFromSheet()} />
+                </div>
+                <div className="flex gap-3 pt-1">
+                  <button onClick={() => { setNewListMode('browse'); setNewName(''); }} className="flex-1 py-3 rounded-xl border border-on-surface/10 text-sm font-medium text-on-surface/50">Back</button>
+                  <button onClick={handleCreateCustomFromSheet} disabled={!newName.trim()} className="flex-1 py-3 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-40">Create</button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+    </>
   );
 };
 
