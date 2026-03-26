@@ -572,11 +572,18 @@ const ListDetailView: React.FC<{
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
   const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openRatingModal, deleteList, wishlist } = useLists();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [confirmDeleteList, setConfirmDeleteList] = useState(false);
 
   const ratedRestaurants = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
     const rating = ratings.find((r) => r.restaurantId === id);
     return { id, info, rating };
+  }).filter(({ info }) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q);
   });
 
   const wishlistedRestaurants = (list.wishlistIds || []).map((id) => {
@@ -600,20 +607,50 @@ const ListDetailView: React.FC<{
             {totalCount} restaurant{totalCount !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          onClick={() => setAddSheetOpen(true)}
-          className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors"
-          title="Add restaurants"
-        >
+        <button onClick={() => setSearchOpen(!searchOpen)}
+          className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
+          <Search size={18} />
+        </button>
+        <button onClick={() => setAddSheetOpen(true)}
+          className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title="Add restaurants">
           <Plus size={20} />
         </button>
-        <button
-          onClick={() => { deleteList(list.id); onBack(); }}
-          className="p-2 text-red-400 hover:text-red-500 transition-colors"
-        >
+        <button onClick={() => setConfirmDeleteList(true)}
+          className="p-2 text-red-400 hover:text-red-500 transition-colors">
           <Trash2 size={16} />
         </button>
       </div>
+
+      {/* Search bar */}
+      <AnimatePresence>
+        {searchOpen && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-3">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search restaurants..."
+                autoFocus className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30"><X size={14} /></button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete list confirmation */}
+      <AnimatePresence>
+        {confirmDeleteList && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-3">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-red-600 font-medium">Delete "{list.name}" list?</p>
+              <div className="flex gap-2 flex-shrink-0">
+                <button onClick={() => setConfirmDeleteList(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
+                <button onClick={() => { deleteList(list.id); onBack(); }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* View mode toggle for desktop */}
       {totalCount > 0 && (
@@ -969,6 +1006,10 @@ export const Pantry: React.FC = () => {
   const filteredRatings = useMemo(() => {
     let result = [...ratings];
 
+    if (mainSearchQuery.trim()) {
+      const q = mainSearchQuery.toLowerCase();
+      result = result.filter((r) => r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.address.toLowerCase().includes(q));
+    }
     if (cityFilter.length > 0) {
       result = result.filter((r) => {
         const parts = r.address?.split(',').map((s) => s.trim()) || [];
@@ -984,7 +1025,7 @@ export const Pantry: React.FC = () => {
     else if (sortBy === 'added') result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return result;
-  }, [ratings, cityFilter, cuisineFilter, priceFilter, scoreRange, sortBy]);
+  }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, scoreRange, sortBy]);
 
   const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
@@ -996,6 +1037,10 @@ export const Pantry: React.FC = () => {
 
   const toggleCityFilter = (city: string) => setCityFilter((prev) => prev.includes(city) ? prev.filter((c) => c !== city) : [...prev, city]);
   const toggleCuisineFilter = (cuisine: string) => setCuisineFilter((prev) => prev.includes(cuisine) ? prev.filter((c) => c !== cuisine) : [...prev, cuisine]);
+
+  // Main search
+  const [mainSearchOpen, setMainSearchOpen] = useState(false);
+  const [mainSearchQuery, setMainSearchQuery] = useState('');
 
   // Keep selectedList in sync
   const currentList = selectedList ? lists.find((l) => l.id === selectedList.id) ?? null : null;
@@ -1130,11 +1175,31 @@ export const Pantry: React.FC = () => {
                     <span className="font-bold text-on-surface">{wishlist.length}</span> wishlisted
                   </p>
                 )}
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center gap-2">
+                  <button onClick={() => setMainSearchOpen(!mainSearchOpen)}
+                    className={cn("p-1.5 rounded-lg transition-colors", mainSearchOpen ? "text-primary bg-primary/10" : "text-on-surface/30 hover:text-on-surface/50")}>
+                    <Search size={15} />
+                  </button>
                   <ViewModeToggle mode={effectiveViewMode} onChange={setViewMode} />
                 </div>
               </div>
             )}
+
+            {/* Main search bar */}
+            <AnimatePresence>
+              {mainSearchOpen && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-3">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                    <input type="text" value={mainSearchQuery} onChange={(e) => setMainSearchQuery(e.target.value)} placeholder="Search by name, cuisine, location..."
+                      autoFocus className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    {mainSearchQuery && (
+                      <button onClick={() => setMainSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30"><X size={14} /></button>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* ── Restaurant list ── */}
             {ratings.length === 0 && wishlist.length === 0 ? (
