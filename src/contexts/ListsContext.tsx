@@ -191,6 +191,23 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return;
     }
 
+    // Check if localStorage belongs to a different user — if so, clear it
+    const storedUserId = localStorage.getItem('gourmad-user-id');
+    if (storedUserId && storedUserId !== userId) {
+      console.log('[Supabase] Different user detected, clearing local cache');
+      localStorage.removeItem(STORAGE_KEY_RATINGS);
+      localStorage.removeItem(STORAGE_KEY_LISTS);
+      localStorage.removeItem(STORAGE_KEY_WISHLIST);
+      localStorage.removeItem(STORAGE_KEY_META);
+      localStorage.removeItem('gourmad-recent-views');
+      // Reset state to empty
+      setRatings([]);
+      setLists(DEFAULT_LISTS);
+      setWishlist([]);
+      setRestaurantMeta({});
+    }
+    localStorage.setItem('gourmad-user-id', userId);
+
     let cancelled = false;
     console.log('[Supabase] Loading cloud data for user:', userId);
 
@@ -222,24 +239,28 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         console.log('[Supabase] Loaded user data from cloud:', cloudRatings.length, 'ratings,', cloudLists.length, 'lists,', cloudWishlist.length, 'wishlist,', cloudRecentViews.length, 'recent views');
       } else {
-        // No cloud data or empty — push current localStorage data to Supabase as initial sync
-        const localRatings = migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, []));
-        const localLists = migrateLists(loadFromStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS));
-        const localWishlist = migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, []));
-        const localMeta = loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {});
-        let localRecentViews: any[] = [];
-        try { const raw = localStorage.getItem('gourmad-recent-views'); localRecentViews = raw ? JSON.parse(raw) : []; } catch {}
+        // No cloud data — start fresh for this user (don't sync stale localStorage)
+        console.log('[Supabase] No cloud data found for user, starting fresh');
+        setRatings([]);
+        setLists(DEFAULT_LISTS);
+        setWishlist([]);
+        setRestaurantMeta({});
 
-        console.log('[Supabase] No cloud data found, syncing local data to cloud:', localRatings.length, 'ratings,', localLists.length, 'lists');
-
-        const success = await saveUserData(userId, {
-          ratings: localRatings,
-          lists: localLists,
-          wishlist: localWishlist,
-          restaurantMeta: localMeta,
-          recentViews: localRecentViews,
+        // Save empty state to cloud
+        await saveUserData(userId, {
+          ratings: [],
+          lists: DEFAULT_LISTS,
+          wishlist: [],
+          restaurantMeta: {},
+          recentViews: [],
         });
-        console.log('[Supabase] Initial sync result:', success ? 'SUCCESS' : 'FAILED');
+
+        // Clear localStorage
+        saveToStorage(STORAGE_KEY_RATINGS, []);
+        saveToStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS);
+        saveToStorage(STORAGE_KEY_WISHLIST, []);
+        saveToStorage(STORAGE_KEY_META, {});
+        localStorage.setItem('gourmad-recent-views', '[]');
       }
 
       setCloudLoaded(true);
