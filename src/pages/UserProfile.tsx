@@ -76,11 +76,24 @@ export const UserProfile: React.FC = () => {
     })();
   }, [username, userId]);
 
-  // Shared restaurants (you both rated)
+  // Shared restaurants — ones where either user tagged the other as "went with"
   const sharedRestaurants = useMemo(() => {
     if (!canView || !userId || !profile) return [];
-    const myRatedIds = new Set(myRatings.map((r) => r.restaurantId));
-    return userRatings.filter((r) => myRatedIds.has(r.restaurant_id));
+    // Restaurants where this user tagged me
+    const theyTaggedMe = userRatings.filter((r) => (r.friend_ids || []).includes(userId));
+    // Restaurants where I tagged them
+    const iTaggedThem = myRatings.filter((r) => (r.friendIds || []).includes(profile.user_id));
+    // Combine and deduplicate by restaurant_id
+    const seen = new Set<string>();
+    const result: CommunityRating[] = [];
+    theyTaggedMe.forEach((r) => { if (!seen.has(r.restaurant_id)) { seen.add(r.restaurant_id); result.push(r); } });
+    iTaggedThem.forEach((r) => {
+      if (!seen.has(r.restaurantId)) {
+        seen.add(r.restaurantId);
+        result.push({ id: '', user_id: userId, restaurant_id: r.restaurantId, restaurant_name: r.name, score: r.score as any, notes: r.notes, cuisine: r.cuisine, price: r.price, address: r.address, visit_date: r.visitDate, tags: r.tags, would_return: r.wouldReturn, friend_ids: r.friendIds || [], created_at: '' });
+      }
+    });
+    return result;
   }, [userRatings, myRatings, canView, userId, profile]);
 
   // Stats

@@ -5,6 +5,8 @@ import { cn } from '../lib/utils';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
+import { useAuth } from '../contexts/AuthContext';
+import { getFriends, getProfilesByIds, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
@@ -15,6 +17,20 @@ export const AddRestaurantModal: React.FC = () => {
     lists, createList,
   } = useLists();
   const { phoneMode } = useSettings();
+  const { user } = useAuth();
+
+  // Real friends
+  const [realFriends, setRealFriends] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const fl = await getFriends(user.id);
+      if (fl.length > 0) {
+        const profiles = await getProfilesByIds(fl.map((f) => f.friend_id));
+        setRealFriends(fl.map((f) => ({ id: f.friend_id, name: profiles[f.friend_id]?.display_name || profiles[f.friend_id]?.username || f.friend_id.slice(0, 8) })));
+      }
+    })();
+  }, [user?.id]);
 
   const restaurant = addRestaurantModalMeta;
   const existing = restaurant ? getRating(restaurant.id) : undefined;
@@ -55,7 +71,7 @@ export const AddRestaurantModal: React.FC = () => {
       setSelectedTags(ex?.tags ?? []);
       setPhotos(ex?.photos ?? []);
       setSelectedListIds(ex?.listIds ?? []);
-      setSelectedFriends([]);
+      setSelectedFriends(ex?.friendIds ?? []);
       setPriceIndex(-1);
       setPriceAmount('');
       setPage('main');
@@ -139,7 +155,7 @@ export const AddRestaurantModal: React.FC = () => {
       restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
       cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
       score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
-      listIds: selectedListIds, createdAt: Date.now(),
+      listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
     });
     closeAddRestaurantModal();
   };
@@ -168,12 +184,11 @@ export const AddRestaurantModal: React.FC = () => {
     return ALL_TAGS.filter((t) => t.toLowerCase().includes(q));
   }, [tagSearch]);
 
-  const MOCK_FRIENDS = useMemo(() => ['Alex Chen', 'Maria Garcia', 'James Wilson', 'Sarah Kim', 'David Park', 'Emma Davis', 'Chris Lee', 'Olivia Brown', 'Ryan Martinez', 'Sophie Taylor'], []);
   const filteredFriends = useMemo(() => {
-    if (!friendSearch.trim()) return MOCK_FRIENDS;
+    if (!friendSearch.trim()) return realFriends;
     const q = friendSearch.toLowerCase();
-    return MOCK_FRIENDS.filter((f) => f.toLowerCase().includes(q));
-  }, [friendSearch, MOCK_FRIENDS]);
+    return realFriends.filter((f) => f.name.toLowerCase().includes(q));
+  }, [friendSearch, realFriends]);
 
   const selectedListLabels = lists.filter((l) => selectedListIds.includes(l.id));
 
@@ -513,33 +528,46 @@ export const AddRestaurantModal: React.FC = () => {
                     </div>
                     {hasFriends && (
                       <div className="flex flex-wrap gap-1.5 mt-2.5">
-                        {selectedFriends.map((name) => (
-                          <span key={name} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
-                            {name}<button onClick={() => toggleFriend(name)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
-                          </span>
-                        ))}
+                        {selectedFriends.map((fid) => {
+                          const fname = realFriends.find((f) => f.id === fid)?.name || fid.slice(0, 8);
+                          return (
+                            <span key={fid} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
+                              {fname}<button onClick={() => toggleFriend(fid)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3"
                     onTouchMove={(e) => e.stopPropagation()}>
                     <p className="text-[10px] text-on-surface/30 mb-3 px-1">Select friends who joined you</p>
-                    {filteredFriends.map((name) => {
-                      const sel = selectedFriends.includes(name);
-                      return (
-                        <button key={name} onClick={() => toggleFriend(name)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
-                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
-                          )}>
-                          <div className="w-8 h-8 rounded-full bg-on-surface/8 flex items-center justify-center text-xs font-bold text-on-surface/40 flex-shrink-0">
-                            {name.split(' ').map((n) => n[0]).join('')}
-                          </div>
-                          <span className={cn("flex-1 text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{name}</span>
-                          {sel && <Check size={16} className="text-primary flex-shrink-0" />}
-                        </button>
-                      );
-                    })}
-                    {filteredFriends.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No friends match "{friendSearch}"</p>}
+                    {realFriends.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Users size={24} className="mx-auto text-on-surface/15 mb-2" />
+                        <p className="text-sm text-on-surface/30">No friends yet</p>
+                        <p className="text-xs text-on-surface/20 mt-1">Add friends on the Circle page first</p>
+                      </div>
+                    ) : (
+                      <>
+                        {filteredFriends.map((friend) => {
+                          const sel = selectedFriends.includes(friend.id);
+                          return (
+                            <button key={friend.id} onClick={() => toggleFriend(friend.id)}
+                              className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
+                                sel ? "bg-primary/3" : "hover:bg-on-surface/3"
+                              )}>
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary/50 flex-shrink-0">
+                                {friend.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                              </div>
+                              <span className={cn("flex-1 text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{friend.name}</span>
+                              {sel && <Check size={16} className="text-primary flex-shrink-0" />}
+                            </button>
+                          );
+                        })}
+                        {filteredFriends.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No friends match "{friendSearch}"</p>}
+                      </>
+                    )}
                   </div>
                   <BottomBtn label={hasFriends ? `Done (${selectedFriends.length})` : 'Done'} onClick={() => { setPage('main'); setFriendSearch(''); }} />
                 </SubPage>

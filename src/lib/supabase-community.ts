@@ -16,6 +16,7 @@ export interface CommunityRating {
   visit_date: string;
   tags: string[];
   would_return: boolean;
+  friend_ids: string[];
   created_at: string;
 }
 
@@ -47,7 +48,7 @@ export interface FriendsStats {
 export async function publishCommunityRating(
   userId: string,
   restaurantId: string,
-  data: { name: string; score: number; notes: string; cuisine: string; price: string; address: string; visitDate: string; tags: string[]; wouldReturn: boolean }
+  data: { name: string; score: number; notes: string; cuisine: string; price: string; address: string; visitDate: string; tags: string[]; wouldReturn: boolean; friendIds?: string[] }
 ): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
@@ -63,6 +64,7 @@ export async function publishCommunityRating(
       visit_date: data.visitDate,
       tags: data.tags,
       would_return: data.wouldReturn,
+      friend_ids: data.friendIds || [],
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,restaurant_id' });
     if (error) { console.error('[Community] publishRating error:', error); return false; }

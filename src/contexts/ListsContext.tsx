@@ -26,6 +26,7 @@ export interface RestaurantRating {
   tags: string[];         // e.g. "Great cocktails", "Romantic", etc.
   photos: PhotoItem[];    // user-uploaded photos with captions
   listIds: string[];      // which lists this rating belongs to
+  friendIds: string[];    // user IDs of friends who joined
   createdAt: number;      // timestamp
 }
 
@@ -152,6 +153,7 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
   return ratings.map((r) => ({
     ...r,
     listIds: r.listIds ?? [],
+    friendIds: r.friendIds ?? [],
     photos: (r.photos ?? []).map((p: any) =>
       typeof p === 'string' ? { url: p, caption: '', isFavorite: false } : p
     ),
@@ -343,6 +345,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         name: rating.name, score: rating.score, notes: rating.notes,
         cuisine: rating.cuisine, price: rating.price, address: rating.address,
         visitDate: rating.visitDate, tags: rating.tags, wouldReturn: rating.wouldReturn,
+        friendIds: rating.friendIds || [],
       });
       if (rating.photos && rating.photos.length > 0) {
         publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos);
