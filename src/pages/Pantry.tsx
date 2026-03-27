@@ -587,11 +587,13 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openRatingModal, deleteList, wishlist } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openRatingModal, deleteList, wishlist, removeFromWishlist } = useLists();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmDeleteList, setConfirmDeleteList] = useState(false);
+
+  const isWishlistView = list.id === '__wishlist__';
 
   const ratedRestaurants = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
@@ -628,14 +630,18 @@ const ListDetailView: React.FC<{
           className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
           <Search size={18} />
         </button>
-        <button onClick={() => setAddSheetOpen(true)}
-          className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title="Add restaurants">
-          <Plus size={20} />
-        </button>
-        <button onClick={() => setConfirmDeleteList(true)}
-          className="p-2 text-red-400 hover:text-red-500 transition-colors">
-          <Trash2 size={16} />
-        </button>
+        {!isWishlistView && (
+          <button onClick={() => setAddSheetOpen(true)}
+            className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title="Add restaurants">
+            <Plus size={20} />
+          </button>
+        )}
+        {!isWishlistView && (
+          <button onClick={() => setConfirmDeleteList(true)}
+            className="p-2 text-red-400 hover:text-red-500 transition-colors">
+            <Trash2 size={16} />
+          </button>
+        )}
       </div>
 
       {/* Search bar */}
@@ -747,7 +753,7 @@ const ListDetailView: React.FC<{
                     cuisine={info?.cuisine ?? ''}
                     price={info?.price ?? ''}
                     notes={wishItem?.notes}
-                    onRemove={() => removeFromWishlistInList(list.id, id)}
+                    onRemove={() => isWishlistView ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
                   />
                 ))}
               </div>
@@ -1061,7 +1067,11 @@ export const Pantry: React.FC = () => {
   const toggleCuisineFilter = (cuisine: string) => setCuisineFilter((prev) => prev.includes(cuisine) ? prev.filter((c) => c !== cuisine) : [...prev, cuisine]);
 
   // Keep selectedList in sync
-  const currentList = selectedList ? lists.find((l) => l.id === selectedList.id) ?? null : null;
+  const currentList = selectedList
+    ? selectedList.id === '__wishlist__'
+      ? { ...selectedList, wishlistIds: wishlist.map((w) => w.restaurantId) } as CustomList
+      : lists.find((l) => l.id === selectedList.id) ?? null
+    : null;
 
   return (
     <div className="pb-32">
@@ -1079,6 +1089,16 @@ export const Pantry: React.FC = () => {
                 className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-3 px-3"
                 style={{ WebkitOverflowScrolling: 'touch' }}
               >
+                {/* Wishlist pill — always first, not deletable */}
+                <button
+                  onClick={() => setSelectedList({ id: '__wishlist__', name: 'Wishlist', emoji: '❤️', restaurantIds: [], wishlistIds: wishlist.map((w) => w.restaurantId), createdAt: 0 } as CustomList)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-red-50 rounded-full border border-red-200 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                >
+                  <span className="text-sm">❤️</span>
+                  <span className="text-xs font-semibold text-red-500 whitespace-nowrap">Wishlist</span>
+                  <span className="text-[10px] text-red-400 font-medium">{wishlist.length}</span>
+                </button>
+
                 {lists.map((list) => {
                   const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
                   return (
