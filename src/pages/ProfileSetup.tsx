@@ -8,6 +8,7 @@ export const ProfileSetup: React.FC = () => {
   const { user, refreshProfile } = useAuth();
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
+  const [isPublic, setIsPublic] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -23,7 +24,7 @@ export const ProfileSetup: React.FC = () => {
     if (!user?.id) return;
     setSubmitting(true);
 
-    const result = await saveProfile(user.id, displayName.trim(), username.trim());
+    const result = await saveProfile(user.id, displayName.trim(), username.trim(), '', isPublic);
     if (result.success) {
       await refreshProfile();
     } else {
@@ -67,6 +68,18 @@ export const ProfileSetup: React.FC = () => {
         {username && (
           <p className="text-xs text-on-surface/40 px-1">Your username will be: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></p>
         )}
+
+        {/* Public/Private toggle */}
+        <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-on-surface">{isPublic ? 'Public Account' : 'Private Account'}</p>
+            <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
+          </div>
+          <button type="button" onClick={() => setIsPublic(!isPublic)}
+            className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[1.125rem]' : 'left-[0.125rem]'}`} />
+          </button>
+        </div>
 
         {error && (
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}

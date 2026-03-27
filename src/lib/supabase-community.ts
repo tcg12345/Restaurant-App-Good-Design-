@@ -162,6 +162,7 @@ export interface UserProfile {
   display_name: string;
   username: string;
   bio: string;
+  is_public: boolean;
 }
 
 export async function getProfile(userId: string): Promise<UserProfile | null> {
@@ -184,7 +185,7 @@ export async function getProfileByUsername(username: string): Promise<UserProfil
   } catch { return null; }
 }
 
-export async function saveProfile(userId: string, displayName: string, username: string, bio?: string): Promise<{ success: boolean; error?: string }> {
+export async function saveProfile(userId: string, displayName: string, username: string, bio?: string, isPublic?: boolean): Promise<{ success: boolean; error?: string }> {
   if (!supabaseConfigured || !userId) return { success: false, error: 'Not configured' };
   try {
     const payload: any = {
@@ -192,6 +193,7 @@ export async function saveProfile(userId: string, displayName: string, username:
       updated_at: new Date().toISOString(),
     };
     if (bio !== undefined) payload.bio = bio;
+    if (isPublic !== undefined) payload.is_public = isPublic;
     const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'user_id' });
     if (error) {
       if (error.code === '23505') return { success: false, error: 'Username is already taken' };
@@ -222,6 +224,30 @@ export async function getProfilesByIds(userIds: string[]): Promise<Record<string
     (data || []).forEach((p: any) => { map[p.user_id] = p as UserProfile; });
     return map;
   } catch { return {}; }
+}
+
+/** Check if currentUser can view targetUser's profile */
+export async function canViewProfile(currentUserId: string, targetProfile: UserProfile): Promise<boolean> {
+  if (targetProfile.is_public) return true;
+  if (currentUserId === targetProfile.user_id) return true;
+  // Check mutual friendship
+  if (!supabaseConfigured) return false;
+  try {
+    const { data } = await supabase.from('user_friends')
+      .select('id').eq('user_id', currentUserId).eq('friend_id', targetProfile.user_id).eq('status', 'accepted').single();
+    return !!data;
+  } catch { return false; }
+}
+
+/** Follow a public account instantly (no request needed) */
+export async function followPublicAccount(userId: string, targetId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !targetId || userId === targetId) return false;
+  try {
+    const { error } = await supabase.from('user_friends')
+      .upsert({ user_id: userId, friend_id: targetId, status: 'accepted' }, { onConflict: 'user_id,friend_id' });
+    if (error) { console.error('[Friends] followPublic error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[Friends] followPublic exception:', err); return false; }
 }
 
 /** Get follower and following counts */

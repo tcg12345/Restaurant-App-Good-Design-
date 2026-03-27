@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { getFriends, sendFriendRequest, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
+import { getFriends, sendFriendRequest, followPublicAccount, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { Link } from 'react-router-dom';
 
 type Tab = 'friends' | 'experts';
@@ -88,13 +88,17 @@ export const Circle: React.FC = () => {
     setSearching(false);
   };
 
-  const handleAddFriend = async (friendId: string, friendName: string) => {
+  const handleAddFriend = async (friendId: string, friendName: string, isPublic: boolean) => {
     if (!userId) return;
-    const ok = await sendFriendRequest(userId, friendId);
+    const ok = isPublic
+      ? await followPublicAccount(userId, friendId)
+      : await sendFriendRequest(userId, friendId);
     if (ok) {
       setAddSuccess(friendName);
       setSearchResults((prev) => prev.filter((r) => r.user_id !== friendId));
+      setSuggestions((prev) => prev.filter((r) => r.user_id !== friendId));
       setTimeout(() => { setAddSuccess(null); }, 1500);
+      if (isPublic) loadData();
     } else {
       setAddSuccess(null);
       alert('Could not send request. Make sure the friend request migration SQL has been run.');
@@ -209,13 +213,15 @@ export const Circle: React.FC = () => {
                     const profile = friendProfiles[f.friend_id];
                     return (
                       <div key={f.friend_id} className="flex items-center gap-3 bg-white rounded-xl border border-on-surface/8 px-3 py-2.5">
-                        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                          <UserCircle size={18} className="text-primary/50" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">{profile?.display_name || 'User'}</p>
-                          <p className="text-[10px] text-on-surface/35">@{profile?.username || f.friend_id.slice(0, 8)}</p>
-                        </div>
+                        <Link to={`/user/${profile?.username || f.friend_id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <UserCircle size={18} className="text-primary/50" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold truncate">{profile?.display_name || 'User'}</p>
+                            <p className="text-[10px] text-on-surface/35">@{profile?.username || f.friend_id.slice(0, 8)}</p>
+                          </div>
+                        </Link>
                         {confirmRemove === f.friend_id ? (
                           <div className="flex gap-1.5">
                             <button onClick={() => setConfirmRemove(null)} className="px-2 py-1 text-[10px] font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg">Cancel</button>
@@ -336,9 +342,9 @@ export const Circle: React.FC = () => {
                         <p className="text-sm font-semibold truncate">{u.display_name}</p>
                         <p className="text-[10px] text-on-surface/35">@{u.username}</p>
                       </div>
-                      <button onClick={() => handleAddFriend(u.user_id, u.display_name)}
+                      <button onClick={() => handleAddFriend(u.user_id, u.display_name, u.is_public)}
                         className="px-3 py-1.5 bg-primary text-white text-[10px] font-semibold rounded-lg">
-                        Send Request
+                        {u.is_public ? "Follow" : "Send Request"}
                       </button>
                     </div>
                   ))
@@ -354,9 +360,9 @@ export const Circle: React.FC = () => {
                           <p className="text-sm font-semibold truncate">{u.display_name}</p>
                           <p className="text-[10px] text-on-surface/35">@{u.username}</p>
                         </div>
-                        <button onClick={() => handleAddFriend(u.user_id, u.display_name)}
+                        <button onClick={() => handleAddFriend(u.user_id, u.display_name, u.is_public)}
                           className="px-3 py-1.5 bg-primary text-white text-[10px] font-semibold rounded-lg">
-                          Send Request
+                          {u.is_public ? "Follow" : "Send Request"}
                         </button>
                       </div>
                     ))}

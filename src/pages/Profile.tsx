@@ -242,6 +242,23 @@ export const Profile: React.FC = () => {
                             animate={{ left: phoneMode ? '1.125rem' : '0.125rem' }} transition={{ type: 'spring', damping: 20, stiffness: 350 }} />
                         </div>
                       </button>
+                      <button onClick={async () => {
+                          if (!user?.id || !profile) return;
+                          const newVal = !profile.is_public;
+                          await saveProfile(user.id, profile.display_name, profile.username, profile.bio, newVal);
+                          await refreshProfile();
+                        }}
+                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left">
+                        <Lock size={18} className="text-on-surface/40" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">Private Account</p>
+                          <p className="text-[11px] text-on-surface/35">{profile?.is_public ? 'Anyone can see your profile' : 'Only approved followers'}</p>
+                        </div>
+                        <div className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${!profile?.is_public ? 'bg-primary' : 'bg-on-surface/15'}`}>
+                          <motion.div className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md"
+                            animate={{ left: !profile?.is_public ? '1.125rem' : '0.125rem' }} transition={{ type: 'spring', damping: 20, stiffness: 350 }} />
+                        </div>
+                      </button>
                       <div className="border-t border-on-surface/6 my-2" />
                       <button onClick={() => { setSettingsOpen(false); signOut(); }}
                         className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-red-50 transition-colors text-left">

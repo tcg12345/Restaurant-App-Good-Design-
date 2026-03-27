@@ -26,6 +26,7 @@ import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
+import { UserProfile } from './pages/UserProfile';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
@@ -112,6 +113,7 @@ const AppContent: React.FC = () => {
               <Route path="/restaurant/:id" element={<RestaurantDetail />} />
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/import" element={<ImportRestaurants />} />
+              <Route path="/user/:username" element={<UserProfile />} />
             </Routes>
           </AnimatePresence>
         </div>
