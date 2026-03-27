@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type CustomList } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -992,6 +992,58 @@ export const Pantry: React.FC = () => {
   // Main search
   const [mainSearchOpen, setMainSearchOpen] = useState(false);
   const [mainSearchQuery, setMainSearchQuery] = useState('');
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close more menu on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) setMoreMenuOpen(false);
+    };
+    if (moreMenuOpen) document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [moreMenuOpen]);
+
+  const handleExport = (format: 'csv' | 'json') => {
+    const items = filteredRatings.map((r) => ({
+      name: r.name, address: r.address, city: (() => { const p = r.address.split(',').map(s => s.trim()); return p.length >= 2 ? p[p.length - 1] : ''; })(),
+      cuisine: r.cuisine, rating: r.score, notes: r.notes,
+      date_visited: r.visitDate, is_wishlist: false, price_range: r.price.length,
+    }));
+    // Also add wishlist items
+    wishlist.forEach((w) => {
+      items.push({
+        name: w.name, address: w.address, city: (() => { const p = w.address.split(',').map(s => s.trim()); return p.length >= 2 ? p[p.length - 1] : ''; })(),
+        cuisine: w.cuisine, rating: 0, notes: w.notes,
+        date_visited: '', is_wishlist: true, price_range: w.price.length,
+      });
+    });
+
+    let content: string;
+    let mimeType: string;
+    let ext: string;
+
+    if (format === 'csv') {
+      const header = 'name,address,city,cuisine,rating,notes,date_visited,is_wishlist,price_range';
+      const rows = items.map((i) => [i.name, i.address, i.city, i.cuisine, i.rating || '', i.notes, i.date_visited, i.is_wishlist, i.price_range].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+      content = [header, ...rows].join('\n');
+      mimeType = 'text/csv';
+      ext = 'csv';
+    } else {
+      content = JSON.stringify(items, null, 2);
+      mimeType = 'application/json';
+      ext = 'json';
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `my-restaurants.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setMoreMenuOpen(false);
+  };
 
   // Hide bottom nav when filter/city/cuisine sheets are open
   useEffect(() => {
@@ -1076,6 +1128,50 @@ export const Pantry: React.FC = () => {
   return (
     <div className="pb-32">
       <TopBar title="My Lists" />
+
+      {/* Three-dots menu — only on main view, not list detail */}
+      {!currentList && (
+        <div className="px-3 flex justify-end -mt-2 mb-1">
+          <div className="relative" ref={moreMenuRef}>
+            <button onClick={() => setMoreMenuOpen(!moreMenuOpen)}
+              className="p-2 text-on-surface/40 hover:text-on-surface hover:bg-on-surface/5 rounded-full transition-colors">
+              <MoreHorizontal size={20} />
+            </button>
+            <AnimatePresence>
+              {moreMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: -4 }}
+                  transition={{ type: 'spring', damping: 24, stiffness: 400, mass: 0.5 }}
+                  className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-on-surface/8 overflow-hidden z-50"
+                >
+                  <button onClick={() => { setMoreMenuOpen(false); navigate('/import'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left">
+                    <Upload size={16} className="text-on-surface/40" />
+                    <span className="text-sm font-medium text-on-surface/70">Import</span>
+                  </button>
+                  <button onClick={() => handleExport('csv')}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
+                    <Download size={16} className="text-on-surface/40" />
+                    <span className="text-sm font-medium text-on-surface/70">Export CSV</span>
+                  </button>
+                  <button onClick={() => handleExport('json')}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
+                    <Download size={16} className="text-on-surface/40" />
+                    <span className="text-sm font-medium text-on-surface/70">Export JSON</span>
+                  </button>
+                  <button onClick={() => { setMoreMenuOpen(false); setMainSearchOpen(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
+                    <Search size={16} className="text-on-surface/40" />
+                    <span className="text-sm font-medium text-on-surface/70">Search</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
 
       <main className="px-3">
         {currentList ? (
