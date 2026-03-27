@@ -1077,25 +1077,26 @@ export const Map: React.FC = () => {
 
                 {/* Map mode toggle buttons with dropdowns */}
                 <div className="relative flex-shrink-0">
-                  <div className="flex items-center">
-                    <button onClick={() => { setMapMode(mapMode === 'myratings' ? 'discover' : 'myratings'); setSelectedListId(null); setListFilterOpen(false); }}
-                      className={cn("flex items-center gap-2 py-3 rounded-full border-2 whitespace-nowrap transition-colors",
-                        mapMode === 'myratings' ? "bg-primary/10 border-primary/30 text-primary pl-5 pr-2" : "border-on-surface/10 hover:bg-muted px-5")}>
+                  <button
+                    className={cn("flex items-center gap-2 py-3 pl-5 rounded-full border-2 whitespace-nowrap transition-colors",
+                      mapMode === 'myratings' ? "bg-primary/10 border-primary/30 text-primary pr-3" : "border-on-surface/10 hover:bg-muted pr-5")}
+                  >
+                    <span className="flex items-center gap-2"
+                      onClick={() => { setMapMode(mapMode === 'myratings' ? 'discover' : 'myratings'); setSelectedListId(null); setListFilterOpen(false); }}>
                       <Star size={16} className={mapMode === 'myratings' ? "text-primary" : "text-on-surface/50"} />
                       <span className="text-xs font-bold uppercase tracking-wider">My Ratings</span>
-                      {mapMode === 'myratings' && selectedListId && <span className="text-[9px] opacity-60">·</span>}
-                    </button>
+                    </span>
                     {mapMode === 'myratings' && (
-                      <button onClick={() => { setListFilterOpen(!listFilterOpen); setFriendFilterOpen(false); }}
-                        className="py-3 pr-4 pl-1 -ml-2 text-primary">
+                      <span className="ml-1 pl-1 border-l border-primary/20 cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); setListFilterOpen(!listFilterOpen); setFriendFilterOpen(false); }}>
                         <ChevronDown size={14} className={cn("transition-transform", listFilterOpen && "rotate-180")} />
-                      </button>
+                      </span>
                     )}
-                  </div>
+                  </button>
                   {listFilterOpen && mapMode === 'myratings' && (
                     <>
-                      <div className="fixed inset-0 z-30" onClick={() => setListFilterOpen(false)} />
-                      <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/10 z-40 min-w-[11rem] max-h-56 overflow-y-auto">
+                      <div className="absolute inset-0 z-30" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }} onClick={() => setListFilterOpen(false)} />
+                      <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/10 z-[60] min-w-[11rem] max-h-56 overflow-y-auto">
                         <button onClick={() => { setSelectedListId(null); setListFilterOpen(false); }}
                           className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
                             !selectedListId ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Ratings</button>
@@ -1113,24 +1114,26 @@ export const Map: React.FC = () => {
                 </div>
 
                 <div className="relative flex-shrink-0">
-                  <div className="flex items-center">
-                    <button onClick={() => { setMapMode(mapMode === 'friends' ? 'discover' : 'friends'); setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}
-                      className={cn("flex items-center gap-2 py-3 rounded-full border-2 whitespace-nowrap transition-colors",
-                        mapMode === 'friends' ? "bg-primary/10 border-primary/30 text-primary pl-5 pr-2" : "border-on-surface/10 hover:bg-muted px-5")}>
+                  <button
+                    className={cn("flex items-center gap-2 py-3 pl-5 rounded-full border-2 whitespace-nowrap transition-colors",
+                      mapMode === 'friends' ? "bg-primary/10 border-primary/30 text-primary pr-3" : "border-on-surface/10 hover:bg-muted pr-5")}
+                  >
+                    <span className="flex items-center gap-2"
+                      onClick={() => { setMapMode(mapMode === 'friends' ? 'discover' : 'friends'); setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}>
                       <Users size={16} className={mapMode === 'friends' ? "text-primary" : "text-on-surface/50"} />
                       <span className="text-xs font-bold uppercase tracking-wider">Friends{selectedFriendIds.size > 0 ? ` (${selectedFriendIds.size})` : ''}</span>
-                    </button>
+                    </span>
                     {mapMode === 'friends' && (
-                      <button onClick={() => { setFriendFilterOpen(!friendFilterOpen); setListFilterOpen(false); }}
-                        className="py-3 pr-4 pl-1 -ml-2 text-primary">
+                      <span className="ml-1 pl-1 border-l border-primary/20 cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); setFriendFilterOpen(!friendFilterOpen); setListFilterOpen(false); }}>
                         <ChevronDown size={14} className={cn("transition-transform", friendFilterOpen && "rotate-180")} />
-                      </button>
+                      </span>
                     )}
-                  </div>
+                  </button>
                   {friendFilterOpen && mapMode === 'friends' && (
                     <>
-                      <div className="fixed inset-0 z-30" onClick={() => setFriendFilterOpen(false)} />
-                      <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/10 z-40 min-w-[11rem] max-h-56 overflow-y-auto">
+                      <div className="absolute inset-0 z-30" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }} onClick={() => setFriendFilterOpen(false)} />
+                      <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/10 z-[60] min-w-[11rem] max-h-56 overflow-y-auto">
                         <button onClick={() => { setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}
                           className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
                             selectedFriendIds.size === 0 ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Friends</button>
