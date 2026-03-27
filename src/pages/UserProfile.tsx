@@ -217,33 +217,6 @@ export const UserProfile: React.FC = () => {
         {/* Content — only visible if canView */}
         {canView ? (
           <>
-            {/* Quick stats */}
-            {userRatings.length > 0 && (
-              <section className="bg-white rounded-2xl p-4 border border-on-surface/8 mb-5">
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div>
-                    <p className={cn("text-xl font-serif font-bold", scoreColor(avgScore))}>{avgScore.toFixed(1)}</p>
-                    <p className="text-[10px] text-on-surface/40">Avg Score</p>
-                  </div>
-                  <div className="border-x border-on-surface/8">
-                    <p className="text-xl font-serif font-bold text-on-surface">{userPhotos.length}</p>
-                    <p className="text-[10px] text-on-surface/40">Photos</p>
-                  </div>
-                  <div>
-                    <p className="text-xl font-serif font-bold text-on-surface">{topCuisines[0] || '—'}</p>
-                    <p className="text-[10px] text-on-surface/40">Top Cuisine</p>
-                  </div>
-                </div>
-                {topCuisines.length > 1 && (
-                  <div className="flex justify-center gap-1.5 mt-2">
-                    {topCuisines.map((c) => (
-                      <span key={c} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/60 font-medium">{c}</span>
-                    ))}
-                  </div>
-                )}
-              </section>
-            )}
-
             {/* Shared restaurants */}
             {sharedRestaurants.length > 0 && (
               <section className="mb-5">
