@@ -31,8 +31,6 @@ const MAP_STYLES = [
 
 const FILTERS = [
   { icon: Bookmark, label: 'Hitlist', active: false },
-  { icon: Users, label: 'Anyone', hasDropdown: true, active: false },
-  { icon: MapPinned, label: 'Nearby', active: false },
 ];
 
 type SortOption = 'popularity' | 'rating' | 'price_low' | 'price_high';
@@ -74,7 +72,7 @@ function extractCityState(fullAddress: string, shortAddress: string): string {
 export const Map: React.FC = () => {
   const navigate = useNavigate();
   const { setHideBottomNav, phoneMode } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings } = useLists();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings, lists: myLists } = useLists();
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
@@ -116,6 +114,10 @@ export const Map: React.FC = () => {
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
   const [mapModeDropdownOpen, setMapModeDropdownOpen] = useState(false);
+  const [friendFilterOpen, setFriendFilterOpen] = useState(false);
+  const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
+  const [listFilterOpen, setListFilterOpen] = useState(false);
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
@@ -578,7 +580,19 @@ export const Map: React.FC = () => {
     // Also close any open popups
     if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
 
-    const ratings = mapMode === 'myratings' ? myRatings : mapMode === 'friends' ? friendRatings : mapMode === 'experts' ? expertRatings : [];
+    let ratings = mapMode === 'myratings' ? myRatings : mapMode === 'friends' ? friendRatings : mapMode === 'experts' ? expertRatings : [];
+    // Apply friend filter
+    if (mapMode === 'friends' && selectedFriendIds.size > 0) {
+      ratings = ratings.filter((r) => selectedFriendIds.has(r.user_id));
+    }
+    // Apply list filter for my ratings
+    if (mapMode === 'myratings' && selectedListId) {
+      const list = myLists.find((l: any) => l.id === selectedListId);
+      if (list) {
+        const ids = new Set(list.restaurantIds);
+        ratings = ratings.filter((r) => ids.has(r.restaurant_id));
+      }
+    }
     if (ratings.length === 0) return;
 
     const bounds = new mapboxgl.LngLatBounds();
@@ -618,7 +632,7 @@ export const Map: React.FC = () => {
     }
 
     if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
-  }, [mapMode, myRatings, friendRatings, expertRatings, navigate]);
+  }, [mapMode, myRatings, friendRatings, expertRatings, selectedFriendIds, selectedListId, myLists, navigate]);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
@@ -1061,27 +1075,83 @@ export const Map: React.FC = () => {
                   </button>
                 ))}
 
-                {/* Map mode toggle buttons */}
-                <button
-                  onClick={() => setMapMode(mapMode === 'myratings' ? 'discover' : 'myratings')}
-                  className={cn(
-                    "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'myratings' ? "bg-primary/10 border-primary/30 text-primary" : "border-on-surface/10 hover:bg-muted"
+                {/* Map mode toggle buttons with dropdowns */}
+                <div className="relative flex-shrink-0">
+                  <div className="flex items-center">
+                    <button onClick={() => { setMapMode(mapMode === 'myratings' ? 'discover' : 'myratings'); setSelectedListId(null); setListFilterOpen(false); }}
+                      className={cn("flex items-center gap-2 py-3 rounded-full border-2 whitespace-nowrap transition-colors",
+                        mapMode === 'myratings' ? "bg-primary/10 border-primary/30 text-primary pl-5 pr-2" : "border-on-surface/10 hover:bg-muted px-5")}>
+                      <Star size={16} className={mapMode === 'myratings' ? "text-primary" : "text-on-surface/50"} />
+                      <span className="text-xs font-bold uppercase tracking-wider">My Ratings</span>
+                      {mapMode === 'myratings' && selectedListId && <span className="text-[9px] opacity-60">·</span>}
+                    </button>
+                    {mapMode === 'myratings' && (
+                      <button onClick={() => { setListFilterOpen(!listFilterOpen); setFriendFilterOpen(false); }}
+                        className="py-3 pr-4 pl-1 -ml-2 text-primary">
+                        <ChevronDown size={14} className={cn("transition-transform", listFilterOpen && "rotate-180")} />
+                      </button>
+                    )}
+                  </div>
+                  {listFilterOpen && mapMode === 'myratings' && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setListFilterOpen(false)} />
+                      <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/10 z-40 min-w-[11rem] max-h-56 overflow-y-auto">
+                        <button onClick={() => { setSelectedListId(null); setListFilterOpen(false); }}
+                          className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
+                            !selectedListId ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Ratings</button>
+                        {myLists.filter((l: any) => l.restaurantIds?.length > 0).map((l: any) => (
+                          <button key={l.id} onClick={() => { setSelectedListId(selectedListId === l.id ? null : l.id); setListFilterOpen(false); }}
+                            className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 flex items-center justify-between",
+                              selectedListId === l.id ? "text-primary bg-primary/5" : "text-on-surface/70")}>
+                            <span>{l.emoji} {l.name}</span>
+                            {selectedListId === l.id && <Check size={14} className="text-primary" />}
+                          </button>
+                        ))}
+                      </div>
+                    </>
                   )}
-                >
-                  <Star size={16} className={mapMode === 'myratings' ? "text-primary" : "text-on-surface/50"} />
-                  <span className="text-xs font-bold uppercase tracking-wider">My Ratings</span>
-                </button>
-                <button
-                  onClick={() => setMapMode(mapMode === 'friends' ? 'discover' : 'friends')}
-                  className={cn(
-                    "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'friends' ? "bg-primary/10 border-primary/30 text-primary" : "border-on-surface/10 hover:bg-muted"
+                </div>
+
+                <div className="relative flex-shrink-0">
+                  <div className="flex items-center">
+                    <button onClick={() => { setMapMode(mapMode === 'friends' ? 'discover' : 'friends'); setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}
+                      className={cn("flex items-center gap-2 py-3 rounded-full border-2 whitespace-nowrap transition-colors",
+                        mapMode === 'friends' ? "bg-primary/10 border-primary/30 text-primary pl-5 pr-2" : "border-on-surface/10 hover:bg-muted px-5")}>
+                      <Users size={16} className={mapMode === 'friends' ? "text-primary" : "text-on-surface/50"} />
+                      <span className="text-xs font-bold uppercase tracking-wider">Friends{selectedFriendIds.size > 0 ? ` (${selectedFriendIds.size})` : ''}</span>
+                    </button>
+                    {mapMode === 'friends' && (
+                      <button onClick={() => { setFriendFilterOpen(!friendFilterOpen); setListFilterOpen(false); }}
+                        className="py-3 pr-4 pl-1 -ml-2 text-primary">
+                        <ChevronDown size={14} className={cn("transition-transform", friendFilterOpen && "rotate-180")} />
+                      </button>
+                    )}
+                  </div>
+                  {friendFilterOpen && mapMode === 'friends' && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setFriendFilterOpen(false)} />
+                      <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/10 z-40 min-w-[11rem] max-h-56 overflow-y-auto">
+                        <button onClick={() => { setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}
+                          className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
+                            selectedFriendIds.size === 0 ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Friends</button>
+                        {Object.values(friendProfiles).map((p) => {
+                          const sel = selectedFriendIds.has(p.user_id);
+                          return (
+                            <button key={p.user_id} onClick={() => {
+                              setSelectedFriendIds((prev) => { const next = new Set(prev); sel ? next.delete(p.user_id) : next.add(p.user_id); return next; });
+                            }}
+                              className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 flex items-center justify-between",
+                                sel ? "text-primary bg-primary/5" : "text-on-surface/70")}>
+                              <span>{p.display_name || `@${p.username}`}</span>
+                              {sel && <Check size={14} className="text-primary" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
                   )}
-                >
-                  <Users size={16} className={mapMode === 'friends' ? "text-primary" : "text-on-surface/50"} />
-                  <span className="text-xs font-bold uppercase tracking-wider">Friends</span>
-                </button>
+                </div>
+
                 <button
                   onClick={() => setMapMode(mapMode === 'experts' ? 'discover' : 'experts')}
                   className={cn(
@@ -1100,11 +1170,14 @@ export const Map: React.FC = () => {
         {/* Results List */}
         <div className={cn("flex-1 overflow-y-auto no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
           {/* My Ratings tab content */}
-          {mapMode === 'myratings' && (
+          {mapMode === 'myratings' && (() => {
+            let filtered = myRatings;
+            if (selectedListId) { const list = myLists.find((l: any) => l.id === selectedListId); if (list) { const ids = new Set(list.restaurantIds); filtered = filtered.filter((r) => ids.has(r.restaurant_id)); } }
+            return (
             <div className="space-y-3">
-              {myRatings.length === 0 ? (
-                <div className="text-center py-8"><p className="text-sm text-on-surface/40">No rated restaurants yet</p></div>
-              ) : myRatings.map((r) => (
+              {filtered.length === 0 ? (
+                <div className="text-center py-8"><p className="text-sm text-on-surface/40">{selectedListId ? 'No restaurants in this list' : 'No rated restaurants yet'}</p></div>
+              ) : filtered.map((r) => (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                   className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
                   <div className="flex-1 min-w-0">
@@ -1118,14 +1191,17 @@ export const Map: React.FC = () => {
                 </div>
               ))}
             </div>
-          )}
+          ); })()}
 
           {/* Friends tab content */}
-          {mapMode === 'friends' && (
+          {mapMode === 'friends' && (() => {
+            let filtered = friendRatings;
+            if (selectedFriendIds.size > 0) filtered = filtered.filter((r) => selectedFriendIds.has(r.user_id));
+            return (
             <div className="space-y-3">
-              {friendRatings.length === 0 ? (
-                <div className="text-center py-8"><p className="text-sm text-on-surface/40">No friend ratings yet</p></div>
-              ) : friendRatings.map((r) => {
+              {filtered.length === 0 ? (
+                <div className="text-center py-8"><p className="text-sm text-on-surface/40">{selectedFriendIds.size > 0 ? 'No ratings from selected friends' : 'No friend ratings yet'}</p></div>
+              ) : filtered.map((r) => {
                 const prof = friendProfiles[r.user_id];
                 return (
                   <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
@@ -1142,7 +1218,7 @@ export const Map: React.FC = () => {
                 );
               })}
             </div>
-          )}
+          ); })()}
 
           {/* Experts tab content */}
           {mapMode === 'experts' && (
