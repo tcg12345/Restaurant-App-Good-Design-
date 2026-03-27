@@ -118,6 +118,9 @@ export const Map: React.FC = () => {
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [listFilterOpen, setListFilterOpen] = useState(false);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  const myRatingsButtonRef = useRef<HTMLDivElement>(null);
+  const friendsButtonRef = useRef<HTMLDivElement>(null);
+  const filterBarRef = useRef<HTMLDivElement>(null);
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
@@ -980,7 +983,7 @@ export const Map: React.FC = () => {
         </div>
 
         {/* Search Bar & Filters — only on discover tab */}
-        <div className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
+        <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
@@ -1076,7 +1079,7 @@ export const Map: React.FC = () => {
                 ))}
 
                 {/* Map mode toggle buttons (dropdowns rendered outside overflow container below) */}
-                <div className="flex-shrink-0">
+                <div ref={myRatingsButtonRef} className="flex-shrink-0">
                   <button
                     className={cn("flex items-center gap-2 py-3 pl-5 rounded-full border-2 whitespace-nowrap transition-colors",
                       mapMode === 'myratings' ? "bg-primary/10 border-primary/30 text-primary pr-3" : "border-on-surface/10 hover:bg-muted pr-5")}
@@ -1095,7 +1098,7 @@ export const Map: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="flex-shrink-0">
+                <div ref={friendsButtonRef} className="flex-shrink-0">
                   <button
                     className={cn("flex items-center gap-2 py-3 pl-5 rounded-full border-2 whitespace-nowrap transition-colors",
                       mapMode === 'friends' ? "bg-primary/10 border-primary/30 text-primary pr-3" : "border-on-surface/10 hover:bg-muted pr-5")}
@@ -1133,7 +1136,8 @@ export const Map: React.FC = () => {
             <>
               <div className="absolute inset-0 z-30" onClick={() => setListFilterOpen(false)} />
               <div className="relative z-[60]">
-                <div className="absolute left-3 top-0 bg-white rounded-xl shadow-xl border border-on-surface/10 min-w-[11rem] max-h-56 overflow-y-auto">
+                <div className="absolute top-0 bg-white rounded-xl shadow-xl border border-on-surface/10 min-w-[11rem] max-h-56 overflow-y-auto"
+                  style={{ left: myRatingsButtonRef.current && filterBarRef.current ? myRatingsButtonRef.current.getBoundingClientRect().left - filterBarRef.current.getBoundingClientRect().left : 12 }}>
                   <button onClick={() => { setSelectedListId(null); setListFilterOpen(false); }}
                     className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
                       !selectedListId ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Ratings</button>
@@ -1153,7 +1157,8 @@ export const Map: React.FC = () => {
             <>
               <div className="absolute inset-0 z-30" onClick={() => setFriendFilterOpen(false)} />
               <div className="relative z-[60]">
-                <div className="absolute left-3 top-0 bg-white rounded-xl shadow-xl border border-on-surface/10 min-w-[11rem] max-h-56 overflow-y-auto">
+                <div className="absolute top-0 bg-white rounded-xl shadow-xl border border-on-surface/10 min-w-[11rem] max-h-56 overflow-y-auto"
+                  style={{ left: friendsButtonRef.current && filterBarRef.current ? friendsButtonRef.current.getBoundingClientRect().left - filterBarRef.current.getBoundingClientRect().left : 12 }}>
                   <button onClick={() => { setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}
                     className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
                       selectedFriendIds.size === 0 ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Friends</button>
