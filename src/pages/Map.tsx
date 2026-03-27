@@ -9,7 +9,7 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, type CommunityRating, type UserProfile } from '../lib/supabase-community';
+import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -106,6 +106,8 @@ export const Map: React.FC = () => {
     })();
   }, [userId, tabDataLoaded]);
   const [mapMode, setMapMode] = useState<'discover' | 'myratings' | 'friends'>('discover');
+  const mapModeRef = useRef(mapMode);
+  mapModeRef.current = mapMode;
   const [mapModeDropdownOpen, setMapModeDropdownOpen] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
@@ -443,10 +445,11 @@ export const Map: React.FC = () => {
 
     // Re-fetch when user moves the map (debounced) — skip if a marker is selected
     map.on('moveend', () => {
+      if (mapModeRef.current !== 'discover') return; // Only fetch in discover mode
       if (isMarkerSelectedRef.current) return;
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       fetchTimeoutRef.current = setTimeout(() => {
-        if (!isMarkerSelectedRef.current) fetchNearby();
+        if (!isMarkerSelectedRef.current && mapModeRef.current === 'discover') fetchNearby();
       }, 800);
     });
 
@@ -510,6 +513,41 @@ export const Map: React.FC = () => {
 
   const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
+  // Look up missing coordinates for custom tab ratings (background, once per mode)
+  const coordsLookedUpMode = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    const ratings = mapMode === 'myratings' ? myRatings : mapMode === 'friends' ? friendRatings : [];
+    if (ratings.length === 0 || mapMode === 'discover') return;
+    if (coordsLookedUpMode.current[mapMode]) return;
+    coordsLookedUpMode.current[mapMode] = true;
+
+    const missing = ratings.filter((r) => !r.lat || !r.lng).slice(0, 20);
+    if (missing.length === 0) return;
+
+    (async () => {
+      for (const r of missing) {
+        try {
+          const results = await searchPlacesByText(r.restaurant_name + ' ' + (r.address?.split(',').slice(-1)[0]?.trim() || ''), 0, 0);
+          if (results[0]?.lat && results[0]?.lng) {
+            // Save coords back to DB
+            r.lat = results[0].lat;
+            r.lng = results[0].lng;
+            publishCommunityRating(r.user_id, r.restaurant_id, {
+              name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
+              price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
+              wouldReturn: r.would_return, friendIds: r.friend_ids || [],
+              photoUrl: r.photo_url || '', lat: results[0].lat, lng: results[0].lng,
+            });
+          }
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      // Trigger re-render to show new markers
+      if (mapMode === 'myratings') setMyRatings((prev) => [...prev]);
+      else if (mapMode === 'friends') setFriendRatings((prev) => [...prev]);
+    })();
+  }, [mapMode, myRatings, friendRatings]);
+
   // Add/remove custom markers for My Ratings and Friends modes
   const customMarkersRef = useRef<mapboxgl.Marker[]>([]);
   useEffect(() => {
@@ -521,10 +559,15 @@ export const Map: React.FC = () => {
     customMarkersRef.current = [];
 
     // Hide/show discover markers based on mode
-    Object.values(markersRef.current).forEach((m) => {
-      const el = m?.getElement?.();
-      if (el) el.style.display = mapMode === 'discover' ? '' : 'none';
+    Object.values(markersRef.current).forEach((marker) => {
+      try {
+        const el = marker.getElement();
+        if (el) el.style.display = mapMode === 'discover' ? '' : 'none';
+      } catch {}
     });
+
+    // Also close any open popups
+    if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
 
     const ratings = mapMode === 'myratings' ? myRatings : mapMode === 'friends' ? friendRatings : [];
     if (ratings.length === 0) return;
@@ -991,8 +1034,8 @@ export const Map: React.FC = () => {
           <div className="w-12 h-1.5 bg-on-surface/10 rounded-full" />
         </div>
 
-        {/* Search Bar & Filters */}
-        <div className={cn("pb-4 flex-shrink-0", phoneMode ? "px-3" : "px-6")}>
+        {/* Search Bar & Filters — only on discover tab */}
+        <div className={cn("pb-4 flex-shrink-0", phoneMode ? "px-3" : "px-6", mapMode !== 'discover' && "hidden")}>
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
