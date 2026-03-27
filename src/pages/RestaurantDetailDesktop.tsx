@@ -47,94 +47,73 @@ const PhotoGallery: React.FC<{
   onClose: () => void;
 }> = ({ photos, name, initialIndex, onClose }) => {
   const [viewIndex, setViewIndex] = useState(initialIndex);
-  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, []);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') setViewIndex((i) => (i - 1 + photos.length) % photos.length);
+      if (e.key === 'ArrowRight') setViewIndex((i) => (i + 1) % photos.length);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => { document.body.style.overflow = ''; window.removeEventListener('keydown', handleKey); };
+  }, [photos.length, onClose]);
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col"
       onClick={onClose}
     >
-      <motion.div
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl flex flex-col"
-        style={{ maxHeight: '92%' }}
-      >
-        {/* Handle + header */}
-        <div className="flex-shrink-0 pt-3 pb-2 px-5">
-          <div className="w-10 h-1 rounded-full bg-on-surface/15 mx-auto mb-3" />
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-serif font-bold">Photos</h2>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-full hover:bg-on-surface/5 transition-colors"
-            >
-              <X size={20} className="text-on-surface/50" />
-            </button>
-          </div>
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 flex-shrink-0">
+        <h2 className="text-white font-serif font-bold text-lg">{name} — Photos</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-white/50 text-sm">{viewIndex + 1} / {photos.length}</span>
+          <button onClick={onClose} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
+            <X size={18} className="text-white" />
+          </button>
         </div>
+      </div>
 
-        {/* Search bar */}
-        <div className="flex-shrink-0 px-5 pb-3">
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
-            <input
-              type="text"
-              placeholder="Search photos..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all"
-            />
-          </div>
-        </div>
+      {/* Main image area with arrows */}
+      <div className="flex-1 flex items-center justify-center relative min-h-0 px-16" onClick={(e) => e.stopPropagation()}>
+        {photos.length > 1 && (
+          <button onClick={() => setViewIndex((i) => (i - 1 + photos.length) % photos.length)}
+            className="absolute left-4 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-10">
+            <ChevronLeft size={24} />
+          </button>
+        )}
+        <img
+          src={photos[viewIndex]}
+          alt={`${name} photo ${viewIndex + 1}`}
+          className="max-h-full max-w-full object-contain rounded-lg"
+          referrerPolicy="no-referrer"
+        />
+        {photos.length > 1 && (
+          <button onClick={() => setViewIndex((i) => (i + 1) % photos.length)}
+            className="absolute right-4 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors z-10">
+            <ChevronRight size={24} />
+          </button>
+        )}
+      </div>
 
-        {/* Featured photo */}
-        <div className="flex-shrink-0 px-5 pb-3">
-          <div className="relative rounded-2xl overflow-hidden aspect-[4/3]">
-            <img
-              src={photos[viewIndex]}
-              alt={`${name} photo ${viewIndex + 1}`}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
-              {viewIndex + 1} / {photos.length}
-            </div>
-          </div>
-        </div>
-
-        {/* Thumbnail grid */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-          <div className="grid grid-cols-3 gap-2">
+      {/* Thumbnail strip */}
+      {photos.length > 1 && (
+        <div className="flex-shrink-0 px-6 py-4" onClick={(e) => e.stopPropagation()}>
+          <div className="flex gap-2 overflow-x-auto justify-center pb-1 scrollbar-hide">
             {photos.map((url, i) => (
-              <button
-                key={i}
-                onClick={() => setViewIndex(i)}
-                className={`relative aspect-square rounded-xl overflow-hidden ${i === viewIndex ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
-              >
-                <img
-                  src={url}
-                  alt={`${name} photo ${i + 1}`}
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
+              <button key={i} onClick={() => setViewIndex(i)}
+                className={cn("flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden transition-all",
+                  i === viewIndex ? "ring-2 ring-white ring-offset-2 ring-offset-black/90 opacity-100" : "opacity-50 hover:opacity-80")}>
+                <img src={url} alt={`Thumb ${i + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               </button>
             ))}
           </div>
         </div>
-      </motion.div>
+      )}
     </motion.div>
   );
 };
