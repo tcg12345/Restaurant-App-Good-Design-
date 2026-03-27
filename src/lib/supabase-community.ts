@@ -131,6 +131,17 @@ export async function getFriendsStats(userId: string, restaurantId: string): Pro
 }
 
 /**
+ * Remove a user's community photos for a restaurant.
+ */
+export async function removeCommunityPhotos(userId: string, restaurantId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    await supabase.from('community_photos').delete().eq('user_id', userId).eq('restaurant_id', restaurantId);
+    return true;
+  } catch { return false; }
+}
+
+/**
  * Publish user photos to the community gallery.
  */
 export async function publishCommunityPhotos(

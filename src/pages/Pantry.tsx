@@ -587,7 +587,7 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openRatingModal, deleteList, wishlist, removeFromWishlist } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist } = useLists();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -711,7 +711,7 @@ const ListDetailView: React.FC<{
                     cuisine={info?.cuisine ?? ''}
                     price={info?.price ?? ''}
                     score={rating?.score}
-                    onEdit={info ? () => openRatingModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
+                    onEdit={info ? () => openAddRestaurantModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
                     onRemove={() => removeFromList(list.id, id)}
                   />
                 ) : (
@@ -728,7 +728,7 @@ const ListDetailView: React.FC<{
                     notes={rating?.notes}
                     visitDate={rating?.visitDate}
                     wouldReturn={rating?.wouldReturn}
-                    onEdit={info ? () => openRatingModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
+                    onEdit={info ? () => openAddRestaurantModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
                     onRemove={() => removeFromList(list.id, id)}
                   />
                 ))}
@@ -1054,7 +1054,7 @@ export const Pantry: React.FC = () => {
 
   const {
     lists, createList,
-    ratings, openRatingModal, removeRating,
+    ratings, openAddRestaurantModal, removeRating,
     wishlist,
     getListsForRestaurant,
   } = useLists();
@@ -1357,7 +1357,7 @@ export const Pantry: React.FC = () => {
                           cuisine={r.cuisine}
                           price={r.price}
                           score={r.score}
-                          onEdit={() => openRatingModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                          onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
                           onRemove={() => removeRating(r.restaurantId)}
                         />
                       ) : (
@@ -1375,7 +1375,7 @@ export const Pantry: React.FC = () => {
                           visitDate={r.visitDate}
                           wouldReturn={r.wouldReturn}
                           listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
-                          onEdit={() => openRatingModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                          onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
                         />
                       );
                     })}

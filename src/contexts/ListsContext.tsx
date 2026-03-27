@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews } from '../lib/supabase-db';
-import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos } from '../lib/supabase-community';
+import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 
 /* ── Types ── */
@@ -403,7 +403,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncRatingsToCloud(next);
       return next;
     });
-    if (userIdRef.current) removeCommunityRating(userIdRef.current, restaurantId);
+    if (userIdRef.current) {
+      removeCommunityRating(userIdRef.current, restaurantId);
+      removeCommunityPhotos(userIdRef.current, restaurantId);
+    }
   }, [syncRatingsToCloud]);
 
   const getRating = useCallback((restaurantId: string) => ratings.find((r) => r.restaurantId === restaurantId), [ratings]);

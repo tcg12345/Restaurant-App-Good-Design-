@@ -131,7 +131,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
     showFriendsDetail, setShowFriendsDetail,
   } = useRestaurantDetail();
 
-  const { openRatingModal, openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
   const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
 
@@ -284,7 +284,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {/* Action buttons — Rate, Wishlist */}
         <div className="grid grid-cols-2 gap-2 mb-3">
           <button
-            onClick={() => place && openRatingModal({
+            onClick={() => place && openAddRestaurantModal({
               id: place.id, name: place.name,
               image: place.photoUrl || '',
               cuisine, price: priceStr,
