@@ -173,7 +173,7 @@ function migrateWishlist(items: WishlistItem[]): WishlistItem[] {
 const ListsContext = createContext<ListsContextValue | null>(null);
 
 export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, profile: authProfile } = useAuth();
   const userId = user?.id ?? null;
 
   const [ratings, setRatings] = useState<RestaurantRating[]>(() => migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, [])));
@@ -252,7 +252,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               visitDate: r.visitDate, tags: r.tags, wouldReturn: r.wouldReturn,
               friendIds: r.friendIds || [], photoUrl: r.image || '',
             });
-            if (r.photos && r.photos.length > 0) {
+            if (r.photos && r.photos.length > 0 && authProfile?.is_public) {
               publishCommunityPhotos(userId, r.restaurantId, r.photos).catch(() => {});
             }
           }
@@ -376,13 +376,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         visitDate: rating.visitDate, tags: rating.tags, wouldReturn: rating.wouldReturn,
         friendIds: rating.friendIds || [], photoUrl: rating.image || '',
       });
-      if (rating.photos && rating.photos.length > 0) {
+      // Only publish photos to community if account is public
+      if (rating.photos && rating.photos.length > 0 && authProfile?.is_public) {
         publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos).catch(() => {
           console.warn('[Supabase] Failed to publish photos — they may be too large for the database');
         });
       }
     }
-  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud]);
+  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, authProfile]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
