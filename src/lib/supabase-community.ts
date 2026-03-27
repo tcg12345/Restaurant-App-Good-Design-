@@ -304,6 +304,20 @@ export async function getUserPhotos(userId: string): Promise<CommunityPhoto[]> {
   } catch { return []; }
 }
 
+/** Get a user's wishlist items from user_app_data */
+export async function getUserWishlist(userId: string): Promise<{ restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('user_app_data')
+      .select('wishlist').eq('user_id', userId).single();
+    if (error || !data) return [];
+    return ((data.wishlist as any[]) || []).map((w: any) => ({
+      restaurantId: w.restaurantId, name: w.name, cuisine: w.cuisine || '',
+      price: w.price || '', address: w.address || '', notes: w.notes || '',
+    }));
+  } catch { return []; }
+}
+
 /** Get a user's lists from user_app_data (includes wishlist as first item) */
 export async function getUserLists(userId: string): Promise<{ id: string; name: string; emoji: string; restaurantIds: string[] }[]> {
   if (!supabaseConfigured || !userId) return [];

@@ -8,7 +8,7 @@ import { useLists } from '../contexts/ListsContext';
 import {
   getProfileByUsername, getFollowCounts, canViewProfile, getFriends,
   sendFriendRequest, followPublicAccount, getUserRatings, getUserPhotos, getUserLists,
-  publishCommunityRating,
+  getUserWishlist, publishCommunityRating,
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
 import mapboxgl from 'mapbox-gl';
@@ -20,6 +20,7 @@ const profileCache: Record<string, {
   profile: UserProfileType; canView: boolean; followers: number; following: number;
   isFollowing: boolean; ratings: CommunityRating[]; photos: CommunityPhoto[];
   lists: { id: string; name: string; emoji: string; restaurantIds: string[] }[];
+  wishlistItems: { restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[];
   ts: number;
 }> = {};
 
@@ -42,6 +43,7 @@ export const UserProfile: React.FC = () => {
   const [userRatings, setUserRatings] = useState<CommunityRating[]>([]);
   const [userPhotos, setUserPhotos] = useState<CommunityPhoto[]>([]);
   const [userLists, setUserLists] = useState<{ id: string; name: string; emoji: string; restaurantIds: string[] }[]>([]);
+  const [userWishlistItems, setUserWishlistItems] = useState<{ restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[]>([]);
 
   // Expanded review
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -80,6 +82,7 @@ export const UserProfile: React.FC = () => {
       setUserRatings(cached.ratings);
       setUserPhotos(cached.photos);
       setUserLists(cached.lists);
+      setUserWishlistItems(cached.wishlistItems || []);
       setLoading(false);
       return;
     }
@@ -95,6 +98,7 @@ export const UserProfile: React.FC = () => {
         getFollowCounts(p.user_id),
         getUserRatings(p.user_id),
         getUserLists(p.user_id),
+        getUserWishlist(p.user_id),
       ];
       if (isAuthed) {
         queries.push(canViewProfile(userId!, p));
@@ -109,7 +113,7 @@ export const UserProfile: React.FC = () => {
       const results = await Promise.all(queries);
       if (cancelled) return;
 
-      const [counts, ratings, lists, viewable, friends, photos] = results;
+      const [counts, ratings, lists, wishlistItems, viewable, friends, photos] = results;
       const fCounts = counts as { followers: number; following: number };
       const fRatings = (ratings || []) as CommunityRating[];
       const fLists = ((lists || []) as any[]).filter((l: any) => l.restaurantIds?.length > 0);
@@ -119,8 +123,11 @@ export const UserProfile: React.FC = () => {
 
       setFollowers(fCounts.followers || 0);
       setFollowing(fCounts.following || 0);
+      const fWishlistItems = (wishlistItems || []) as typeof userWishlistItems;
+
       setUserRatings(fRatings);
       setUserLists(fLists);
+      setUserWishlistItems(fWishlistItems);
       setCanView(fCanView);
       setIsFollowing(fIsFollowing);
       setUserPhotos(fPhotos);
@@ -129,7 +136,8 @@ export const UserProfile: React.FC = () => {
       profileCache[cacheKey] = {
         profile: p, canView: fCanView, followers: fCounts.followers || 0,
         following: fCounts.following || 0, isFollowing: fIsFollowing,
-        ratings: fRatings, photos: fPhotos, lists: fLists, ts: Date.now(),
+        ratings: fRatings, photos: fPhotos, lists: fLists,
+        wishlistItems: fWishlistItems, ts: Date.now(),
       };
 
       setLoading(false);
@@ -193,7 +201,11 @@ export const UserProfile: React.FC = () => {
     return list ? new Set(list.restaurantIds) : null;
   }, [selectedListId, userLists]);
 
+  // When wishlist is selected, show wishlist items; otherwise filter ratings
+  const isWishlistSelected = selectedListId === '__wishlist__';
+
   const filteredRatings = useMemo(() => {
+    if (isWishlistSelected) return []; // handled separately
     let result = userRatings;
     if (selectedListRestaurantIds) result = result.filter((r) => selectedListRestaurantIds.has(r.restaurant_id));
     if (filterCuisine) result = result.filter((r) => r.cuisine === filterCuisine);
@@ -207,7 +219,17 @@ export const UserProfile: React.FC = () => {
     if (sortBy === 'highest') result = [...result].sort((a, b) => Number(b.score) - Number(a.score));
     else if (sortBy === 'lowest') result = [...result].sort((a, b) => Number(a.score) - Number(b.score));
     return result;
-  }, [userRatings, searchQuery, selectedListRestaurantIds, filterCuisine, filterPrice, filterCity, scoreRange, sortBy]);
+  }, [userRatings, searchQuery, selectedListRestaurantIds, filterCuisine, filterPrice, filterCity, scoreRange, sortBy, isWishlistSelected]);
+
+  const filteredWishlist = useMemo(() => {
+    if (!isWishlistSelected) return [];
+    let result = userWishlistItems;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((w) => w.name.toLowerCase().includes(q) || w.cuisine.toLowerCase().includes(q) || w.address.toLowerCase().includes(q));
+    }
+    return result;
+  }, [userWishlistItems, searchQuery, isWishlistSelected]);
 
   // Coordinate lookup — only runs when map is opened
   const [resolvedCoords, setResolvedCoords] = useState<Record<string, { lat: number; lng: number }>>({});
@@ -485,10 +507,38 @@ export const UserProfile: React.FC = () => {
 
             {/* Summary */}
             <p className="text-[10px] text-on-surface/35 font-bold uppercase tracking-widest mb-3">
-              {filteredRatings.length} restaurant{filteredRatings.length !== 1 ? 's' : ''}
+              {isWishlistSelected ? `${filteredWishlist.length} wishlisted` : `${filteredRatings.length} restaurant${filteredRatings.length !== 1 ? 's' : ''}`}
             </p>
 
+            {/* Wishlist items (when wishlist selected) */}
+            {isWishlistSelected && (
+              <div className="space-y-2 pb-20">
+                {filteredWishlist.length === 0 ? (
+                  <div className="text-center py-12"><p className="text-sm text-on-surface/30">No wishlist items</p></div>
+                ) : (
+                  filteredWishlist.map((w) => (
+                    <Link key={w.restaurantId} to={`/restaurant/${w.restaurantId}`} className="block">
+                      <div className="bg-white rounded-xl border border-on-surface/8 px-3 py-2.5 active:scale-[0.99] transition-transform">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-serif font-bold text-sm truncate">{w.name}</h3>
+                            <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">
+                              {w.cuisine}{w.price ? ` · ${w.price}` : ''}
+                              {w.address && ` · ${w.address.split(',').slice(-1)[0]?.trim()}`}
+                            </p>
+                          </div>
+                          <span className="text-xs text-red-400 flex-shrink-0">❤️</span>
+                        </div>
+                        {w.notes && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-1">"{w.notes}"</p>}
+                      </div>
+                    </Link>
+                  ))
+                )}
+              </div>
+            )}
+
             {/* Ratings list */}
+            {!isWishlistSelected && (
             <div className="space-y-2 pb-20">
               {filteredRatings.length === 0 ? (
                 <div className="text-center py-12"><p className="text-sm text-on-surface/30">{searchQuery || filterCuisine ? 'No matches' : 'No ratings yet'}</p></div>
@@ -577,6 +627,7 @@ export const UserProfile: React.FC = () => {
                 })
               )}
             </div>
+            )}
 
             {/* Floating map button */}
             {userRatings.length > 0 && (
