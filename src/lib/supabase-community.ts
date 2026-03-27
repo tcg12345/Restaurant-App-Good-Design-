@@ -17,6 +17,9 @@ export interface CommunityRating {
   tags: string[];
   would_return: boolean;
   friend_ids: string[];
+  lat: number | null;
+  lng: number | null;
+  photo_url: string;
   created_at: string;
 }
 
@@ -48,11 +51,11 @@ export interface FriendsStats {
 export async function publishCommunityRating(
   userId: string,
   restaurantId: string,
-  data: { name: string; score: number; notes: string; cuisine: string; price: string; address: string; visitDate: string; tags: string[]; wouldReturn: boolean; friendIds?: string[] }
+  data: { name: string; score: number; notes: string; cuisine: string; price: string; address: string; visitDate: string; tags: string[]; wouldReturn: boolean; friendIds?: string[]; lat?: number; lng?: number; photoUrl?: string }
 ): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
-    const { error } = await supabase.from('community_ratings').upsert({
+    const payload: any = {
       user_id: userId,
       restaurant_id: restaurantId,
       restaurant_name: data.name,
@@ -66,7 +69,11 @@ export async function publishCommunityRating(
       would_return: data.wouldReturn,
       friend_ids: data.friendIds || [],
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,restaurant_id' });
+    };
+    if (data.lat != null) payload.lat = data.lat;
+    if (data.lng != null) payload.lng = data.lng;
+    if (data.photoUrl) payload.photo_url = data.photoUrl;
+    const { error } = await supabase.from('community_ratings').upsert(payload, { onConflict: 'user_id,restaurant_id' });
     if (error) { console.error('[Community] publishRating error:', error); return false; }
     return true;
   } catch (err) { console.error('[Community] publishRating exception:', err); return false; }

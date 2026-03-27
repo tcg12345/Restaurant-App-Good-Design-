@@ -250,7 +250,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               name: r.name, score: r.score, notes: r.notes,
               cuisine: r.cuisine, price: r.price, address: r.address,
               visitDate: r.visitDate, tags: r.tags, wouldReturn: r.wouldReturn,
-              friendIds: r.friendIds || [],
+              friendIds: r.friendIds || [], photoUrl: r.image || '',
             });
             if (r.photos && r.photos.length > 0) {
               publishCommunityPhotos(userId, r.restaurantId, r.photos);
@@ -363,7 +363,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         name: rating.name, score: rating.score, notes: rating.notes,
         cuisine: rating.cuisine, price: rating.price, address: rating.address,
         visitDate: rating.visitDate, tags: rating.tags, wouldReturn: rating.wouldReturn,
-        friendIds: rating.friendIds || [],
+        friendIds: rating.friendIds || [], photoUrl: rating.image || '',
       });
       if (rating.photos && rating.photos.length > 0) {
         publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos);
