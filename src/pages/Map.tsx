@@ -654,59 +654,6 @@ export const Map: React.FC = () => {
         >
           <Navigation size={20} />
         </button>
-        <button className="w-12 h-12 glass rounded-full flex items-center justify-center shadow-xl text-on-surface/60 hover:text-primary transition-colors">
-          <Heart size={20} />
-        </button>
-        <button
-          onClick={() => {
-            const map = mapRef.current;
-            if (!map) return;
-            const next = !is3D;
-            setIs3D(next);
-
-            map.easeTo({
-              pitch: next ? 60 : 0,
-              bearing: next ? -20 : 0,
-              duration: 1000,
-            });
-
-            // Add or remove 3D buildings layer
-            const addBuildings = () => {
-              if (next && !map.getLayer('3d-buildings')) {
-                const layers = map.getStyle().layers || [];
-                const labelLayer = layers.find((l: any) => l.type === 'symbol' && l.layout?.['text-field']);
-                map.addLayer({
-                  id: '3d-buildings',
-                  source: 'composite',
-                  'source-layer': 'building',
-                  filter: ['==', 'extrude', 'true'],
-                  type: 'fill-extrusion',
-                  minzoom: 12,
-                  paint: {
-                    'fill-extrusion-color': '#c4b5a2',
-                    'fill-extrusion-height': ['get', 'height'],
-                    'fill-extrusion-base': ['get', 'min_height'],
-                    'fill-extrusion-opacity': 0.7,
-                  },
-                }, labelLayer?.id);
-              } else if (!next && map.getLayer('3d-buildings')) {
-                map.removeLayer('3d-buildings');
-              }
-            };
-
-            if (map.isStyleLoaded()) {
-              addBuildings();
-            } else {
-              map.once('style.load', addBuildings);
-            }
-          }}
-          className={cn(
-            "w-12 h-12 glass rounded-full flex items-center justify-center shadow-xl transition-colors",
-            is3D ? "text-primary" : "text-on-surface/60 hover:text-primary"
-          )}
-        >
-          {is3D ? <Square size={20} /> : <Box size={20} />}
-        </button>
         <div className="relative">
           <button
             onClick={() => setShowStylePicker(!showStylePicker)}
