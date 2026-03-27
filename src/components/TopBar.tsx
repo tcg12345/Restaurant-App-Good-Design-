@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 
-export const TopBar: React.FC<{ title?: string }> = ({ title = "Gourmet Canvas" }) => {
+export const TopBar: React.FC<{ title?: string; rightAction?: React.ReactNode }> = ({ title = "Gourmet Canvas", rightAction }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { phoneMode, togglePhoneMode } = useSettings();
@@ -32,7 +32,8 @@ export const TopBar: React.FC<{ title?: string }> = ({ title = "Gourmet Canvas" 
         </div>
         <h1 className="text-xl font-serif font-bold tracking-tight">{title}</h1>
       </div>
-      <div className="flex items-center gap-4 text-on-surface/60">
+      <div className="flex items-center gap-2 text-on-surface/60">
+        {rightAction}
         <div className="relative" ref={dropdownRef}>
           <button
             className="p-2 hover:bg-muted rounded-full transition-colors"
