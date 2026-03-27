@@ -1227,7 +1227,7 @@ export const Pantry: React.FC = () => {
                 <p className="text-xs text-on-surface/30 mt-1">Use the + button to rate or heart to wishlist</p>
                 <button onClick={() => navigate('/import')}
                   className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
-                  <Upload size={14} />Import Previous Ratings
+                  <Upload size={14} />Import from File
                 </button>
               </div>
             ) : (
