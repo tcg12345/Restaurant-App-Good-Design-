@@ -183,6 +183,7 @@ export interface UserProfile {
   username: string;
   bio: string;
   is_public: boolean;
+  is_expert: boolean;
 }
 
 export async function getProfile(userId: string): Promise<UserProfile | null> {
@@ -205,7 +206,7 @@ export async function getProfileByUsername(username: string): Promise<UserProfil
   } catch { return null; }
 }
 
-export async function saveProfile(userId: string, displayName: string, username: string, bio?: string, isPublic?: boolean): Promise<{ success: boolean; error?: string }> {
+export async function saveProfile(userId: string, displayName: string, username: string, bio?: string, isPublic?: boolean, isExpert?: boolean): Promise<{ success: boolean; error?: string }> {
   if (!supabaseConfigured || !userId) return { success: false, error: 'Not configured' };
   try {
     const payload: any = {
@@ -214,6 +215,7 @@ export async function saveProfile(userId: string, displayName: string, username:
     };
     if (bio !== undefined) payload.bio = bio;
     if (isPublic !== undefined) payload.is_public = isPublic;
+    if (isExpert !== undefined) payload.is_expert = isExpert;
     const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'user_id' });
     if (error) {
       if (error.code === '23505') return { success: false, error: 'Username is already taken' };
@@ -341,6 +343,35 @@ export async function getUserLists(userId: string): Promise<{ id: string; name: 
     });
 
     return result;
+  } catch { return []; }
+}
+
+/** Get ratings from experts (users with is_expert=true) */
+export async function getExpertRatings(limit = 50): Promise<CommunityRating[]> {
+  if (!supabaseConfigured) return [];
+  try {
+    // Get expert user IDs
+    const { data: experts } = await supabase.from('user_profiles').select('user_id').eq('is_expert', true);
+    if (!experts || experts.length === 0) return [];
+    const expertIds = experts.map((e: any) => e.user_id);
+    const { data, error } = await supabase.from('community_ratings')
+      .select('*').in('user_id', expertIds).order('updated_at', { ascending: false }).limit(limit);
+    if (error) return [];
+    return (data || []) as CommunityRating[];
+  } catch { return []; }
+}
+
+/** Get all ratings from user's friends (for friends map) */
+export async function getAllFriendRatings(userId: string): Promise<CommunityRating[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const friends = await getFriends(userId);
+    if (friends.length === 0) return [];
+    const friendIds = friends.map((f) => f.friend_id);
+    const { data, error } = await supabase.from('community_ratings')
+      .select('*').in('user_id', friendIds).order('updated_at', { ascending: false });
+    if (error) return [];
+    return (data || []) as CommunityRating[];
   } catch { return []; }
 }
 

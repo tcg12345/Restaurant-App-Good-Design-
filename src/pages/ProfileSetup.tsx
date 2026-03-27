@@ -9,6 +9,7 @@ export const ProfileSetup: React.FC = () => {
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [isPublic, setIsPublic] = useState(true);
+  const [isExpert, setIsExpert] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -24,7 +25,7 @@ export const ProfileSetup: React.FC = () => {
     if (!user?.id) return;
     setSubmitting(true);
 
-    const result = await saveProfile(user.id, displayName.trim(), username.trim(), '', isPublic);
+    const result = await saveProfile(user.id, displayName.trim(), username.trim(), '', isPublic, isExpert);
     if (result.success) {
       await refreshProfile();
     } else {
@@ -78,6 +79,18 @@ export const ProfileSetup: React.FC = () => {
           <button type="button" onClick={() => setIsPublic(!isPublic)}
             className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
             <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[1.125rem]' : 'left-[0.125rem]'}`} />
+          </button>
+        </div>
+
+        {/* Expert toggle */}
+        <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-on-surface">{isExpert ? 'Expert Account' : 'Regular Account'}</p>
+            <p className="text-[11px] text-on-surface/40">{isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}</p>
+          </div>
+          <button type="button" onClick={() => setIsExpert(!isExpert)}
+            className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all ${isExpert ? 'left-[1.125rem]' : 'left-[0.125rem]'}`} />
           </button>
         </div>
 

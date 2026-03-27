@@ -8,6 +8,8 @@ import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -72,7 +74,39 @@ function extractCityState(fullAddress: string, shortAddress: string): string {
 export const Map: React.FC = () => {
   const navigate = useNavigate();
   const { setHideBottomNav, phoneMode } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings } = useLists();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+
+  // Data for My Ratings and Friends tabs
+  const [myRatings, setMyRatings] = useState<CommunityRating[]>([]);
+  const [friendRatings, setFriendRatings] = useState<CommunityRating[]>([]);
+  const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
+  const [expertRatings, setExpertRatings] = useState<CommunityRating[]>([]);
+  const [tabDataLoaded, setTabDataLoaded] = useState(false);
+
+  // Load data for non-discover tabs
+  useEffect(() => {
+    if (!userId || tabDataLoaded) return;
+    setTabDataLoaded(true);
+    (async () => {
+      const [myR, friendR, expertR] = await Promise.all([
+        getUserRatings(userId),
+        getAllFriendRatings(userId),
+        getExpertRatings(50),
+      ]);
+      setMyRatings(myR);
+      setFriendRatings(friendR);
+      setExpertRatings(expertR);
+      if (friendR.length > 0) {
+        const ids = [...new Set(friendR.map((r) => r.user_id))];
+        const profs = await getProfilesByIds(ids);
+        setFriendProfiles(profs);
+      }
+    })();
+  }, [userId, tabDataLoaded]);
+  const [mapMode, setMapMode] = useState<'discover' | 'myratings' | 'friends'>('discover');
+  const [mapModeDropdownOpen, setMapModeDropdownOpen] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
@@ -476,10 +510,93 @@ export const Map: React.FC = () => {
 
   const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
+  // Add/remove custom markers for My Ratings and Friends modes
+  const customMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Clear custom markers
+    customMarkersRef.current.forEach((m) => m.remove());
+    customMarkersRef.current = [];
+
+    // Hide/show discover markers based on mode
+    Object.values(markersRef.current).forEach((m) => {
+      const el = m?.getElement?.();
+      if (el) el.style.display = mapMode === 'discover' ? '' : 'none';
+    });
+
+    const ratings = mapMode === 'myratings' ? myRatings : mapMode === 'friends' ? friendRatings : [];
+    if (ratings.length === 0) return;
+
+    const bounds = new mapboxgl.LngLatBounds();
+    let hasMarkers = false;
+
+    for (const r of ratings) {
+      if (!r.lat || !r.lng) continue;
+      const el = document.createElement('div');
+      el.style.cssText = 'width:36px;height:36px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;';
+      el.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${mapMode === 'friends' ? '#9f3012' : '#333'}" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+
+      const cbId = `mm_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+      const rid = r.restaurant_id;
+      const lat = r.lat, lng = r.lng;
+      const cityState = (r.address || '').split(',').slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
+      const photoHtml = r.photo_url ? `<img src="${r.photo_url}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : '';
+      const scoreHtml = `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span style="font-size:12px;font-weight:700;color:#9f3012;">${Number(r.score).toFixed(1)}</span>${r.price ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;">${r.price}</span>` : ''}</div>`;
+
+      (window as any)[cbId] = () => { navigate(`/restaurant/${rid}`); delete (window as any)[cbId]; };
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        new mapboxgl.Popup({ offset: [0, -20], closeButton: true, closeOnClick: true, maxWidth: '220px', className: 'restaurant-popup' })
+          .setLngLat([lng, lat])
+          .setHTML(`<div style="font-family:inherit;padding:4px 0;cursor:pointer;" onclick="window.${cbId}()">${photoHtml}<div style="font-size:13px;font-weight:700;margin-bottom:2px;">${r.restaurant_name}</div><div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;">${r.cuisine}</div>${scoreHtml}<div style="font-size:11px;color:#999;">${cityState}</div></div>`)
+          .addTo(map);
+      });
+
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
+      customMarkersRef.current.push(marker);
+      bounds.extend([lng, lat]);
+      hasMarkers = true;
+    }
+
+    if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
+  }, [mapMode, myRatings, friendRatings, navigate]);
+
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
       {/* Real Mapbox Map */}
       <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
+
+      {/* Map mode selector */}
+      <div className="absolute left-4 top-4 z-30">
+        <div className="relative">
+          <button onClick={() => setMapModeDropdownOpen(!mapModeDropdownOpen)}
+            className="glass rounded-full px-4 py-2.5 shadow-xl flex items-center gap-2 text-sm font-semibold text-on-surface/80 hover:text-primary transition-colors">
+            <MapPinned size={16} />
+            <span>{mapMode === 'discover' ? 'Discover' : mapMode === 'myratings' ? 'My Ratings' : 'Friends'}</span>
+            <ChevronDown size={14} className={cn("transition-transform", mapModeDropdownOpen && "rotate-180")} />
+          </button>
+          <AnimatePresence>
+            {mapModeDropdownOpen && (
+              <motion.div initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                className="absolute top-full left-0 mt-1 glass rounded-xl shadow-2xl border border-white/20 overflow-hidden min-w-[160px]">
+                {([
+                  { key: 'discover' as const, label: 'Discover', desc: 'Nearby restaurants' },
+                  { key: 'myratings' as const, label: 'My Ratings', desc: 'Your rated spots' },
+                  { key: 'friends' as const, label: 'Friends', desc: "Friends' restaurants" },
+                ]).map((m) => (
+                  <button key={m.key} onClick={() => { setMapMode(m.key); setMapModeDropdownOpen(false); }}
+                    className={cn("w-full text-left px-4 py-2.5 transition-colors", mapMode === m.key ? "bg-primary/10 text-primary" : "hover:bg-white/30 text-on-surface/70")}>
+                    <p className="text-xs font-semibold">{m.label}</p>
+                    <p className="text-[10px] text-on-surface/40">{m.desc}</p>
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
 
       {/* Floating Action Buttons */}
       <div className="absolute right-6 top-6 flex flex-col gap-3 z-30">
@@ -976,7 +1093,53 @@ export const Map: React.FC = () => {
 
         {/* Results List */}
         <div className={cn("flex-1 overflow-y-auto no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
-          {isSearching && places.length === 0 ? (
+          {/* My Ratings tab content */}
+          {mapMode === 'myratings' && (
+            <div className="space-y-3">
+              {myRatings.length === 0 ? (
+                <div className="text-center py-8"><p className="text-sm text-on-surface/40">No rated restaurants yet</p></div>
+              ) : myRatings.map((r) => (
+                <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                  className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
+                    <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{r.cuisine}</p>
+                    <p className="text-[11px] text-on-surface/40 mt-0.5">{r.address?.split(',').slice(-1)[0]?.trim()}</p>
+                  </div>
+                  <span className={cn("text-lg font-serif font-bold self-center", Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500')}>
+                    {Number(r.score).toFixed(1)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Friends tab content */}
+          {mapMode === 'friends' && (
+            <div className="space-y-3">
+              {friendRatings.length === 0 ? (
+                <div className="text-center py-8"><p className="text-sm text-on-surface/40">No friend ratings yet</p></div>
+              ) : friendRatings.map((r) => {
+                const prof = friendProfiles[r.user_id];
+                return (
+                  <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                    className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
+                      <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{r.cuisine}</p>
+                      <p className="text-[10px] text-on-surface/30 mt-0.5">{prof?.display_name || 'Friend'}</p>
+                    </div>
+                    <span className={cn("text-lg font-serif font-bold self-center", Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500')}>
+                      {Number(r.score).toFixed(1)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Discover tab content (original) */}
+          {mapMode === 'discover' && (isSearching && places.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 size={24} className="text-primary animate-spin" />
               <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
@@ -1064,7 +1227,7 @@ export const Map: React.FC = () => {
                 );
               })}
             </div>
-          )}
+          ))}
         </div>
       </motion.div>
     </div>
