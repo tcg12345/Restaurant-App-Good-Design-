@@ -677,7 +677,7 @@ export const Map: React.FC = () => {
               animate={{ opacity: 1, scale: 1, x: 0 }}
               exit={{ opacity: 0, scale: 0.85 }}
               transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="absolute right-14 top-0 glass rounded-2xl shadow-2xl border border-white/20 p-2 flex flex-col gap-1 min-w-[140px]"
+              className="absolute right-0 top-14 glass rounded-2xl shadow-2xl border border-white/20 p-2 flex flex-col gap-1 min-w-[140px]"
             >
               {MAP_STYLES.map((s) => (
                 <button
