@@ -980,7 +980,7 @@ export const Map: React.FC = () => {
         </div>
 
         {/* Search Bar & Filters — only on discover tab */}
-        <div className={cn("pb-4 flex-shrink-0", phoneMode ? "px-3" : "px-6")}>
+        <div className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
@@ -1075,8 +1075,8 @@ export const Map: React.FC = () => {
                   </button>
                 ))}
 
-                {/* Map mode toggle buttons with dropdowns */}
-                <div className="relative flex-shrink-0">
+                {/* Map mode toggle buttons (dropdowns rendered outside overflow container below) */}
+                <div className="flex-shrink-0">
                   <button
                     className={cn("flex items-center gap-2 py-3 pl-5 rounded-full border-2 whitespace-nowrap transition-colors",
                       mapMode === 'myratings' ? "bg-primary/10 border-primary/30 text-primary pr-3" : "border-on-surface/10 hover:bg-muted pr-5")}
@@ -1093,27 +1093,9 @@ export const Map: React.FC = () => {
                       </span>
                     )}
                   </button>
-                  {listFilterOpen && mapMode === 'myratings' && (
-                    <>
-                      <div className="absolute inset-0 z-30" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }} onClick={() => setListFilterOpen(false)} />
-                      <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/10 z-[60] min-w-[11rem] max-h-56 overflow-y-auto">
-                        <button onClick={() => { setSelectedListId(null); setListFilterOpen(false); }}
-                          className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
-                            !selectedListId ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Ratings</button>
-                        {myLists.filter((l: any) => l.restaurantIds?.length > 0).map((l: any) => (
-                          <button key={l.id} onClick={() => { setSelectedListId(selectedListId === l.id ? null : l.id); setListFilterOpen(false); }}
-                            className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 flex items-center justify-between",
-                              selectedListId === l.id ? "text-primary bg-primary/5" : "text-on-surface/70")}>
-                            <span>{l.emoji} {l.name}</span>
-                            {selectedListId === l.id && <Check size={14} className="text-primary" />}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
                 </div>
 
-                <div className="relative flex-shrink-0">
+                <div className="flex-shrink-0">
                   <button
                     className={cn("flex items-center gap-2 py-3 pl-5 rounded-full border-2 whitespace-nowrap transition-colors",
                       mapMode === 'friends' ? "bg-primary/10 border-primary/30 text-primary pr-3" : "border-on-surface/10 hover:bg-muted pr-5")}
@@ -1130,29 +1112,6 @@ export const Map: React.FC = () => {
                       </span>
                     )}
                   </button>
-                  {friendFilterOpen && mapMode === 'friends' && (
-                    <>
-                      <div className="absolute inset-0 z-30" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }} onClick={() => setFriendFilterOpen(false)} />
-                      <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/10 z-[60] min-w-[11rem] max-h-56 overflow-y-auto">
-                        <button onClick={() => { setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}
-                          className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
-                            selectedFriendIds.size === 0 ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Friends</button>
-                        {Object.values(friendProfiles).map((p) => {
-                          const sel = selectedFriendIds.has(p.user_id);
-                          return (
-                            <button key={p.user_id} onClick={() => {
-                              setSelectedFriendIds((prev) => { const next = new Set(prev); sel ? next.delete(p.user_id) : next.add(p.user_id); return next; });
-                            }}
-                              className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 flex items-center justify-between",
-                                sel ? "text-primary bg-primary/5" : "text-on-surface/70")}>
-                              <span>{p.display_name || `@${p.username}`}</span>
-                              {sel && <Check size={14} className="text-primary" />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
                 </div>
 
                 <button
@@ -1168,6 +1127,53 @@ export const Map: React.FC = () => {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Dropdown panels — rendered outside overflow-x-auto container so they aren't clipped */}
+          {listFilterOpen && mapMode === 'myratings' && (
+            <>
+              <div className="absolute inset-0 z-30" onClick={() => setListFilterOpen(false)} />
+              <div className="relative z-[60]">
+                <div className="absolute left-3 top-0 bg-white rounded-xl shadow-xl border border-on-surface/10 min-w-[11rem] max-h-56 overflow-y-auto">
+                  <button onClick={() => { setSelectedListId(null); setListFilterOpen(false); }}
+                    className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
+                      !selectedListId ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Ratings</button>
+                  {myLists.filter((l: any) => l.restaurantIds?.length > 0).map((l: any) => (
+                    <button key={l.id} onClick={() => { setSelectedListId(selectedListId === l.id ? null : l.id); setListFilterOpen(false); }}
+                      className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 flex items-center justify-between",
+                        selectedListId === l.id ? "text-primary bg-primary/5" : "text-on-surface/70")}>
+                      <span>{l.emoji} {l.name}</span>
+                      {selectedListId === l.id && <Check size={14} className="text-primary" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+          {friendFilterOpen && mapMode === 'friends' && (
+            <>
+              <div className="absolute inset-0 z-30" onClick={() => setFriendFilterOpen(false)} />
+              <div className="relative z-[60]">
+                <div className="absolute left-3 top-0 bg-white rounded-xl shadow-xl border border-on-surface/10 min-w-[11rem] max-h-56 overflow-y-auto">
+                  <button onClick={() => { setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}
+                    className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
+                      selectedFriendIds.size === 0 ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Friends</button>
+                  {Object.values(friendProfiles).map((p) => {
+                    const sel = selectedFriendIds.has(p.user_id);
+                    return (
+                      <button key={p.user_id} onClick={() => {
+                        setSelectedFriendIds((prev) => { const next = new Set(prev); sel ? next.delete(p.user_id) : next.add(p.user_id); return next; });
+                      }}
+                        className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 flex items-center justify-between",
+                          sel ? "text-primary bg-primary/5" : "text-on-surface/70")}>
+                        <span>{p.display_name || `@${p.username}`}</span>
+                        {sel && <Check size={14} className="text-primary" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Results List */}
