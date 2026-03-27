@@ -58,41 +58,53 @@ export const UserProfile: React.FC = () => {
 
   useEffect(() => {
     if (!username) return;
+    let cancelled = false;
+
     (async () => {
       setLoading(true);
       const p = await getProfileByUsername(username);
+      if (cancelled || !p) { setProfile(p); setLoading(false); return; }
       setProfile(p);
 
-      if (p && userId) {
-        const [viewable, counts, friends] = await Promise.all([
-          canViewProfile(userId, p),
-          getFollowCounts(p.user_id),
-          getFriends(userId),
-        ]);
-        setCanView(viewable);
-        setFollowers(counts.followers);
-        setFollowing(counts.following);
-        setIsFollowing(friends.some((f) => f.friend_id === p.user_id));
-
-        if (viewable) {
-          const [ratings, photos, lists] = await Promise.all([getUserRatings(p.user_id), getUserPhotos(p.user_id), getUserLists(p.user_id)]);
-          setUserRatings(ratings);
-          setUserPhotos(photos);
-          setUserLists(lists.filter((l) => l.restaurantIds.length > 0));
-        }
-      } else if (p?.is_public) {
-        setCanView(true);
-        const [counts, ratings, photos, lists] = await Promise.all([
-          getFollowCounts(p.user_id), getUserRatings(p.user_id), getUserPhotos(p.user_id), getUserLists(p.user_id),
-        ]);
-        setFollowers(counts.followers);
-        setFollowing(counts.following);
-        setUserRatings(ratings);
-        setUserPhotos(photos);
-        setUserLists(lists.filter((l) => l.restaurantIds.length > 0));
+      // Run ALL queries in parallel for speed
+      const isAuthed = !!userId;
+      const queries: Promise<any>[] = [
+        getFollowCounts(p.user_id),
+        getUserRatings(p.user_id),
+        getUserLists(p.user_id),
+      ];
+      if (isAuthed) {
+        queries.push(canViewProfile(userId!, p));
+        queries.push(getFriends(userId!));
+        queries.push(getUserPhotos(p.user_id));
+      } else if (p.is_public) {
+        queries.push(Promise.resolve(true)); // viewable
+        queries.push(Promise.resolve([])); // friends
+        queries.push(getUserPhotos(p.user_id));
       }
+
+      const results = await Promise.all(queries);
+      if (cancelled) return;
+
+      const [counts, ratings, lists, viewable, friends, photos] = results;
+      setFollowers((counts as any).followers || 0);
+      setFollowing((counts as any).following || 0);
+      setUserRatings(ratings || []);
+      setUserLists((lists || []).filter((l: any) => l.restaurantIds?.length > 0));
+
+      if (isAuthed) {
+        setCanView(!!viewable);
+        setIsFollowing((friends || []).some((f: any) => f.friend_id === p.user_id));
+        setUserPhotos(photos || []);
+      } else if (p.is_public) {
+        setCanView(true);
+        setUserPhotos(photos || []);
+      }
+
       setLoading(false);
     })();
+
+    return () => { cancelled = true; };
   }, [username, userId]);
 
   // Shared restaurants
@@ -166,38 +178,9 @@ export const UserProfile: React.FC = () => {
     return result;
   }, [userRatings, searchQuery, selectedListRestaurantIds, filterCuisine, filterPrice, filterCity, scoreRange, sortBy]);
 
-  // Look up coordinates for ratings that don't have them (run once, save to DB)
+  // Coordinate lookup — only runs when map is opened
   const [resolvedCoords, setResolvedCoords] = useState<Record<string, { lat: number; lng: number }>>({});
   const coordsLookedUp = useRef(false);
-
-  useEffect(() => {
-    if (coordsLookedUp.current || userRatings.length === 0) return;
-    coordsLookedUp.current = true;
-    const missing = userRatings.filter((r) => !r.lat || !r.lng);
-    if (missing.length === 0) return;
-
-    (async () => {
-      const newCoords: Record<string, { lat: number; lng: number }> = {};
-      for (const r of missing.slice(0, 30)) {
-        try {
-          const results = await searchPlacesByText(r.restaurant_name + ' ' + (r.address?.split(',').slice(-1)[0]?.trim() || ''), 0, 0);
-          if (results[0]?.lat && results[0]?.lng) {
-            newCoords[r.restaurant_id] = { lat: results[0].lat, lng: results[0].lng };
-            // Save coordinates back to DB for future fast loading
-            publishCommunityRating(r.user_id, r.restaurant_id, {
-              name: r.restaurant_name, score: Number(r.score), notes: r.notes,
-              cuisine: r.cuisine, price: r.price, address: r.address,
-              visitDate: r.visit_date, tags: r.tags, wouldReturn: r.would_return,
-              friendIds: r.friend_ids || [], photoUrl: r.photo_url || '',
-              lat: results[0].lat, lng: results[0].lng,
-            });
-          }
-        } catch {}
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-      setResolvedCoords(newCoords);
-    })();
-  }, [userRatings]);
 
   // Init map
   useEffect(() => {
@@ -212,11 +195,12 @@ export const UserProfile: React.FC = () => {
     });
     mapRef.current = map;
 
-    map.on('load', () => {
+    map.on('load', async () => {
       const bounds = new mapboxgl.LngLatBounds();
       let hasMarkers = false;
       let activePopup: mapboxgl.Popup | null = null;
 
+      // First: add all markers that already have coordinates (instant)
       for (const r of userRatings) {
         const lat = r.lat || resolvedCoords[r.restaurant_id]?.lat;
         const lng = r.lng || resolvedCoords[r.restaurant_id]?.lng;
@@ -260,6 +244,35 @@ export const UserProfile: React.FC = () => {
       }
 
       if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
+
+      // Background: look up missing coordinates and add markers as they resolve
+      if (!coordsLookedUp.current) {
+        coordsLookedUp.current = true;
+        const missing = userRatings.filter((r) => !r.lat && !r.lng && !resolvedCoords[r.restaurant_id]);
+        for (const r of missing.slice(0, 15)) {
+          try {
+            const results = await searchPlacesByText(r.restaurant_name + ' ' + (r.address?.split(',').slice(-1)[0]?.trim() || ''), 0, 0);
+            if (results[0]?.lat && results[0]?.lng) {
+              const lt = results[0].lat, ln = results[0].lng;
+              // Add marker to map
+              const el2 = document.createElement('div');
+              el2.style.cssText = 'width:36px;height:36px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;';
+              el2.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
+              const rid2 = r.restaurant_id;
+              el2.addEventListener('click', () => { navigate(`/restaurant/${rid2}`); });
+              new mapboxgl.Marker({ element: el2, anchor: 'center' }).setLngLat([ln, lt]).addTo(map);
+              // Save coords to DB
+              publishCommunityRating(r.user_id, r.restaurant_id, {
+                name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
+                price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
+                wouldReturn: r.would_return, friendIds: r.friend_ids || [],
+                photoUrl: r.photo_url || '', lat: lt, lng: ln,
+              });
+            }
+          } catch {}
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      }
     });
 
     return () => { map.remove(); mapRef.current = null; };
