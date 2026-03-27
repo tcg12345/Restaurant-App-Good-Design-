@@ -68,12 +68,21 @@ export const Circle: React.FC = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const [suggestions, setSuggestions] = useState<UserProfile[]>([]);
+
+  const loadSuggestions = async () => {
+    if (!userId) return;
+    const results = await searchUsersByUsername('', userId);
+    const friendIds = new Set(friends.map((f) => f.friend_id));
+    // Also filter out pending requests we've sent
+    setSuggestions(results.filter((r) => !friendIds.has(r.user_id)));
+  };
+
   const handleSearch = async (q: string) => {
     setSearchQuery(q);
-    if (!q.trim() || !userId) { setSearchResults([]); return; }
+    if (!userId) return;
     setSearching(true);
     const results = await searchUsersByUsername(q, userId);
-    // Filter out already-followed
     const friendIds = new Set(friends.map((f) => f.friend_id));
     setSearchResults(results.filter((r) => !friendIds.has(r.user_id)));
     setSearching(false);
@@ -176,7 +185,7 @@ export const Circle: React.FC = () => {
             <section className="mb-6">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">My Friends ({friends.length})</h2>
-                <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); setAddSuccess(null); }}
+                <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); setAddSuccess(null); loadSuggestions(); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-full">
                   <UserPlus size={12} /> Add
                 </button>
@@ -189,7 +198,7 @@ export const Circle: React.FC = () => {
                   <Users size={24} className="mx-auto text-on-surface/15 mb-2" />
                   <p className="text-sm font-medium text-on-surface/40">No friends yet</p>
                   <p className="text-xs text-on-surface/30 mt-1">Search by username to add friends</p>
-                  <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); }}
+                  <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); }}
                     className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-full">
                     <UserPlus size={12} /> Find Friends
                   </button>
@@ -333,11 +342,29 @@ export const Circle: React.FC = () => {
                       </button>
                     </div>
                   ))
+                ) : !searchQuery.trim() && suggestions.length > 0 ? (
+                  <>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2 px-1">Suggested</p>
+                    {suggestions.map((u) => (
+                      <div key={u.user_id} className="flex items-center gap-3 bg-white rounded-xl border border-on-surface/8 px-3 py-2.5">
+                        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <UserCircle size={18} className="text-primary/50" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate">{u.display_name}</p>
+                          <p className="text-[10px] text-on-surface/35">@{u.username}</p>
+                        </div>
+                        <button onClick={() => handleAddFriend(u.user_id, u.display_name)}
+                          className="px-3 py-1.5 bg-primary text-white text-[10px] font-semibold rounded-lg">
+                          Send Request
+                        </button>
+                      </div>
+                    ))}
+                  </>
                 ) : !searchQuery.trim() ? (
                   <div className="text-center py-8">
                     <Search size={24} className="mx-auto text-on-surface/15 mb-2" />
-                    <p className="text-sm text-on-surface/40">Search for friends by username</p>
-                    <p className="text-xs text-on-surface/30 mt-1">e.g. tyler_eats, foodie_anna</p>
+                    <p className="text-sm text-on-surface/40">No users found yet</p>
                   </div>
                 ) : null}
               </div>

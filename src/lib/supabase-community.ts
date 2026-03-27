@@ -202,10 +202,11 @@ export async function saveProfile(userId: string, displayName: string, username:
 }
 
 export async function searchUsersByUsername(query: string, currentUserId: string): Promise<UserProfile[]> {
-  if (!supabaseConfigured || !query.trim()) return [];
+  if (!supabaseConfigured) return [];
   try {
-    const { data, error } = await supabase.from('user_profiles')
-      .select('*').ilike('username', `%${query.trim()}%`).neq('user_id', currentUserId).limit(20);
+    let q = supabase.from('user_profiles').select('*').neq('user_id', currentUserId).limit(20);
+    if (query.trim()) q = q.ilike('username', `%${query.trim()}%`);
+    const { data, error } = await q;
     if (error) return [];
     return (data || []) as UserProfile[];
   } catch { return []; }
