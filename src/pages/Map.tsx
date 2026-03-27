@@ -453,17 +453,17 @@ export const Map: React.FC = () => {
       }, 800);
     });
 
-    // Click on map background clears selection & popup
-    map.on('click', () => {
-      if (isMarkerSelectedRef.current) {
-        isMarkerSelectedRef.current = false;
-        setSelectedMarker(null);
-        if (popupRef.current) {
-          popupRef.current.remove();
-          popupRef.current = null;
-        }
+    // Click on map background or drag clears popup
+    const clearPopup = () => {
+      if (popupRef.current) {
+        popupRef.current.remove();
+        popupRef.current = null;
       }
-    });
+      isMarkerSelectedRef.current = false;
+      setSelectedMarker(null);
+    };
+    map.on('click', clearPopup);
+    map.on('dragstart', clearPopup);
 
     return () => {
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
@@ -591,10 +591,14 @@ export const Map: React.FC = () => {
       (window as any)[cbId] = () => { navigate(`/restaurant/${rid}`); delete (window as any)[cbId]; };
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        new mapboxgl.Popup({ offset: [0, -20], closeButton: true, closeOnClick: true, maxWidth: '220px', className: 'restaurant-popup' })
+        if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
+        const popup = new mapboxgl.Popup({ offset: [0, -20], closeButton: true, closeOnClick: false, maxWidth: '220px', className: 'restaurant-popup' })
           .setLngLat([lng, lat])
           .setHTML(`<div style="font-family:inherit;padding:4px 0;cursor:pointer;" onclick="window.${cbId}()">${photoHtml}<div style="font-size:13px;font-weight:700;margin-bottom:2px;">${r.restaurant_name}</div><div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;">${r.cuisine}</div>${scoreHtml}<div style="font-size:11px;color:#999;">${cityState}</div></div>`)
           .addTo(map);
+        popup.on('close', () => { if (popupRef.current === popup) popupRef.current = null; delete (window as any)[cbId]; });
+        popupRef.current = popup;
+        isMarkerSelectedRef.current = true;
       });
 
       const marker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
