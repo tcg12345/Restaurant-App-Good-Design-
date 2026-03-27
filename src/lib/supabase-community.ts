@@ -262,6 +262,28 @@ export async function getFollowCounts(userId: string): Promise<{ followers: numb
   } catch { return { followers: 0, following: 0 }; }
 }
 
+/** Get all ratings by a specific user */
+export async function getUserRatings(userId: string): Promise<CommunityRating[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('community_ratings')
+      .select('*').eq('user_id', userId).order('updated_at', { ascending: false });
+    if (error) return [];
+    return (data || []) as CommunityRating[];
+  } catch { return []; }
+}
+
+/** Get all photos by a specific user */
+export async function getUserPhotos(userId: string): Promise<CommunityPhoto[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('community_photos')
+      .select('*').eq('user_id', userId).order('created_at', { ascending: false });
+    if (error) return [];
+    return (data || []) as CommunityPhoto[];
+  } catch { return []; }
+}
+
 /* ── Friend Management ── */
 
 export interface FriendInfo {
