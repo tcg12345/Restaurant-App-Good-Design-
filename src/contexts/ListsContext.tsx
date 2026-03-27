@@ -182,9 +182,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
   const [cloudLoaded, setCloudLoaded] = useState(false);
 
-  // Track userId for cloud save helpers
+  // Track userId and profile for cloud save helpers
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
+  const isPublicRef = useRef(authProfile?.is_public ?? true);
+  isPublicRef.current = authProfile?.is_public ?? true;
 
   // ── Load data from Supabase when user signs in ──
   useEffect(() => {
@@ -252,7 +254,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               visitDate: r.visitDate, tags: r.tags, wouldReturn: r.wouldReturn,
               friendIds: r.friendIds || [], photoUrl: r.image || '',
             });
-            if (r.photos && r.photos.length > 0 && authProfile?.is_public) {
+            if (r.photos && r.photos.length > 0 && isPublicRef.current) {
               publishCommunityPhotos(userId, r.restaurantId, r.photos).catch(() => {});
             }
           }
@@ -377,13 +379,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         friendIds: rating.friendIds || [], photoUrl: rating.image || '',
       });
       // Only publish photos to community if account is public
-      if (rating.photos && rating.photos.length > 0 && authProfile?.is_public) {
+      if (rating.photos && rating.photos.length > 0 && isPublicRef.current) {
         publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos).catch(() => {
           console.warn('[Supabase] Failed to publish photos — they may be too large for the database');
         });
       }
     }
-  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, authProfile]);
+  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {

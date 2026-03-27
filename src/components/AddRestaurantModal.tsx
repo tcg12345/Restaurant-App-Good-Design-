@@ -317,7 +317,7 @@ export const AddRestaurantModal: React.FC = () => {
                     </AnimatePresence>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto overscroll-contain px-5">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
                     <div className="flex flex-col items-center pt-3 sm:pt-5">
                       <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
                         <div className="text-center">
