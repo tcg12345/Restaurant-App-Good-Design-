@@ -286,6 +286,19 @@ export async function getUserPhotos(userId: string): Promise<CommunityPhoto[]> {
   } catch { return []; }
 }
 
+/** Get a user's lists from user_app_data */
+export async function getUserLists(userId: string): Promise<{ id: string; name: string; emoji: string; restaurantIds: string[] }[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('user_app_data')
+      .select('lists').eq('user_id', userId).single();
+    if (error || !data) return [];
+    return (data.lists as any[] || []).map((l: any) => ({
+      id: l.id, name: l.name, emoji: l.emoji, restaurantIds: l.restaurantIds || [],
+    }));
+  } catch { return []; }
+}
+
 /* ── Friend Management ── */
 
 export interface FriendInfo {
