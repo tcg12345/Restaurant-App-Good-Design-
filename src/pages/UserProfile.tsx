@@ -15,6 +15,14 @@ import mapboxgl from 'mapbox-gl';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { searchPlacesByText, type PlaceResult } from '../lib/places';
 
+// Simple in-memory cache to avoid re-fetching on back navigation
+const profileCache: Record<string, {
+  profile: UserProfileType; canView: boolean; followers: number; following: number;
+  isFollowing: boolean; ratings: CommunityRating[]; photos: CommunityPhoto[];
+  lists: { id: string; name: string; emoji: string; restaurantIds: string[] }[];
+  ts: number;
+}> = {};
+
 export const UserProfile: React.FC = () => {
   const { username } = useParams();
   const navigate = useNavigate();
@@ -60,13 +68,28 @@ export const UserProfile: React.FC = () => {
     if (!username) return;
     let cancelled = false;
 
+    // Check cache first (valid for 60 seconds)
+    const cacheKey = `${username}_${userId}`;
+    const cached = profileCache[cacheKey];
+    if (cached && Date.now() - cached.ts < 60000) {
+      setProfile(cached.profile);
+      setCanView(cached.canView);
+      setFollowers(cached.followers);
+      setFollowing(cached.following);
+      setIsFollowing(cached.isFollowing);
+      setUserRatings(cached.ratings);
+      setUserPhotos(cached.photos);
+      setUserLists(cached.lists);
+      setLoading(false);
+      return;
+    }
+
     (async () => {
       setLoading(true);
       const p = await getProfileByUsername(username);
       if (cancelled || !p) { setProfile(p); setLoading(false); return; }
       setProfile(p);
 
-      // Run ALL queries in parallel for speed
       const isAuthed = !!userId;
       const queries: Promise<any>[] = [
         getFollowCounts(p.user_id),
@@ -78,8 +101,8 @@ export const UserProfile: React.FC = () => {
         queries.push(getFriends(userId!));
         queries.push(getUserPhotos(p.user_id));
       } else if (p.is_public) {
-        queries.push(Promise.resolve(true)); // viewable
-        queries.push(Promise.resolve([])); // friends
+        queries.push(Promise.resolve(true));
+        queries.push(Promise.resolve([]));
         queries.push(getUserPhotos(p.user_id));
       }
 
@@ -87,19 +110,27 @@ export const UserProfile: React.FC = () => {
       if (cancelled) return;
 
       const [counts, ratings, lists, viewable, friends, photos] = results;
-      setFollowers((counts as any).followers || 0);
-      setFollowing((counts as any).following || 0);
-      setUserRatings(ratings || []);
-      setUserLists((lists || []).filter((l: any) => l.restaurantIds?.length > 0));
+      const fCounts = counts as { followers: number; following: number };
+      const fRatings = (ratings || []) as CommunityRating[];
+      const fLists = ((lists || []) as any[]).filter((l: any) => l.restaurantIds?.length > 0);
+      const fPhotos = (photos || []) as CommunityPhoto[];
+      const fCanView = !!viewable;
+      const fIsFollowing = (friends || []).some((f: any) => f.friend_id === p.user_id);
 
-      if (isAuthed) {
-        setCanView(!!viewable);
-        setIsFollowing((friends || []).some((f: any) => f.friend_id === p.user_id));
-        setUserPhotos(photos || []);
-      } else if (p.is_public) {
-        setCanView(true);
-        setUserPhotos(photos || []);
-      }
+      setFollowers(fCounts.followers || 0);
+      setFollowing(fCounts.following || 0);
+      setUserRatings(fRatings);
+      setUserLists(fLists);
+      setCanView(fCanView);
+      setIsFollowing(fIsFollowing);
+      setUserPhotos(fPhotos);
+
+      // Save to cache
+      profileCache[cacheKey] = {
+        profile: p, canView: fCanView, followers: fCounts.followers || 0,
+        following: fCounts.following || 0, isFollowing: fIsFollowing,
+        ratings: fRatings, photos: fPhotos, lists: fLists, ts: Date.now(),
+      };
 
       setLoading(false);
     })();
