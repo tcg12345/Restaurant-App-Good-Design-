@@ -293,16 +293,29 @@ export async function getUserPhotos(userId: string): Promise<CommunityPhoto[]> {
   } catch { return []; }
 }
 
-/** Get a user's lists from user_app_data */
+/** Get a user's lists from user_app_data (includes wishlist as first item) */
 export async function getUserLists(userId: string): Promise<{ id: string; name: string; emoji: string; restaurantIds: string[] }[]> {
   if (!supabaseConfigured || !userId) return [];
   try {
     const { data, error } = await supabase.from('user_app_data')
-      .select('lists').eq('user_id', userId).single();
+      .select('lists, wishlist').eq('user_id', userId).single();
     if (error || !data) return [];
-    return (data.lists as any[] || []).map((l: any) => ({
-      id: l.id, name: l.name, emoji: l.emoji, restaurantIds: l.restaurantIds || [],
-    }));
+
+    const result: { id: string; name: string; emoji: string; restaurantIds: string[] }[] = [];
+
+    // Wishlist always first
+    const wishlistItems = (data.wishlist as any[]) || [];
+    if (wishlistItems.length > 0) {
+      result.push({ id: '__wishlist__', name: 'Wishlist', emoji: '❤️', restaurantIds: wishlistItems.map((w: any) => w.restaurantId) });
+    }
+
+    // Then regular lists
+    const lists = (data.lists as any[]) || [];
+    lists.forEach((l: any) => {
+      result.push({ id: l.id, name: l.name, emoji: l.emoji, restaurantIds: l.restaurantIds || [] });
+    });
+
+    return result;
   } catch { return []; }
 }
 
