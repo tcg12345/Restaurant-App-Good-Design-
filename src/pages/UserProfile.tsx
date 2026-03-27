@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,7 +13,6 @@ import {
 import mapboxgl from 'mapbox-gl';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 
-type ProfileTab = 'ratings' | 'photos' | 'map';
 
 export const UserProfile: React.FC = () => {
   const { username } = useParams();
@@ -33,7 +32,12 @@ export const UserProfile: React.FC = () => {
   // Content
   const [userRatings, setUserRatings] = useState<CommunityRating[]>([]);
   const [userPhotos, setUserPhotos] = useState<CommunityPhoto[]>([]);
-  const [activeTab, setActiveTab] = useState<ProfileTab>('ratings');
+
+  // Search & filter
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedList, setSelectedList] = useState<string | null>(null);
+  const [showMapPage, setShowMapPage] = useState(false);
 
   // Map
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -96,17 +100,19 @@ export const UserProfile: React.FC = () => {
     return result;
   }, [userRatings, myRatings, canView, userId, profile]);
 
-  // Stats
-  const avgScore = userRatings.length > 0 ? userRatings.reduce((s, r) => s + Number(r.score), 0) / userRatings.length : 0;
-  const topCuisines = useMemo(() => {
-    const counts: Record<string, number> = {};
-    userRatings.forEach((r) => { if (r.cuisine) counts[r.cuisine] = (counts[r.cuisine] || 0) + 1; });
-    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
-  }, [userRatings]);
+  // Filtered ratings
+  const filteredRatings = useMemo(() => {
+    let result = userRatings;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((r) => r.restaurant_name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.address.toLowerCase().includes(q));
+    }
+    return result;
+  }, [userRatings, searchQuery]);
 
-  // Init map when tab switches to map
+  // Init map when map page is shown
   useEffect(() => {
-    if (activeTab !== 'map' || !mapContainerRef.current || mapRef.current || userRatings.length === 0) return;
+    if (!showMapPage || !mapContainerRef.current || mapRef.current) return;
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: 'mapbox://styles/mapbox/light-v11',
@@ -115,21 +121,8 @@ export const UserProfile: React.FC = () => {
       accessToken: MAPBOX_TOKEN,
     });
     mapRef.current = map;
-
-    map.on('load', () => {
-      const bounds = new mapboxgl.LngLatBounds();
-      let hasValidCoords = false;
-
-      userRatings.forEach((r) => {
-        // We don't have lat/lng in community_ratings, so we skip markers for now
-        // This would require storing coordinates in community_ratings
-      });
-
-      // For now just show a centered map
-    });
-
     return () => { map.remove(); mapRef.current = null; };
-  }, [activeTab, userRatings]);
+  }, [showMapPage]);
 
   const handleFollow = async () => {
     if (!userId || !profile) return;
@@ -240,82 +233,61 @@ export const UserProfile: React.FC = () => {
               </section>
             )}
 
-            {/* Tabs */}
-            <div className="flex gap-1 bg-on-surface/5 rounded-xl p-1 mb-4">
-              {([
-                { key: 'ratings' as ProfileTab, label: 'Ratings', count: userRatings.length },
-                { key: 'photos' as ProfileTab, label: 'Photos', count: userPhotos.length },
-                { key: 'map' as ProfileTab, label: 'Map' },
-              ]).map((tab) => (
-                <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-                  className={cn("flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all",
-                    activeTab === tab.key ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40")}>
-                  {tab.label}
-                  {tab.count !== undefined && tab.count > 0 && <span className="ml-1 text-[10px] opacity-60">{tab.count}</span>}
-                </button>
-              ))}
+            {/* Search bar */}
+            <div className="flex gap-2 mb-3">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search restaurants..."
+                  className="w-full bg-white rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium border border-on-surface/8 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30"><X size={14} /></button>}
+              </div>
             </div>
 
-            {/* Ratings tab */}
-            {activeTab === 'ratings' && (
-              <div className="space-y-2">
-                {userRatings.length === 0 ? (
-                  <div className="text-center py-12"><p className="text-sm text-on-surface/30">No ratings yet</p></div>
-                ) : (
-                  userRatings.map((r) => (
-                    <Link key={r.id} to={`/restaurant/${r.restaurant_id}`} className="block">
-                      <div className="bg-white rounded-xl border border-on-surface/8 px-3 py-2.5 active:scale-[0.99] transition-transform">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
-                            <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">
-                              {r.cuisine}{r.price ? ` · ${r.price}` : ''}
-                              {r.address && ` · ${r.address.split(',').slice(-1)[0]?.trim()}`}
-                            </p>
-                          </div>
-                          <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(Number(r.score)))}>
-                            {Number(r.score).toFixed(1)}
-                          </span>
+            {/* Summary */}
+            <p className="text-[10px] text-on-surface/35 font-bold uppercase tracking-widest mb-3">
+              {filteredRatings.length} restaurant{filteredRatings.length !== 1 ? 's' : ''}
+              {searchQuery && ` matching "${searchQuery}"`}
+            </p>
+
+            {/* Ratings list */}
+            <div className="space-y-2 pb-20">
+              {filteredRatings.length === 0 ? (
+                <div className="text-center py-12"><p className="text-sm text-on-surface/30">{searchQuery ? 'No matches' : 'No ratings yet'}</p></div>
+              ) : (
+                filteredRatings.map((r) => (
+                  <Link key={r.id} to={`/restaurant/${r.restaurant_id}`} className="block">
+                    <div className="bg-white rounded-xl border border-on-surface/8 px-3 py-2.5 active:scale-[0.99] transition-transform">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
+                          <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">
+                            {r.cuisine}{r.price ? ` · ${r.price}` : ''}
+                            {r.address && ` · ${r.address.split(',').slice(-1)[0]?.trim()}`}
+                          </p>
                         </div>
-                        {r.notes && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-1">"{r.notes}"</p>}
-                        {r.tags && r.tags.length > 0 && (
-                          <div className="flex gap-1 mt-1">
-                            {r.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}
-                          </div>
-                        )}
+                        <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(Number(r.score)))}>
+                          {Number(r.score).toFixed(1)}
+                        </span>
                       </div>
-                    </Link>
-                  ))
-                )}
-              </div>
-            )}
+                      {r.notes && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-1">"{r.notes}"</p>}
+                      {r.tags && r.tags.length > 0 && (
+                        <div className="flex gap-1 mt-1">
+                          {r.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
 
-            {/* Photos tab */}
-            {activeTab === 'photos' && (
-              <div>
-                {userPhotos.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Camera size={24} className="mx-auto text-on-surface/15 mb-2" />
-                    <p className="text-sm text-on-surface/30">No photos yet</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-3 gap-1 rounded-xl overflow-hidden">
-                    {userPhotos.map((photo) => (
-                      <div key={photo.id} className="aspect-square bg-on-surface/5 overflow-hidden">
-                        <img src={photo.url} alt={photo.caption || 'Photo'} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Map tab */}
-            {activeTab === 'map' && (
-              <div>
-                <div ref={mapContainerRef} className="w-full h-64 rounded-xl overflow-hidden bg-on-surface/5" />
-                <p className="text-center text-[10px] text-on-surface/30 mt-2">Map shows rated restaurant locations</p>
-              </div>
+            {/* Floating map button */}
+            {userRatings.length > 0 && (
+              <button onClick={() => setShowMapPage(true)}
+                className="fixed bottom-6 right-6 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform z-30">
+                <MapIcon size={22} />
+              </button>
             )}
           </>
         ) : (
@@ -326,6 +298,22 @@ export const UserProfile: React.FC = () => {
           </section>
         )}
       </div>
+
+      {/* Full-screen map page */}
+      <AnimatePresence>
+        {showMapPage && (
+          <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+            transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+            className="fixed inset-0 z-40 bg-surface flex flex-col">
+            <header className="sticky top-0 px-4 py-3 bg-surface/95 backdrop-blur-sm z-10 flex items-center gap-3 border-b border-on-surface/6">
+              <button onClick={() => { setShowMapPage(false); mapRef.current?.remove(); mapRef.current = null; }}
+                className="p-2 -ml-2 text-on-surface/50 hover:text-on-surface"><ArrowLeft size={20} /></button>
+              <h1 className="font-serif font-bold text-lg">{profile.display_name}'s Map</h1>
+            </header>
+            <div ref={mapContainerRef} className="flex-1" />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
