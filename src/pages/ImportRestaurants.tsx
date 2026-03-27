@@ -13,6 +13,7 @@ interface ParsedRestaurant {
   notes: string;
   dateVisited: string;
   priceRange: number;
+  isWishlist: boolean;
 }
 
 interface ImportResult {
@@ -37,6 +38,7 @@ function parseCSV(text: string): ParsedRestaurant[] {
   const notesIdx = headers.findIndex((h) => h.includes('note'));
   const dateIdx = headers.findIndex((h) => h.includes('date') || h.includes('visited'));
   const priceIdx = headers.findIndex((h) => h.includes('price'));
+  const wishlistIdx = headers.findIndex((h) => h.includes('wishlist'));
 
   if (nameIdx === -1) return [];
 
@@ -67,6 +69,7 @@ function parseCSV(text: string): ParsedRestaurant[] {
       notes: notesIdx >= 0 ? fields[notesIdx] || '' : '',
       dateVisited: dateIdx >= 0 ? fields[dateIdx] || '' : '',
       priceRange: Math.min(priceRange, 4),
+      isWishlist: wishlistIdx >= 0 ? ['true', '1', 'yes'].includes((fields[wishlistIdx] || '').toLowerCase()) : false,
     };
   }).filter((r) => r.name);
 }
@@ -84,6 +87,7 @@ function parseJSON(text: string): ParsedRestaurant[] {
       notes: r.notes || r.review || '',
       dateVisited: r.dateVisited || r.date_visited || r.date || '',
       priceRange: typeof r.priceRange === 'number' ? r.priceRange : (typeof r.price_range === 'number' ? r.price_range : (r.price ? String(r.price).replace(/[^$]/g, '').length : 0)),
+      isWishlist: !!(r.is_wishlist || r.isWishlist || r.wishlist),
     }));
   } catch { return []; }
 }
@@ -103,7 +107,7 @@ async function findGooglePlace(restaurant: ParsedRestaurant): Promise<PlaceResul
 
 export const ImportRestaurants: React.FC = () => {
   const navigate = useNavigate();
-  const { ratings, rateRestaurant, cacheRestaurantMeta } = useLists();
+  const { ratings, rateRestaurant, cacheRestaurantMeta, addToWishlist, wishlist } = useLists();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [parsedRestaurants, setParsedRestaurants] = useState<ParsedRestaurant[]>([]);
@@ -177,7 +181,13 @@ export const ImportRestaurants: React.FC = () => {
         const meta: RestaurantMeta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: restaurant.cuisine, price, address: place.address || restaurant.address };
         cacheRestaurantMeta(meta);
 
-        if (restaurant.rating !== null) {
+        if (restaurant.isWishlist) {
+          addToWishlist({
+            restaurantId: place.id, name: place.name, image: place.photoUrl || '',
+            cuisine: restaurant.cuisine, price, address: place.address || restaurant.address,
+            notes: restaurant.notes, listIds: [], addedAt: Date.now() - (importResults.length - i),
+          });
+        } else if (restaurant.rating !== null) {
           rateRestaurant({
             restaurantId: place.id, name: place.name, image: place.photoUrl || '',
             cuisine: restaurant.cuisine, price, address: place.address || restaurant.address,
@@ -185,8 +195,8 @@ export const ImportRestaurants: React.FC = () => {
             wouldReturn: true, tags: [], photos: [], listIds: [],
             createdAt: Date.now() - (importResults.length - i),
           });
-          existingIds.add(place.id);
         }
+        existingIds.add(place.id);
 
         setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'found', placeResult: place }; return next; });
       } catch (err) {
@@ -239,9 +249,9 @@ export const ImportRestaurants: React.FC = () => {
               <p className="text-xs font-bold text-on-surface/50 uppercase tracking-wider">Supported Formats</p>
               <div>
                 <p className="text-xs font-semibold text-on-surface/70 mb-1">CSV (comma-separated)</p>
-                <code className="block text-[10px] bg-white p-2 rounded-lg text-on-surface/50 overflow-x-auto">
-                  name,city,cuisine,rating,price_range,notes{'\n'}
-                  Nobu Downtown,New York,Japanese,8.8,4,Amazing omakase
+                <code className="block text-[10px] bg-white p-2 rounded-lg text-on-surface/50 overflow-x-auto whitespace-pre-wrap">
+                  name,address,city,cuisine,rating,notes,date_visited,is_wishlist,price_range{'\n'}
+                  Nobu Downtown,"195 Broadway, New York",New York,Japanese,8.8,Amazing,2025-01-15,false,4
                 </code>
               </div>
               <div>
@@ -329,6 +339,7 @@ export const ImportRestaurants: React.FC = () => {
                     <div className="text-xs text-muted truncate">
                       {item.restaurant.city}{item.restaurant.city && item.restaurant.cuisine ? ' · ' : ''}{item.restaurant.cuisine}
                       {item.restaurant.rating !== null && ` · ${item.restaurant.rating}/10`}
+                      {item.restaurant.isWishlist && ' · Wishlist'}
                     </div>
                     {item.status === 'skipped' && <div className="text-xs text-amber-600">Already imported</div>}
                     {item.status === 'not_found' && <div className="text-xs text-red-500">Not found on Google Places</div>}
