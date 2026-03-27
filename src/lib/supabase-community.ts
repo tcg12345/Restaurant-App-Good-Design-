@@ -344,7 +344,93 @@ export async function getUserLists(userId: string): Promise<{ id: string; name: 
   } catch { return []; }
 }
 
-/* ── Friend Management ── */
+/* ── Likes & Comments ── */
+
+export interface ActivityComment {
+  id: string;
+  user_id: string;
+  rating_id: string;
+  text: string;
+  created_at: string;
+  profile?: UserProfile;
+}
+
+export async function toggleLike(userId: string, ratingId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    const { data } = await supabase.from('activity_likes')
+      .select('id').eq('user_id', userId).eq('rating_id', ratingId).single();
+    if (data) {
+      await supabase.from('activity_likes').delete().eq('id', data.id);
+    } else {
+      await supabase.from('activity_likes').insert({ user_id: userId, rating_id: ratingId });
+    }
+    return true;
+  } catch { return false; }
+}
+
+export async function getLikeCount(ratingId: string): Promise<number> {
+  if (!supabaseConfigured) return 0;
+  try {
+    const { count } = await supabase.from('activity_likes')
+      .select('*', { count: 'exact', head: true }).eq('rating_id', ratingId);
+    return count || 0;
+  } catch { return 0; }
+}
+
+export async function isLikedByUser(userId: string, ratingId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    const { data } = await supabase.from('activity_likes')
+      .select('id').eq('user_id', userId).eq('rating_id', ratingId).single();
+    return !!data;
+  } catch { return false; }
+}
+
+export async function getLikesForRatings(userId: string, ratingIds: string[]): Promise<{ likes: Record<string, number>; userLiked: Set<string> }> {
+  if (!supabaseConfigured || ratingIds.length === 0) return { likes: {}, userLiked: new Set() };
+  try {
+    const { data } = await supabase.from('activity_likes')
+      .select('rating_id, user_id').in('rating_id', ratingIds);
+    const likes: Record<string, number> = {};
+    const userLiked = new Set<string>();
+    (data || []).forEach((l: any) => {
+      likes[l.rating_id] = (likes[l.rating_id] || 0) + 1;
+      if (l.user_id === userId) userLiked.add(l.rating_id);
+    });
+    return { likes, userLiked };
+  } catch { return { likes: {}, userLiked: new Set() }; }
+}
+
+export async function addComment(userId: string, ratingId: string, text: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !text.trim()) return false;
+  try {
+    const { error } = await supabase.from('activity_comments')
+      .insert({ user_id: userId, rating_id: ratingId, text: text.trim() });
+    return !error;
+  } catch { return false; }
+}
+
+export async function getComments(ratingId: string): Promise<ActivityComment[]> {
+  if (!supabaseConfigured) return [];
+  try {
+    const { data, error } = await supabase.from('activity_comments')
+      .select('*').eq('rating_id', ratingId).order('created_at', { ascending: true });
+    if (error) return [];
+    return (data || []) as ActivityComment[];
+  } catch { return []; }
+}
+
+export async function getCommentCounts(ratingIds: string[]): Promise<Record<string, number>> {
+  if (!supabaseConfigured || ratingIds.length === 0) return {};
+  try {
+    const { data } = await supabase.from('activity_comments')
+      .select('rating_id').in('rating_id', ratingIds);
+    const counts: Record<string, number> = {};
+    (data || []).forEach((c: any) => { counts[c.rating_id] = (counts[c.rating_id] || 0) + 1; });
+    return counts;
+  } catch { return {}; }
+}
 
 export interface FriendInfo {
   friend_id: string;

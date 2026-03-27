@@ -39,24 +39,7 @@ const PRICE_LEVELS = [
 ];
 
 
-const RATED_SPOTS = [
-  {
-    id: '1',
-    name: 'Lumière Gastronomie',
-    image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?auto=format&fit=crop&q=80&w=800',
-    rating: 4.9,
-    price: '$$$$',
-    cuisine: 'Modern French',
-  },
-  {
-    id: '2',
-    name: 'The Alchemist Table',
-    image: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&q=80&w=800',
-    rating: 4.7,
-    price: '$$$',
-    cuisine: 'Molecular',
-  },
-];
+// Mock data removed — using real ratings from context
 
 // US state name → abbreviation
 const STATE_ABBR: Record<string, string> = {
@@ -535,56 +518,32 @@ export const Home: React.FC = () => {
                 </div>
               </button>
 
-              {/* Rated Spots */}
-              <section className="mb-12">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-serif font-bold">Rated Spots</h2>
-                  <div className="flex items-center gap-4 text-on-surface/40">
-                    <button className="p-2 hover:text-primary transition-colors">
-                      <Grid size={18} />
-                    </button>
-                    <button className="p-2 hover:text-primary transition-colors">
-                      <List size={18} />
-                    </button>
+              {/* Your Top Rated */}
+              {ratings.length > 0 && (
+                <section className="mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-serif font-bold">Your Top Rated</h2>
+                    <Link to="/pantry" className="text-xs font-semibold text-primary">See All</Link>
                   </div>
-                </div>
-
-                <div className="space-y-8">
-                  {RATED_SPOTS.map((item) => (
-                    <div key={item.id} className="flex gap-6 group cursor-pointer">
-                      <div className="w-32 h-32 rounded-3xl overflow-hidden flex-shrink-0 shadow-lg">
-                        <img
-                          src={item.image}
-                          alt={item.name}
-                          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-                      <div className="flex-1 py-2 flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <h3 className="font-serif font-bold text-xl">{item.name}</h3>
-                            <div className="flex items-center gap-1 text-primary">
-                              <Star size={14} className="fill-primary" />
-                              <span className="text-sm font-bold">{item.rating}</span>
-                            </div>
-                          </div>
-                          <p className="text-xs text-on-surface/40 font-medium uppercase tracking-wider mb-2">{item.cuisine} · {item.price}</p>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/10 text-secondary font-bold uppercase tracking-wider">Top Rated</span>
-                          </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2 -mx-3 px-3 scrollbar-hide">
+                    {[...ratings].sort((a, b) => b.score - a.score).slice(0, 8).map((r) => (
+                      <Link key={r.restaurantId} to={`/restaurant/${r.restaurantId}`} className="flex-shrink-0 w-32 group">
+                        <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                          {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                          : <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{r.name.charAt(0)}</div>}
                         </div>
-                        <div className="flex items-center gap-4 text-on-surface/40">
-                          <button className="text-[10px] font-bold uppercase tracking-widest hover:text-primary transition-colors">Edit Review</button>
-                          <button className="text-[10px] font-bold uppercase tracking-widest hover:text-primary transition-colors">Share</button>
+                        <p className="text-xs font-semibold truncate leading-tight">{r.name}</p>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className={cn("text-[10px] font-bold", r.score >= 8 ? "text-green-600" : r.score >= 5 ? "text-yellow-600" : "text-red-500")}>{r.score.toFixed(1)}</span>
+                          <span className="text-[10px] text-on-surface/30">/ 10</span>
                         </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              )}
 
-              {/* Social Feed */}
+              {/* Friend Activity Feed */}
               <SocialFeed />
             </>
           ) : (

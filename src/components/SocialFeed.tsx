@@ -1,397 +1,206 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import { Check, X, Star, Heart, MessageCircle, ChevronRight, Bookmark } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Heart, MessageSquare, Send, UserCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
+  getCommentCounts, toggleLike, addComment, getComments,
+  type CommunityRating, type UserProfile, type ActivityComment,
+} from '../lib/supabase-community';
 
-/* ── Mock Data ── */
+export const SocialFeed: React.FC = () => {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
 
-interface PendingRequest {
-  id: string;
-  name: string;
-  role: string;
-  image: string;
-}
+  const [activity, setActivity] = useState<CommunityRating[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
+  const [likes, setLikes] = useState<Record<string, number>>({});
+  const [userLiked, setUserLiked] = useState<Set<string>>(new Set());
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
 
-interface Curator {
-  id: string;
-  name: string;
-  badge: string;
-  badgeColor: string;
-  specialty: string;
-  image: string;
-  followed: boolean;
-}
+  const [openComments, setOpenComments] = useState<string | null>(null);
+  const [comments, setComments] = useState<ActivityComment[]>([]);
+  const [commentProfiles, setCommentProfiles] = useState<Record<string, UserProfile>>({});
+  const [newComment, setNewComment] = useState('');
+  const [commentsLoading, setCommentsLoading] = useState(false);
 
-interface FeedItem {
-  id: string;
-  type: 'list_add' | 'review';
-  userName: string;
-  userImage: string;
-  restaurantId: string;
-  restaurantName: string;
-  restaurantImage: string;
-  restaurantCuisine: string;
-  restaurantPrice: string;
-  restaurantDescription?: string;
-  // For list_add
-  listName?: string;
-  // For review
-  rating?: number;
-  reviewText?: string;
-  reviewPhotos?: string[];
-  // Engagement
-  likes: number;
-  comments: number;
-  timeAgo: string;
-}
+  const loadFeed = useCallback(async () => {
+    if (!userId) { setLoading(false); return; }
+    setLoading(true);
+    const friends = await getFriends(userId);
+    if (friends.length === 0) { setLoading(false); return; }
 
-const PENDING_REQUESTS: PendingRequest[] = [
-  { id: 'req-1', name: 'Marco V.', role: 'Pastry Chef in Milan', image: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200' },
-  { id: 'req-2', name: 'Priya S.', role: 'Food Blogger in NYC', image: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&q=80&w=200' },
-];
+    const friendIds = friends.map((f) => f.friend_id);
+    const act = await getFriendActivity(friendIds, 15);
+    setActivity(act);
 
-const CURATORS: Curator[] = [
-  {
-    id: 'cur-1', name: 'Elena S.', badge: 'Michelin Guide Veteran', badgeColor: 'text-green-600',
-    specialty: 'Specializes in Nordic Cuisine',
-    image: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=200',
-    followed: false,
-  },
-  {
-    id: 'cur-2', name: 'Julian Thorne', badge: 'Rising Star', badgeColor: 'text-green-600',
-    specialty: 'Street Food specialist',
-    image: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200',
-    followed: false,
-  },
-  {
-    id: 'cur-3', name: 'Amara Obi', badge: 'Local Expert', badgeColor: 'text-green-600',
-    specialty: 'West African & Fusion',
-    image: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&q=80&w=200',
-    followed: false,
-  },
-];
+    if (act.length > 0) {
+      const userIds = [...new Set(act.map((a) => a.user_id))];
+      const ratingIds = act.map((a) => a.id).filter(Boolean);
+      const [profs, likesData, ccounts] = await Promise.all([
+        getProfilesByIds(userIds),
+        ratingIds.length > 0 ? getLikesForRatings(userId, ratingIds) : Promise.resolve({ likes: {} as Record<string, number>, userLiked: new Set<string>() }),
+        ratingIds.length > 0 ? getCommentCounts(ratingIds) : Promise.resolve({} as Record<string, number>),
+      ]);
+      setProfiles(profs);
+      setLikes(likesData.likes);
+      setUserLiked(likesData.userLiked);
+      setCommentCounts(ccounts);
+    }
+    setLoading(false);
+  }, [userId]);
 
-const FEED_ITEMS: FeedItem[] = [
-  {
-    id: 'feed-1', type: 'list_add',
-    userName: 'Leo', userImage: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=200',
-    restaurantId: 'feed-r1', restaurantName: 'Chez Panisse', restaurantImage: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=600',
-    restaurantCuisine: 'French', restaurantPrice: '$$$',
-    restaurantDescription: "Berkeley's legendary farm-to-table destination where seasonal ingredients shine...",
-    listName: 'wishlist',
-    likes: 12, comments: 3, timeAgo: '2h ago',
-  },
-  {
-    id: 'feed-2', type: 'review',
-    userName: 'Sophie', userImage: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&q=80&w=200',
-    restaurantId: 'feed-r2', restaurantName: 'Atoboy', restaurantImage: 'https://images.unsplash.com/photo-1579871494447-9811cf80d66c?auto=format&fit=crop&q=80&w=600',
-    restaurantCuisine: 'Korean', restaurantPrice: '$$$',
-    rating: 5,
-    reviewText: 'The fried chicken with spicy peanut sauce is transcendental. Every banchan was a symphony of flavors I didn\'t know could exist together.',
-    reviewPhotos: [
-      'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=300',
-      'https://images.unsplash.com/photo-1562565652-a0d8f0c59eb4?auto=format&fit=crop&q=80&w=300',
-      'https://images.unsplash.com/photo-1585937421612-70a008356fbe?auto=format&fit=crop&q=80&w=300',
-    ],
-    likes: 45, comments: 11, timeAgo: '5h ago',
-  },
-  {
-    id: 'feed-3', type: 'list_add',
-    userName: 'Marcus', userImage: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200',
-    restaurantId: 'feed-r3', restaurantName: 'Via Carota', restaurantImage: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&q=80&w=600',
-    restaurantCuisine: 'Italian', restaurantPrice: '$$$',
-    restaurantDescription: 'A charming West Village gem serving rustic Italian dishes with impeccable seasonal ingredients.',
-    listName: 'Date Nights',
-    likes: 8, comments: 1, timeAgo: '8h ago',
-  },
-  {
-    id: 'feed-4', type: 'review',
-    userName: 'Emily', userImage: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&q=80&w=200',
-    restaurantId: 'feed-r4', restaurantName: 'Tatiana by Kwame', restaurantImage: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&q=80&w=600',
-    restaurantCuisine: 'Caribbean', restaurantPrice: '$$$',
-    rating: 4.5,
-    reviewText: 'An absolute showstopper. The jollof rice and suya-spiced lamb are unlike anything else in the city right now.',
-    reviewPhotos: [
-      'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=300',
-      'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?auto=format&fit=crop&q=80&w=300',
-    ],
-    likes: 32, comments: 7, timeAgo: '1d ago',
-  },
-];
+  useEffect(() => { loadFeed(); }, [loadFeed]);
 
-/* ── Pending Requests ── */
-const PendingRequests: React.FC = () => {
-  const [requests, setRequests] = useState(PENDING_REQUESTS);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-
-  if (requests.length === 0) return null;
-
-  const handleAccept = (id: string) => setDismissed((prev) => new Set(prev).add(id));
-  const handleDecline = (id: string) => setRequests((prev) => prev.filter((r) => r.id !== id));
-
-  return (
-    <section className="mb-8">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-serif font-bold">Pending Requests</h2>
-        <span className="w-6 h-6 rounded-full bg-primary text-white text-xs font-bold flex items-center justify-center">
-          {requests.filter((r) => !dismissed.has(r.id)).length}
-        </span>
-      </div>
-      <div className="space-y-3">
-        {requests.map((req) => (
-          <div key={req.id} className="flex items-center gap-3 bg-white rounded-2xl p-3 border border-on-surface/8 shadow-sm">
-            <img src={req.image} alt={req.name} className="w-12 h-12 rounded-full object-cover" referrerPolicy="no-referrer" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold">{req.name}</p>
-              <p className="text-[11px] text-on-surface/40">{req.role}</p>
-            </div>
-            {dismissed.has(req.id) ? (
-              <span className="text-[10px] font-bold text-green-600 uppercase tracking-wider">Accepted</span>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleAccept(req.id)}
-                  className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center"
-                >
-                  <Check size={14} strokeWidth={3} />
-                </button>
-                <button
-                  onClick={() => handleDecline(req.id)}
-                  className="w-8 h-8 rounded-full bg-on-surface/5 text-on-surface/40 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
-                >
-                  <X size={14} strokeWidth={2.5} />
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-};
-
-/* ── Discover Curators ── */
-const DiscoverCurators: React.FC = () => {
-  const [curators, setCurators] = useState(CURATORS);
-
-  const toggleFollow = (id: string) => {
-    setCurators((prev) => prev.map((c) => c.id === id ? { ...c, followed: !c.followed } : c));
+  const handleLike = async (ratingId: string) => {
+    if (!userId || !ratingId) return;
+    const wasLiked = userLiked.has(ratingId);
+    setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.delete(ratingId) : next.add(ratingId); return next; });
+    setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? -1 : 1)) }));
+    await toggleLike(userId, ratingId);
   };
 
+  const handleOpenComments = async (ratingId: string) => {
+    if (openComments === ratingId) { setOpenComments(null); return; }
+    setOpenComments(ratingId);
+    setCommentsLoading(true);
+    setNewComment('');
+    const cmts = await getComments(ratingId);
+    setComments(cmts);
+    if (cmts.length > 0) {
+      const ids = [...new Set(cmts.map((c) => c.user_id))];
+      const profs = await getProfilesByIds(ids);
+      setCommentProfiles(profs);
+    }
+    setCommentsLoading(false);
+  };
+
+  const handleAddComment = async (ratingId: string) => {
+    if (!userId || !newComment.trim()) return;
+    const ok = await addComment(userId, ratingId, newComment.trim());
+    if (ok) {
+      setNewComment('');
+      setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
+      const cmts = await getComments(ratingId);
+      setComments(cmts);
+      const ids = [...new Set(cmts.map((c) => c.user_id))];
+      setCommentProfiles(await getProfilesByIds(ids));
+    }
+  };
+
+  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+  const getName = (uid: string) => profiles[uid]?.display_name || 'User';
+  const getUsername = (uid: string) => profiles[uid]?.username || '';
+  const timeAgo = (date: string) => {
+    if (!date) return '';
+    const diff = Date.now() - new Date(date).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  };
+
+  if (loading) return <div className="text-center py-6"><div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>;
+  if (activity.length === 0) return null;
+
   return (
     <section className="mb-8">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-serif font-bold">Discover Curators</h2>
-      </div>
+      <h2 className="text-lg font-serif font-bold mb-4">Friend Activity</h2>
       <div className="space-y-3">
-        {curators.map((curator) => (
-          <div key={curator.id} className="bg-white rounded-2xl p-4 border border-on-surface/8 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <img src={curator.image} alt={curator.name} className="w-12 h-12 rounded-full object-cover" referrerPolicy="no-referrer" />
+        {activity.map((r) => (
+          <div key={r.id} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
+            {/* User header */}
+            <div className="px-3.5 pt-3 pb-2 flex items-center gap-2.5">
+              <Link to={`/user/${getUsername(r.user_id)}`}>
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <UserCircle size={16} className="text-primary/50" />
+                </div>
+              </Link>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold">{curator.name}</p>
-                <p className={cn("text-[11px] font-semibold flex items-center gap-1", curator.badgeColor)}>
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" />
-                  {curator.badge}
-                </p>
-                <p className="text-xs text-on-surface/40 mt-0.5">{curator.specialty}</p>
+                <Link to={`/user/${getUsername(r.user_id)}`} className="text-sm font-semibold hover:text-primary">{getName(r.user_id)}</Link>
+                <p className="text-[10px] text-on-surface/35">rated a restaurant</p>
               </div>
+              <span className="text-[10px] text-on-surface/30">{timeAgo(r.created_at)}</span>
             </div>
-            <button
-              onClick={() => toggleFollow(curator.id)}
-              className={cn(
-                "w-full py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border-2 transition-all",
-                curator.followed
-                  ? "bg-primary/5 border-primary/20 text-primary"
-                  : "bg-white border-on-surface/10 text-on-surface/60 hover:border-primary hover:text-primary"
+
+            {/* Restaurant card */}
+            <Link to={`/restaurant/${r.restaurant_id}`} className="block px-3.5 pb-2">
+              <div className="bg-surface rounded-xl p-3 border border-on-surface/5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
+                    <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
+                  </div>
+                  <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
+                </div>
+                {r.notes && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-2">"{r.notes}"</p>}
+                {r.tags && r.tags.length > 0 && (
+                  <div className="flex gap-1 mt-1">{r.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}</div>
+                )}
+              </div>
+            </Link>
+
+            {/* Like & Comment */}
+            <div className="px-3.5 pb-2 flex items-center gap-5">
+              <button onClick={() => handleLike(r.id)} className={cn("flex items-center gap-1.5 transition-colors", userLiked.has(r.id) ? "text-red-500" : "text-on-surface/35 hover:text-red-500")}>
+                <Heart size={16} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
+                <span className="text-[11px] font-semibold">{likes[r.id] || 0}</span>
+              </button>
+              <button onClick={() => handleOpenComments(r.id)} className={cn("flex items-center gap-1.5 transition-colors", openComments === r.id ? "text-primary" : "text-on-surface/35 hover:text-primary")}>
+                <MessageSquare size={16} />
+                <span className="text-[11px] font-semibold">{commentCounts[r.id] || 0}</span>
+              </button>
+            </div>
+
+            {/* Comments */}
+            <AnimatePresence>
+              {openComments === r.id && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                  <div className="border-t border-on-surface/6 px-3.5 py-2.5 space-y-2">
+                    {commentsLoading ? (
+                      <div className="text-center py-2"><div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
+                    ) : comments.length === 0 ? (
+                      <p className="text-[11px] text-on-surface/30 py-1">No comments yet — be the first!</p>
+                    ) : (
+                      <div className="space-y-2 max-h-44 overflow-y-auto">
+                        {comments.map((c) => (
+                          <div key={c.id} className="flex gap-2">
+                            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                              <UserCircle size={11} className="text-primary/40" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[11px] leading-relaxed">
+                                <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/70 hover:text-primary">{commentProfiles[c.user_id]?.display_name || 'User'}</Link>{' '}
+                                <span className="text-on-surface/50">{c.text}</span>
+                              </p>
+                              <p className="text-[9px] text-on-surface/25 mt-0.5">{timeAgo(c.created_at)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-2 pt-1">
+                      <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)}
+                        placeholder="Write a comment..."
+                        className="flex-1 bg-on-surface/5 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/20"
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddComment(r.id)} />
+                      <button onClick={() => handleAddComment(r.id)} disabled={!newComment.trim()}
+                        className="p-2 text-primary disabled:text-on-surface/15 rounded-xl hover:bg-primary/5 transition-colors">
+                        <Send size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
               )}
-            >
-              {curator.followed ? 'Following' : 'Follow Curator'}
-            </button>
+            </AnimatePresence>
           </div>
         ))}
       </div>
     </section>
-  );
-};
-
-/* ── Feed Item: List Add ── */
-const ListAddCard: React.FC<{ item: FeedItem }> = ({ item }) => (
-  <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden">
-    {/* Attribution header */}
-    <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-      <img src={item.userImage} alt={item.userName} className="w-8 h-8 rounded-full object-cover" referrerPolicy="no-referrer" />
-      <p className="text-sm text-on-surface/70">
-        <span className="font-bold text-on-surface">{item.userName}</span>
-        {' added '}
-        <span className="font-serif font-bold italic text-primary">{item.restaurantName}</span>
-        {' to '}
-        {item.listName === 'wishlist' ? 'his wishlist' : (
-          <span className="font-semibold">{item.listName}</span>
-        )}
-      </p>
-    </div>
-
-    {/* Restaurant card */}
-    <div className="px-4 pb-3">
-      <Link to={`/restaurant/${item.restaurantId}`} className="block">
-        <div className="rounded-xl overflow-hidden border border-on-surface/8">
-          <img src={item.restaurantImage} alt={item.restaurantName} className="w-full h-40 object-cover" referrerPolicy="no-referrer" />
-          <div className="p-3">
-            <div className="flex items-center justify-between">
-              <h4 className="font-serif font-bold text-base">{item.restaurantName}</h4>
-              <div className="flex items-center gap-0.5 text-primary">
-                <Star size={12} className="fill-primary" />
-                <Star size={12} className="fill-primary" />
-                <Star size={12} className="fill-primary" />
-              </div>
-            </div>
-            {item.restaurantDescription && (
-              <p className="text-xs text-on-surface/50 mt-1 line-clamp-2">{item.restaurantDescription}</p>
-            )}
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-[11px] text-on-surface/40 font-semibold uppercase tracking-wider">
-                {item.restaurantCuisine} · {item.restaurantPrice}
-              </span>
-              <span className="text-xs font-bold text-primary flex items-center gap-0.5">
-                View Details <ChevronRight size={12} />
-              </span>
-            </div>
-          </div>
-        </div>
-      </Link>
-    </div>
-
-    {/* Engagement */}
-    <div className="flex items-center gap-5 px-4 pb-3">
-      <button className="flex items-center gap-1.5 text-on-surface/40 hover:text-primary transition-colors">
-        <Heart size={16} />
-        <span className="text-xs font-semibold">{item.likes}</span>
-      </button>
-      <button className="flex items-center gap-1.5 text-on-surface/40 hover:text-primary transition-colors">
-        <MessageCircle size={16} />
-        <span className="text-xs font-semibold">{item.comments}</span>
-      </button>
-      <span className="text-[10px] text-on-surface/25 ml-auto">{item.timeAgo}</span>
-    </div>
-  </div>
-);
-
-/* ── Feed Item: Review ── */
-const ReviewCard: React.FC<{ item: FeedItem }> = ({ item }) => (
-  <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden">
-    {/* Attribution header */}
-    <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-      <img src={item.userImage} alt={item.userName} className="w-8 h-8 rounded-full object-cover" referrerPolicy="no-referrer" />
-      <p className="text-sm text-on-surface/70">
-        <span className="font-bold text-on-surface">{item.userName}</span>
-        {' posted a new review for '}
-        <span className="font-serif font-bold italic text-primary">{item.restaurantName}</span>
-      </p>
-    </div>
-
-    {/* Review body */}
-    <div className="mx-4 mb-3 rounded-xl border-l-4 border-primary/30 bg-primary/[0.03] p-4">
-      {/* Stars */}
-      {item.rating && (
-        <div className="flex items-center gap-0.5 mb-2">
-          {Array.from({ length: 5 }, (_, i) => (
-            <Star
-              key={i}
-              size={14}
-              className={i < Math.floor(item.rating!) ? 'fill-primary text-primary' : 'text-on-surface/15'}
-            />
-          ))}
-        </div>
-      )}
-      <p className="text-sm text-on-surface/70 italic leading-relaxed">
-        "{item.reviewText}"
-      </p>
-
-      {/* Review photos */}
-      {item.reviewPhotos && item.reviewPhotos.length > 0 && (
-        <div className="flex gap-2 mt-3">
-          {item.reviewPhotos.map((photo, i) => (
-            <img
-              key={i}
-              src={photo}
-              alt={`Review photo ${i + 1}`}
-              className="w-16 h-16 rounded-lg object-cover"
-              referrerPolicy="no-referrer"
-            />
-          ))}
-        </div>
-      )}
-    </div>
-
-    {/* Engagement */}
-    <div className="flex items-center gap-5 px-4 pb-3">
-      <button className="flex items-center gap-1.5 text-on-surface/40 hover:text-primary transition-colors">
-        <Heart size={16} />
-        <span className="text-xs font-semibold">{item.likes}</span>
-      </button>
-      <button className="flex items-center gap-1.5 text-on-surface/40 hover:text-primary transition-colors">
-        <MessageCircle size={16} />
-        <span className="text-xs font-semibold">{item.comments}</span>
-      </button>
-      <span className="text-[10px] text-on-surface/25 ml-auto">{item.timeAgo}</span>
-    </div>
-  </div>
-);
-
-/* ── Main Feed Component ── */
-export const SocialFeed: React.FC = () => {
-  const [activityFilter, setActivityFilter] = useState<'all' | 'recent'>('recent');
-
-  return (
-    <div className="mt-4">
-      {/* Pending Requests */}
-      <PendingRequests />
-
-      {/* Discover Curators */}
-      <DiscoverCurators />
-
-      {/* Friend Activity */}
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-serif font-bold">Friend<br/>Activity</h2>
-          <div className="flex gap-2">
-            {(['all', 'recent'] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setActivityFilter(f)}
-                className={cn(
-                  "px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider border transition-all",
-                  activityFilter === f
-                    ? "bg-on-surface text-white border-on-surface"
-                    : "bg-white border-on-surface/15 text-on-surface/40"
-                )}
-              >
-                {f === 'all' ? 'All' : 'Recent'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {FEED_ITEMS.map((item) => (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, y: 15 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-50px' }}
-              transition={{ duration: 0.3 }}
-            >
-              {item.type === 'list_add' ? (
-                <ListAddCard item={item} />
-              ) : (
-                <ReviewCard item={item} />
-              )}
-            </motion.div>
-          ))}
-        </div>
-      </section>
-    </div>
   );
 };
