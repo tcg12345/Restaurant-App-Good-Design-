@@ -105,7 +105,14 @@ export const Map: React.FC = () => {
       }
     })();
   }, [userId, tabDataLoaded]);
-  const [mapMode, setMapMode] = useState<'discover' | 'myratings' | 'friends' | 'experts'>('discover');
+  const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts'>(() => {
+    const saved = sessionStorage.getItem('map-mode');
+    return (saved === 'myratings' || saved === 'friends' || saved === 'experts') ? saved : 'discover';
+  });
+  const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts') => {
+    setMapModeRaw(mode);
+    sessionStorage.setItem('map-mode', mode);
+  };
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
   const [mapModeDropdownOpen, setMapModeDropdownOpen] = useState(false);
