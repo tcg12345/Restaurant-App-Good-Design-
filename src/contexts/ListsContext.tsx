@@ -253,7 +253,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               friendIds: r.friendIds || [], photoUrl: r.image || '',
             });
             if (r.photos && r.photos.length > 0) {
-              publishCommunityPhotos(userId, r.restaurantId, r.photos);
+              publishCommunityPhotos(userId, r.restaurantId, r.photos).catch(() => {});
             }
           }
         }
@@ -290,7 +290,18 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // ── Helper to save to Supabase in the background ──
   const syncRatingsToCloud = useCallback((data: RestaurantRating[]) => {
-    if (userIdRef.current && supabaseConfigured) saveRatings(userIdRef.current, data);
+    if (userIdRef.current && supabaseConfigured) {
+      // Strip large base64 photos before syncing to avoid payload size issues
+      const stripped = data.map((r) => ({
+        ...r,
+        photos: r.photos.map((p) => ({
+          ...p,
+          // Truncate URLs over 100KB to prevent Supabase payload errors
+          url: p.url.length > 100000 ? p.url.slice(0, 100000) : p.url,
+        })),
+      }));
+      saveRatings(userIdRef.current, stripped);
+    }
   }, []);
   const syncListsToCloud = useCallback((data: CustomList[]) => {
     if (userIdRef.current && supabaseConfigured) saveLists(userIdRef.current, data);
@@ -366,7 +377,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         friendIds: rating.friendIds || [], photoUrl: rating.image || '',
       });
       if (rating.photos && rating.photos.length > 0) {
-        publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos);
+        publishCommunityPhotos(userIdRef.current, rating.restaurantId, rating.photos).catch(() => {
+          console.warn('[Supabase] Failed to publish photos — they may be too large for the database');
+        });
       }
     }
   }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud]);

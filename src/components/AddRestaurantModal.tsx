@@ -100,30 +100,49 @@ export const AddRestaurantModal: React.FC = () => {
 
   const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '$$');
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compress image to max 800px and JPEG quality 0.6
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = document.createElement('img');
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxSize = 800;
+          let { width, height } = img;
+          if (width > maxSize || height > maxSize) {
+            if (width > height) { height = (height / width) * maxSize; width = maxSize; }
+            else { width = (width / height) * maxSize; height = maxSize; }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.6));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     const totalFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
     if (totalFiles.length === 0) return;
+
     const newPhotos: PhotoItem[] = [];
-    let loaded = 0;
-    totalFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          newPhotos.push({ url: reader.result, caption: '', isFavorite: false });
-        }
-        loaded++;
-        if (loaded === totalFiles.length) {
-          setPhotos((prev) => {
-            const updated = [...prev, ...newPhotos];
-            // Use setTimeout to let React process the state update before page change
-            setTimeout(() => setPage('photos'), 0);
-            return updated;
-          });
-        }
-      };
-      reader.readAsDataURL(file);
+    for (const file of totalFiles) {
+      try {
+        const compressed = await compressImage(file);
+        newPhotos.push({ url: compressed, caption: '', isFavorite: false });
+      } catch { /* skip failed photos */ }
+    }
+    setPhotos((prev) => {
+      const updated = [...prev, ...newPhotos];
+      setTimeout(() => setPage('photos'), 0);
+      return updated;
     });
     e.target.value = '';
   };
