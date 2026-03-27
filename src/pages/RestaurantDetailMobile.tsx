@@ -379,67 +379,6 @@ export const RestaurantDetailMobile: React.FC = () => {
           </button>
         </div>
 
-        {/* My Rating details */}
-        {myRating && place && (() => {
-          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.address };
-          const details = [
-            { key: 'notes', icon: <StickyNote size={16} />, label: 'Notes', hasContent: !!myRating.notes, content: myRating.notes ? <p className="text-xs text-on-surface/60 italic">"{myRating.notes}"</p> : null },
-            { key: 'price', icon: <DollarSign size={16} />, label: 'Price', hasContent: !!myRating.price, content: myRating.price ? <p className="text-xs text-on-surface/60">{myRating.price}</p> : null },
-            { key: 'date', icon: <CalendarDays size={16} />, label: 'Visit Date', hasContent: !!myRating.visitDate, content: myRating.visitDate ? <p className="text-xs text-on-surface/60">{new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p> : null },
-            { key: 'tags', icon: <Tag size={16} />, label: 'Tags', hasContent: myRating.tags?.length > 0, content: myRating.tags?.length > 0 ? <div className="flex flex-wrap gap-1">{myRating.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>)}</div> : null },
-            { key: 'photos', icon: <Image size={16} />, label: 'Photos', hasContent: myRating.photos?.length > 0, content: myRating.photos?.length > 0 ? <div className="grid grid-cols-4 gap-1 rounded-lg overflow-hidden">{myRating.photos.slice(0, 4).map((p, i) => <img key={i} src={p.url} className="aspect-square object-cover" referrerPolicy="no-referrer" />)}</div> : null },
-            { key: 'friends', icon: <Users size={16} />, label: 'Went With', hasContent: (myRating.friendIds?.length || 0) > 0, content: (myRating.friendIds?.length || 0) > 0 ? <div className="flex flex-wrap gap-1.5">{myRating.friendIds.map((fid) => <span key={fid} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{friendNames[fid] || fid.slice(0, 8)}</span>)}</div> : null },
-          ];
-          return (
-            <section className="mb-7">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">My Rating</h3>
-                <span className={cn("text-lg font-serif font-bold", myRating.score >= 8 ? 'text-green-600' : myRating.score >= 5 ? 'text-yellow-600' : 'text-red-500')}>
-                  {myRating.score.toFixed(1)}<span className="text-[10px] text-on-surface/30 font-normal"> / 10</span>
-                </span>
-              </div>
-              <div className="space-y-1.5">
-                {details.map((d) => (
-                  <div key={d.key} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
-                    <button onClick={() => setExpandedDetail(expandedDetail === d.key ? null : d.key)}
-                      className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left">
-                      <span className={d.hasContent ? 'text-primary' : 'text-on-surface/30'}>{d.icon}</span>
-                      <span className={cn("flex-1 text-xs font-semibold", d.hasContent ? 'text-on-surface/70' : 'text-on-surface/40')}>{d.label}</span>
-                      {d.hasContent && <span className="text-[9px] text-primary font-medium">Added</span>}
-                      <ChevronDown size={14} className={cn("text-on-surface/20 transition-transform", expandedDetail === d.key && "rotate-180")} />
-                    </button>
-                    <AnimatePresence>
-                      {expandedDetail === d.key && (
-                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                          <div className="px-3.5 pb-3 pt-1 border-t border-on-surface/5">
-                            {d.hasContent ? (
-                              <div>
-                                <div className="mb-2">{d.content}</div>
-                                <button onClick={() => openAddRestaurantModal(meta)}
-                                  className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70">
-                                  <Edit3 size={11} /> Edit
-                                </button>
-                              </div>
-                            ) : (
-                              <div>
-                                <p className="text-xs text-on-surface/30 mb-2">Nothing added yet</p>
-                                <button onClick={() => openAddRestaurantModal(meta)}
-                                  className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70">
-                                  + Add {d.label}
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                ))}
-              </div>
-            </section>
-          );
-        })()}
-
         {/* Ratings — Google, Friends, Community */}
         <section className="mb-7 space-y-3">
           {/* Google */}
@@ -584,6 +523,59 @@ export const RestaurantDetailMobile: React.FC = () => {
             </a>
           </div>
         </section>
+
+        {/* My Rating details */}
+        {myRating && place && (() => {
+          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.address };
+          const details = [
+            { key: 'notes', icon: <StickyNote size={16} />, label: 'Notes', hasContent: !!myRating.notes, content: myRating.notes ? <p className="text-xs text-on-surface/60 italic">"{myRating.notes}"</p> : null },
+            { key: 'price', icon: <DollarSign size={16} />, label: 'Price', hasContent: !!myRating.price, content: myRating.price ? <p className="text-xs text-on-surface/60">{myRating.price}</p> : null },
+            { key: 'date', icon: <CalendarDays size={16} />, label: 'Visit Date', hasContent: !!myRating.visitDate, content: myRating.visitDate ? <p className="text-xs text-on-surface/60">{new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p> : null },
+            { key: 'tags', icon: <Tag size={16} />, label: 'Tags', hasContent: myRating.tags?.length > 0, content: myRating.tags?.length > 0 ? <div className="flex flex-wrap gap-1">{myRating.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>)}</div> : null },
+            { key: 'photos', icon: <Image size={16} />, label: 'Photos', hasContent: myRating.photos?.length > 0, content: myRating.photos?.length > 0 ? <div className="grid grid-cols-4 gap-1 rounded-lg overflow-hidden">{myRating.photos.slice(0, 4).map((p, i) => <img key={i} src={p.url} className="aspect-square object-cover" referrerPolicy="no-referrer" />)}</div> : null },
+            { key: 'friends', icon: <Users size={16} />, label: 'Went With', hasContent: (myRating.friendIds?.length || 0) > 0, content: (myRating.friendIds?.length || 0) > 0 ? <div className="flex flex-wrap gap-1.5">{myRating.friendIds.map((fid) => <span key={fid} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{friendNames[fid] || fid.slice(0, 8)}</span>)}</div> : null },
+          ];
+          return (
+            <section className="mb-7 space-y-1.5">
+              {details.map((d) => (
+                <div key={d.key} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
+                  <button onClick={() => setExpandedDetail(expandedDetail === d.key ? null : d.key)}
+                    className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left">
+                    <span className={d.hasContent ? 'text-primary' : 'text-on-surface/30'}>{d.icon}</span>
+                    <span className={cn("flex-1 text-xs font-semibold", d.hasContent ? 'text-on-surface/70' : 'text-on-surface/40')}>{d.label}</span>
+                    {d.hasContent && <span className="text-[9px] text-primary font-medium">Added</span>}
+                    <ChevronDown size={14} className={cn("text-on-surface/20 transition-transform", expandedDetail === d.key && "rotate-180")} />
+                  </button>
+                  <AnimatePresence>
+                    {expandedDetail === d.key && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="px-3.5 pb-3 pt-1 border-t border-on-surface/5">
+                          {d.hasContent ? (
+                            <div>
+                              <div className="mb-2">{d.content}</div>
+                              <button onClick={() => openAddRestaurantModal(meta, d.key)}
+                                className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70">
+                                <Edit3 size={11} /> Edit
+                              </button>
+                            </div>
+                          ) : (
+                            <div>
+                              <p className="text-xs text-on-surface/30 mb-2">Nothing added yet</p>
+                              <button onClick={() => openAddRestaurantModal(meta, d.key)}
+                                className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70">
+                                + Add {d.label}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ))}
+            </section>
+          );
+        })()}
 
         {/* Map */}
         <section className="mb-8">

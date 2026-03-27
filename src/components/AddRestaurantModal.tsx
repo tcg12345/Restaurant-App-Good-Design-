@@ -12,7 +12,7 @@ type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
 export const AddRestaurantModal: React.FC = () => {
   const {
-    addRestaurantModalOpen, addRestaurantModalMeta, closeAddRestaurantModal,
+    addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, closeAddRestaurantModal,
     rateRestaurant, getRating, removeRating,
     lists, createList,
   } = useLists();
@@ -74,7 +74,7 @@ export const AddRestaurantModal: React.FC = () => {
       setSelectedFriends(ex?.friendIds ?? []);
       setPriceIndex(-1);
       setPriceAmount('');
-      setPage('main');
+      setPage((addRestaurantModalInitialPage as Page) || 'main');
       setConfirmDelete(false);
       setCreatingList(false);
       setNewListSheetOpen(false);

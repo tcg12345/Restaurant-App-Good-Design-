@@ -105,7 +105,8 @@ interface ListsContextValue {
   // Unified add restaurant modal (+ button → rating)
   addRestaurantModalOpen: boolean;
   addRestaurantModalMeta: RestaurantMeta | null;
-  openAddRestaurantModal: (restaurant: RestaurantMeta) => void;
+  addRestaurantModalInitialPage: string | null;
+  openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
   closeAddRestaurantModal: () => void;
 
   // Wishlist modal (heart button)
@@ -291,6 +292,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addToListRestaurantId, setAddToListRestaurantId] = useState<string | null>(null);
   const [addRestaurantModalOpen, setAddRestaurantModalOpen] = useState(false);
   const [addRestaurantModalMeta, setAddRestaurantModalMeta] = useState<RestaurantMeta | null>(null);
+  const [addRestaurantModalInitialPage, setAddRestaurantModalInitialPage] = useState<string | null>(null);
   const [wishlistModalOpen, setWishlistModalOpen] = useState(false);
   const [wishlistModalMeta, setWishlistModalMeta] = useState<RestaurantMeta | null>(null);
 
@@ -514,12 +516,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta]);
   const closeAddToListModal = useCallback(() => { setAddToListModalOpen(false); setAddToListRestaurantId(null); }, []);
 
-  const openAddRestaurantModal = useCallback((restaurant: RestaurantMeta) => {
+  const openAddRestaurantModal = useCallback((restaurant: RestaurantMeta, initialPage?: string) => {
     cacheRestaurantMeta(restaurant);
     setAddRestaurantModalMeta(restaurant);
+    setAddRestaurantModalInitialPage(initialPage || null);
     setAddRestaurantModalOpen(true);
   }, [cacheRestaurantMeta]);
-  const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); }, []);
+  const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
 
   const openWishlistModal = useCallback((restaurant: RestaurantMeta) => {
     cacheRestaurantMeta(restaurant);
@@ -536,7 +539,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       wishlist, addToWishlist, removeFromWishlist, isWishlisted, getWishlistItem,
       ratingModalOpen, ratingModalRestaurant, openRatingModal, closeRatingModal,
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
-      addRestaurantModalOpen, addRestaurantModalMeta, openAddRestaurantModal, closeAddRestaurantModal,
+      addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
       wishlistModalOpen, wishlistModalMeta, openWishlistModal, closeWishlistModal,
     }}>
       {children}
