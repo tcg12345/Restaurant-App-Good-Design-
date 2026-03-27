@@ -241,6 +241,22 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
 
         console.log('[Supabase] Loaded user data from cloud:', cloudRatings.length, 'ratings,', cloudLists.length, 'lists,', cloudWishlist.length, 'wishlist,', cloudRecentViews.length, 'recent views');
+
+        // Sync all ratings to community_ratings (ensures they're visible on user profiles)
+        if (cloudRatings.length > 0) {
+          console.log('[Supabase] Syncing', cloudRatings.length, 'ratings to community_ratings...');
+          for (const r of cloudRatings) {
+            publishCommunityRating(userId, r.restaurantId, {
+              name: r.name, score: r.score, notes: r.notes,
+              cuisine: r.cuisine, price: r.price, address: r.address,
+              visitDate: r.visitDate, tags: r.tags, wouldReturn: r.wouldReturn,
+              friendIds: r.friendIds || [],
+            });
+            if (r.photos && r.photos.length > 0) {
+              publishCommunityPhotos(userId, r.restaurantId, r.photos);
+            }
+          }
+        }
       } else {
         // No cloud data — start fresh for this user (don't sync stale localStorage)
         console.log('[Supabase] No cloud data found for user, starting fresh');
