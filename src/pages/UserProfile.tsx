@@ -8,6 +8,7 @@ import { useLists } from '../contexts/ListsContext';
 import {
   getProfileByUsername, getFollowCounts, canViewProfile, getFriends,
   sendFriendRequest, followPublicAccount, getUserRatings, getUserPhotos, getUserLists,
+  publishCommunityRating,
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
 import mapboxgl from 'mapbox-gl';
@@ -54,7 +55,6 @@ export const UserProfile: React.FC = () => {
   // Map
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
 
   useEffect(() => {
     if (!username) return;
@@ -166,7 +166,40 @@ export const UserProfile: React.FC = () => {
     return result;
   }, [userRatings, searchQuery, selectedListRestaurantIds, filterCuisine, filterPrice, filterCity, scoreRange, sortBy]);
 
-  // Init map with markers from community_ratings (lat/lng stored in DB)
+  // Look up coordinates for ratings that don't have them (run once, save to DB)
+  const [resolvedCoords, setResolvedCoords] = useState<Record<string, { lat: number; lng: number }>>({});
+  const coordsLookedUp = useRef(false);
+
+  useEffect(() => {
+    if (coordsLookedUp.current || userRatings.length === 0) return;
+    coordsLookedUp.current = true;
+    const missing = userRatings.filter((r) => !r.lat || !r.lng);
+    if (missing.length === 0) return;
+
+    (async () => {
+      const newCoords: Record<string, { lat: number; lng: number }> = {};
+      for (const r of missing.slice(0, 30)) {
+        try {
+          const results = await searchPlacesByText(r.restaurant_name + ' ' + (r.address?.split(',').slice(-1)[0]?.trim() || ''), 0, 0);
+          if (results[0]?.lat && results[0]?.lng) {
+            newCoords[r.restaurant_id] = { lat: results[0].lat, lng: results[0].lng };
+            // Save coordinates back to DB for future fast loading
+            publishCommunityRating(r.user_id, r.restaurant_id, {
+              name: r.restaurant_name, score: Number(r.score), notes: r.notes,
+              cuisine: r.cuisine, price: r.price, address: r.address,
+              visitDate: r.visit_date, tags: r.tags, wouldReturn: r.would_return,
+              friendIds: r.friend_ids || [], photoUrl: r.photo_url || '',
+              lat: results[0].lat, lng: results[0].lng,
+            });
+          }
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      setResolvedCoords(newCoords);
+    })();
+  }, [userRatings]);
+
+  // Init map
   useEffect(() => {
     if (!showMapPage || !mapContainerRef.current || mapRef.current) return;
 
@@ -179,72 +212,58 @@ export const UserProfile: React.FC = () => {
     });
     mapRef.current = map;
 
-    map.on('load', async () => {
+    map.on('load', () => {
       const bounds = new mapboxgl.LngLatBounds();
       let hasMarkers = false;
-      const popupRef = { current: null as mapboxgl.Popup | null };
+      let activePopup: mapboxgl.Popup | null = null;
 
-      // First pass: add markers for ratings that have coordinates
       for (const r of userRatings) {
-        const lat = r.lat;
-        const lng = r.lng;
+        const lat = r.lat || resolvedCoords[r.restaurant_id]?.lat;
+        const lng = r.lng || resolvedCoords[r.restaurant_id]?.lng;
         if (!lat || !lng) continue;
 
-        addMarker(r, lat, lng);
-      }
-
-      // Second pass: look up missing coordinates (in background)
-      const missing = userRatings.filter((r) => !r.lat || !r.lng).slice(0, 20);
-      for (const r of missing) {
-        try {
-          const results = await searchPlacesByText(r.restaurant_name + ' ' + (r.address?.split(',').slice(-1)[0]?.trim() || ''), 0, 0);
-          if (results[0]?.lat && results[0]?.lng) {
-            addMarker(r, results[0].lat, results[0].lng);
-          }
-        } catch {}
-        await new Promise((resolve) => setTimeout(resolve, 300));
-      }
-
-      if (hasMarkers) map.fitBounds(bounds, { padding: 60, maxZoom: 12 });
-
-      function addMarker(r: CommunityRating, lat: number, lng: number) {
+        // Create marker element
         const el = document.createElement('div');
-        el.style.cssText = 'width:40px;height:40px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s;';
-        el.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
-        el.onmouseenter = () => { el.style.transform = 'scale(1.15)'; };
-        el.onmouseleave = () => { el.style.transform = 'scale(1)'; };
+        el.style.width = '36px';
+        el.style.height = '36px';
+        el.style.borderRadius = '50%';
+        el.style.background = 'white';
+        el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+        el.style.display = 'flex';
+        el.style.alignItems = 'center';
+        el.style.justifyContent = 'center';
+        el.style.cursor = 'pointer';
+        el.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
 
+        // Popup content
         const cityState = (() => { const parts = (r.address || '').split(',').map(s => s.trim()); return parts.length >= 2 ? parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '') : parts[0] || ''; })();
         const photoHtml = r.photo_url ? `<img src="${r.photo_url}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : '';
-        const ratingHtml = r.score ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span style="font-size:12px;font-weight:700;color:#9f3012;">${Number(r.score).toFixed(1)}</span>${r.price ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;font-weight:600;">${r.price}</span>` : ''}</div>` : '';
-        const callbackId = `uprof_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        (window as any)[callbackId] = () => { navigate(`/restaurant/${r.restaurant_id}`); };
+        const scoreHtml = r.score ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span style="font-size:12px;font-weight:700;color:#9f3012;">${Number(r.score).toFixed(1)}</span>${r.price ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;font-weight:600;">${r.price}</span>` : ''}</div>` : '';
 
+        const rid = r.restaurant_id;
         el.addEventListener('click', (e) => {
           e.stopPropagation();
-          if (popupRef.current) popupRef.current.remove();
-          const popup = new mapboxgl.Popup({ offset: 25, closeButton: true, closeOnClick: false, maxWidth: '240px', className: 'restaurant-popup' })
+          if (activePopup) activePopup.remove();
+          const cbId = `mp_${Date.now()}`;
+          (window as any)[cbId] = () => { navigate(`/restaurant/${rid}`); delete (window as any)[cbId]; };
+          const popup = new mapboxgl.Popup({ offset: [0, -20], closeButton: true, closeOnClick: false, maxWidth: '220px', className: 'restaurant-popup' })
             .setLngLat([lng, lat])
-            .setHTML(`<div style="font-family:inherit;padding:4px 0;"><div onclick="window.${callbackId}()" style="cursor:pointer;">${photoHtml}<div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${r.restaurant_name}</div><div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${r.cuisine}</div>${ratingHtml}<div style="font-size:11px;color:#999;">${cityState}</div></div></div>`)
+            .setHTML(`<div style="font-family:inherit;padding:4px 0;cursor:pointer;" onclick="window.${cbId}()">${photoHtml}<div style="font-size:13px;font-weight:700;margin-bottom:2px;">${r.restaurant_name}</div><div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${r.cuisine}</div>${scoreHtml}<div style="font-size:11px;color:#999;">${cityState}</div></div>`)
             .addTo(map);
-          popup.on('close', () => { popupRef.current = null; delete (window as any)[callbackId]; });
-          popupRef.current = popup;
+          popup.on('close', () => { activePopup = null; delete (window as any)[cbId]; });
+          activePopup = popup;
         });
 
-        const marker = new mapboxgl.Marker(el).setLngLat([lng, lat]).addTo(map);
-        markersRef.current.push(marker);
+        new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
         bounds.extend([lng, lat]);
         hasMarkers = true;
       }
+
+      if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
     });
 
-    return () => {
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current = [];
-      map.remove();
-      mapRef.current = null;
-    };
-  }, [showMapPage, userRatings, navigate]);
+    return () => { map.remove(); mapRef.current = null; };
+  }, [showMapPage, userRatings, resolvedCoords, navigate]);
 
   const handleFollow = async () => {
     if (!userId || !profile) return;
