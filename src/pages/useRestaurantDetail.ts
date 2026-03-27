@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
 import { supabaseConfigured } from '../lib/supabase';
@@ -134,9 +134,14 @@ export function useRestaurantDetail() {
   const priceStr = place ? priceLevelToString(place.priceLevel) : '';
   const cuisine = place ? getCuisineLabel(place.types) : '';
 
-  const photos = place
-    ? place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : [])
-    : [];
+  // Merge Google Places photos with community user-uploaded photos
+  const photos = useMemo(() => {
+    const googlePhotos = place
+      ? place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : [])
+      : [];
+    const userPhotoUrls = communityPhotos.map((p) => p.url).filter((url) => url && url.length < 500000); // Skip oversized base64
+    return [...googlePhotos, ...userPhotoUrls];
+  }, [place, communityPhotos]);
   const directionsUrl = place
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.address)}&destination_place_id=${place.id}`
     : '';
