@@ -510,7 +510,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
               {details.map((d) => (
                 <div key={d.key} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
                   <button onClick={() => setExpandedDetail(expandedDetail === d.key ? null : d.key)}
-                    className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left">
+                    className="w-full flex items-center gap-3 px-3.5 py-3.5 text-left">
                     <span className={d.hasContent ? 'text-primary' : 'text-on-surface/30'}>{d.icon}</span>
                     <span className={cn("flex-1 text-xs font-semibold", d.hasContent ? 'text-on-surface/70' : 'text-on-surface/40')}>{d.label}</span>
                     {d.hasContent && <span className="text-[9px] text-primary font-medium">Added</span>}
