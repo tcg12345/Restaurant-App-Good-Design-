@@ -34,6 +34,9 @@ export const UserProfile: React.FC = () => {
   const [userPhotos, setUserPhotos] = useState<CommunityPhoto[]>([]);
   const [userLists, setUserLists] = useState<{ id: string; name: string; emoji: string; restaurantIds: string[] }[]>([]);
 
+  // Expanded review
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   // Search & filter
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
@@ -108,6 +111,16 @@ export const UserProfile: React.FC = () => {
     });
     return result;
   }, [userRatings, myRatings, canView, userId, profile]);
+
+  // Photos grouped by restaurant
+  const photosByRestaurant = useMemo(() => {
+    const map: Record<string, CommunityPhoto[]> = {};
+    userPhotos.forEach((p) => {
+      if (!map[p.restaurant_id]) map[p.restaurant_id] = [];
+      map[p.restaurant_id].push(p);
+    });
+    return map;
+  }, [userPhotos]);
 
   const allCuisines = useMemo(() => {
     const set = new Set<string>();
@@ -417,30 +430,88 @@ export const UserProfile: React.FC = () => {
               {filteredRatings.length === 0 ? (
                 <div className="text-center py-12"><p className="text-sm text-on-surface/30">{searchQuery || filterCuisine ? 'No matches' : 'No ratings yet'}</p></div>
               ) : (
-                filteredRatings.map((r) => (
-                  <Link key={r.id} to={`/restaurant/${r.restaurant_id}`} className="block">
-                    <div className="bg-white rounded-xl border border-on-surface/8 px-3 py-2.5 active:scale-[0.99] transition-transform">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
+                filteredRatings.map((r) => {
+                  const isExpanded = expandedId === r.id;
+                  const photos = photosByRestaurant[r.restaurant_id] || [];
+                  const hasDetails = !!(r.notes || r.visit_date || (r.tags && r.tags.length > 0) || photos.length > 0 || r.would_return);
+
+                  return (
+                    <div key={r.id} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
+                      {/* Header row */}
+                      <div className="flex items-center px-3 py-2.5">
+                        <Link to={`/restaurant/${r.restaurant_id}`} className="flex-1 min-w-0">
                           <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
                           <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">
                             {r.cuisine}{r.price ? ` · ${r.price}` : ''}
                             {r.address && ` · ${r.address.split(',').slice(-1)[0]?.trim()}`}
                           </p>
-                        </div>
-                        <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(Number(r.score)))}>
+                        </Link>
+                        <span className={cn("text-lg font-serif font-bold flex-shrink-0 mr-2", scoreColor(Number(r.score)))}>
                           {Number(r.score).toFixed(1)}
                         </span>
+                        <button onClick={() => setExpandedId(isExpanded ? null : r.id)}
+                          className="p-1.5 text-on-surface/25 hover:text-on-surface/50 transition-colors flex-shrink-0">
+                          <ChevronDown size={16} className={cn("transition-transform", isExpanded && "rotate-180")} />
+                        </button>
                       </div>
-                      {r.notes && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-1">"{r.notes}"</p>}
-                      {r.tags && r.tags.length > 0 && (
-                        <div className="flex gap-1 mt-1">
-                          {r.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}
-                        </div>
-                      )}
+
+                      {/* Expandable review dropdown */}
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden">
+                            <div className="border-t border-on-surface/6">
+                              {/* Photos */}
+                              {photos.length > 0 && (
+                                <div className="flex gap-1 overflow-x-auto scrollbar-hide p-2">
+                                  {photos.map((p) => (
+                                    <img key={p.id} src={p.url} alt={p.caption || ''} className="h-24 w-auto rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                                  ))}
+                                </div>
+                              )}
+
+                              <div className="px-3 py-2.5 space-y-2">
+                                {/* Notes */}
+                                {r.notes && (
+                                  <div>
+                                    <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30 mb-0.5">Notes</p>
+                                    <p className="text-xs text-on-surface/60 leading-relaxed italic">"{r.notes}"</p>
+                                  </div>
+                                )}
+
+                                {/* Date & Would Return */}
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  {r.visit_date && (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30">Visited</span>
+                                      <span className="text-xs text-on-surface/50">{new Date(r.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                    </div>
+                                  )}
+                                  {r.would_return && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-600 font-medium">Would return</span>
+                                  )}
+                                </div>
+
+                                {/* Tags */}
+                                {r.tags && r.tags.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {r.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/60 font-medium">{t}</span>)}
+                                  </div>
+                                )}
+
+                                {/* View restaurant link */}
+                                <Link to={`/restaurant/${r.restaurant_id}`}
+                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70 pt-1">
+                                  View Restaurant →
+                                </Link>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
-                  </Link>
-                ))
+                  );
+                })
               )}
             </div>
 
