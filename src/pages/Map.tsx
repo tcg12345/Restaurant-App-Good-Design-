@@ -1039,7 +1039,7 @@ export const Map: React.FC = () => {
         </div>
 
         {/* Search Bar & Filters — only on discover tab */}
-        <div className={cn("pb-4 flex-shrink-0", phoneMode ? "px-3" : "px-6", mapMode !== 'discover' && "hidden")}>
+        <div className={cn("pb-4 flex-shrink-0", phoneMode ? "px-3" : "px-6")}>
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
