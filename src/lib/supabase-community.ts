@@ -161,6 +161,7 @@ export interface UserProfile {
   user_id: string;
   display_name: string;
   username: string;
+  bio: string;
 }
 
 export async function getProfile(userId: string): Promise<UserProfile | null> {
@@ -183,13 +184,15 @@ export async function getProfileByUsername(username: string): Promise<UserProfil
   } catch { return null; }
 }
 
-export async function saveProfile(userId: string, displayName: string, username: string): Promise<{ success: boolean; error?: string }> {
+export async function saveProfile(userId: string, displayName: string, username: string, bio?: string): Promise<{ success: boolean; error?: string }> {
   if (!supabaseConfigured || !userId) return { success: false, error: 'Not configured' };
   try {
-    const { error } = await supabase.from('user_profiles').upsert({
+    const payload: any = {
       user_id: userId, display_name: displayName, username: username.toLowerCase().trim(),
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id' });
+    };
+    if (bio !== undefined) payload.bio = bio;
+    const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'user_id' });
     if (error) {
       if (error.code === '23505') return { success: false, error: 'Username is already taken' };
       return { success: false, error: error.message };
@@ -218,6 +221,18 @@ export async function getProfilesByIds(userIds: string[]): Promise<Record<string
     (data || []).forEach((p: any) => { map[p.user_id] = p as UserProfile; });
     return map;
   } catch { return {}; }
+}
+
+/** Get follower and following counts */
+export async function getFollowCounts(userId: string): Promise<{ followers: number; following: number }> {
+  if (!supabaseConfigured || !userId) return { followers: 0, following: 0 };
+  try {
+    const [{ count: following }, { count: followers }] = await Promise.all([
+      supabase.from('user_friends').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('status', 'accepted'),
+      supabase.from('user_friends').select('*', { count: 'exact', head: true }).eq('friend_id', userId).eq('status', 'accepted'),
+    ]);
+    return { followers: followers || 0, following: following || 0 };
+  } catch { return { followers: 0, following: 0 }; }
 }
 
 /* ── Friend Management ── */
