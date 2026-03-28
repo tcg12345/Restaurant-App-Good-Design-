@@ -141,6 +141,7 @@ export const Map: React.FC = () => {
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
 
+  const [showSearchHere, setShowSearchHere] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
@@ -388,6 +389,7 @@ export const Map: React.FC = () => {
     const map = mapRef.current;
     if (!map) return;
     setIsSearching(true);
+    setShowSearchHere(false);
     try {
       const center = map.getCenter();
       const zoom = map.getZoom();
@@ -412,6 +414,7 @@ export const Map: React.FC = () => {
     if (!map || !query.trim()) return;
     setIsSearching(true);
     setSelectedMarker(null);
+    setShowSearchHere(false);
     try {
       const center = map.getCenter();
       const results = await searchPlacesByText(query, center.lat, center.lng);
@@ -455,15 +458,17 @@ export const Map: React.FC = () => {
       fetchNearby();
     });
 
-    // Re-fetch when user moves the map (debounced) — skip if a marker is selected
+    // Show "Search this area" button when user pans the map instead of auto-fetching
     map.on('moveend', () => {
-      if (mapModeRef.current !== 'discover') return; // Only fetch in discover mode
+      if (mapModeRef.current !== 'discover') return;
       if (isMarkerSelectedRef.current) return;
+      // Only show button after initial load (places already populated)
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       fetchTimeoutRef.current = setTimeout(() => {
-        if (!isMarkerSelectedRef.current && mapModeRef.current === 'discover') fetchNearby();
-
-      }, 800);
+        if (!isMarkerSelectedRef.current && mapModeRef.current === 'discover') {
+          setShowSearchHere(true);
+        }
+      }, 400);
     });
 
     // Click on map background or drag clears popup
@@ -641,6 +646,23 @@ export const Map: React.FC = () => {
     <div className="relative h-screen w-full overflow-hidden bg-muted">
       {/* Real Mapbox Map */}
       <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
+
+      {/* Search this area button */}
+      <AnimatePresence>
+        {showSearchHere && mapMode === 'discover' && (
+          <motion.button
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+            onClick={() => { setShowSearchHere(false); fetchNearby(); }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-5 py-2.5 bg-white rounded-full shadow-xl border border-on-surface/10 hover:bg-muted transition-colors"
+          >
+            <Search size={15} className="text-primary" />
+            <span className="text-xs font-bold text-on-surface/80">Search this area</span>
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Floating Action Buttons */}
       <div className="absolute right-6 top-6 flex flex-col gap-3 z-30">
