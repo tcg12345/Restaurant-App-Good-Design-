@@ -69,6 +69,18 @@ function extractCityState(fullAddress: string, shortAddress: string): string {
   return shortParts[0] || '';
 }
 
+// Module-level cache for tab data (persists across navigations within same session)
+const tabDataCache: {
+  ts: number;
+  userId: string | null;
+  myRatings: CommunityRating[];
+  friendRatings: CommunityRating[];
+  expertRatings: CommunityRating[];
+  friendProfiles: Record<string, UserProfile>;
+  coordsLookedUp: Record<string, boolean>;
+} = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, coordsLookedUp: {} };
+const TAB_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+
 export const Map: React.FC = () => {
   const navigate = useNavigate();
   const { setHideBottomNav, phoneMode } = useSettings();
@@ -76,14 +88,15 @@ export const Map: React.FC = () => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
-  // Data for My Ratings and Friends tabs
-  const [myRatings, setMyRatings] = useState<CommunityRating[]>([]);
-  const [friendRatings, setFriendRatings] = useState<CommunityRating[]>([]);
-  const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
-  const [expertRatings, setExpertRatings] = useState<CommunityRating[]>([]);
-  const [tabDataLoaded, setTabDataLoaded] = useState(false);
+  // Data for My Ratings and Friends tabs — initialized from cache if fresh
+  const cacheHit = userId && tabDataCache.userId === userId && (Date.now() - tabDataCache.ts) < TAB_CACHE_TTL;
+  const [myRatings, setMyRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.myRatings : []);
+  const [friendRatings, setFriendRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.friendRatings : []);
+  const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>(cacheHit ? tabDataCache.friendProfiles : {});
+  const [expertRatings, setExpertRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.expertRatings : []);
+  const [tabDataLoaded, setTabDataLoaded] = useState(!!cacheHit);
 
-  // Load data for non-discover tabs
+  // Load data for non-discover tabs (skipped if cache was fresh)
   useEffect(() => {
     if (!userId || tabDataLoaded) return;
     setTabDataLoaded(true);
@@ -96,11 +109,19 @@ export const Map: React.FC = () => {
       setMyRatings(myR);
       setFriendRatings(friendR);
       setExpertRatings(expertR);
+      let profs: Record<string, UserProfile> = {};
       if (friendR.length > 0) {
         const ids = [...new Set(friendR.map((r) => r.user_id))];
-        const profs = await getProfilesByIds(ids);
+        profs = await getProfilesByIds(ids);
         setFriendProfiles(profs);
       }
+      // Update module-level cache
+      tabDataCache.ts = Date.now();
+      tabDataCache.userId = userId;
+      tabDataCache.myRatings = myR;
+      tabDataCache.friendRatings = friendR;
+      tabDataCache.expertRatings = expertR;
+      tabDataCache.friendProfiles = profs;
     })();
   }, [userId, tabDataLoaded]);
   const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts'>(() => {
@@ -532,12 +553,11 @@ export const Map: React.FC = () => {
   const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
   // Look up missing coordinates for custom tab ratings (background, once per mode)
-  const coordsLookedUpMode = useRef<Record<string, boolean>>({});
   useEffect(() => {
     const ratings = mapMode === 'myratings' ? myRatings : mapMode === 'friends' ? friendRatings : mapMode === 'experts' ? expertRatings : [];
     if (ratings.length === 0 || mapMode === 'discover') return;
-    if (coordsLookedUpMode.current[mapMode]) return;
-    coordsLookedUpMode.current[mapMode] = true;
+    if (tabDataCache.coordsLookedUp[mapMode]) return;
+    tabDataCache.coordsLookedUp[mapMode] = true;
 
     const missing = ratings.filter((r) => !r.lat || !r.lng).slice(0, 20);
     if (missing.length === 0) return;
@@ -560,10 +580,10 @@ export const Map: React.FC = () => {
         } catch {}
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
-      // Trigger re-render to show new markers
-      if (mapMode === 'myratings') setMyRatings((prev) => [...prev]);
-      else if (mapMode === 'friends') setFriendRatings((prev) => [...prev]);
-      else if (mapMode === 'experts') setExpertRatings((prev) => [...prev]);
+      // Update cache with resolved coords and trigger re-render
+      if (mapMode === 'myratings') { tabDataCache.myRatings = [...ratings]; setMyRatings((prev) => [...prev]); }
+      else if (mapMode === 'friends') { tabDataCache.friendRatings = [...ratings]; setFriendRatings((prev) => [...prev]); }
+      else if (mapMode === 'experts') { tabDataCache.expertRatings = [...ratings]; setExpertRatings((prev) => [...prev]); }
     })();
   }, [mapMode, myRatings, friendRatings]);
 
