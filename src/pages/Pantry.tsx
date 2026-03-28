@@ -3,12 +3,15 @@ import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useLists, type CustomList } from '../contexts/ListsContext';
+import { useLists, type CustomList, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
+import { searchHotels, type PlaceResult } from '../lib/places';
+import { useAuth } from '../contexts/AuthContext';
+import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 
 /* ── Preset list suggestions ── */
-interface PresetList { name: string; emoji: string; category: string; }
+interface PresetList { name: string; emoji: string; category: string; type?: 'hotel-breakfast'; }
 
 const PRESET_LISTS: PresetList[] = [
   { name: 'Best Date Night Spots', emoji: '🕯️', category: 'Occasion & Vibe' },
@@ -22,7 +25,7 @@ const PRESET_LISTS: PresetList[] = [
   { name: 'Live Music & Dining', emoji: '🎵', category: 'Occasion & Vibe' },
   { name: 'Airport Food', emoji: '✈️', category: 'Travel & Location' },
   { name: 'Hotel Restaurants', emoji: '🏨', category: 'Travel & Location' },
-  { name: 'Hotel Breakfasts', emoji: '🛏️', category: 'Travel & Location' },
+  { name: 'Hotel Breakfasts', emoji: '🛏️', category: 'Travel & Location', type: 'hotel-breakfast' },
   { name: 'Vacation Eats', emoji: '🏖️', category: 'Travel & Location' },
   { name: 'Road Trip Stops', emoji: '🚗', category: 'Travel & Location' },
   { name: 'Ski Resort Dining', emoji: '⛷️', category: 'Travel & Location' },
@@ -74,7 +77,7 @@ const CUSTOM_EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎',
 const CreateListSheet: React.FC<{
   open: boolean;
   onClose: () => void;
-  onCreate: (name: string, emoji: string) => void;
+  onCreate: (name: string, emoji: string, type?: PresetList['type']) => void;
   existingListNames: string[];
 }> = ({ open, onClose, onCreate, existingListNames }) => {
   const { phoneMode } = useSettings();
@@ -100,7 +103,7 @@ const CreateListSheet: React.FC<{
     return groups;
   }, [filteredPresets]);
 
-  const handleSelectPreset = (preset: PresetList) => { onCreate(preset.name, preset.emoji); handleClose(); };
+  const handleSelectPreset = (preset: PresetList) => { onCreate(preset.name, preset.emoji, preset.type); handleClose(); };
   const handleCreateCustom = () => { if (!customName.trim()) return; onCreate(customName.trim(), customEmoji); handleClose(); };
   const handleClose = () => { setSearch(''); setMode('browse'); setCustomName(''); setCustomEmoji('📋'); onClose(); };
 
@@ -580,6 +583,313 @@ const ViewModeToggle: React.FC<{ mode: 'list' | 'grid'; onChange: (m: 'list' | '
   );
 };
 
+/* ── Add Hotel Breakfast Modal ── */
+const AddHotelBreakfastModal: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  listId: string;
+}> = ({ open, onClose, listId }) => {
+  const { rateRestaurant, getRating, addToList, cacheRestaurantMeta } = useLists();
+  const { user } = useAuth();
+  const [step, setStep] = useState<'search' | 'rate'>('search');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<PlaceResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedHotel, setSelectedHotel] = useState<PlaceResult | null>(null);
+
+  // Rating state
+  const [score, setScore] = useState(7);
+  const [notes, setNotes] = useState('');
+  const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
+  const [wouldReturn, setWouldReturn] = useState(true);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setStep('search');
+      setQuery('');
+      setResults([]);
+      setSelectedHotel(null);
+      setScore(7);
+      setNotes('');
+      setVisitDate(new Date().toISOString().slice(0, 10));
+      setWouldReturn(true);
+      setSelectedTags([]);
+      setPhotos([]);
+    }
+  }, [open]);
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    setSearching(true);
+    try {
+      // Use user's location if available, fallback to NYC
+      const lat = 40.735; const lng = -73.99;
+      const res = await searchHotels(query, lat, lng);
+      setResults(res);
+    } catch (e) {
+      console.error('Hotel search failed:', e);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleSelectHotel = (hotel: PlaceResult) => {
+    setSelectedHotel(hotel);
+    const existing = getRating(hotel.id);
+    if (existing) {
+      setScore(existing.score);
+      setNotes(existing.notes);
+      setVisitDate(existing.visitDate || '');
+      setWouldReturn(existing.wouldReturn);
+      setSelectedTags(existing.tags || []);
+      setPhotos(existing.photos || []);
+    }
+    setStep('rate');
+  };
+
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = document.createElement('img');
+        img.onload = () => {
+          const max = 800;
+          let w = img.width, h = img.height;
+          if (w > max || h > max) { const r = Math.min(max / w, max / h); w *= r; h *= r; }
+          const c = document.createElement('canvas'); c.width = w; c.height = h;
+          c.getContext('2d')!.drawImage(img, 0, 0, w, h);
+          resolve(c.toDataURL('image/jpeg', 0.6));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newPhotos: PhotoItem[] = [];
+    for (const file of files.slice(0, 8 - photos.length)) {
+      try {
+        const compressed = await compressImage(file);
+        newPhotos.push({ url: compressed, caption: '', isFavorite: false });
+      } catch {}
+    }
+    setPhotos((prev) => [...prev, ...newPhotos]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleSave = () => {
+    if (!selectedHotel) return;
+    const rating = {
+      restaurantId: selectedHotel.id,
+      name: selectedHotel.name,
+      image: selectedHotel.photoUrl || '',
+      cuisine: 'Hotel Breakfast',
+      price: '',
+      address: selectedHotel.address || selectedHotel.fullAddress || '',
+      score,
+      notes,
+      visitDate,
+      wouldReturn,
+      tags: selectedTags,
+      photos,
+      listIds: [listId],
+      friendIds: [],
+    };
+    rateRestaurant(rating);
+    addToList(listId, selectedHotel.id);
+    cacheRestaurantMeta({ id: selectedHotel.id, name: selectedHotel.name, image: selectedHotel.photoUrl || '', cuisine: 'Hotel Breakfast', price: '', address: selectedHotel.address || '' });
+    onClose();
+  };
+
+  if (!open) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ y: '100%' }}
+          animate={{ y: 0 }}
+          exit={{ y: '100%' }}
+          transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute inset-0 bg-surface flex flex-col"
+        >
+          {/* Header */}
+          <div className="flex items-center gap-3 px-5 pt-5 pb-3 flex-shrink-0">
+            {step === 'rate' && (
+              <button onClick={() => setStep('search')} className="p-1.5 rounded-full hover:bg-on-surface/5">
+                <ArrowLeft size={20} className="text-on-surface/60" />
+              </button>
+            )}
+            <div className="flex-1">
+              <h2 className="text-lg font-serif font-bold">{step === 'search' ? 'Find a Hotel' : selectedHotel?.name}</h2>
+              <p className="text-[11px] text-on-surface/40">{step === 'search' ? 'Search for the hotel you stayed at' : 'Rate the breakfast'}</p>
+            </div>
+            <button onClick={onClose} className="p-2 rounded-full hover:bg-on-surface/5">
+              <X size={22} className="text-on-surface/50" />
+            </button>
+          </div>
+
+          {step === 'search' ? (
+            <div className="flex-1 overflow-y-auto px-5 pb-8">
+              {/* Search input */}
+              <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="flex gap-2 mb-4">
+                <div className="relative flex-1">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Hotel name or location..."
+                    autoFocus
+                    className="w-full pl-9 pr-4 py-3 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                </div>
+                <button type="submit" disabled={searching || !query.trim()}
+                  className="px-4 py-3 bg-primary text-white rounded-xl text-sm font-bold disabled:opacity-40">
+                  {searching ? '...' : 'Search'}
+                </button>
+              </form>
+
+              {/* Results */}
+              <div className="space-y-2">
+                {results.map((hotel) => (
+                  <button key={hotel.id} onClick={() => handleSelectHotel(hotel)}
+                    className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white border border-on-surface/5 shadow-sm hover:shadow-md transition-all text-left">
+                    {hotel.photoUrl ? (
+                      <img src={hotel.photoUrl} alt={hotel.name} className="w-14 h-14 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-xl bg-on-surface/5 flex items-center justify-center flex-shrink-0 text-xl">🏨</div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm truncate">{hotel.name}</p>
+                      <p className="text-[11px] text-on-surface/40 truncate">{hotel.address}</p>
+                      {hotel.rating > 0 && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <Star size={11} className="text-amber-500 fill-amber-500" />
+                          <span className="text-[10px] text-on-surface/50">{hotel.rating}</span>
+                        </div>
+                      )}
+                    </div>
+                    <ChevronRight size={16} className="text-on-surface/20 flex-shrink-0" />
+                  </button>
+                ))}
+                {results.length === 0 && query && !searching && (
+                  <p className="text-center text-sm text-on-surface/40 py-8">No hotels found. Try a different search.</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto px-5 pb-8">
+              {/* Hotel photo */}
+              {selectedHotel?.photoUrl && (
+                <div className="rounded-2xl overflow-hidden aspect-[16/9] mb-5">
+                  <img src={selectedHotel.photoUrl} alt={selectedHotel.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                </div>
+              )}
+
+              {/* Score */}
+              <div className="mb-6">
+                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-3 block">Breakfast Rating</label>
+                <div className="flex items-center gap-4">
+                  <input type="range" min={0} max={10} step={0.5} value={score}
+                    onChange={(e) => setScore(parseFloat(e.target.value))}
+                    className="flex-1 accent-primary h-2" />
+                  <span className="text-2xl font-serif font-bold text-primary w-12 text-center">{score}</span>
+                </div>
+              </div>
+
+              {/* Visit date */}
+              <div className="mb-5">
+                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Visit Date</label>
+                <input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              </div>
+
+              {/* Would return */}
+              <div className="mb-5">
+                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Would you eat breakfast here again?</label>
+                <div className="flex gap-2">
+                  {[true, false].map((val) => (
+                    <button key={String(val)} onClick={() => setWouldReturn(val)}
+                      className={cn("flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors",
+                        wouldReturn === val ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50")}>
+                      {val ? '👍 Yes' : '👎 No'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div className="mb-5">
+                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Notes</label>
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
+                  placeholder="How was the breakfast? What did you have?"
+                  rows={3}
+                  className="w-full px-4 py-2.5 bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
+              </div>
+
+              {/* Tags */}
+              <div className="mb-5">
+                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Tags</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {['Buffet', 'Continental', 'Full English', 'Room Service', 'Restaurant', 'Rooftop', 'Pool Side', 'Included', 'Extra Charge', 'Fresh Juice', 'Coffee', 'Pastries', 'Made to Order', 'Vegan Options'].map((tag) => (
+                    <button key={tag} onClick={() => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])}
+                      className={cn("px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+                        selectedTags.includes(tag) ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50")}>
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Photos */}
+              <div className="mb-6">
+                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Photos</label>
+                <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleAddPhotos} />
+                <div className="flex gap-2 flex-wrap">
+                  {photos.map((p, i) => (
+                    <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden">
+                      <img src={p.url} className="w-full h-full object-cover" />
+                      <button onClick={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}
+                        className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/50 rounded-full flex items-center justify-center">
+                        <X size={10} className="text-white" />
+                      </button>
+                    </div>
+                  ))}
+                  {photos.length < 8 && (
+                    <button onClick={() => fileInputRef.current?.click()}
+                      className="w-20 h-20 rounded-xl border-2 border-dashed border-on-surface/15 flex items-center justify-center hover:border-primary/30 transition-colors">
+                      <Plus size={20} className="text-on-surface/30" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Save button */}
+              <button onClick={handleSave}
+                className="w-full py-3.5 bg-primary text-white rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity">
+                Save Hotel Breakfast
+              </button>
+            </div>
+          )}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
 /* ── List Detail View ── */
 const ListDetailView: React.FC<{
   list: CustomList;
@@ -587,13 +897,15 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList } = useLists();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  const [hotelModalOpen, setHotelModalOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmDeleteList, setConfirmDeleteList] = useState(false);
 
   const isWishlistView = list.id === '__wishlist__';
+  const isHotelBreakfast = list.type === 'hotel-breakfast';
 
   const ratedRestaurants = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
@@ -631,8 +943,8 @@ const ListDetailView: React.FC<{
           <Search size={18} />
         </button>
         {!isWishlistView && (
-          <button onClick={() => setAddSheetOpen(true)}
-            className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title="Add restaurants">
+          <button onClick={() => isHotelBreakfast ? setHotelModalOpen(true) : setAddSheetOpen(true)}
+            className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title={isHotelBreakfast ? "Add hotel" : "Add restaurants"}>
             <Plus size={20} />
           </button>
         )}
@@ -768,6 +1080,7 @@ const ListDetailView: React.FC<{
       )}
 
       <AddFromRatedSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)} listId={list.id} listRestaurantIds={list.restaurantIds} />
+      <AddHotelBreakfastModal open={hotelModalOpen} onClose={() => setHotelModalOpen(false)} listId={list.id} />
     </div>
   );
 };
@@ -1439,7 +1752,7 @@ export const Pantry: React.FC = () => {
       <CreateListSheet
         open={createSheetOpen}
         onClose={() => setCreateSheetOpen(false)}
-        onCreate={(name, emoji) => createList(name, emoji)}
+        onCreate={(name, emoji, type) => createList(name, emoji, type)}
         existingListNames={lists.map((l) => l.name)}
       />
 

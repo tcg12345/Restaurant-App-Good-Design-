@@ -43,6 +43,7 @@ export interface CustomList {
   id: string;
   name: string;
   emoji: string;
+  type?: 'default' | 'hotel-breakfast'; // special list types
   restaurantIds: string[];   // rated restaurants
   wishlistIds: string[];     // wishlisted restaurants
   createdAt: number;
@@ -70,7 +71,7 @@ interface ListsContextValue {
 
   // Custom lists
   lists: CustomList[];
-  createList: (name: string, emoji: string) => void;
+  createList: (name: string, emoji: string, type?: CustomList['type']) => void;
   deleteList: (id: string) => void;
   renameList: (id: string, name: string, emoji: string) => void;
   addToList: (listId: string, restaurantId: string) => void;
@@ -412,9 +413,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const getRating = useCallback((restaurantId: string) => ratings.find((r) => r.restaurantId === restaurantId), [ratings]);
 
   // Lists
-  const createList = useCallback((name: string, emoji: string) => {
+  const createList = useCallback((name: string, emoji: string, type?: CustomList['type']) => {
     setLists((prev) => {
-      const next = [...prev, { id: `list-${Date.now()}`, name, emoji, restaurantIds: [], wishlistIds: [], createdAt: Date.now() }];
+      const next = [...prev, { id: `list-${Date.now()}`, name, emoji, ...(type ? { type } : {}), restaurantIds: [], wishlistIds: [], createdAt: Date.now() }];
       saveToStorage(STORAGE_KEY_LISTS, next);
       syncListsToCloud(next);
       return next;
