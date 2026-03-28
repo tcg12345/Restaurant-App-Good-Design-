@@ -125,11 +125,10 @@ const PhotoGallery: React.FC<{
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         onClick={(e) => e.stopPropagation()}
-        className="absolute inset-0 top-4 bg-surface rounded-t-3xl flex flex-col"
+        className="absolute inset-0 bg-surface flex flex-col"
       >
         {/* Header */}
-        <div className="flex-shrink-0 pt-3 pb-2 px-5">
-          <div className="w-10 h-1 rounded-full bg-on-surface/15 mx-auto mb-3" />
+        <div className="flex-shrink-0 pt-4 pb-2 px-5">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-serif font-bold">Photos</h2>
