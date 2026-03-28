@@ -9,7 +9,7 @@ import {
 import { cn } from '../lib/utils';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
-import { getProfilesByIds, type UserProfile as UP } from '../lib/supabase-community';
+import { getProfilesByIds, type UserProfile as UP, type CommunityPhoto } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
 
 /** Parse hours array to find next opening time when currently closed */
@@ -43,12 +43,19 @@ import { getFlavorProfile, getTopFlavors } from '../lib/flavorProfile';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 /* ── Photo Gallery Bottom Sheet ── */
+interface GalleryPhoto {
+  url: string;
+  caption: string;
+  isGoogle: boolean;
+}
+
 const PhotoGallery: React.FC<{
   photos: string[];
+  communityPhotos: CommunityPhoto[];
   name: string;
   initialIndex: number;
   onClose: () => void;
-}> = ({ photos, name, initialIndex, onClose }) => {
+}> = ({ photos, communityPhotos, name, initialIndex, onClose }) => {
   const [viewIndex, setViewIndex] = useState(initialIndex);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -56,6 +63,27 @@ const PhotoGallery: React.FC<{
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
   }, []);
+
+  // Build unified photo list with captions
+  const allPhotos: GalleryPhoto[] = React.useMemo(() => {
+    const communityUrls = new Set(communityPhotos.map((p) => p.url));
+    const googlePhotos = photos
+      .filter((url) => !communityUrls.has(url))
+      .map((url) => ({ url, caption: '', isGoogle: true }));
+    const userPhotos = communityPhotos
+      .filter((p) => p.url && p.url.length < 500000)
+      .map((p) => ({ url: p.url, caption: p.caption || '', isGoogle: false }));
+    return [...googlePhotos, ...userPhotos];
+  }, [photos, communityPhotos]);
+
+  // Filter by search query (matches caption)
+  const filtered = searchQuery.trim()
+    ? allPhotos.filter((p) => p.caption.toLowerCase().includes(searchQuery.toLowerCase()))
+    : allPhotos;
+
+  // Keep viewIndex in bounds
+  const safeIndex = Math.min(viewIndex, filtered.length - 1);
+  const current = filtered[safeIndex] || filtered[0];
 
   return (
     <motion.div
@@ -72,19 +100,21 @@ const PhotoGallery: React.FC<{
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl flex flex-col"
-        style={{ maxHeight: '92%' }}
+        className="absolute inset-0 top-4 bg-surface rounded-t-3xl flex flex-col"
       >
-        {/* Handle + header */}
+        {/* Header */}
         <div className="flex-shrink-0 pt-3 pb-2 px-5">
           <div className="w-10 h-1 rounded-full bg-on-surface/15 mx-auto mb-3" />
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-serif font-bold">Photos</h2>
+            <div>
+              <h2 className="text-base font-serif font-bold">Photos</h2>
+              <p className="text-[11px] text-on-surface/40 mt-0.5">{allPhotos.length} photo{allPhotos.length !== 1 ? 's' : ''}</p>
+            </div>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-full hover:bg-on-surface/5 transition-colors"
+              className="p-2 rounded-full hover:bg-on-surface/5 transition-colors"
             >
-              <X size={20} className="text-on-surface/50" />
+              <X size={22} className="text-on-surface/50" />
             </button>
           </div>
         </div>
@@ -95,48 +125,64 @@ const PhotoGallery: React.FC<{
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
             <input
               type="text"
-              placeholder="Search photos..."
+              placeholder="Search by dish or description..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setViewIndex(0); }}
               className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all"
             />
           </div>
         </div>
 
-        {/* Featured photo */}
-        <div className="flex-shrink-0 px-5 pb-3">
-          <div className="relative rounded-2xl overflow-hidden aspect-[4/3]">
-            <img
-              src={photos[viewIndex]}
-              alt={`${name} photo ${viewIndex + 1}`}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
-              {viewIndex + 1} / {photos.length}
-            </div>
+        {filtered.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-sm text-on-surface/40">No photos match "{searchQuery}"</p>
           </div>
-        </div>
-
-        {/* Thumbnail grid */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-          <div className="grid grid-cols-3 gap-2">
-            {photos.map((url, i) => (
-              <button
-                key={i}
-                onClick={() => setViewIndex(i)}
-                className={`relative aspect-square rounded-xl overflow-hidden ${i === viewIndex ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
-              >
+        ) : (
+          <>
+            {/* Featured photo */}
+            <div className="flex-shrink-0 px-5 pb-2">
+              <div className="relative rounded-2xl overflow-hidden aspect-[4/3]">
                 <img
-                  src={url}
-                  alt={`${name} photo ${i + 1}`}
+                  src={current?.url}
+                  alt={current?.caption || `${name} photo`}
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
                 />
-              </button>
-            ))}
-          </div>
-        </div>
+                <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
+                  {safeIndex + 1} / {filtered.length}
+                </div>
+              </div>
+              {current?.caption && (
+                <p className="text-xs text-on-surface/60 mt-1.5 px-1 font-medium">{current.caption}</p>
+              )}
+            </div>
+
+            {/* Thumbnail grid */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-8 pt-2" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+              <div className="grid grid-cols-3 gap-2">
+                {filtered.map((photo, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setViewIndex(i)}
+                    className={`relative aspect-square rounded-xl overflow-hidden ${i === safeIndex ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
+                  >
+                    <img
+                      src={photo.url}
+                      alt={photo.caption || `${name} photo ${i + 1}`}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                    {photo.caption && (
+                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 pb-1 pt-3">
+                        <p className="text-[9px] text-white font-medium truncate">{photo.caption}</p>
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </motion.div>
     </motion.div>
   );
@@ -602,6 +648,7 @@ export const RestaurantDetailMobile: React.FC = () => {
         {galleryOpen && photos.length > 0 && (
           <PhotoGallery
             photos={photos}
+            communityPhotos={communityPhotos}
             name={place.name}
             initialIndex={photoIndex}
             onClose={() => setGalleryOpen(false)}
