@@ -175,29 +175,25 @@ const PhotoGallery: React.FC<{
 
           {/* Popular Dishes section */}
           {!searchQuery.trim() && !activeDish && dishGroups.length > 0 && (
-            <div className="pb-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface/50 px-5 pb-2.5">Popular Dishes</h3>
+            <div className="pb-5">
+              <h3 className="text-sm font-serif font-bold text-on-surface px-5 pb-3">Popular dishes</h3>
               <div className="flex gap-3 overflow-x-auto no-scrollbar px-5">
                 {dishGroups.map((group) => (
                   <button
                     key={group.dish}
                     onClick={() => setActiveDish(group.dish)}
-                    className="flex-shrink-0 w-32 group"
+                    className="flex-shrink-0 w-36 text-left"
                   >
-                    <div className="relative rounded-xl overflow-hidden aspect-square mb-1.5">
-                      {/* Stack preview — show up to 2 images layered */}
+                    <div className="rounded-xl overflow-hidden aspect-[4/3] mb-2">
                       <img
                         src={group.photos[0].url}
                         alt={group.dish}
                         className="w-full h-full object-cover"
                         referrerPolicy="no-referrer"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-                      <div className="absolute bottom-2 left-2 right-2">
-                        <p className="text-white text-[11px] font-bold truncate">{group.dish}</p>
-                        <p className="text-white/70 text-[9px]">{group.photos.length} photos</p>
-                      </div>
                     </div>
+                    <p className="text-sm font-semibold text-on-surface truncate">{group.dish}</p>
+                    <p className="text-[11px] text-on-surface/40">{group.photos.length} recommended</p>
                   </button>
                 ))}
               </div>
@@ -219,16 +215,16 @@ const PhotoGallery: React.FC<{
             <>
               {/* All Photos header */}
               {!searchQuery.trim() && !activeDish && (
-                <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface/50 px-5 pb-2.5">All Photos</h3>
+                <h3 className="text-sm font-serif font-bold text-on-surface px-5 pb-3">Photos from members</h3>
               )}
 
-              {/* Photo grid */}
-              <div className="grid grid-cols-3 gap-1.5 px-5">
+              {/* Photo grid — 2 columns like reference */}
+              <div className="grid grid-cols-2 gap-2 px-5">
                 {displayPhotos.map((photo, i) => (
                   <button
                     key={i}
                     onClick={() => setExpandedPhoto(photo)}
-                    className="relative aspect-square rounded-xl overflow-hidden"
+                    className="relative aspect-square rounded-2xl overflow-hidden"
                   >
                     <img
                       src={photo.url}
@@ -237,8 +233,8 @@ const PhotoGallery: React.FC<{
                       referrerPolicy="no-referrer"
                     />
                     {photo.caption && (
-                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 pb-1 pt-3">
-                        <p className="text-[9px] text-white font-medium truncate">{photo.caption}</p>
+                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-2.5 pb-2.5 pt-6">
+                        <p className="text-[13px] text-white font-semibold truncate">{photo.caption}</p>
                       </div>
                     )}
                   </button>
