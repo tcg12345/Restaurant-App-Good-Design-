@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Bookmark, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -29,8 +29,7 @@ const MAP_STYLES = [
   { id: 'streets', label: 'Streets', style: 'mapbox://styles/mapbox/streets-v12' },
 ] as const;
 
-const FILTERS = [
-  { icon: Bookmark, label: 'Hitlist', active: false },
+const FILTERS: { icon: any; label: string; active: boolean }[] = [
 ];
 
 type SortOption = 'popularity' | 'rating' | 'price_low' | 'price_high';
