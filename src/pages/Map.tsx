@@ -78,7 +78,9 @@ const tabDataCache: {
   expertRatings: CommunityRating[];
   friendProfiles: Record<string, UserProfile>;
   coordsLookedUp: Record<string, boolean>;
-} = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, coordsLookedUp: {} };
+  discoverPlaces: PlaceResult[];
+  discoverTs: number;
+} = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverTs: 0 };
 const TAB_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
 export const Map: React.FC = () => {
@@ -146,7 +148,9 @@ export const Map: React.FC = () => {
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
-  const [places, setPlaces] = useState<PlaceResult[]>([]);
+  const [places, setPlaces] = useState<PlaceResult[]>(() =>
+    (Date.now() - tabDataCache.discoverTs) < TAB_CACHE_TTL ? tabDataCache.discoverPlaces : []
+  );
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -422,6 +426,8 @@ export const Map: React.FC = () => {
       const sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
       setPlaces(sorted);
       syncMarkers(sorted);
+      tabDataCache.discoverPlaces = sorted;
+      tabDataCache.discoverTs = Date.now();
     } catch (err) {
       console.error('Places search failed:', err);
     } finally {
@@ -474,9 +480,14 @@ export const Map: React.FC = () => {
 
     mapRef.current = map;
 
-    // Search nearby restaurants once map loads
+    // Search nearby restaurants once map loads (skip if cached)
     map.on('load', () => {
-      fetchNearby();
+      const hasCachedPlaces = tabDataCache.discoverPlaces.length > 0 && (Date.now() - tabDataCache.discoverTs) < TAB_CACHE_TTL;
+      if (hasCachedPlaces) {
+        syncMarkers(tabDataCache.discoverPlaces);
+      } else {
+        fetchNearby();
+      }
     });
 
     // Show "Search this area" button when user pans the map instead of auto-fetching
