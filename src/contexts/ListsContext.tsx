@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
-import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews } from '../lib/supabase-db';
+import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips } from '../lib/supabase-db';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 
@@ -61,6 +61,51 @@ export interface WishlistItem {
   addedAt: number;
 }
 
+export interface TripRestaurant {
+  restaurantId: string;
+  name: string;
+  image: string;
+  cuisine: string;
+  price: string;
+  address: string;
+  night: number;
+  mealType: 'breakfast' | 'lunch' | 'dinner' | 'drinks' | 'snack';
+  rating?: RestaurantRating;
+  notes?: string;
+  reservationTime?: string;
+  reservationConfirmation?: string;
+  status: 'planned' | 'completed' | 'skipped';
+}
+
+export interface TripHotel {
+  id: string;
+  name: string;
+  address: string;
+  checkIn: string;
+  checkOut: string;
+  confirmationNumber?: string;
+  starRating?: number;
+  notes?: string;
+  image?: string;
+  placeId?: string;
+}
+
+export interface Trip {
+  id: string;
+  name: string;
+  destination: string;
+  destinationLat: number;
+  destinationLng: number;
+  startDate: string;
+  endDate: string;
+  coverImage?: string;
+  hotels: TripHotel[];
+  restaurants: TripRestaurant[];
+  notes?: string;
+  status: 'planning' | 'active' | 'completed';
+  createdAt: number;
+}
+
 interface ListsContextValue {
   // Ratings
   ratings: RestaurantRating[];
@@ -115,12 +160,25 @@ interface ListsContextValue {
   wishlistModalMeta: RestaurantMeta | null;
   openWishlistModal: (restaurant: RestaurantMeta) => void;
   closeWishlistModal: () => void;
+
+  // Trips
+  trips: Trip[];
+  createTrip: (trip: Omit<Trip, 'id' | 'createdAt'>) => Trip;
+  updateTrip: (id: string, updates: Partial<Trip>) => void;
+  deleteTrip: (id: string) => void;
+  addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
+  updateTripRestaurant: (tripId: string, restaurantId: string, night: number, updates: Partial<TripRestaurant>) => void;
+  removeRestaurantFromTrip: (tripId: string, restaurantId: string, night: number) => void;
+  addHotelToTrip: (tripId: string, hotel: TripHotel) => void;
+  updateHotel: (tripId: string, hotelId: string, updates: Partial<TripHotel>) => void;
+  removeHotelFromTrip: (tripId: string, hotelId: string) => void;
 }
 
 const STORAGE_KEY_RATINGS = 'gourmad-ratings';
 const STORAGE_KEY_LISTS = 'gourmad-lists';
 const STORAGE_KEY_WISHLIST = 'gourmad-wishlist';
 const STORAGE_KEY_META = 'gourmad-restaurant-meta';
+const STORAGE_KEY_TRIPS = 'gourmad-trips';
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -181,6 +239,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [lists, setLists] = useState<CustomList[]>(() => migrateLists(loadFromStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS)));
   const [wishlist, setWishlist] = useState<WishlistItem[]>(() => migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, [])));
   const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
+  const [trips, setTrips] = useState<Trip[]>(() => loadFromStorage(STORAGE_KEY_TRIPS, []));
   const [cloudLoaded, setCloudLoaded] = useState(false);
 
   // Track userId and profile for cloud save helpers
@@ -205,12 +264,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.removeItem(STORAGE_KEY_LISTS);
       localStorage.removeItem(STORAGE_KEY_WISHLIST);
       localStorage.removeItem(STORAGE_KEY_META);
+      localStorage.removeItem(STORAGE_KEY_TRIPS);
       localStorage.removeItem('gourmad-recent-views');
       // Reset state to empty
       setRatings([]);
       setLists(DEFAULT_LISTS);
       setWishlist([]);
       setRestaurantMeta({});
+      setTrips([]);
     }
     localStorage.setItem('gourmad-user-id', userId);
 
@@ -227,18 +288,21 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const cloudLists = migrateLists(cloud.lists.length > 0 ? cloud.lists : DEFAULT_LISTS);
         const cloudWishlist = migrateWishlist(cloud.wishlist || []);
         const cloudMeta = cloud.restaurantMeta || {};
+        const cloudTrips = (cloud as any).trips || [];
         const cloudRecentViews = cloud.recentViews || [];
 
         setRatings(cloudRatings);
         setLists(cloudLists);
         setWishlist(cloudWishlist);
         setRestaurantMeta(cloudMeta);
+        setTrips(cloudTrips);
 
         // Also update localStorage as cache
         saveToStorage(STORAGE_KEY_RATINGS, cloudRatings);
         saveToStorage(STORAGE_KEY_LISTS, cloudLists);
         saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
         saveToStorage(STORAGE_KEY_META, cloudMeta);
+        saveToStorage(STORAGE_KEY_TRIPS, cloudTrips);
         if (cloudRecentViews.length > 0) {
           localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews));
         }
@@ -267,6 +331,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setLists(DEFAULT_LISTS);
         setWishlist([]);
         setRestaurantMeta({});
+        setTrips([]);
 
         // Save empty state to cloud
         await saveUserData(userId, {
@@ -275,6 +340,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           wishlist: [],
           restaurantMeta: {},
           recentViews: [],
+          trips: [],
         });
 
         // Clear localStorage
@@ -282,6 +348,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS);
         saveToStorage(STORAGE_KEY_WISHLIST, []);
         saveToStorage(STORAGE_KEY_META, {});
+        saveToStorage(STORAGE_KEY_TRIPS, []);
         localStorage.setItem('gourmad-recent-views', '[]');
       }
 
@@ -315,6 +382,107 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const syncMetaToCloud = useCallback((data: Record<string, RestaurantMeta>) => {
     if (userIdRef.current && supabaseConfigured) saveMetaData(userIdRef.current, data);
   }, []);
+  const syncTripsToCloud = useCallback((data: Trip[]) => {
+    if (userIdRef.current && supabaseConfigured) saveTrips(userIdRef.current, data);
+  }, []);
+
+  // ── Trip CRUD ──
+  const createTrip = useCallback((trip: Omit<Trip, 'id' | 'createdAt'>): Trip => {
+    const newTrip: Trip = { ...trip, id: `trip-${Date.now()}`, createdAt: Date.now() };
+    setTrips((prev) => {
+      const next = [...prev, newTrip];
+      saveToStorage(STORAGE_KEY_TRIPS, next);
+      syncTripsToCloud(next);
+      return next;
+    });
+    return newTrip;
+  }, [syncTripsToCloud]);
+
+  const updateTrip = useCallback((id: string, updates: Partial<Trip>) => {
+    setTrips((prev) => {
+      const next = prev.map((t) => t.id === id ? { ...t, ...updates } : t);
+      saveToStorage(STORAGE_KEY_TRIPS, next);
+      syncTripsToCloud(next);
+      return next;
+    });
+  }, [syncTripsToCloud]);
+
+  const deleteTrip = useCallback((id: string) => {
+    setTrips((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      saveToStorage(STORAGE_KEY_TRIPS, next);
+      syncTripsToCloud(next);
+      return next;
+    });
+  }, [syncTripsToCloud]);
+
+  const addRestaurantToTrip = useCallback((tripId: string, restaurant: TripRestaurant) => {
+    setTrips((prev) => {
+      const next = prev.map((t) => t.id === tripId ? { ...t, restaurants: [...t.restaurants, restaurant] } : t);
+      saveToStorage(STORAGE_KEY_TRIPS, next);
+      syncTripsToCloud(next);
+      return next;
+    });
+  }, [syncTripsToCloud]);
+
+  const updateTripRestaurant = useCallback((tripId: string, restaurantId: string, night: number, updates: Partial<TripRestaurant>) => {
+    setTrips((prev) => {
+      const next = prev.map((t) => t.id === tripId ? {
+        ...t,
+        restaurants: t.restaurants.map((r) =>
+          r.restaurantId === restaurantId && r.night === night ? { ...r, ...updates } : r
+        ),
+      } : t);
+      saveToStorage(STORAGE_KEY_TRIPS, next);
+      syncTripsToCloud(next);
+      return next;
+    });
+  }, [syncTripsToCloud]);
+
+  const removeRestaurantFromTrip = useCallback((tripId: string, restaurantId: string, night: number) => {
+    setTrips((prev) => {
+      const next = prev.map((t) => t.id === tripId ? {
+        ...t,
+        restaurants: t.restaurants.filter((r) => !(r.restaurantId === restaurantId && r.night === night)),
+      } : t);
+      saveToStorage(STORAGE_KEY_TRIPS, next);
+      syncTripsToCloud(next);
+      return next;
+    });
+  }, [syncTripsToCloud]);
+
+  const addHotelToTrip = useCallback((tripId: string, hotel: TripHotel) => {
+    setTrips((prev) => {
+      const next = prev.map((t) => t.id === tripId ? { ...t, hotels: [...t.hotels, hotel] } : t);
+      saveToStorage(STORAGE_KEY_TRIPS, next);
+      syncTripsToCloud(next);
+      return next;
+    });
+  }, [syncTripsToCloud]);
+
+  const updateHotel = useCallback((tripId: string, hotelId: string, updates: Partial<TripHotel>) => {
+    setTrips((prev) => {
+      const next = prev.map((t) => t.id === tripId ? {
+        ...t,
+        hotels: t.hotels.map((h) => h.id === hotelId ? { ...h, ...updates } : h),
+      } : t);
+      saveToStorage(STORAGE_KEY_TRIPS, next);
+      syncTripsToCloud(next);
+      return next;
+    });
+  }, [syncTripsToCloud]);
+
+  const removeHotelFromTrip = useCallback((tripId: string, hotelId: string) => {
+    setTrips((prev) => {
+      const next = prev.map((t) => t.id === tripId ? {
+        ...t,
+        hotels: t.hotels.filter((h) => h.id !== hotelId),
+      } : t);
+      saveToStorage(STORAGE_KEY_TRIPS, next);
+      syncTripsToCloud(next);
+      return next;
+    });
+  }, [syncTripsToCloud]);
 
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
   const [ratingModalRestaurant, setRatingModalRestaurant] = useState<RestaurantMeta | null>(null);
@@ -577,6 +745,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
       wishlistModalOpen, wishlistModalMeta, openWishlistModal, closeWishlistModal,
+      trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
     }}>
       {children}
     </ListsContext.Provider>

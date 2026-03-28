@@ -3,7 +3,7 @@
  * Stores ratings, lists, wishlist, and metadata as JSONB in a single row per user.
  */
 import { supabase, supabaseConfigured } from './supabase';
-import type { RestaurantRating, CustomList, WishlistItem, RestaurantMeta } from '../contexts/ListsContext';
+import type { RestaurantRating, CustomList, WishlistItem, RestaurantMeta, Trip } from '../contexts/ListsContext';
 
 export interface UserAppData {
   ratings: RestaurantRating[];
@@ -11,6 +11,7 @@ export interface UserAppData {
   wishlist: WishlistItem[];
   restaurantMeta: Record<string, RestaurantMeta>;
   recentViews: any[];
+  trips: Trip[];
 }
 
 /**
@@ -22,7 +23,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
   try {
     const { data, error } = await supabase
       .from('user_app_data')
-      .select('ratings, lists, wishlist, restaurant_meta, recent_views')
+      .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips')
       .eq('user_id', userId)
       .single();
 
@@ -38,6 +39,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       wishlist: (data.wishlist as WishlistItem[]) || [],
       restaurantMeta: (data.restaurant_meta as Record<string, RestaurantMeta>) || {},
       recentViews: (data.recent_views as any[]) || [],
+      trips: (data.trips as Trip[]) || [],
     };
   } catch (err) {
     console.error('[Supabase] loadUserData exception:', err);
@@ -62,6 +64,7 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
         wishlist: data.wishlist,
         restaurant_meta: data.restaurantMeta,
         recent_views: data.recentViews || [],
+        trips: data.trips || [],
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
 
@@ -168,4 +171,17 @@ export async function saveRecentViews(userId: string, recentViews: any[]): Promi
     if (error) { console.error('[Supabase] saveRecentViews error:', error); return false; }
     return true;
   } catch (err) { console.error('[Supabase] saveRecentViews exception:', err); return false; }
+}
+
+export async function saveTrips(userId: string, trips: Trip[]): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    await ensureRow(userId);
+    const { error } = await supabase
+      .from('user_app_data')
+      .update({ trips, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+    if (error) { console.error('[Supabase] saveTrips error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[Supabase] saveTrips exception:', err); return false; }
 }
