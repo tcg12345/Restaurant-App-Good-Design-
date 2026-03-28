@@ -49,6 +49,11 @@ interface GalleryPhoto {
   isGoogle: boolean;
 }
 
+interface DishGroup {
+  dish: string;
+  photos: GalleryPhoto[];
+}
+
 const PhotoGallery: React.FC<{
   photos: string[];
   communityPhotos: CommunityPhoto[];
@@ -56,8 +61,9 @@ const PhotoGallery: React.FC<{
   initialIndex: number;
   onClose: () => void;
 }> = ({ photos, communityPhotos, name, initialIndex, onClose }) => {
-  const [viewIndex, setViewIndex] = useState(initialIndex);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeDish, setActiveDish] = useState<string | null>(null);
+  const [expandedPhoto, setExpandedPhoto] = useState<GalleryPhoto | null>(null);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -76,14 +82,33 @@ const PhotoGallery: React.FC<{
     return [...googlePhotos, ...userPhotos];
   }, [photos, communityPhotos]);
 
-  // Filter by search query (matches caption)
-  const filtered = searchQuery.trim()
-    ? allPhotos.filter((p) => p.caption.toLowerCase().includes(searchQuery.toLowerCase()))
-    : allPhotos;
+  // Group photos by dish name (normalize to lowercase for matching)
+  const dishGroups: DishGroup[] = React.useMemo(() => {
+    const groups: Record<string, GalleryPhoto[]> = {};
+    for (const p of allPhotos) {
+      if (!p.caption) continue;
+      const key = p.caption.trim().toLowerCase();
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p);
+    }
+    // Only show groups with 2+ photos, sorted by count descending
+    return Object.entries(groups)
+      .filter(([, arr]) => arr.length >= 2)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([key, arr]) => ({ dish: arr[0].caption, photos: arr }));
+  }, [allPhotos]);
 
-  // Keep viewIndex in bounds
-  const safeIndex = Math.min(viewIndex, filtered.length - 1);
-  const current = filtered[safeIndex] || filtered[0];
+  // Filter photos
+  const displayPhotos = React.useMemo(() => {
+    if (activeDish) {
+      const key = activeDish.toLowerCase();
+      return allPhotos.filter((p) => p.caption.toLowerCase() === key);
+    }
+    if (searchQuery.trim()) {
+      return allPhotos.filter((p) => p.caption.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+    return allPhotos;
+  }, [allPhotos, searchQuery, activeDish]);
 
   return (
     <motion.div
@@ -127,44 +152,83 @@ const PhotoGallery: React.FC<{
               type="text"
               placeholder="Search by dish or description..."
               value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setViewIndex(0); }}
+              onChange={(e) => { setSearchQuery(e.target.value); setActiveDish(null); }}
               className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all"
             />
           </div>
         </div>
 
-        {filtered.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center">
-            <p className="text-sm text-on-surface/40">No photos match "{searchQuery}"</p>
-          </div>
-        ) : (
-          <>
-            {/* Featured photo */}
-            <div className="flex-shrink-0 px-5 pb-2">
-              <div className="relative rounded-2xl overflow-hidden aspect-[4/3]">
-                <img
-                  src={current?.url}
-                  alt={current?.caption || `${name} photo`}
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
-                  {safeIndex + 1} / {filtered.length}
-                </div>
-              </div>
-              {current?.caption && (
-                <p className="text-xs text-on-surface/60 mt-1.5 px-1 font-medium">{current.caption}</p>
-              )}
-            </div>
+        {/* Scrollable content */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
 
-            {/* Thumbnail grid */}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-8 pt-2" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-              <div className="grid grid-cols-3 gap-2">
-                {filtered.map((photo, i) => (
+          {/* Active dish filter chip */}
+          {activeDish && (
+            <div className="flex items-center gap-2 px-5 pb-3">
+              <span className="text-xs font-semibold text-on-surface/50 uppercase tracking-wider">Showing:</span>
+              <button onClick={() => setActiveDish(null)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs font-bold">
+                {activeDish}
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
+          {/* Popular Dishes section */}
+          {!searchQuery.trim() && !activeDish && dishGroups.length > 0 && (
+            <div className="pb-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface/50 px-5 pb-2.5">Popular Dishes</h3>
+              <div className="flex gap-3 overflow-x-auto no-scrollbar px-5">
+                {dishGroups.map((group) => (
+                  <button
+                    key={group.dish}
+                    onClick={() => setActiveDish(group.dish)}
+                    className="flex-shrink-0 w-32 group"
+                  >
+                    <div className="relative rounded-xl overflow-hidden aspect-square mb-1.5">
+                      {/* Stack preview — show up to 2 images layered */}
+                      <img
+                        src={group.photos[0].url}
+                        alt={group.dish}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+                      <div className="absolute bottom-2 left-2 right-2">
+                        <p className="text-white text-[11px] font-bold truncate">{group.dish}</p>
+                        <p className="text-white/70 text-[9px]">{group.photos.length} photos</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Results info when searching */}
+          {(searchQuery.trim() || activeDish) && (
+            <div className="px-5 pb-2">
+              <p className="text-[11px] text-on-surface/40">{displayPhotos.length} result{displayPhotos.length !== 1 ? 's' : ''}</p>
+            </div>
+          )}
+
+          {displayPhotos.length === 0 ? (
+            <div className="flex items-center justify-center py-16">
+              <p className="text-sm text-on-surface/40">No photos match "{searchQuery}"</p>
+            </div>
+          ) : (
+            <>
+              {/* All Photos header */}
+              {!searchQuery.trim() && !activeDish && (
+                <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface/50 px-5 pb-2.5">All Photos</h3>
+              )}
+
+              {/* Photo grid */}
+              <div className="grid grid-cols-3 gap-1.5 px-5">
+                {displayPhotos.map((photo, i) => (
                   <button
                     key={i}
-                    onClick={() => setViewIndex(i)}
-                    className={`relative aspect-square rounded-xl overflow-hidden ${i === safeIndex ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
+                    onClick={() => setExpandedPhoto(photo)}
+                    className="relative aspect-square rounded-xl overflow-hidden"
                   >
                     <img
                       src={photo.url}
@@ -180,9 +244,39 @@ const PhotoGallery: React.FC<{
                   </button>
                 ))}
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
+
+        {/* Expanded single photo overlay */}
+        <AnimatePresence>
+          {expandedPhoto && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-10 bg-black/90 flex flex-col items-center justify-center"
+              onClick={() => setExpandedPhoto(null)}
+            >
+              <button
+                onClick={() => setExpandedPhoto(null)}
+                className="absolute top-6 right-5 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-20"
+              >
+                <X size={22} className="text-white" />
+              </button>
+              <img
+                src={expandedPhoto.url}
+                alt={expandedPhoto.caption || name}
+                className="max-w-full max-h-[75vh] object-contain rounded-xl"
+                referrerPolicy="no-referrer"
+                onClick={(e) => e.stopPropagation()}
+              />
+              {expandedPhoto.caption && (
+                <p className="text-white/80 text-sm font-medium mt-3 px-8 text-center">{expandedPhoto.caption}</p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.div>
   );
