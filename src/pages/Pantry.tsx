@@ -1719,6 +1719,17 @@ const TripsTab: React.FC<{
         >
           📋 Share Itinerary
         </button>
+
+        {/* Edit Trip Sheet (must be inside detail view since early return) */}
+        <CreateTripSheet
+          open={!!editingTrip}
+          trip={editingTrip}
+          onClose={() => setEditingTrip(null)}
+          onSave={(data) => {
+            updateTrip(editingTrip!.id, data);
+            setEditingTrip(null);
+          }}
+        />
       </div>
     );
   }
