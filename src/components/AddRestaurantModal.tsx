@@ -258,7 +258,7 @@ export const AddRestaurantModal: React.FC = () => {
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
                 ? "h-full rounded-none"
-                : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl"
+                : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
             {photoInput}
