@@ -604,7 +604,7 @@ const HotelSubPage: React.FC<{
 }> = ({ children, onBack, title, rightAction }) => (
   <motion.div initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
     transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-    className="flex flex-col h-full" onTouchMove={(e) => e.stopPropagation()}>
+    className="flex flex-col flex-1 min-h-0" onTouchMove={(e) => e.stopPropagation()}>
     <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
       <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
         <ArrowLeft size={20} />
@@ -737,6 +737,7 @@ const AddHotelBreakfastModal: React.FC<{
 
   const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
   const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
+  const togglePhotoFavorite = (idx: number) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, isFavorite: !p.isFavorite } : p));
 
   const handleSave = () => {
     if (!selectedHotel) return;
@@ -795,7 +796,7 @@ const AddHotelBreakfastModal: React.FC<{
           className={cn("bg-surface w-full overflow-hidden flex flex-col",
             phoneMode
               ? "h-full rounded-none"
-              : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl")}
+              : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl")}
         >
           {photoInput}
           <AnimatePresence mode="wait">
@@ -1004,6 +1005,17 @@ const AddHotelBreakfastModal: React.FC<{
                             <input type="text" value={photo.caption} onChange={(e) => updatePhotoCaption(idx, e.target.value)}
                               placeholder="What's this dish?"
                               className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full" />
+                            <button onClick={() => togglePhotoFavorite(idx)}
+                              className={cn("flex items-center gap-2 mt-2 text-xs font-medium transition-colors",
+                                photo.isFavorite ? "text-primary" : "text-on-surface/35"
+                              )}>
+                              <span className="text-on-surface/40">Mark as a favorite dish:</span>
+                              <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                photo.isFavorite ? "bg-primary border-primary text-white" : "border-on-surface/20"
+                              )}>
+                                {photo.isFavorite && <Star size={10} fill="white" />}
+                              </div>
+                            </button>
                           </div>
                         </div>
                       ))}
