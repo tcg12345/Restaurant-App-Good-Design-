@@ -1489,9 +1489,11 @@ const TripsTab: React.FC<{
   if (selectedTrip) {
     const nights = getNightCount(selectedTrip.startDate, selectedTrip.endDate);
     const completedCount = selectedTrip.restaurants.filter((r) => r.status === 'completed').length;
+    const plannedCount = selectedTrip.restaurants.filter((r) => r.status === 'planned').length;
     const avgRating = completedCount > 0
       ? (selectedTrip.restaurants.filter((r) => r.status === 'completed' && r.rating).reduce((sum, r) => sum + (r.rating?.score || 0), 0) / completedCount).toFixed(1)
       : '—';
+    const totalRestaurants = selectedTrip.restaurants.length;
 
     // Check for tonight's reminder
     const today = new Date();
@@ -1500,182 +1502,189 @@ const TripsTab: React.FC<{
     const tonightDinner = selectedTrip.restaurants.find((r) => r.night === currentNight && r.mealType === 'dinner' && r.status === 'planned');
 
     return (
-      <div>
-        {/* Header with cover */}
-        <div className="relative -mx-3 mb-4">
+      <div className="pb-8">
+        {/* ── Header ── */}
+        <div className="mb-6">
           {selectedTrip.coverImage ? (
-            <div className="relative aspect-[16/9] rounded-2xl overflow-hidden mx-3">
-              <img src={selectedTrip.coverImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-              <div className="absolute bottom-0 left-0 right-0 p-4">
-                <h2 className="font-serif font-bold text-xl text-white">{selectedTrip.name}</h2>
-                <p className="text-white/70 text-xs">{selectedTrip.destination} · {formatDateRange(selectedTrip.startDate, selectedTrip.endDate)}</p>
-              </div>
-              <div className="absolute top-3 left-3">
-                <button onClick={() => setSelectedTripId(null)} className="p-2 bg-black/30 backdrop-blur-sm rounded-full text-white">
+            <div className="relative -mx-3 mb-5">
+              <div className="relative aspect-[2.5/1] rounded-2xl overflow-hidden mx-3">
+                <img src={selectedTrip.coverImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                <button onClick={() => setSelectedTripId(null)}
+                  className="absolute top-3 left-3 p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/90 hover:bg-black/40 transition-colors">
                   <ArrowLeft size={18} />
                 </button>
-              </div>
-              <div className="absolute top-3 right-3 flex gap-2">
-                <button onClick={() => setEditingTrip(selectedTrip)} className="p-2 bg-black/30 backdrop-blur-sm rounded-full text-white">
-                  <Edit3 size={15} />
-                </button>
-                <button onClick={() => { if (confirm('Delete this trip?')) { deleteTrip(selectedTrip.id); setSelectedTripId(null); } }}
-                  className="p-2 bg-black/30 backdrop-blur-sm rounded-full text-white">
-                  <Trash2 size={15} />
-                </button>
+                <div className="absolute top-3 right-3 flex gap-1.5">
+                  <button onClick={() => setEditingTrip(selectedTrip)}
+                    className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/90 hover:bg-black/40 transition-colors">
+                    <Edit3 size={14} />
+                  </button>
+                  <button onClick={() => { if (confirm('Delete this trip?')) { deleteTrip(selectedTrip.id); setSelectedTripId(null); } }}
+                    className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/90 hover:bg-black/40 transition-colors">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-3 px-3 mb-2">
-              <button onClick={() => setSelectedTripId(null)} className="p-1.5 rounded-full hover:bg-on-surface/5">
-                <ArrowLeft size={20} />
+            <div className="flex items-center gap-3 mb-5">
+              <button onClick={() => setSelectedTripId(null)} className="p-1.5 rounded-full hover:bg-on-surface/5 transition-colors">
+                <ArrowLeft size={20} className="text-on-surface/50" />
               </button>
-              <div className="flex-1">
-                <h2 className="font-serif font-bold text-xl">{selectedTrip.name}</h2>
-                <p className="text-xs text-on-surface/40">{selectedTrip.destination} · {formatDateRange(selectedTrip.startDate, selectedTrip.endDate)}</p>
-              </div>
-              <button onClick={() => setEditingTrip(selectedTrip)} className="p-2 hover:bg-on-surface/5 rounded-full">
-                <Edit3 size={16} className="text-on-surface/40" />
+              <div className="flex-1" />
+              <button onClick={() => setEditingTrip(selectedTrip)} className="p-2 rounded-full hover:bg-on-surface/5 transition-colors">
+                <Edit3 size={15} className="text-on-surface/35" />
               </button>
               <button onClick={() => { if (confirm('Delete this trip?')) { deleteTrip(selectedTrip.id); setSelectedTripId(null); } }}
-                className="p-2 hover:bg-on-surface/5 rounded-full text-red-400">
-                <Trash2 size={15} />
+                className="p-2 rounded-full hover:bg-on-surface/5 transition-colors text-on-surface/25 hover:text-red-400">
+                <Trash2 size={14} />
               </button>
             </div>
           )}
+
+          {/* Trip name + meta */}
+          <div className="px-1">
+            <h1 className="text-2xl font-serif font-bold text-on-surface leading-tight">{selectedTrip.name}</h1>
+            <p className="text-sm text-on-surface/45 mt-1.5 font-medium">
+              {selectedTrip.destination} · {formatDateRange(selectedTrip.startDate, selectedTrip.endDate)}
+            </p>
+            <div className="mt-3">
+              <span className={cn("inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-wider",
+                selectedTrip.status === 'active' ? "bg-green-50 text-green-600" :
+                selectedTrip.status === 'completed' ? "bg-on-surface/[0.04] text-on-surface/35" :
+                "bg-primary/[0.06] text-primary/70"
+              )}>{selectedTrip.status}</span>
+            </div>
+          </div>
         </div>
 
-        {/* Status badge */}
-        <div className="flex items-center gap-2 mb-4">
-          <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-            selectedTrip.status === 'active' ? "bg-green-100 text-green-700" :
-            selectedTrip.status === 'completed' ? "bg-on-surface/5 text-on-surface/40" :
-            "bg-primary/10 text-primary"
-          )}>{selectedTrip.status}</span>
-          <span className="text-[11px] text-on-surface/40">{nights} night{nights !== 1 ? 's' : ''} · {selectedTrip.restaurants.length} restaurant{selectedTrip.restaurants.length !== 1 ? 's' : ''}</span>
-        </div>
-
-        {/* Tonight reminder */}
+        {/* ── Tonight reminder ── */}
         {tonightDinner && selectedTrip.status === 'active' && (
-          <div className="bg-primary/5 border border-primary/15 rounded-2xl p-3 mb-4 flex items-center gap-3">
-            <span className="text-lg">🍽️</span>
+          <div className="bg-primary/[0.04] border border-primary/10 rounded-2xl px-4 py-3.5 mb-6 flex items-center gap-3">
+            <span className="text-xl">🍽️</span>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-primary">Tonight's Dinner</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-primary/70 mb-0.5">Tonight</p>
               <p className="text-sm font-semibold text-on-surface truncate">{tonightDinner.name}</p>
-              {tonightDinner.reservationTime && <p className="text-[11px] text-on-surface/50">Reservation at {tonightDinner.reservationTime}</p>}
+              {tonightDinner.reservationTime && <p className="text-[11px] text-on-surface/40 mt-0.5">{tonightDinner.reservationTime}</p>}
             </div>
           </div>
         )}
 
-        {/* Stats row */}
-        <div className="grid grid-cols-4 gap-2 mb-5">
+        {/* ── Stats ── */}
+        <div className="flex items-center gap-6 px-1 mb-7">
           {[
-            { label: 'Planned', value: selectedTrip.restaurants.filter((r) => r.status === 'planned').length },
-            { label: 'Completed', value: completedCount },
-            { label: 'Avg Rating', value: avgRating },
-            { label: 'Nights', value: nights },
+            { value: nights, label: 'Nights' },
+            { value: plannedCount, label: 'Planned' },
+            { value: completedCount, label: 'Done' },
+            { value: avgRating, label: 'Avg' },
           ].map((s) => (
-            <div key={s.label} className="bg-white rounded-xl border border-on-surface/5 p-2.5 text-center">
-              <p className="text-lg font-serif font-bold text-on-surface">{s.value}</p>
-              <p className="text-[9px] text-on-surface/40 font-medium uppercase tracking-wider">{s.label}</p>
+            <div key={s.label}>
+              <p className="text-lg font-serif font-bold text-on-surface leading-none">{s.value}</p>
+              <p className="text-[9px] text-on-surface/35 font-medium uppercase tracking-wider mt-1">{s.label}</p>
             </div>
           ))}
         </div>
 
-        {/* Hotels */}
+        {/* ── Hotels ── */}
         {selectedTrip.hotels.length > 0 && (
-          <div className="mb-5">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2">Hotels</h3>
+          <div className="mb-7">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30 mb-2.5 px-1">Accommodation</p>
             {selectedTrip.hotels.map((hotel) => (
-              <div key={hotel.id} className="bg-white rounded-2xl border border-on-surface/5 p-3 mb-2 flex items-center gap-3">
+              <div key={hotel.id} className="bg-white rounded-2xl border border-on-surface/[0.06] shadow-sm p-3.5 mb-2 flex items-center gap-3">
                 {hotel.image ? (
-                  <img src={hotel.image} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                  <img src={hotel.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
                 ) : (
-                  <div className="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center flex-shrink-0 text-lg">🏨</div>
+                  <div className="w-11 h-11 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0 text-base">🏨</div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm truncate">{hotel.name}</p>
-                  <p className="text-[10px] text-on-surface/40">{hotel.checkIn} → {hotel.checkOut}</p>
-                  {hotel.confirmationNumber && <p className="text-[10px] text-on-surface/30">#{hotel.confirmationNumber}</p>}
+                  <p className="font-semibold text-[13px] truncate">{hotel.name}</p>
+                  <p className="text-[10px] text-on-surface/35 mt-0.5">{hotel.checkIn} → {hotel.checkOut}</p>
                 </div>
-                {hotel.starRating && (
-                  <div className="flex items-center gap-0.5">
-                    {Array.from({ length: hotel.starRating }).map((_, i) => (
-                      <Star key={i} size={10} className="text-amber-500 fill-amber-500" />
-                    ))}
-                  </div>
+                {hotel.confirmationNumber && (
+                  <span className="text-[9px] text-on-surface/25 font-mono flex-shrink-0">#{hotel.confirmationNumber}</span>
                 )}
               </div>
             ))}
           </div>
         )}
 
-        {/* Night-by-night itinerary */}
-        <div className="space-y-4 mb-6">
+        {/* ── Empty hint ── */}
+        {totalRestaurants === 0 && (
+          <div className="text-center py-2 mb-4">
+            <p className="text-xs text-on-surface/30 font-medium">Tap <span className="text-primary">+ Add</span> on any night to start building your itinerary</p>
+          </div>
+        )}
+
+        {/* ── Night-by-night itinerary ── */}
+        <div className="space-y-3 mb-8">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30 px-1">Itinerary</p>
+
           {Array.from({ length: nights }).map((_, nightIdx) => {
             const nightRestaurants = selectedTrip.restaurants
               .filter((r) => r.night === nightIdx)
               .sort((a, b) => (MEAL_ORDER[a.mealType] || 0) - (MEAL_ORDER[b.mealType] || 0));
 
+            const nightDateStr = getNightDate(selectedTrip.startDate, nightIdx);
+
             return (
-              <div key={nightIdx}>
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <h4 className="text-sm font-serif font-bold">Night {nightIdx + 1}</h4>
-                    <p className="text-[10px] text-on-surface/40">{getNightDate(selectedTrip.startDate, nightIdx)}</p>
+              <div key={nightIdx} className="bg-white rounded-2xl border border-on-surface/[0.06] shadow-sm overflow-hidden">
+                <div className="flex items-center gap-4 px-4 py-3.5">
+                  {/* Left: night number + date */}
+                  <div className="flex-shrink-0 w-12 text-center">
+                    <p className="text-xl font-serif font-bold text-on-surface leading-none">{nightIdx + 1}</p>
+                    <p className="text-[8px] font-semibold uppercase tracking-wider text-on-surface/30 mt-1">Night</p>
                   </div>
+                  <div className="h-8 w-px bg-on-surface/[0.06]" />
+                  {/* Right: date + content */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-on-surface/50">{nightDateStr}</p>
+                    {nightRestaurants.length === 0 && (
+                      <p className="text-[11px] text-on-surface/25 italic mt-0.5">No restaurants planned</p>
+                    )}
+                  </div>
+                  {/* Add button */}
                   <button
                     onClick={() => {
-                      // Quick add: open a prompt for restaurant search
                       const name = prompt('Restaurant name to add:');
                       if (name) {
                         const mealType = prompt('Meal type (breakfast/lunch/dinner/drinks/snack):') as TripRestaurant['mealType'] || 'dinner';
                         addRestaurantToTrip(selectedTrip.id, {
                           restaurantId: `manual-${Date.now()}`,
-                          name,
-                          image: '',
-                          cuisine: '',
-                          price: '',
-                          address: '',
-                          night: nightIdx,
-                          mealType,
-                          status: 'planned',
+                          name, image: '', cuisine: '', price: '', address: '',
+                          night: nightIdx, mealType, status: 'planned',
                         });
                       }
                     }}
-                    className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary hover:bg-primary/20 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/[0.06] text-primary hover:bg-primary/[0.12] transition-colors flex-shrink-0"
                   >
-                    <Plus size={14} />
+                    <Plus size={13} />
+                    <span className="text-[11px] font-semibold">Add</span>
                   </button>
                 </div>
 
-                {nightRestaurants.length === 0 ? (
-                  <p className="text-xs text-on-surface/25 italic pl-2">No restaurants planned</p>
-                ) : (
-                  <div className="space-y-2">
+                {/* Restaurant cards within this night */}
+                {nightRestaurants.length > 0 && (
+                  <div className="border-t border-on-surface/[0.05] divide-y divide-on-surface/[0.05]">
                     {nightRestaurants.map((r) => (
                       <div key={`${r.restaurantId}-${r.night}`}
-                        className={cn("flex items-center gap-3 p-2.5 rounded-2xl bg-white border border-on-surface/5 shadow-sm transition-all",
-                          r.status === 'skipped' && "opacity-50")}
+                        className={cn("flex items-center gap-3 px-4 py-3", r.status === 'skipped' && "opacity-40")}
                       >
                         {r.image ? (
-                          <img src={r.image} className="w-14 h-14 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                          <img src={r.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
                         ) : (
-                          <div className="w-14 h-14 rounded-xl bg-on-surface/5 flex items-center justify-center flex-shrink-0 text-lg">🍽️</div>
+                          <div className="w-11 h-11 rounded-lg bg-on-surface/[0.04] flex items-center justify-center flex-shrink-0 text-base">🍽️</div>
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className={cn("font-semibold text-sm truncate", r.status === 'skipped' && "line-through")}>{r.name}</p>
+                          <p className={cn("text-[13px] font-semibold truncate", r.status === 'skipped' && "line-through")}>{r.name}</p>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase", MEAL_COLORS[r.mealType] || 'bg-gray-100 text-gray-600')}>{r.mealType}</span>
-                            {r.reservationTime && <span className="text-[10px] text-on-surface/40">{r.reservationTime}</span>}
+                            <span className={cn("px-1.5 py-px rounded text-[8px] font-bold uppercase tracking-wide", MEAL_COLORS[r.mealType] || 'bg-gray-100 text-gray-600')}>{r.mealType}</span>
+                            {r.reservationTime && <span className="text-[10px] text-on-surface/35">{r.reservationTime}</span>}
                           </div>
-                          {r.cuisine && <p className="text-[10px] text-on-surface/30 mt-0.5">{r.cuisine} {r.price && `· ${r.price}`}</p>}
                         </div>
-                        <div className="flex flex-col gap-1 flex-shrink-0">
+                        <div className="flex items-center gap-1 flex-shrink-0">
                           {r.status === 'planned' && (
                             <button onClick={() => updateTripRestaurant(selectedTrip.id, r.restaurantId, r.night, { status: 'completed' })}
-                              className="w-7 h-7 rounded-full bg-green-50 flex items-center justify-center text-green-600 hover:bg-green-100">
+                              className="w-7 h-7 rounded-full bg-green-50 flex items-center justify-center text-green-500 hover:bg-green-100 transition-colors">
                               <Check size={13} />
                             </button>
                           )}
@@ -1685,8 +1694,8 @@ const TripsTab: React.FC<{
                             </div>
                           )}
                           <button onClick={() => removeRestaurantFromTrip(selectedTrip.id, r.restaurantId, r.night)}
-                            className="w-7 h-7 rounded-full hover:bg-red-50 flex items-center justify-center text-on-surface/20 hover:text-red-400">
-                            <X size={12} />
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-on-surface/15 hover:text-red-400 hover:bg-red-50 transition-colors">
+                            <X size={11} />
                           </button>
                         </div>
                       </div>
@@ -1698,29 +1707,27 @@ const TripsTab: React.FC<{
           })}
         </div>
 
-        {/* Share itinerary */}
+        {/* ── Share ── */}
         <button
           onClick={() => {
-            const nights = getNightCount(selectedTrip.startDate, selectedTrip.endDate);
+            const n = getNightCount(selectedTrip.startDate, selectedTrip.endDate);
             let text = `🗺️ ${selectedTrip.name} — ${selectedTrip.destination}\n${formatDateRange(selectedTrip.startDate, selectedTrip.endDate)}\n\n`;
-            for (let i = 0; i < nights; i++) {
+            for (let i = 0; i < n; i++) {
               const nightRests = selectedTrip.restaurants.filter((r) => r.night === i).sort((a, b) => (MEAL_ORDER[a.mealType] || 0) - (MEAL_ORDER[b.mealType] || 0));
               if (nightRests.length === 0) continue;
               text += `Night ${i + 1} — ${getNightDate(selectedTrip.startDate, i)}\n`;
-              nightRests.forEach((r) => {
-                text += `  ${r.mealType}: ${r.name}${r.reservationTime ? ` (${r.reservationTime})` : ''}\n`;
-              });
+              nightRests.forEach((r) => { text += `  ${r.mealType}: ${r.name}${r.reservationTime ? ` (${r.reservationTime})` : ''}\n`; });
               text += '\n';
             }
             if (navigator.share) navigator.share({ text });
             else { navigator.clipboard.writeText(text); alert('Itinerary copied to clipboard!'); }
           }}
-          className="w-full py-3 bg-on-surface/5 rounded-2xl text-sm font-semibold text-on-surface/50 hover:bg-on-surface/10 transition-colors mb-4"
+          className="w-full py-3 rounded-2xl text-xs font-semibold text-on-surface/35 hover:text-on-surface/50 hover:bg-on-surface/[0.03] transition-colors"
         >
           📋 Share Itinerary
         </button>
 
-        {/* Edit Trip Sheet (must be inside detail view since early return) */}
+        {/* Edit Trip Sheet */}
         <CreateTripSheet
           open={!!editingTrip}
           trip={editingTrip}
