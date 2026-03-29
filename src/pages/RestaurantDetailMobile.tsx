@@ -295,7 +295,8 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
 
   const myRating = place ? getRating(place.id) : undefined;
-  const isHotel = place ? (place.types.includes('hotel') || place.types.includes('lodging') || myRating?.cuisine === 'Hotel Breakfast') : false;
+  // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
+  const isHotel = place ? (place.types[0] === 'hotel' || place.types[0] === 'lodging' || myRating?.cuisine === 'Hotel Breakfast') : false;
 
   // Load friend names for the "Went With" section
   useEffect(() => {
