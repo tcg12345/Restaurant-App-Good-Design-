@@ -699,7 +699,7 @@ const SubPage: React.FC<{
 }> = ({ children, onBack, title, rightAction }) => (
   <motion.div initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
     transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-    className="flex flex-col h-full" onTouchMove={(e) => e.stopPropagation()}>
+    className="flex flex-col flex-1 min-h-0" onTouchMove={(e) => e.stopPropagation()}>
     <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
       <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
         <ChevronLeft size={22} />
