@@ -1319,7 +1319,8 @@ const TripsTab: React.FC<{
   openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
   cacheRestaurantMeta: (meta: RestaurantMeta) => void;
   ratings: RestaurantRating[];
-}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip, rateRestaurant, openAddRestaurantModal, cacheRestaurantMeta, ratings }) => {
+  onBack: () => void;
+}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip, rateRestaurant, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack }) => {
   const navigate = useNavigate();
   const { phoneMode } = useSettings();
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
@@ -1580,6 +1581,14 @@ const TripsTab: React.FC<{
   // ── Index view ──
   return (
     <div className="relative">
+      {/* Back to lists */}
+      <div className="flex items-center gap-3 mb-4">
+        <button onClick={onBack} className="p-1.5 rounded-full hover:bg-on-surface/5">
+          <ArrowLeft size={20} />
+        </button>
+        <h2 className="font-serif font-bold text-xl">Trips</h2>
+      </div>
+
       {sortedTrips.length === 0 ? (
         <div className="text-center py-16">
           <Plane size={48} className="text-on-surface/10 mx-auto mb-4" />
@@ -1881,6 +1890,7 @@ export const Pantry: React.FC = () => {
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [activeTab, setActiveTab] = useState<PantryTab>('lists');
+  const [showTrips, setShowTrips] = useState(false);
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
 
@@ -2089,33 +2099,9 @@ export const Pantry: React.FC = () => {
       ) : undefined} />
 
       <main className="px-3">
-        {/* ── Tab bar ── */}
-        {!currentList && (
-          <div className="flex items-center gap-1 mb-4 relative">
-            {(['lists', 'trips', 'wishlist'] as PantryTab[]).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={cn("relative px-4 py-2 text-sm font-bold uppercase tracking-wider transition-colors rounded-full",
-                  activeTab === tab ? "text-primary" : "text-on-surface/40 hover:text-on-surface/60"
-                )}
-              >
-                {tab === 'lists' ? 'Lists' : tab === 'trips' ? 'Trips' : 'Wishlist'}
-                {activeTab === tab && (
-                  <motion.div
-                    layoutId="pantry-tab-indicator"
-                    className="absolute inset-0 bg-primary/10 rounded-full -z-10"
-                    transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  />
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
         {currentList ? (
           <ListDetailView list={currentList} viewMode={effectiveViewMode} onViewModeChange={setViewMode} onBack={() => setSelectedList(null)} />
-        ) : activeTab === 'trips' ? (
+        ) : showTrips ? (
           <TripsTab
             trips={trips}
             createTrip={createTrip}
@@ -2131,36 +2117,8 @@ export const Pantry: React.FC = () => {
             openAddRestaurantModal={openAddRestaurantModal}
             cacheRestaurantMeta={cacheRestaurantMeta}
             ratings={ratings}
+            onBack={() => setShowTrips(false)}
           />
-        ) : activeTab === 'wishlist' ? (
-          <div>
-            {wishlist.length === 0 ? (
-              <div className="text-center py-16">
-                <Heart size={40} className="text-on-surface/10 mx-auto mb-3" />
-                <p className="text-sm text-on-surface/40 font-medium">No wishlist items yet</p>
-                <p className="text-xs text-on-surface/30 mt-1">Tap the heart on any restaurant to add it</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {wishlist.map((w) => (
-                  <button key={w.restaurantId} onClick={() => navigate(`/restaurant/${w.restaurantId}`)}
-                    className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white border border-on-surface/5 shadow-sm hover:shadow-md transition-all text-left">
-                    {w.image ? (
-                      <img src={w.image} alt={w.name} className="w-14 h-14 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-14 h-14 rounded-xl bg-on-surface/5 flex items-center justify-center flex-shrink-0 text-lg">❤️</div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm truncate">{w.name}</p>
-                      <p className="text-[11px] text-primary/60 font-medium uppercase tracking-wider">{w.cuisine}</p>
-                      <p className="text-[11px] text-on-surface/40 truncate">{w.address}</p>
-                    </div>
-                    <ChevronRight size={16} className="text-on-surface/20 flex-shrink-0" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
         ) : (
           <>
             {/* ── Horizontal list row ── */}
@@ -2178,6 +2136,16 @@ export const Pantry: React.FC = () => {
                   <span className="text-sm">❤️</span>
                   <span className="text-xs font-semibold text-red-500 whitespace-nowrap">Wishlist</span>
                   <span className="text-[10px] text-red-400 font-medium">{wishlist.length}</span>
+                </button>
+
+                {/* Trips pill */}
+                <button
+                  onClick={() => setShowTrips(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-primary/5 rounded-full border border-primary/20 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                >
+                  <Plane size={13} className="text-primary" />
+                  <span className="text-xs font-semibold text-primary whitespace-nowrap">Trips</span>
+                  {trips.length > 0 && <span className="text-[10px] text-primary/60 font-medium">{trips.length}</span>}
                 </button>
 
                 {lists.map((list) => {
