@@ -2133,7 +2133,8 @@ export const Pantry: React.FC = () => {
 
   // Filter and sort rated restaurants
   const filteredRatings = useMemo(() => {
-    let result = [...ratings];
+    // Exclude special list ratings (e.g. hotel breakfasts) from the main list
+    let result = ratings.filter((r) => r.cuisine !== 'Hotel Breakfast');
 
     if (mainSearchQuery.trim()) {
       const q = mainSearchQuery.toLowerCase();
@@ -2155,6 +2156,8 @@ export const Pantry: React.FC = () => {
 
     return result;
   }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, scoreRange, sortBy]);
+
+  const regularRatingsCount = useMemo(() => ratings.filter((r) => r.cuisine !== 'Hotel Breakfast').length, [ratings]);
 
   const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
@@ -2364,11 +2367,11 @@ export const Pantry: React.FC = () => {
             </div>
 
             {/* ── Summary bar ── */}
-            {ratings.length > 0 && (
+            {regularRatingsCount > 0 && (
               <div className="flex items-center gap-4 px-1 mb-3">
                 <p className="text-xs text-on-surface/40">
                   <span className="font-bold text-on-surface">{filteredRatings.length}</span>
-                  {filteredRatings.length !== ratings.length && ` of ${ratings.length}`} rated
+                  {filteredRatings.length !== regularRatingsCount && ` of ${regularRatingsCount}`} rated
                 </p>
                 {filteredRatings.length > 0 && (
                   <p className="text-xs text-on-surface/40">
@@ -2408,7 +2411,7 @@ export const Pantry: React.FC = () => {
             </AnimatePresence>
 
             {/* ── Restaurant list ── */}
-            {ratings.length === 0 && wishlist.length === 0 ? (
+            {regularRatingsCount === 0 && wishlist.length === 0 ? (
               <div className="text-center py-16">
                 <Star size={32} className="mx-auto text-on-surface/15 mb-3" />
                 <p className="text-sm font-medium text-on-surface/40">No restaurants yet</p>
@@ -2457,7 +2460,7 @@ export const Pantry: React.FC = () => {
                       );
                     })}
                   </div>
-                ) : ratings.length > 0 ? (
+                ) : regularRatingsCount > 0 ? (
                   <div className="text-center py-8">
                     <SlidersHorizontal size={28} className="mx-auto text-on-surface/15 mb-3" />
                     <p className="text-sm font-medium text-on-surface/40">No matches</p>
