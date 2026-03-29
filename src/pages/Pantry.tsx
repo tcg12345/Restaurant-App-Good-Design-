@@ -225,10 +225,12 @@ const AddFromRatedSheet: React.FC<{
   onClose: () => void;
   listId: string;
   listRestaurantIds: string[];
-}> = ({ open, onClose, listId, listRestaurantIds }) => {
+  onCreateNewRating?: (restaurantId: string, meta: RestaurantMeta) => void;
+}> = ({ open, onClose, listId, listRestaurantIds, onCreateNewRating }) => {
   const { ratings, addToList, removeFromList } = useLists();
   const { phoneMode } = useSettings();
   const [search, setSearch] = useState('');
+  const [promptRating, setPromptRating] = useState<RestaurantRating | null>(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return ratings;
@@ -236,9 +238,26 @@ const AddFromRatedSheet: React.FC<{
     return ratings.filter((r) => r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.address.toLowerCase().includes(q));
   }, [ratings, search]);
 
-  const handleToggle = (restaurantId: string) => {
-    if (listRestaurantIds.includes(restaurantId)) removeFromList(listId, restaurantId);
-    else addToList(listId, restaurantId);
+  const handleToggle = (r: RestaurantRating) => {
+    if (listRestaurantIds.includes(r.restaurantId)) {
+      removeFromList(listId, r.restaurantId);
+    } else {
+      setPromptRating(r);
+    }
+  };
+
+  const handleUseSame = () => {
+    if (!promptRating) return;
+    addToList(listId, promptRating.restaurantId);
+    setPromptRating(null);
+  };
+
+  const handleCreateNew = () => {
+    if (!promptRating) return;
+    const r = promptRating;
+    setPromptRating(null);
+    onClose();
+    onCreateNewRating?.(r.restaurantId, { id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address });
   };
 
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
@@ -276,7 +295,7 @@ const AddFromRatedSheet: React.FC<{
               ) : filtered.map((r) => {
                 const isInList = listRestaurantIds.includes(r.restaurantId);
                 return (
-                  <button key={r.restaurantId} onClick={() => handleToggle(r.restaurantId)}
+                  <button key={r.restaurantId} onClick={() => handleToggle(r)}
                     className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left", isInList ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
                     <div className="w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5">
                       {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold text-sm">{r.name.charAt(0)}</div>}
@@ -293,6 +312,38 @@ const AddFromRatedSheet: React.FC<{
                 );
               })}
             </div>
+
+            {/* Rating choice prompt */}
+            <AnimatePresence>
+              {promptRating && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-black/40 z-10 flex items-end sm:items-center justify-center"
+                  onClick={() => setPromptRating(null)}>
+                  <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}
+                    transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white rounded-2xl shadow-2xl border border-on-surface/8 mx-5 mb-8 sm:mb-0 w-full max-w-xs overflow-hidden">
+                    <div className="p-5 text-center">
+                      <div className="w-12 h-12 rounded-xl overflow-hidden mx-auto mb-3 bg-on-surface/5">
+                        {promptRating.image ? <img src={promptRating.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold">{promptRating.name.charAt(0)}</div>}
+                      </div>
+                      <p className="font-serif font-bold text-sm mb-1">{promptRating.name}</p>
+                      <p className="text-[11px] text-on-surface/40 mb-4">How would you like to add this?</p>
+                      <div className="space-y-2">
+                        <button onClick={handleUseSame}
+                          className="w-full py-3 bg-primary text-white rounded-xl text-sm font-semibold active:scale-[0.98] transition-transform">
+                          Use Existing Rating ({promptRating.score.toFixed(1)})
+                        </button>
+                        <button onClick={handleCreateNew}
+                          className="w-full py-3 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl text-sm font-semibold text-on-surface/70 hover:bg-on-surface/[0.08] transition-colors">
+                          Create New Rating
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         </motion.div>
       )}
@@ -1039,10 +1090,23 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating } = useLists();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [hotelModalOpen, setHotelModalOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const pendingListRatingRef = useRef<{ restaurantId: string; openedAt: number } | null>(null);
+
+  // Watch for the global rating being updated after we opened the modal for a list-specific rating
+  useEffect(() => {
+    const pending = pendingListRatingRef.current;
+    if (!pending) return;
+    const globalRating = ratings.find((r) => r.restaurantId === pending.restaurantId);
+    if (globalRating && globalRating.createdAt && globalRating.createdAt >= pending.openedAt) {
+      // The rating was just saved/updated — move it to list-specific storage
+      setListRating(list.id, globalRating);
+      pendingListRatingRef.current = null;
+    }
+  }, [ratings, list.id, setListRating]);
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmDeleteList, setConfirmDeleteList] = useState(false);
 
@@ -1051,8 +1115,11 @@ const ListDetailView: React.FC<{
 
   const ratedRestaurants = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
-    const rating = ratings.find((r) => r.restaurantId === id);
-    return { id, info, rating };
+    // Prefer list-specific rating over global rating
+    const listRating = getListRating(list.id, id);
+    const globalRating = ratings.find((r) => r.restaurantId === id);
+    const rating = listRating || globalRating;
+    return { id, info, rating, hasListRating: !!listRating };
   }).filter(({ info }) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
@@ -1227,7 +1294,13 @@ const ListDetailView: React.FC<{
         </div>
       )}
 
-      <AddFromRatedSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)} listId={list.id} listRestaurantIds={list.restaurantIds} />
+      <AddFromRatedSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)} listId={list.id} listRestaurantIds={list.restaurantIds}
+        onCreateNewRating={(restaurantId, meta) => {
+          pendingListRatingRef.current = { restaurantId, openedAt: Date.now() };
+          addToList(list.id, restaurantId);
+          openAddRestaurantModal(meta);
+        }}
+      />
       <AddHotelBreakfastModal open={hotelModalOpen} onClose={() => setHotelModalOpen(false)} listId={list.id} />
     </div>
   );
