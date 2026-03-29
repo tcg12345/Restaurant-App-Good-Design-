@@ -1117,10 +1117,10 @@ const ListDetailView: React.FC<{
         <div className="text-center py-16">
           <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
           <p className="text-sm font-medium text-on-surface/40">This list is empty</p>
-          <p className="text-xs text-on-surface/30 mt-1">Add restaurants from your rated collection</p>
-          <button onClick={() => setAddSheetOpen(true)}
+          <p className="text-xs text-on-surface/30 mt-1">{isHotelBreakfast ? 'Rate a hotel breakfast to get started' : 'Add restaurants from your rated collection'}</p>
+          <button onClick={() => isHotelBreakfast ? setHotelModalOpen(true) : setAddSheetOpen(true)}
             className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
-            <Plus size={14} />Add Restaurants
+            <Plus size={14} />{isHotelBreakfast ? 'Add Hotel Breakfast' : 'Add Restaurants'}
           </button>
         </div>
       ) : (
