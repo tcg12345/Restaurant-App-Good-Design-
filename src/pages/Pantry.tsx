@@ -1824,6 +1824,7 @@ const CreateTripSheet: React.FC<{
   const [notes, setNotes] = useState('');
   const [coverImage, setCoverImage] = useState('');
   const [status, setStatus] = useState<Trip['status']>('planning');
+  const [calendarOpen, setCalendarOpen] = useState<'start' | 'end' | null>(null);
 
   // Location search
   const [locQuery, setLocQuery] = useState('');
@@ -1846,6 +1847,7 @@ const CreateTripSheet: React.FC<{
       setStatus(trip?.status || 'planning');
       setLocQuery('');
       setLocResults([]);
+      setCalendarOpen(null);
     }
   }, [open, trip]);
 
@@ -1961,21 +1963,74 @@ const CreateTripSheet: React.FC<{
             </div>
 
             {/* Dates */}
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-1.5 block">Start Date</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-3 bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-1.5 block">End Date</label>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate}
-                  className="w-full px-3 py-3 bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
-              </div>
+            <div className="grid grid-cols-2 gap-3 mb-2">
+              <button type="button" onClick={() => setCalendarOpen('start')}
+                className={cn("w-full px-3 py-3 rounded-xl border text-left transition-all",
+                  startDate ? "bg-primary/5 border-primary/20" : "bg-on-surface/[0.04] border-on-surface/8")}>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface/40 mb-1">Start Date</p>
+                <div className="flex items-center gap-2">
+                  <CalendarDays size={14} className={startDate ? "text-primary" : "text-on-surface/30"} />
+                  <span className={cn("text-sm font-medium", startDate ? "text-on-surface" : "text-on-surface/35")}>
+                    {startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select date'}
+                  </span>
+                </div>
+              </button>
+              <button type="button" onClick={() => setCalendarOpen('end')}
+                className={cn("w-full px-3 py-3 rounded-xl border text-left transition-all",
+                  endDate ? "bg-primary/5 border-primary/20" : "bg-on-surface/[0.04] border-on-surface/8")}>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface/40 mb-1">End Date</p>
+                <div className="flex items-center gap-2">
+                  <CalendarDays size={14} className={endDate ? "text-primary" : "text-on-surface/30"} />
+                  <span className={cn("text-sm font-medium", endDate ? "text-on-surface" : "text-on-surface/35")}>
+                    {endDate ? new Date(endDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select date'}
+                  </span>
+                </div>
+              </button>
             </div>
             {nightCount > 0 && (
               <p className="text-xs text-primary font-semibold mb-4">{nightCount} night{nightCount !== 1 ? 's' : ''}</p>
             )}
+
+            {/* Calendar popup */}
+            <AnimatePresence>
+              {calendarOpen && (
+                <>
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/30 z-30" onClick={() => setCalendarOpen(null)} />
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 8 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 8 }}
+                    transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                    className="relative z-40 bg-white rounded-2xl shadow-2xl border border-on-surface/8 p-4 mb-4"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-serif font-bold text-sm">{calendarOpen === 'start' ? 'Start Date' : 'End Date'}</h3>
+                      <button onClick={() => setCalendarOpen(null)} className="p-1 rounded-full hover:bg-on-surface/5">
+                        <X size={16} className="text-on-surface/40" />
+                      </button>
+                    </div>
+                    <Calendar
+                      value={calendarOpen === 'start' ? startDate : endDate}
+                      onChange={(date) => {
+                        if (calendarOpen === 'start') {
+                          setStartDate(date);
+                          if (endDate && date > endDate) setEndDate('');
+                        } else {
+                          setEndDate(date);
+                        }
+                        setCalendarOpen(null);
+                      }}
+                      onClear={() => {
+                        if (calendarOpen === 'start') setStartDate('');
+                        else setEndDate('');
+                        setCalendarOpen(null);
+                      }}
+                    />
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
 
             {/* Cover image preview */}
             {coverImage && (
