@@ -590,6 +590,7 @@ const AddHotelBreakfastModal: React.FC<{
   listId: string;
 }> = ({ open, onClose, listId }) => {
   const { rateRestaurant, getRating, addToList, cacheRestaurantMeta } = useLists();
+  const { phoneMode } = useSettings();
   const { user } = useAuth();
   const [step, setStep] = useState<'search' | 'rate'>('search');
   const [query, setQuery] = useState('');
@@ -714,140 +715,174 @@ const AddHotelBreakfastModal: React.FC<{
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+        className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
+          phoneMode ? "items-end" : "items-end sm:items-center")}
         onClick={onClose}
       >
         <motion.div
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
-          transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+          transition={{ type: 'spring', damping: 28, stiffness: 260 }}
           onClick={(e) => e.stopPropagation()}
-          className="absolute inset-0 bg-surface flex flex-col"
+          className={cn("bg-surface w-full overflow-hidden flex flex-col",
+            phoneMode
+              ? "h-full rounded-none"
+              : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl")}
         >
           {/* Header */}
-          <div className="flex items-center gap-3 px-5 pt-5 pb-3 flex-shrink-0">
+          <div className="flex items-center gap-3 px-5 pt-5 pb-3 flex-shrink-0 border-b border-on-surface/6">
             {step === 'rate' && (
-              <button onClick={() => setStep('search')} className="p-1.5 rounded-full hover:bg-on-surface/5">
-                <ArrowLeft size={20} className="text-on-surface/60" />
+              <button onClick={() => setStep('search')} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
+                <ArrowLeft size={20} />
               </button>
             )}
-            <div className="flex-1">
-              <h2 className="text-lg font-serif font-bold">{step === 'search' ? 'Find a Hotel' : selectedHotel?.name}</h2>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg font-serif font-bold truncate">{step === 'search' ? 'Find a Hotel' : selectedHotel?.name}</h2>
               <p className="text-[11px] text-on-surface/40">{step === 'search' ? 'Search for the hotel you stayed at' : 'Rate the breakfast'}</p>
             </div>
-            <button onClick={onClose} className="p-2 rounded-full hover:bg-on-surface/5">
-              <X size={22} className="text-on-surface/50" />
+            <button onClick={onClose} className="p-2 rounded-full hover:bg-on-surface/5 transition-colors">
+              <X size={20} className="text-on-surface/50" />
             </button>
           </div>
 
+          <AnimatePresence mode="wait">
           {step === 'search' ? (
-            <div className="flex-1 overflow-y-auto px-5 pb-8">
+            <motion.div key="search" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
+              className="flex-1 overflow-y-auto overscroll-contain flex flex-col min-h-0" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
               {/* Search input */}
-              <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="flex gap-2 mb-4">
-                <div className="relative flex-1">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
+              <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="px-5 pt-4 pb-3 flex-shrink-0">
+                <div className="relative">
+                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/35" />
                   <input
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Hotel name or location..."
                     autoFocus
-                    className="w-full pl-9 pr-4 py-3 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    className="w-full pl-10 pr-20 py-3.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-2xl focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
                   />
+                  <button type="submit" disabled={searching || !query.trim()}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold disabled:opacity-30 transition-opacity">
+                    {searching ? '...' : 'Search'}
+                  </button>
                 </div>
-                <button type="submit" disabled={searching || !query.trim()}
-                  className="px-4 py-3 bg-primary text-white rounded-xl text-sm font-bold disabled:opacity-40">
-                  {searching ? '...' : 'Search'}
-                </button>
               </form>
 
               {/* Results */}
-              <div className="space-y-2">
-                {results.map((hotel) => (
-                  <button key={hotel.id} onClick={() => handleSelectHotel(hotel)}
-                    className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white border border-on-surface/5 shadow-sm hover:shadow-md transition-all text-left">
-                    {hotel.photoUrl ? (
-                      <img src={hotel.photoUrl} alt={hotel.name} className="w-14 h-14 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-14 h-14 rounded-xl bg-on-surface/5 flex items-center justify-center flex-shrink-0 text-xl">🏨</div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm truncate">{hotel.name}</p>
-                      <p className="text-[11px] text-on-surface/40 truncate">{hotel.address}</p>
-                      {hotel.rating > 0 && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <Star size={11} className="text-amber-500 fill-amber-500" />
-                          <span className="text-[10px] text-on-surface/50">{hotel.rating}</span>
-                        </div>
-                      )}
-                    </div>
-                    <ChevronRight size={16} className="text-on-surface/20 flex-shrink-0" />
-                  </button>
-                ))}
-                {results.length === 0 && query && !searching && (
-                  <p className="text-center text-sm text-on-surface/40 py-8">No hotels found. Try a different search.</p>
+              <div className="flex-1 overflow-y-auto px-5 pb-8">
+                {results.length > 0 && (
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-on-surface/30 mb-2">{results.length} results</p>
                 )}
+                <div className="space-y-2">
+                  {results.map((hotel) => (
+                    <button key={hotel.id} onClick={() => handleSelectHotel(hotel)}
+                      className="w-full flex items-center gap-3 p-3 rounded-2xl bg-white border border-on-surface/5 shadow-sm hover:shadow-md hover:border-primary/15 transition-all text-left group">
+                      {hotel.photoUrl ? (
+                        <img src={hotel.photoUrl} alt={hotel.name} className="w-16 h-16 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-16 h-16 rounded-xl bg-primary/5 flex items-center justify-center flex-shrink-0 text-2xl">🏨</div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate group-hover:text-primary transition-colors">{hotel.name}</p>
+                        <p className="text-[11px] text-on-surface/40 truncate mt-0.5">{hotel.address}</p>
+                        {hotel.rating > 0 && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <Star size={11} className="text-amber-500 fill-amber-500" />
+                            <span className="text-[10px] text-on-surface/50 font-medium">{hotel.rating}</span>
+                          </div>
+                        )}
+                      </div>
+                      <ChevronRight size={16} className="text-on-surface/15 group-hover:text-primary/40 flex-shrink-0 transition-colors" />
+                    </button>
+                  ))}
+                  {results.length === 0 && !query && !searching && (
+                    <div className="text-center py-12">
+                      <span className="text-4xl mb-3 block">🏨</span>
+                      <p className="text-sm text-on-surface/40 font-medium">Search for a hotel</p>
+                      <p className="text-xs text-on-surface/25 mt-1">Find the hotel where you had breakfast</p>
+                    </div>
+                  )}
+                  {results.length === 0 && query && !searching && (
+                    <div className="text-center py-12">
+                      <p className="text-sm text-on-surface/40">No hotels found</p>
+                      <p className="text-xs text-on-surface/25 mt-1">Try a different search term</p>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            </motion.div>
           ) : (
-            <div className="flex-1 overflow-y-auto px-5 pb-8">
-              {/* Hotel photo */}
-              {selectedHotel?.photoUrl && (
-                <div className="rounded-2xl overflow-hidden aspect-[16/9] mb-5">
-                  <img src={selectedHotel.photoUrl} alt={selectedHotel.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                </div>
-              )}
+            <motion.div key="rate" initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
+              transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+              className="flex-1 overflow-y-auto overscroll-contain px-5 pb-8 pt-4 min-h-0" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
 
-              {/* Score */}
-              <div className="mb-6">
-                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-3 block">Breakfast Rating</label>
-                <div className="flex items-center gap-4">
-                  <input type="range" min={0} max={10} step={0.5} value={score}
-                    onChange={(e) => setScore(parseFloat(e.target.value))}
-                    className="flex-1 accent-primary h-2" />
-                  <span className="text-2xl font-serif font-bold text-primary w-12 text-center">{score}</span>
+              {/* Hotel card preview */}
+              <div className="flex items-center gap-3 p-3 rounded-2xl bg-white border border-on-surface/5 shadow-sm mb-5">
+                {selectedHotel?.photoUrl ? (
+                  <img src={selectedHotel.photoUrl} alt={selectedHotel.name} className="w-16 h-16 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-16 h-16 rounded-xl bg-primary/5 flex items-center justify-center flex-shrink-0 text-2xl">🏨</div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-serif font-bold text-sm truncate">{selectedHotel?.name}</p>
+                  <p className="text-[11px] text-on-surface/40 truncate">{selectedHotel?.address}</p>
                 </div>
               </div>
 
-              {/* Visit date */}
-              <div className="mb-5">
-                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Visit Date</label>
-                <input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
+              {/* Score — large centered */}
+              <div className="mb-6 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface/40 mb-2">Breakfast Rating</p>
+                <div className="text-5xl font-serif font-bold text-primary mb-2">{score}</div>
+                <input type="range" min={0} max={10} step={0.5} value={score}
+                  onChange={(e) => setScore(parseFloat(e.target.value))}
+                  className="w-full accent-primary h-1.5 rounded-full" />
+                <div className="flex justify-between text-[9px] text-on-surface/25 mt-1 px-1">
+                  <span>0</span><span>5</span><span>10</span>
+                </div>
               </div>
 
               {/* Would return */}
               <div className="mb-5">
-                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Would you eat breakfast here again?</label>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface/40 mb-2">Would return?</p>
                 <div className="flex gap-2">
                   {[true, false].map((val) => (
                     <button key={String(val)} onClick={() => setWouldReturn(val)}
-                      className={cn("flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors",
-                        wouldReturn === val ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50")}>
+                      className={cn("flex-1 py-3 rounded-2xl text-sm font-bold border-2 transition-all",
+                        wouldReturn === val ? "border-primary bg-primary/10 text-primary scale-[1.02]" : "border-on-surface/8 text-on-surface/40 hover:border-on-surface/15")}>
                       {val ? '👍 Yes' : '👎 No'}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Notes */}
-              <div className="mb-5">
-                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Notes</label>
-                <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
-                  placeholder="How was the breakfast? What did you have?"
-                  rows={3}
-                  className="w-full px-4 py-2.5 bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" />
+              {/* Detail buttons — matching AddRestaurantModal style */}
+              <div className="space-y-2 mb-5">
+                {/* Visit date */}
+                <div className="bg-white rounded-2xl border border-on-surface/5 p-3.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface/40 mb-1.5">Visit Date</p>
+                  <input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)}
+                    className="w-full text-sm font-medium text-on-surface bg-transparent focus:outline-none" />
+                </div>
+
+                {/* Notes */}
+                <div className="bg-white rounded-2xl border border-on-surface/5 p-3.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface/40 mb-1.5">Notes</p>
+                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
+                    placeholder="How was the breakfast? Best dishes?"
+                    rows={2}
+                    className="w-full text-sm text-on-surface bg-transparent focus:outline-none resize-none placeholder:text-on-surface/25" />
+                </div>
               </div>
 
               {/* Tags */}
               <div className="mb-5">
-                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Tags</label>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface/40 mb-2">Tags</p>
                 <div className="flex flex-wrap gap-1.5">
                   {['Buffet', 'Continental', 'Full English', 'Room Service', 'Restaurant', 'Rooftop', 'Pool Side', 'Included', 'Extra Charge', 'Fresh Juice', 'Coffee', 'Pastries', 'Made to Order', 'Vegan Options'].map((tag) => (
                     <button key={tag} onClick={() => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])}
-                      className={cn("px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
-                        selectedTags.includes(tag) ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/50")}>
+                      className={cn("px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                        selectedTags.includes(tag) ? "bg-primary/10 text-primary ring-1 ring-primary/20" : "bg-on-surface/[0.04] text-on-surface/50 hover:bg-on-surface/[0.08]")}>
                       {tag}
                     </button>
                   ))}
@@ -855,23 +890,23 @@ const AddHotelBreakfastModal: React.FC<{
               </div>
 
               {/* Photos */}
-              <div className="mb-6">
-                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-2 block">Photos</label>
+              <div className="mb-8">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-on-surface/40 mb-2">Photos</p>
                 <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleAddPhotos} />
                 <div className="flex gap-2 flex-wrap">
                   {photos.map((p, i) => (
-                    <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden">
+                    <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden shadow-sm">
                       <img src={p.url} className="w-full h-full object-cover" />
                       <button onClick={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}
-                        className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/50 rounded-full flex items-center justify-center">
+                        className="absolute top-1 right-1 w-5 h-5 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center">
                         <X size={10} className="text-white" />
                       </button>
                     </div>
                   ))}
                   {photos.length < 8 && (
                     <button onClick={() => fileInputRef.current?.click()}
-                      className="w-20 h-20 rounded-xl border-2 border-dashed border-on-surface/15 flex items-center justify-center hover:border-primary/30 transition-colors">
-                      <Plus size={20} className="text-on-surface/30" />
+                      className="w-20 h-20 rounded-xl border-2 border-dashed border-on-surface/12 flex items-center justify-center hover:border-primary/30 hover:bg-primary/[0.02] transition-all">
+                      <Plus size={20} className="text-on-surface/25" />
                     </button>
                   )}
                 </div>
@@ -882,8 +917,9 @@ const AddHotelBreakfastModal: React.FC<{
                 className="w-full py-3.5 bg-primary text-white rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity">
                 Save Hotel Breakfast
               </button>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </motion.div>
       </motion.div>
     </AnimatePresence>
