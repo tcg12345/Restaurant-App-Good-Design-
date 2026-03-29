@@ -298,6 +298,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
 
   const myRating = place ? getRating(place.id) : undefined;
+  const isHotel = place ? (place.types.includes('hotel') || place.types.includes('lodging') || myRating?.cuisine === 'Hotel Breakfast') : false;
 
   useEffect(() => {
     if (!myRating?.friendIds?.length) return;
@@ -422,9 +423,13 @@ export const RestaurantDetailDesktop: React.FC = () => {
         <div className="mb-6">
           <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-tight mb-2">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{cuisine}</span>
-            <span className="text-on-surface/35">·</span>
-            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{priceStr}</span>
+            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
+            {!isHotel && priceStr && (
+              <>
+                <span className="text-on-surface/35">·</span>
+                <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{priceStr}</span>
+              </>
+            )}
             {place.isOpen !== null && (
               <>
                 <span className="text-on-surface/35">·</span>
@@ -511,9 +516,12 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </button>
         </div>
 
-        {/* Ratings — Google, Friends, Community side by side */}
+        {/* Ratings — Google, Friends/Breakfast, Community side by side */}
         <section className="mb-7">
-          <div className="grid grid-cols-3 gap-3">
+          {isHotel && (
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Food Ratings</p>
+          )}
+          <div className={cn("grid gap-3", isHotel && communityStats.totalRatings > 0 ? "grid-cols-3" : isHotel ? "grid-cols-2" : "grid-cols-3")}>
             {/* Google */}
             <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
               <p className="text-3xl font-serif font-bold leading-none">{place.rating}</p>
@@ -526,38 +534,51 @@ export const RestaurantDetailDesktop: React.FC = () => {
               <p className="text-[11px] text-on-surface/45 mt-0.5">{formatReviewCount(place.userRatingCount)} ratings</p>
             </div>
 
-            {/* Friends */}
-            <button onClick={() => friendsStats.totalRatings > 0 && setShowFriendsDetail(true)}
-              className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center hover:border-primary/20 transition-colors">
-              {friendsStats.totalRatings > 0 ? (
-                <>
-                  <p className="text-3xl font-serif font-bold leading-none text-primary">{friendsStats.avgScore.toFixed(1)}</p>
-                  <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
-                </>
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-                  <UserCircle size={22} className="text-primary/50" />
-                </div>
-              )}
-              <p className="text-xs font-medium text-on-surface">Friends</p>
-              <p className="text-[11px] text-on-surface/45 mt-0.5">{friendsStats.totalRatings > 0 ? `${friendsStats.totalRatings} rating${friendsStats.totalRatings !== 1 ? 's' : ''}` : 'No ratings yet'}</p>
-            </button>
+            {/* Friends — hidden for hotels */}
+            {!isHotel && (
+              <button onClick={() => friendsStats.totalRatings > 0 && setShowFriendsDetail(true)}
+                className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center hover:border-primary/20 transition-colors">
+                {friendsStats.totalRatings > 0 ? (
+                  <>
+                    <p className="text-3xl font-serif font-bold leading-none text-primary">{friendsStats.avgScore.toFixed(1)}</p>
+                    <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
+                  </>
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+                    <UserCircle size={22} className="text-primary/50" />
+                  </div>
+                )}
+                <p className="text-xs font-medium text-on-surface">Friends</p>
+                <p className="text-[11px] text-on-surface/45 mt-0.5">{friendsStats.totalRatings > 0 ? `${friendsStats.totalRatings} rating${friendsStats.totalRatings !== 1 ? 's' : ''}` : 'No ratings yet'}</p>
+              </button>
+            )}
 
-            {/* Community */}
-            <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
-              {communityStats.totalRatings > 0 ? (
-                <>
-                  <p className="text-3xl font-serif font-bold leading-none text-violet-600">{communityStats.avgScore.toFixed(1)}</p>
-                  <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
-                </>
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mb-2">
-                  <Users size={22} className="text-violet-400" />
-                </div>
-              )}
-              <p className="text-xs font-medium text-on-surface">Community</p>
-              <p className="text-[11px] text-on-surface/45 mt-0.5">{communityStats.totalRatings > 0 ? `${communityStats.totalRatings} rating${communityStats.totalRatings !== 1 ? 's' : ''}` : 'No ratings yet'}</p>
-            </div>
+            {/* Community / Breakfast for hotels */}
+            {isHotel && communityStats.totalRatings > 0 && (
+              <div className="bg-white rounded-2xl p-5 border border-amber-200/50 flex flex-col items-center text-center">
+                <p className="text-3xl font-serif font-bold leading-none text-amber-600">{communityStats.avgScore.toFixed(1)}</p>
+                <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
+                <p className="text-xs font-medium text-on-surface">Breakfast</p>
+                <p className="text-[11px] text-on-surface/45 mt-0.5">{communityStats.totalRatings} rating{communityStats.totalRatings !== 1 ? 's' : ''}</p>
+              </div>
+            )}
+
+            {!isHotel && (
+              <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
+                {communityStats.totalRatings > 0 ? (
+                  <>
+                    <p className="text-3xl font-serif font-bold leading-none text-violet-600">{communityStats.avgScore.toFixed(1)}</p>
+                    <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
+                  </>
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mb-2">
+                    <Users size={22} className="text-violet-400" />
+                  </div>
+                )}
+                <p className="text-xs font-medium text-on-surface">Community</p>
+                <p className="text-[11px] text-on-surface/45 mt-0.5">{communityStats.totalRatings > 0 ? `${communityStats.totalRatings} rating${communityStats.totalRatings !== 1 ? 's' : ''}` : 'No ratings yet'}</p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -637,15 +658,16 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
         {/* My Rating details */}
         {myRating && place && (() => {
-          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.address };
-          const details = [
+          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.address };
+          const allDetails = [
             { key: 'notes', icon: <StickyNote size={16} />, label: 'Notes', hasContent: !!myRating.notes, content: myRating.notes ? <p className="text-xs text-on-surface/60 italic">"{myRating.notes}"</p> : null },
-            { key: 'price', icon: <DollarSign size={16} />, label: 'Price', hasContent: !!myRating.price, content: myRating.price ? <p className="text-xs text-on-surface/60">{myRating.price}</p> : null },
+            ...(!isHotel ? [{ key: 'price', icon: <DollarSign size={16} />, label: 'Price', hasContent: !!myRating.price, content: myRating.price ? <p className="text-xs text-on-surface/60">{myRating.price}</p> : null }] : []),
             { key: 'date', icon: <CalendarDays size={16} />, label: 'Visit Date', hasContent: !!myRating.visitDate, content: myRating.visitDate ? <p className="text-xs text-on-surface/60">{new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p> : null },
             { key: 'tags', icon: <Tag size={16} />, label: 'Tags', hasContent: myRating.tags?.length > 0, content: myRating.tags?.length > 0 ? <div className="flex flex-wrap gap-1">{myRating.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>)}</div> : null },
             { key: 'photos', icon: <Image size={16} />, label: 'Photos', hasContent: myRating.photos?.length > 0, content: myRating.photos?.length > 0 ? <div className="grid grid-cols-4 gap-1 rounded-lg overflow-hidden">{myRating.photos.slice(0, 4).map((p, i) => <img key={i} src={p.url} className="aspect-square object-cover" referrerPolicy="no-referrer" />)}</div> : null },
-            { key: 'friends', icon: <Users size={16} />, label: 'Went With', hasContent: (myRating.friendIds?.length || 0) > 0, content: (myRating.friendIds?.length || 0) > 0 ? <div className="flex flex-wrap gap-1.5">{myRating.friendIds.map((fid) => <span key={fid} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{friendNames[fid] || fid.slice(0, 8)}</span>)}</div> : null },
+            ...(!isHotel ? [{ key: 'friends', icon: <Users size={16} />, label: 'Went With', hasContent: (myRating.friendIds?.length || 0) > 0, content: (myRating.friendIds?.length || 0) > 0 ? <div className="flex flex-wrap gap-1.5">{myRating.friendIds.map((fid) => <span key={fid} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{friendNames[fid] || fid.slice(0, 8)}</span>)}</div> : null }] : []),
           ];
+          const details = allDetails;
           return (
             <section className="mb-7 space-y-1.5">
               {details.map((d) => (

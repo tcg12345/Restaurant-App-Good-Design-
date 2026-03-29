@@ -295,6 +295,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
 
   const myRating = place ? getRating(place.id) : undefined;
+  const isHotel = place ? (place.types.includes('hotel') || place.types.includes('lodging') || myRating?.cuisine === 'Hotel Breakfast') : false;
 
   // Load friend names for the "Went With" section
   useEffect(() => {
@@ -421,9 +422,13 @@ export const RestaurantDetailMobile: React.FC = () => {
         <div className="absolute bottom-10 left-5 right-5 z-10 pointer-events-none">
           <h1 className="text-2xl font-serif font-bold text-white leading-tight mb-1.5 drop-shadow-lg">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{cuisine}</span>
-            <span className="text-white/50">·</span>
-            <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{priceStr}</span>
+            <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
+            {!isHotel && priceStr && (
+              <>
+                <span className="text-white/50">·</span>
+                <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{priceStr}</span>
+              </>
+            )}
             {place.isOpen !== null && (
               <>
                 <span className="text-white/50">·</span>
@@ -514,8 +519,11 @@ export const RestaurantDetailMobile: React.FC = () => {
           </button>
         </div>
 
-        {/* Ratings — Google, Friends, Community */}
+        {/* Ratings — Google, Friends/Breakfast, Community */}
         <section className="mb-7 space-y-3">
+          {isHotel && (
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1">Food Ratings</p>
+          )}
           {/* Google */}
           <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
             <div className="flex items-center gap-4">
@@ -534,55 +542,75 @@ export const RestaurantDetailMobile: React.FC = () => {
             </div>
           </div>
 
-          {/* Friends */}
-          <button onClick={() => friendsStats.totalRatings > 0 && setShowFriendsDetail(true)}
-            className="w-full bg-white rounded-2xl p-4 border border-on-surface/8 text-left">
-            <div className="flex items-center gap-4">
-              {friendsStats.totalRatings > 0 ? (
-                <div className="text-center flex-shrink-0">
-                  <p className="text-3xl font-serif font-bold leading-none text-primary">{friendsStats.avgScore.toFixed(1)}</p>
-                  <p className="text-[10px] text-on-surface/35 font-medium mt-0.5">/ 10</p>
-                </div>
-              ) : (
-                <div className="text-center flex-shrink-0 w-14">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-                    <UserCircle size={20} className="text-primary/50" />
+          {/* Friends — hidden for hotels */}
+          {!isHotel && (
+            <button onClick={() => friendsStats.totalRatings > 0 && setShowFriendsDetail(true)}
+              className="w-full bg-white rounded-2xl p-4 border border-on-surface/8 text-left">
+              <div className="flex items-center gap-4">
+                {friendsStats.totalRatings > 0 ? (
+                  <div className="text-center flex-shrink-0">
+                    <p className="text-3xl font-serif font-bold leading-none text-primary">{friendsStats.avgScore.toFixed(1)}</p>
+                    <p className="text-[10px] text-on-surface/35 font-medium mt-0.5">/ 10</p>
                   </div>
+                ) : (
+                  <div className="text-center flex-shrink-0 w-14">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                      <UserCircle size={20} className="text-primary/50" />
+                    </div>
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-on-surface">Friends</p>
+                  <p className="text-xs text-on-surface/45 mt-0.5">
+                    {friendsStats.totalRatings > 0 ? `${friendsStats.totalRatings} friend rating${friendsStats.totalRatings !== 1 ? 's' : ''} · Tap to view` : 'No friends have rated this place yet'}
+                  </p>
                 </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-on-surface">Friends</p>
-                <p className="text-xs text-on-surface/45 mt-0.5">
-                  {friendsStats.totalRatings > 0 ? `${friendsStats.totalRatings} friend rating${friendsStats.totalRatings !== 1 ? 's' : ''} · Tap to view` : 'No friends have rated this place yet'}
-                </p>
+                {friendsStats.totalRatings > 0 && <ChevronRight size={16} className="text-on-surface/30 flex-shrink-0" />}
               </div>
-              {friendsStats.totalRatings > 0 && <ChevronRight size={16} className="text-on-surface/30 flex-shrink-0" />}
-            </div>
-          </button>
+            </button>
+          )}
 
-          {/* Community */}
-          <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
-            <div className="flex items-center gap-4">
-              {communityStats.totalRatings > 0 ? (
+          {/* Breakfast rating — only for hotels with community ratings */}
+          {isHotel && communityStats.totalRatings > 0 && (
+            <div className="bg-white rounded-2xl p-4 border border-amber-200/50">
+              <div className="flex items-center gap-4">
                 <div className="text-center flex-shrink-0">
-                  <p className="text-3xl font-serif font-bold leading-none text-violet-600">{communityStats.avgScore.toFixed(1)}</p>
+                  <p className="text-3xl font-serif font-bold leading-none text-amber-600">{communityStats.avgScore.toFixed(1)}</p>
                   <p className="text-[10px] text-on-surface/35 font-medium mt-0.5">/ 10</p>
                 </div>
-              ) : (
-                <div className="text-center flex-shrink-0 w-14">
-                  <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mx-auto">
-                    <Users size={20} className="text-violet-400" />
-                  </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-on-surface">Breakfast</p>
+                  <p className="text-xs text-on-surface/45 mt-0.5">{communityStats.totalRatings} rating{communityStats.totalRatings !== 1 ? 's' : ''} from members</p>
                 </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-on-surface">Community</p>
-                <p className="text-xs text-on-surface/45 mt-0.5">
-                  {communityStats.totalRatings > 0 ? `${communityStats.totalRatings} rating${communityStats.totalRatings !== 1 ? 's' : ''} from the community` : 'No community ratings yet'}
-                </p>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* Community — hidden for hotels (shown as Breakfast above) */}
+          {!isHotel && (
+            <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
+              <div className="flex items-center gap-4">
+                {communityStats.totalRatings > 0 ? (
+                  <div className="text-center flex-shrink-0">
+                    <p className="text-3xl font-serif font-bold leading-none text-violet-600">{communityStats.avgScore.toFixed(1)}</p>
+                    <p className="text-[10px] text-on-surface/35 font-medium mt-0.5">/ 10</p>
+                  </div>
+                ) : (
+                  <div className="text-center flex-shrink-0 w-14">
+                    <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mx-auto">
+                      <Users size={20} className="text-violet-400" />
+                    </div>
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-on-surface">Community</p>
+                  <p className="text-xs text-on-surface/45 mt-0.5">
+                    {communityStats.totalRatings > 0 ? `${communityStats.totalRatings} rating${communityStats.totalRatings !== 1 ? 's' : ''} from the community` : 'No community ratings yet'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Hours */}
@@ -661,14 +689,14 @@ export const RestaurantDetailMobile: React.FC = () => {
 
         {/* My Rating details */}
         {myRating && place && (() => {
-          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceStr, address: place.address };
+          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.address };
           const details = [
             { key: 'notes', icon: <StickyNote size={16} />, label: 'Notes', hasContent: !!myRating.notes, content: myRating.notes ? <p className="text-xs text-on-surface/60 italic">"{myRating.notes}"</p> : null },
-            { key: 'price', icon: <DollarSign size={16} />, label: 'Price', hasContent: !!myRating.price, content: myRating.price ? <p className="text-xs text-on-surface/60">{myRating.price}</p> : null },
+            ...(!isHotel ? [{ key: 'price', icon: <DollarSign size={16} />, label: 'Price', hasContent: !!myRating.price, content: myRating.price ? <p className="text-xs text-on-surface/60">{myRating.price}</p> : null }] : []),
             { key: 'date', icon: <CalendarDays size={16} />, label: 'Visit Date', hasContent: !!myRating.visitDate, content: myRating.visitDate ? <p className="text-xs text-on-surface/60">{new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p> : null },
             { key: 'tags', icon: <Tag size={16} />, label: 'Tags', hasContent: myRating.tags?.length > 0, content: myRating.tags?.length > 0 ? <div className="flex flex-wrap gap-1">{myRating.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>)}</div> : null },
             { key: 'photos', icon: <Image size={16} />, label: 'Photos', hasContent: myRating.photos?.length > 0, content: myRating.photos?.length > 0 ? <div className="grid grid-cols-4 gap-1 rounded-lg overflow-hidden">{myRating.photos.slice(0, 4).map((p, i) => <img key={i} src={p.url} className="aspect-square object-cover" referrerPolicy="no-referrer" />)}</div> : null },
-            { key: 'friends', icon: <Users size={16} />, label: 'Went With', hasContent: (myRating.friendIds?.length || 0) > 0, content: (myRating.friendIds?.length || 0) > 0 ? <div className="flex flex-wrap gap-1.5">{myRating.friendIds.map((fid) => <span key={fid} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{friendNames[fid] || fid.slice(0, 8)}</span>)}</div> : null },
+            ...(!isHotel ? [{ key: 'friends', icon: <Users size={16} />, label: 'Went With', hasContent: (myRating.friendIds?.length || 0) > 0, content: (myRating.friendIds?.length || 0) > 0 ? <div className="flex flex-wrap gap-1.5">{myRating.friendIds.map((fid) => <span key={fid} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{friendNames[fid] || fid.slice(0, 8)}</span>)}</div> : null }] : []),
           ];
           return (
             <section className="mb-7 space-y-1.5">
