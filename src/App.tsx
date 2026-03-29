@@ -25,13 +25,15 @@ import { WishlistModal } from './components/WishlistModal';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
+import { ProfileSetup } from './pages/ProfileSetup';
+import { UserProfile } from './pages/UserProfile';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/';
-  const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/');
+  const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/');
   const { phoneMode } = useSettings();
-  const { isSignedIn, loading } = useAuth();
+  const { isSignedIn, loading, profileComplete } = useAuth();
 
   if (loading) {
     return (
@@ -70,6 +72,21 @@ const AppContent: React.FC = () => {
     );
   }
 
+  if (isSignedIn && !profileComplete) {
+    return (
+      <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : ""}>
+        <div
+          className={phoneMode ? "relative bg-surface overflow-hidden rounded-3xl shadow-2xl border border-white/10" : "min-h-screen bg-surface"}
+          style={phoneMode ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' } : undefined}
+        >
+          <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
+            <ProfileSetup />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : ""}>
       <div
@@ -96,6 +113,7 @@ const AppContent: React.FC = () => {
               <Route path="/restaurant/:id" element={<RestaurantDetail />} />
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/import" element={<ImportRestaurants />} />
+              <Route path="/user/:username" element={<UserProfile />} />
             </Routes>
           </AnimatePresence>
         </div>

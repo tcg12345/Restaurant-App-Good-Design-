@@ -8,6 +8,9 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { useLists } from '../contexts/ListsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { supabaseConfigured } from '../lib/supabase';
+import { saveRecentViews } from '../lib/supabase-db';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { Link } from 'react-router-dom';
 import { SocialFeed } from '../components/SocialFeed';
@@ -36,24 +39,7 @@ const PRICE_LEVELS = [
 ];
 
 
-const RATED_SPOTS = [
-  {
-    id: '1',
-    name: 'Lumière Gastronomie',
-    image: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?auto=format&fit=crop&q=80&w=800',
-    rating: 4.9,
-    price: '$$$$',
-    cuisine: 'Modern French',
-  },
-  {
-    id: '2',
-    name: 'The Alchemist Table',
-    image: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&q=80&w=800',
-    rating: 4.7,
-    price: '$$$',
-    cuisine: 'Molecular',
-  },
-];
+// Mock data removed — using real ratings from context
 
 // US state name → abbreviation
 const STATE_ABBR: Record<string, string> = {
@@ -153,15 +139,25 @@ function clearSearchState() {
 export const Home: React.FC = () => {
   const { phoneMode, setHideBottomNav } = useSettings();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings } = useLists();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
 
-  // Recent views from localStorage
-  const recentViews = useMemo(() => {
+  // Recent views from localStorage (stateful so we can remove items)
+  const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
     try {
       const raw = localStorage.getItem('gourmad-recent-views');
-      return raw ? JSON.parse(raw) as Array<PlaceResult & { viewedAt: number }> : [];
+      return raw ? JSON.parse(raw) : [];
     } catch { return []; }
-  }, []);
+  });
+
+  const removeRecentView = useCallback((id: string) => {
+    setRecentViews((prev) => {
+      const next = prev.filter((v) => v.id !== id);
+      localStorage.setItem('gourmad-recent-views', JSON.stringify(next));
+      if (user?.id && supabaseConfigured) saveRecentViews(user.id, next);
+      return next;
+    });
+  }, [user]);
 
   // Build preference profile from user's ratings
   const userPreferences = useMemo(() => {
@@ -482,7 +478,7 @@ export const Home: React.FC = () => {
         <TopBar />
 
         <main className="px-3">
-          <div className="flex items-center gap-6 mb-8 border-b border-muted">
+          <div className="flex items-center justify-center gap-6 mb-8 border-b border-muted">
             <button
               onClick={() => setActiveTab('general')}
               className={`pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${
@@ -522,56 +518,32 @@ export const Home: React.FC = () => {
                 </div>
               </button>
 
-              {/* Rated Spots */}
-              <section className="mb-12">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-serif font-bold">Rated Spots</h2>
-                  <div className="flex items-center gap-4 text-on-surface/40">
-                    <button className="p-2 hover:text-primary transition-colors">
-                      <Grid size={18} />
-                    </button>
-                    <button className="p-2 hover:text-primary transition-colors">
-                      <List size={18} />
-                    </button>
+              {/* Your Top Rated */}
+              {ratings.length > 0 && (
+                <section className="mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-serif font-bold">Your Top Rated</h2>
+                    <Link to="/pantry" className="text-xs font-semibold text-primary">See All</Link>
                   </div>
-                </div>
-
-                <div className="space-y-8">
-                  {RATED_SPOTS.map((item) => (
-                    <div key={item.id} className="flex gap-6 group cursor-pointer">
-                      <div className="w-32 h-32 rounded-3xl overflow-hidden flex-shrink-0 shadow-lg">
-                        <img
-                          src={item.image}
-                          alt={item.name}
-                          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-                      <div className="flex-1 py-2 flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <h3 className="font-serif font-bold text-xl">{item.name}</h3>
-                            <div className="flex items-center gap-1 text-primary">
-                              <Star size={14} className="fill-primary" />
-                              <span className="text-sm font-bold">{item.rating}</span>
-                            </div>
-                          </div>
-                          <p className="text-xs text-on-surface/40 font-medium uppercase tracking-wider mb-2">{item.cuisine} · {item.price}</p>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/10 text-secondary font-bold uppercase tracking-wider">Top Rated</span>
-                          </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2 -mx-3 px-3 scrollbar-hide">
+                    {[...ratings].sort((a, b) => b.score - a.score).slice(0, 8).map((r) => (
+                      <Link key={r.restaurantId} to={`/restaurant/${r.restaurantId}`} className="flex-shrink-0 w-32 group">
+                        <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                          {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                          : <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{r.name.charAt(0)}</div>}
                         </div>
-                        <div className="flex items-center gap-4 text-on-surface/40">
-                          <button className="text-[10px] font-bold uppercase tracking-widest hover:text-primary transition-colors">Edit Review</button>
-                          <button className="text-[10px] font-bold uppercase tracking-widest hover:text-primary transition-colors">Share</button>
+                        <p className="text-xs font-semibold truncate leading-tight">{r.name}</p>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className={cn("text-[10px] font-bold", r.score >= 8 ? "text-green-600" : r.score >= 5 ? "text-yellow-600" : "text-red-500")}>{r.score.toFixed(1)}</span>
+                          <span className="text-[10px] text-on-surface/30">/ 10</span>
                         </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              )}
 
-              {/* Social Feed */}
+              {/* Friend Activity Feed */}
               <SocialFeed />
             </>
           ) : (
@@ -594,7 +566,7 @@ export const Home: React.FC = () => {
             className="fixed inset-0 z-40 bg-surface overflow-y-auto"
           >
             <div className="pb-32 min-h-full">
-              <div className="px-5 pt-4">
+              <div className="px-3 pt-4">
                 {/* Phone: back arrow on its own row above search bars */}
                 {phoneMode && (
                   <button
@@ -778,25 +750,32 @@ export const Home: React.FC = () => {
                           </div>
                           <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
                             {recentViews.slice(0, 8).map((place) => (
-                              <Link key={place.id} to={`/restaurant/${place.id}`}
-                                className="flex-shrink-0 w-32 group">
-                                <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                                  {place.image ? (
-                                    <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                                  ) : (place as any).photoUrl ? (
-                                    <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
-                                  )}
-                                </div>
-                                <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
-                                {place.rating > 0 && (
-                                  <div className="flex items-center gap-0.5 mt-0.5">
-                                    <Star size={10} className="fill-primary text-primary" />
-                                    <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                              <div key={place.id} className="flex-shrink-0 w-32 relative group">
+                                <button
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
+                                  className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <X size={10} className="text-white" />
+                                </button>
+                                <Link to={`/restaurant/${place.id}`}>
+                                  <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                                    {place.image ? (
+                                      <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                    ) : (place as any).photoUrl ? (
+                                      <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
+                                    )}
                                   </div>
-                                )}
-                              </Link>
+                                  <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
+                                  {place.rating > 0 && (
+                                    <div className="flex items-center gap-0.5 mt-0.5">
+                                      <Star size={10} className="fill-primary text-primary" />
+                                      <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                                    </div>
+                                  )}
+                                </Link>
+                              </div>
                             ))}
                           </div>
                         </section>

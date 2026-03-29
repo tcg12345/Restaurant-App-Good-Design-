@@ -1,20 +1,36 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
+import { useAuth } from '../contexts/AuthContext';
+import { getFriends, getProfilesByIds, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
 export const AddRestaurantModal: React.FC = () => {
   const {
-    addRestaurantModalOpen, addRestaurantModalMeta, closeAddRestaurantModal,
-    rateRestaurant, getRating,
+    addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, closeAddRestaurantModal,
+    rateRestaurant, getRating, removeRating,
     lists, createList,
   } = useLists();
   const { phoneMode } = useSettings();
+  const { user } = useAuth();
+
+  // Real friends
+  const [realFriends, setRealFriends] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const fl = await getFriends(user.id);
+      if (fl.length > 0) {
+        const profiles = await getProfilesByIds(fl.map((f) => f.friend_id));
+        setRealFriends(fl.map((f) => ({ id: f.friend_id, name: profiles[f.friend_id]?.display_name || profiles[f.friend_id]?.username || f.friend_id.slice(0, 8) })));
+      }
+    })();
+  }, [user?.id]);
 
   const restaurant = addRestaurantModalMeta;
   const existing = restaurant ? getRating(restaurant.id) : undefined;
@@ -34,10 +50,14 @@ export const AddRestaurantModal: React.FC = () => {
 
   const [listDropdownOpen, setListDropdownOpen] = useState(false);
   const [creatingList, setCreatingList] = useState(false);
+  const [newListSheetOpen, setNewListSheetOpen] = useState(false);
+  const [newListMode, setNewListMode] = useState<'browse' | 'custom'>('browse');
+  const [newListSearch, setNewListSearch] = useState('');
   const [newName, setNewName] = useState('');
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
@@ -51,11 +71,15 @@ export const AddRestaurantModal: React.FC = () => {
       setSelectedTags(ex?.tags ?? []);
       setPhotos(ex?.photos ?? []);
       setSelectedListIds(ex?.listIds ?? []);
-      setSelectedFriends([]);
+      setSelectedFriends(ex?.friendIds ?? []);
       setPriceIndex(-1);
       setPriceAmount('');
-      setPage('main');
+      setPage((addRestaurantModalInitialPage as Page) || 'main');
+      setConfirmDelete(false);
       setCreatingList(false);
+      setNewListSheetOpen(false);
+      setNewListMode('browse');
+      setNewListSearch('');
       setNewName('');
       setListDropdownOpen(false);
       setTagSearch('');
@@ -76,30 +100,49 @@ export const AddRestaurantModal: React.FC = () => {
 
   const resolvedPrice = priceIndex >= 0 ? PRICE_RANGES[priceIndex].signs : (restaurant?.price || '$$');
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compress image to max 800px and JPEG quality 0.6
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = document.createElement('img');
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxSize = 800;
+          let { width, height } = img;
+          if (width > maxSize || height > maxSize) {
+            if (width > height) { height = (height / width) * maxSize; width = maxSize; }
+            else { width = (width / height) * maxSize; height = maxSize; }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.6));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     const totalFiles = Array.from(files).filter((f) => f.type.startsWith('image/'));
     if (totalFiles.length === 0) return;
+
     const newPhotos: PhotoItem[] = [];
-    let loaded = 0;
-    totalFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          newPhotos.push({ url: reader.result, caption: '', isFavorite: false });
-        }
-        loaded++;
-        if (loaded === totalFiles.length) {
-          setPhotos((prev) => {
-            const updated = [...prev, ...newPhotos];
-            // Use setTimeout to let React process the state update before page change
-            setTimeout(() => setPage('photos'), 0);
-            return updated;
-          });
-        }
-      };
-      reader.readAsDataURL(file);
+    for (const file of totalFiles) {
+      try {
+        const compressed = await compressImage(file);
+        newPhotos.push({ url: compressed, caption: '', isFavorite: false });
+      } catch { /* skip failed photos */ }
+    }
+    setPhotos((prev) => {
+      const updated = [...prev, ...newPhotos];
+      setTimeout(() => setPage('photos'), 0);
+      return updated;
     });
     e.target.value = '';
   };
@@ -131,7 +174,7 @@ export const AddRestaurantModal: React.FC = () => {
       restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
       cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
       score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
-      listIds: selectedListIds, createdAt: Date.now(),
+      listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
     });
     closeAddRestaurantModal();
   };
@@ -160,19 +203,45 @@ export const AddRestaurantModal: React.FC = () => {
     return ALL_TAGS.filter((t) => t.toLowerCase().includes(q));
   }, [tagSearch]);
 
-  const MOCK_FRIENDS = useMemo(() => ['Alex Chen', 'Maria Garcia', 'James Wilson', 'Sarah Kim', 'David Park', 'Emma Davis', 'Chris Lee', 'Olivia Brown', 'Ryan Martinez', 'Sophie Taylor'], []);
   const filteredFriends = useMemo(() => {
-    if (!friendSearch.trim()) return MOCK_FRIENDS;
+    if (!friendSearch.trim()) return realFriends;
     const q = friendSearch.toLowerCase();
-    return MOCK_FRIENDS.filter((f) => f.toLowerCase().includes(q));
-  }, [friendSearch, MOCK_FRIENDS]);
+    return realFriends.filter((f) => f.name.toLowerCase().includes(q));
+  }, [friendSearch, realFriends]);
 
   const selectedListLabels = lists.filter((l) => selectedListIds.includes(l.id));
 
   // Hidden file input for photos
   const photoInput = <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />;
 
+  const PRESET_LISTS_MODAL = [
+    { name: 'Best Date Night Spots', emoji: '🕯️' }, { name: 'Birthday & Celebrations', emoji: '🎂' },
+    { name: 'Late Night Eats', emoji: '🌙' }, { name: 'Solo Dining Friendly', emoji: '🧘' },
+    { name: 'Group Dinner & Big Tables', emoji: '👥' }, { name: 'Hidden Gems', emoji: '💎' },
+    { name: 'Worth the Hype', emoji: '🔥' }, { name: 'Best Burgers', emoji: '🍔' },
+    { name: 'Best Pizza', emoji: '🍕' }, { name: 'Best Sushi & Omakase', emoji: '🍣' },
+    { name: 'Best Brunch', emoji: '🥞' }, { name: 'Best Cocktails', emoji: '🍸' },
+    { name: 'Michelin Star Experiences', emoji: '⭐' }, { name: 'Best Tasting Menus', emoji: '🍽️' },
+    { name: 'Quick Bites', emoji: '⚡' }, { name: 'Healthy Options', emoji: '🥗' },
+    { name: 'Vacation Eats', emoji: '🏖️' }, { name: 'Hotel Restaurants', emoji: '🏨' },
+  ];
+  const existingListNames = new Set(lists.map((l) => l.name.toLowerCase()));
+  const filteredPresetLists = newListSearch.trim()
+    ? PRESET_LISTS_MODAL.filter((p) => p.name.toLowerCase().includes(newListSearch.toLowerCase()))
+    : PRESET_LISTS_MODAL;
+
+  const handleCreateFromPreset = (name: string, emoji: string) => {
+    createList(name, emoji);
+    setNewListSheetOpen(false); setNewListMode('browse'); setNewListSearch('');
+  };
+  const handleCreateCustomFromSheet = () => {
+    if (!newName.trim()) return;
+    createList(newName.trim(), newEmoji);
+    setNewListSheetOpen(false); setNewListMode('browse'); setNewName(''); setNewEmoji('📋');
+  };
+
   return (
+    <>
     <AnimatePresence>
       {addRestaurantModalOpen && restaurant && (
         <motion.div
@@ -197,7 +266,7 @@ export const AddRestaurantModal: React.FC = () => {
               {/* ═══════════ MAIN PAGE ═══════════ */}
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
-                  className="flex flex-col h-full">
+                  className="flex flex-col flex-1 min-h-0">
                   <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
                     <div className="min-w-0">
                       <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Restaurant'}</h2>
@@ -238,35 +307,17 @@ export const AddRestaurantModal: React.FC = () => {
                                 </button>
                               );
                             })}
-                            {creatingList ? (
-                              <div className="p-3 border-t border-on-surface/6 space-y-2">
-                                <div className="flex flex-wrap gap-1">
-                                  {EMOJI_OPTIONS.map((e) => (
-                                    <button key={e} onClick={() => setNewEmoji(e)}
-                                      className={cn("w-7 h-7 rounded text-sm", newEmoji === e ? "bg-primary/10 ring-1 ring-primary/30" : "hover:bg-on-surface/5")}>{e}</button>
-                                  ))}
-                                </div>
-                                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="List name..." autoFocus
-                                  className="w-full border border-on-surface/10 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
-                                  onKeyDown={(e) => e.key === 'Enter' && handleCreateList()} />
-                                <div className="flex gap-2">
-                                  <button onClick={() => { setCreatingList(false); setNewName(''); }} className="flex-1 py-1.5 rounded-lg border border-on-surface/10 text-[11px] font-medium text-on-surface/50">Cancel</button>
-                                  <button onClick={handleCreateList} disabled={!newName.trim()} className="flex-1 py-1.5 rounded-lg bg-primary text-white text-[11px] font-semibold disabled:opacity-40">Create</button>
-                                </div>
-                              </div>
-                            ) : (
-                              <button onClick={() => setCreatingList(true)}
+                              <button onClick={() => { setListDropdownOpen(false); setNewListSheetOpen(true); }}
                                 className="w-full flex items-center gap-2.5 px-3.5 py-2.5 border-t border-on-surface/6 text-on-surface/35 hover:text-primary transition-colors">
                                 <Plus size={14} /><span className="text-xs font-semibold">New List</span>
                               </button>
-                            )}
                           </motion.div>
                         </>
                       )}
                     </AnimatePresence>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto overscroll-contain px-5">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
                     <div className="flex flex-col items-center pt-3 sm:pt-5">
                       <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
                         <div className="text-center">
@@ -294,7 +345,7 @@ export const AddRestaurantModal: React.FC = () => {
                     </div>
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Add details</p>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-2">
                         <DetailBtn icon={<StickyNote size={17} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
                         <DetailBtn icon={<DollarSign size={17} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
                         <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
@@ -304,10 +355,25 @@ export const AddRestaurantModal: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
                     <button onClick={handleSaveRating} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                       {existing ? 'Update Rating' : 'Save Rating'}
                     </button>
+                    {existing && !confirmDelete && (
+                      <button onClick={() => setConfirmDelete(true)}
+                        className="w-full py-2.5 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors">
+                        Delete Rating
+                      </button>
+                    )}
+                    {existing && confirmDelete && (
+                      <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                        <p className="text-xs text-red-600 font-medium">Delete this rating?</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
+                          <button onClick={() => { if (restaurant) { removeRating(restaurant.id); closeAddRestaurantModal(); } }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -481,33 +547,46 @@ export const AddRestaurantModal: React.FC = () => {
                     </div>
                     {hasFriends && (
                       <div className="flex flex-wrap gap-1.5 mt-2.5">
-                        {selectedFriends.map((name) => (
-                          <span key={name} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
-                            {name}<button onClick={() => toggleFriend(name)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
-                          </span>
-                        ))}
+                        {selectedFriends.map((fid) => {
+                          const fname = realFriends.find((f) => f.id === fid)?.name || fid.slice(0, 8);
+                          return (
+                            <span key={fid} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
+                              {fname}<button onClick={() => toggleFriend(fid)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3"
                     onTouchMove={(e) => e.stopPropagation()}>
                     <p className="text-[10px] text-on-surface/30 mb-3 px-1">Select friends who joined you</p>
-                    {filteredFriends.map((name) => {
-                      const sel = selectedFriends.includes(name);
-                      return (
-                        <button key={name} onClick={() => toggleFriend(name)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
-                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
-                          )}>
-                          <div className="w-8 h-8 rounded-full bg-on-surface/8 flex items-center justify-center text-xs font-bold text-on-surface/40 flex-shrink-0">
-                            {name.split(' ').map((n) => n[0]).join('')}
-                          </div>
-                          <span className={cn("flex-1 text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{name}</span>
-                          {sel && <Check size={16} className="text-primary flex-shrink-0" />}
-                        </button>
-                      );
-                    })}
-                    {filteredFriends.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No friends match "{friendSearch}"</p>}
+                    {realFriends.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Users size={24} className="mx-auto text-on-surface/15 mb-2" />
+                        <p className="text-sm text-on-surface/30">No friends yet</p>
+                        <p className="text-xs text-on-surface/20 mt-1">Add friends on the Circle page first</p>
+                      </div>
+                    ) : (
+                      <>
+                        {filteredFriends.map((friend) => {
+                          const sel = selectedFriends.includes(friend.id);
+                          return (
+                            <button key={friend.id} onClick={() => toggleFriend(friend.id)}
+                              className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
+                                sel ? "bg-primary/3" : "hover:bg-on-surface/3"
+                              )}>
+                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary/50 flex-shrink-0">
+                                {friend.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                              </div>
+                              <span className={cn("flex-1 text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{friend.name}</span>
+                              {sel && <Check size={16} className="text-primary flex-shrink-0" />}
+                            </button>
+                          );
+                        })}
+                        {filteredFriends.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No friends match "{friendSearch}"</p>}
+                      </>
+                    )}
                   </div>
                   <BottomBtn label={hasFriends ? `Done (${selectedFriends.length})` : 'Done'} onClick={() => { setPage('main'); setFriendSearch(''); }} />
                 </SubPage>
@@ -517,6 +596,85 @@ export const AddRestaurantModal: React.FC = () => {
         </motion.div>
       )}
     </AnimatePresence>
+
+    {/* New List Sheet */}
+    <AnimatePresence>
+      {newListSheetOpen && (
+        <>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[110]" onClick={() => setNewListSheetOpen(false)} />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            className={cn("fixed bottom-0 left-0 right-0 z-[110] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+              phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
+              <h3 className="font-serif font-bold text-lg">{newListMode === 'browse' ? 'New List' : 'Create Custom List'}</h3>
+              <button onClick={() => { setNewListSheetOpen(false); setNewListMode('browse'); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+
+            {newListMode === 'browse' ? (
+              <>
+                <div className="px-5 pt-3 pb-2 flex-shrink-0">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                    <input type="text" value={newListSearch} onChange={(e) => setNewListSearch(e.target.value)} placeholder="Search lists..."
+                      className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  </div>
+                </div>
+                <div className="px-5 pb-2 flex-shrink-0">
+                  <button onClick={() => setNewListMode('custom')}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-primary/20 text-primary hover:bg-primary/5 transition-all">
+                    <span className="text-sm font-semibold">Create Custom List</span>
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-1.5">
+                  {filteredPresetLists.map((preset) => {
+                    const exists = existingListNames.has(preset.name.toLowerCase());
+                    return (
+                      <button key={preset.name} onClick={() => !exists && handleCreateFromPreset(preset.name, preset.emoji)} disabled={exists}
+                        className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left",
+                          exists ? "bg-on-surface/3 border-on-surface/5 opacity-50" : "bg-white border-on-surface/8 hover:border-primary/30 active:bg-primary/5")}>
+                        <span className="text-xl">{preset.emoji}</span>
+                        <span className="text-sm font-medium flex-1 truncate">{preset.name}</span>
+                        {exists ? <span className="text-[10px] text-on-surface/30">Added</span> : <Plus size={16} className="text-on-surface/20" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="px-5 py-4 space-y-4">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2">Choose an emoji</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {EMOJI_OPTIONS.map((e) => (
+                      <button key={e} onClick={() => setNewEmoji(e)}
+                        className={cn("w-10 h-10 rounded-lg flex items-center justify-center text-lg transition-all", newEmoji === e ? "bg-primary/10 ring-2 ring-primary/30 scale-110" : "hover:bg-on-surface/5")}>{e}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2">List name</p>
+                  <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Enter list name..." autoFocus
+                    className="w-full bg-white border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    onKeyDown={(e) => e.key === 'Enter' && handleCreateCustomFromSheet()} />
+                </div>
+                <div className="flex gap-3 pt-1">
+                  <button onClick={() => { setNewListMode('browse'); setNewName(''); }} className="flex-1 py-3 rounded-xl border border-on-surface/10 text-sm font-medium text-on-surface/50">Back</button>
+                  <button onClick={handleCreateCustomFromSheet} disabled={!newName.trim()} className="flex-1 py-3 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-40">Create</button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+    </>
   );
 };
 
@@ -526,12 +684,13 @@ const DetailBtn: React.FC<{
   icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
 }> = ({ icon, label, active, sub, onClick }) => (
   <button onClick={onClick}
-    className={cn("flex flex-col items-center gap-1 p-2.5 rounded-2xl border transition-all",
+    className={cn("w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left",
       active ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
     )}>
-    <span className={active ? "text-primary" : "text-on-surface/30"}>{icon}</span>
-    <span className={cn("text-[10px] font-semibold", active ? "text-primary" : "text-on-surface/40")}>{label}</span>
-    {sub && <span className="text-[9px] text-primary/60 line-clamp-1 w-full text-center">{sub}</span>}
+    <span className={cn("flex-shrink-0", active ? "text-primary" : "text-on-surface/30")}>{icon}</span>
+    <span className={cn("text-xs font-semibold flex-1", active ? "text-primary" : "text-on-surface/50")}>{label}</span>
+    {sub && <span className="text-[11px] text-primary/60 flex-shrink-0">{sub}</span>}
+    <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
   </button>
 );
 

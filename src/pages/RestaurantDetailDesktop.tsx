@@ -4,28 +4,114 @@ import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Images, Users, UserCircle, Search, Share2, Heart,
+  StickyNote, DollarSign, CalendarDays, Tag, Image, Edit3,
 } from 'lucide-react';
+import { cn } from '../lib/utils';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
+import { getProfilesByIds, type CommunityPhoto } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
+
+/** Parse hours array to find next opening time when currently closed */
+function getNextOpenTime(hours: string[]): string {
+  if (!hours || hours.length === 0) return '';
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const now = new Date();
+  const todayIdx = now.getDay();
+
+  for (let offset = 0; offset < 7; offset++) {
+    const dayIdx = (todayIdx + offset) % 7;
+    const dayName = days[dayIdx];
+    const entry = hours.find((h) => h.startsWith(dayName));
+    if (!entry) continue;
+    if (/closed/i.test(entry)) continue;
+    const timePart = entry.split(':').slice(1).join(':').trim();
+    const openMatch = timePart.match(/^(\d{1,2}(?::\d{2})?\s*(?:AM|PM)?)/i);
+    if (!openMatch) continue;
+    const openTime = openMatch[1].trim();
+    if (offset === 0) return `today at ${openTime}`;
+    if (offset === 1) return `tomorrow at ${openTime}`;
+    return `${dayName} at ${openTime}`;
+  }
+  return '';
+}
 import { RadarChart } from '../components/RadarChart';
 import { getFlavorProfile, getTopFlavors } from '../lib/flavorProfile';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 /* ── Photo Gallery Bottom Sheet ── */
+interface GalleryPhoto {
+  url: string;
+  caption: string;
+  isGoogle: boolean;
+}
+
+interface DishGroup {
+  dish: string;
+  photos: GalleryPhoto[];
+}
+
 const PhotoGallery: React.FC<{
   photos: string[];
+  communityPhotos: CommunityPhoto[];
   name: string;
   initialIndex: number;
   onClose: () => void;
-}> = ({ photos, name, initialIndex, onClose }) => {
-  const [viewIndex, setViewIndex] = useState(initialIndex);
+}> = ({ photos, communityPhotos, name, initialIndex, onClose }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeDish, setActiveDish] = useState<string | null>(null);
+  const [expandedPhoto, setExpandedPhoto] = useState<GalleryPhoto | null>(null);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, []);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (expandedPhoto) setExpandedPhoto(null);
+        else onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => { document.body.style.overflow = ''; window.removeEventListener('keydown', handleKey); };
+  }, [onClose, expandedPhoto]);
+
+  // Build unified photo list with captions
+  const allPhotos: GalleryPhoto[] = React.useMemo(() => {
+    const communityUrls = new Set(communityPhotos.map((p) => p.url));
+    const googlePhotos = photos
+      .filter((url) => !communityUrls.has(url))
+      .map((url) => ({ url, caption: '', isGoogle: true }));
+    const userPhotos = communityPhotos
+      .filter((p) => p.url && p.url.length < 500000)
+      .map((p) => ({ url: p.url, caption: p.caption || '', isGoogle: false }));
+    return [...googlePhotos, ...userPhotos];
+  }, [photos, communityPhotos]);
+
+  // Group photos by dish name
+  const dishGroups: DishGroup[] = React.useMemo(() => {
+    const groups: Record<string, GalleryPhoto[]> = {};
+    for (const p of allPhotos) {
+      if (!p.caption) continue;
+      const key = p.caption.trim().toLowerCase();
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p);
+    }
+    return Object.entries(groups)
+      .filter(([, arr]) => arr.length >= 2)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([, arr]) => ({ dish: arr[0].caption, photos: arr }));
+  }, [allPhotos]);
+
+  // Filter photos
+  const displayPhotos = React.useMemo(() => {
+    if (activeDish) {
+      const key = activeDish.toLowerCase();
+      return allPhotos.filter((p) => p.caption.toLowerCase() === key);
+    }
+    if (searchQuery.trim()) {
+      return allPhotos.filter((p) => p.caption.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+    return allPhotos;
+  }, [allPhotos, searchQuery, activeDish]);
 
   return (
     <motion.div
@@ -42,19 +128,20 @@ const PhotoGallery: React.FC<{
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         onClick={(e) => e.stopPropagation()}
-        className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl flex flex-col"
-        style={{ maxHeight: '92%' }}
+        className="absolute inset-0 bg-surface flex flex-col"
       >
-        {/* Handle + header */}
-        <div className="flex-shrink-0 pt-3 pb-2 px-5">
-          <div className="w-10 h-1 rounded-full bg-on-surface/15 mx-auto mb-3" />
+        {/* Header */}
+        <div className="flex-shrink-0 pt-4 pb-2 px-5">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-serif font-bold">Photos</h2>
+            <div>
+              <h2 className="text-base font-serif font-bold">Photos</h2>
+              <p className="text-[11px] text-on-surface/40 mt-0.5">{allPhotos.length} photo{allPhotos.length !== 1 ? 's' : ''}</p>
+            </div>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-full hover:bg-on-surface/5 transition-colors"
+              className="p-2 rounded-full hover:bg-on-surface/5 transition-colors"
             >
-              <X size={20} className="text-on-surface/50" />
+              <X size={22} className="text-on-surface/50" />
             </button>
           </div>
         </div>
@@ -65,48 +152,129 @@ const PhotoGallery: React.FC<{
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
             <input
               type="text"
-              placeholder="Search photos..."
+              placeholder="Search by dish or description..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setActiveDish(null); }}
               className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all"
             />
           </div>
         </div>
 
-        {/* Featured photo */}
-        <div className="flex-shrink-0 px-5 pb-3">
-          <div className="relative rounded-2xl overflow-hidden aspect-[4/3]">
-            <img
-              src={photos[viewIndex]}
-              alt={`${name} photo ${viewIndex + 1}`}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
-              {viewIndex + 1} / {photos.length}
+        {/* Scrollable content */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+
+          {/* Active dish filter chip */}
+          {activeDish && (
+            <div className="flex items-center gap-2 px-5 pb-3">
+              <span className="text-xs font-semibold text-on-surface/50 uppercase tracking-wider">Showing:</span>
+              <button onClick={() => setActiveDish(null)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-full text-xs font-bold">
+                {activeDish}
+                <X size={12} />
+              </button>
             </div>
-          </div>
+          )}
+
+          {/* Popular Dishes section */}
+          {!searchQuery.trim() && !activeDish && dishGroups.length > 0 && (
+            <div className="pb-5">
+              <h3 className="text-sm font-serif font-bold text-on-surface px-5 pb-3">Popular dishes</h3>
+              <div className="flex gap-3 overflow-x-auto no-scrollbar px-5">
+                {dishGroups.map((group) => (
+                  <button
+                    key={group.dish}
+                    onClick={() => setActiveDish(group.dish)}
+                    className="flex-shrink-0 w-36 text-left"
+                  >
+                    <div className="rounded-xl overflow-hidden aspect-[4/3] mb-2">
+                      <img
+                        src={group.photos[0].url}
+                        alt={group.dish}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <p className="text-sm font-semibold text-on-surface truncate">{group.dish}</p>
+                    <p className="text-[11px] text-on-surface/40">{group.photos.length} recommended</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Results info when searching */}
+          {(searchQuery.trim() || activeDish) && (
+            <div className="px-5 pb-2">
+              <p className="text-[11px] text-on-surface/40">{displayPhotos.length} result{displayPhotos.length !== 1 ? 's' : ''}</p>
+            </div>
+          )}
+
+          {displayPhotos.length === 0 ? (
+            <div className="flex items-center justify-center py-16">
+              <p className="text-sm text-on-surface/40">No photos match "{searchQuery}"</p>
+            </div>
+          ) : (
+            <>
+              {/* All Photos header */}
+              {!searchQuery.trim() && !activeDish && (
+                <h3 className="text-sm font-serif font-bold text-on-surface px-5 pb-3">Photos from members</h3>
+              )}
+
+              {/* Photo grid — 2 columns */}
+              <div className="grid grid-cols-2 gap-2 px-5">
+                {displayPhotos.map((photo, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setExpandedPhoto(photo)}
+                    className="relative aspect-square rounded-2xl overflow-hidden"
+                  >
+                    <img
+                      src={photo.url}
+                      alt={photo.caption || `${name} photo ${i + 1}`}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                    {photo.caption && (
+                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-2.5 pb-2.5 pt-6">
+                        <p className="text-[13px] text-white font-semibold truncate">{photo.caption}</p>
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Thumbnail grid */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-          <div className="grid grid-cols-3 gap-2">
-            {photos.map((url, i) => (
+        {/* Expanded single photo overlay */}
+        <AnimatePresence>
+          {expandedPhoto && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-10 bg-black/90 flex flex-col items-center justify-center"
+              onClick={() => setExpandedPhoto(null)}
+            >
               <button
-                key={i}
-                onClick={() => setViewIndex(i)}
-                className={`relative aspect-square rounded-xl overflow-hidden ${i === viewIndex ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
+                onClick={() => setExpandedPhoto(null)}
+                className="absolute top-6 right-5 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-20"
               >
-                <img
-                  src={url}
-                  alt={`${name} photo ${i + 1}`}
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
+                <X size={22} className="text-white" />
               </button>
-            ))}
-          </div>
-        </div>
+              <img
+                src={expandedPhoto.url}
+                alt={expandedPhoto.caption || name}
+                className="max-w-full max-h-[75vh] object-contain rounded-xl"
+                referrerPolicy="no-referrer"
+                onClick={(e) => e.stopPropagation()}
+              />
+              {expandedPhoto.caption && (
+                <p className="text-white/80 text-sm font-medium mt-3 px-8 text-center">{expandedPhoto.caption}</p>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.div>
   );
@@ -121,9 +289,26 @@ export const RestaurantDetailDesktop: React.FC = () => {
     mapContainerRef,
     priceStr, cuisine,
     photos, directionsUrl, mapsUrl,
+    communityStats, friendsStats, communityPhotos,
+    showFriendsDetail, setShowFriendsDetail,
   } = useRestaurantDetail();
 
-  const { openRatingModal, openWishlistModal, isWishlisted, getRating } = useLists();
+  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
+  const [friendNames, setFriendNames] = useState<Record<string, string>>({});
+
+  const myRating = place ? getRating(place.id) : undefined;
+  // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
+  const isHotel = place ? (place.types[0] === 'hotel' || place.types[0] === 'lodging' || myRating?.cuisine === 'Hotel Breakfast') : false;
+
+  useEffect(() => {
+    if (!myRating?.friendIds?.length) return;
+    getProfilesByIds(myRating.friendIds).then((profiles) => {
+      const names: Record<string, string> = {};
+      Object.values(profiles).forEach((p) => { names[p.user_id] = p.display_name || `@${p.username}`; });
+      setFriendNames(names);
+    });
+  }, [myRating?.friendIds]);
 
   if (loading) {
     return (
@@ -233,22 +418,41 @@ export const RestaurantDetailDesktop: React.FC = () => {
       </div>
 
       {/* ── Content — centered with max-width ── */}
-      <main className="px-8 pt-2 max-w-2xl mx-auto">
+      <main className="px-3 pt-2 max-w-2xl mx-auto">
 
         {/* Name + badges */}
         <div className="mb-6">
           <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-tight mb-2">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{cuisine}</span>
-            <span className="text-on-surface/35">·</span>
-            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{priceStr}</span>
+            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
+            {!isHotel && priceStr && (
+              <>
+                <span className="text-on-surface/35">·</span>
+                <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{priceStr}</span>
+              </>
+            )}
+            {place.isOpen !== null && (
+              <>
+                <span className="text-on-surface/35">·</span>
+                {place.isOpen ? (
+                  <span className="text-xs font-semibold text-green-600">Open</span>
+                ) : (
+                  <span className="text-xs font-semibold text-red-500">
+                    Closed{(() => {
+                      const next = getNextOpenTime(place.hours);
+                      return next ? ` · Opens ${next}` : '';
+                    })()}
+                  </span>
+                )}
+              </>
+            )}
           </div>
         </div>
 
         {/* Action buttons — Rate, Wishlist */}
         <div className="grid grid-cols-2 gap-2 mb-3">
           <button
-            onClick={() => place && openRatingModal({
+            onClick={() => place && openAddRestaurantModal({
               id: place.id, name: place.name,
               image: place.photoUrl || '',
               cuisine, price: priceStr,
@@ -313,28 +517,12 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </button>
         </div>
 
-        {/* Flavor Profile */}
-        {place && (() => {
-          const flavorData = getFlavorProfile(place.types, place.name);
-          const topFlavors = getTopFlavors(flavorData);
-          return (
-            <section className="mb-7 bg-secondary/10 rounded-2xl p-6 overflow-hidden relative">
-              <div className="relative z-10">
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-secondary mb-1">Flavor Profile</p>
-                <h3 className="text-lg font-serif font-bold mb-3">Taste DNA</h3>
-                <RadarChart data={flavorData} color="#5c6144" />
-                <p className="text-xs text-on-surface/60 mt-3 leading-relaxed">
-                  This spot leans towards <span className="text-secondary font-bold italic">{topFlavors[0]}</span> and <span className="text-secondary font-bold italic">{topFlavors[1]}</span> profiles.
-                </p>
-              </div>
-              <div className="absolute top-0 right-0 w-24 h-24 bg-secondary/20 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
-            </section>
-          );
-        })()}
-
-        {/* Ratings — Google, Friends, Community side by side */}
+        {/* Ratings — Google, Friends/Breakfast, Community side by side */}
         <section className="mb-7">
-          <div className="grid grid-cols-3 gap-3">
+          {isHotel && (
+            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Food Ratings</p>
+          )}
+          <div className={cn("grid gap-3", isHotel && communityStats.totalRatings > 0 ? "grid-cols-3" : isHotel ? "grid-cols-2" : "grid-cols-3")}>
             {/* Google */}
             <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
               <p className="text-3xl font-serif font-bold leading-none">{place.rating}</p>
@@ -347,23 +535,51 @@ export const RestaurantDetailDesktop: React.FC = () => {
               <p className="text-[11px] text-on-surface/45 mt-0.5">{formatReviewCount(place.userRatingCount)} ratings</p>
             </div>
 
-            {/* Friends */}
-            <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-                <UserCircle size={22} className="text-primary/50" />
-              </div>
-              <p className="text-xs font-medium text-on-surface">Friends</p>
-              <p className="text-[11px] text-on-surface/45 mt-0.5">No ratings yet</p>
-            </div>
+            {/* Friends — hidden for hotels */}
+            {!isHotel && (
+              <button onClick={() => friendsStats.totalRatings > 0 && setShowFriendsDetail(true)}
+                className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center hover:border-primary/20 transition-colors">
+                {friendsStats.totalRatings > 0 ? (
+                  <>
+                    <p className="text-3xl font-serif font-bold leading-none text-primary">{friendsStats.avgScore.toFixed(1)}</p>
+                    <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
+                  </>
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+                    <UserCircle size={22} className="text-primary/50" />
+                  </div>
+                )}
+                <p className="text-xs font-medium text-on-surface">Friends</p>
+                <p className="text-[11px] text-on-surface/45 mt-0.5">{friendsStats.totalRatings > 0 ? `${friendsStats.totalRatings} rating${friendsStats.totalRatings !== 1 ? 's' : ''}` : 'No ratings yet'}</p>
+              </button>
+            )}
 
-            {/* Community */}
-            <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
-              <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mb-2">
-                <Users size={22} className="text-violet-400" />
+            {/* Community / Breakfast for hotels */}
+            {isHotel && communityStats.totalRatings > 0 && (
+              <div className="bg-white rounded-2xl p-5 border border-amber-200/50 flex flex-col items-center text-center">
+                <p className="text-3xl font-serif font-bold leading-none text-amber-600">{communityStats.avgScore.toFixed(1)}</p>
+                <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
+                <p className="text-xs font-medium text-on-surface">Breakfast</p>
+                <p className="text-[11px] text-on-surface/45 mt-0.5">{communityStats.totalRatings} rating{communityStats.totalRatings !== 1 ? 's' : ''}</p>
               </div>
-              <p className="text-xs font-medium text-on-surface">Community</p>
-              <p className="text-[11px] text-on-surface/45 mt-0.5">No ratings yet</p>
-            </div>
+            )}
+
+            {!isHotel && (
+              <div className="bg-white rounded-2xl p-5 border border-on-surface/8 flex flex-col items-center text-center">
+                {communityStats.totalRatings > 0 ? (
+                  <>
+                    <p className="text-3xl font-serif font-bold leading-none text-violet-600">{communityStats.avgScore.toFixed(1)}</p>
+                    <p className="text-[10px] text-on-surface/35 font-medium mt-0.5 mb-2">/ 10</p>
+                  </>
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mb-2">
+                    <Users size={22} className="text-violet-400" />
+                  </div>
+                )}
+                <p className="text-xs font-medium text-on-surface">Community</p>
+                <p className="text-[11px] text-on-surface/45 mt-0.5">{communityStats.totalRatings > 0 ? `${communityStats.totalRatings} rating${communityStats.totalRatings !== 1 ? 's' : ''}` : 'No ratings yet'}</p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -441,6 +657,60 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </div>
         </section>
 
+        {/* My Rating details */}
+        {myRating && place && (() => {
+          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.address };
+          const allDetails = [
+            { key: 'notes', icon: <StickyNote size={16} />, label: 'Notes', hasContent: !!myRating.notes, content: myRating.notes ? <p className="text-xs text-on-surface/60 italic">"{myRating.notes}"</p> : null },
+            ...(!isHotel ? [{ key: 'price', icon: <DollarSign size={16} />, label: 'Price', hasContent: !!myRating.price, content: myRating.price ? <p className="text-xs text-on-surface/60">{myRating.price}</p> : null }] : []),
+            { key: 'date', icon: <CalendarDays size={16} />, label: 'Visit Date', hasContent: !!myRating.visitDate, content: myRating.visitDate ? <p className="text-xs text-on-surface/60">{new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p> : null },
+            { key: 'tags', icon: <Tag size={16} />, label: 'Tags', hasContent: myRating.tags?.length > 0, content: myRating.tags?.length > 0 ? <div className="flex flex-wrap gap-1">{myRating.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>)}</div> : null },
+            { key: 'photos', icon: <Image size={16} />, label: 'Photos', hasContent: myRating.photos?.length > 0, content: myRating.photos?.length > 0 ? <div className="grid grid-cols-4 gap-1 rounded-lg overflow-hidden">{myRating.photos.slice(0, 4).map((p, i) => <img key={i} src={p.url} className="aspect-square object-cover" referrerPolicy="no-referrer" />)}</div> : null },
+            ...(!isHotel ? [{ key: 'friends', icon: <Users size={16} />, label: 'Went With', hasContent: (myRating.friendIds?.length || 0) > 0, content: (myRating.friendIds?.length || 0) > 0 ? <div className="flex flex-wrap gap-1.5">{myRating.friendIds.map((fid) => <span key={fid} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{friendNames[fid] || fid.slice(0, 8)}</span>)}</div> : null }] : []),
+          ];
+          const details = allDetails;
+          return (
+            <section className="mb-7 space-y-1.5">
+              {details.map((d) => (
+                <div key={d.key} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
+                  <button onClick={() => setExpandedDetail(expandedDetail === d.key ? null : d.key)}
+                    className="w-full flex items-center gap-3 px-3.5 py-3.5 text-left">
+                    <span className={d.hasContent ? 'text-primary' : 'text-on-surface/30'}>{d.icon}</span>
+                    <span className={cn("flex-1 text-xs font-semibold", d.hasContent ? 'text-on-surface/70' : 'text-on-surface/40')}>{d.label}</span>
+                    {d.hasContent && <span className="text-[9px] text-primary font-medium">Added</span>}
+                    <ChevronDown size={14} className={cn("text-on-surface/20 transition-transform", expandedDetail === d.key && "rotate-180")} />
+                  </button>
+                  <AnimatePresence>
+                    {expandedDetail === d.key && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="px-3.5 pb-3 pt-1 border-t border-on-surface/5">
+                          {d.hasContent ? (
+                            <div>
+                              <div className="mb-2">{d.content}</div>
+                              <button onClick={() => openAddRestaurantModal(meta, d.key)}
+                                className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70">
+                                <Edit3 size={11} /> Edit
+                              </button>
+                            </div>
+                          ) : (
+                            <div>
+                              <p className="text-xs text-on-surface/30 mb-2">Nothing added yet</p>
+                              <button onClick={() => openAddRestaurantModal(meta, d.key)}
+                                className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70">
+                                + Add {d.label}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ))}
+            </section>
+          );
+        })()}
+
         {/* Map */}
         <section className="mb-8">
           <div className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
@@ -466,10 +736,60 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {galleryOpen && photos.length > 0 && (
           <PhotoGallery
             photos={photos}
+            communityPhotos={communityPhotos}
             name={place.name}
             initialIndex={photoIndex}
             onClose={() => setGalleryOpen(false)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Friends ratings detail modal */}
+      <AnimatePresence>
+        {showFriendsDetail && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setShowFriendsDetail(false)} />
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[70vh] flex flex-col overflow-hidden"
+            >
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-on-surface/6 flex-shrink-0">
+                <div>
+                  <h3 className="font-serif font-bold text-lg">Friends' Ratings</h3>
+                  <p className="text-xs text-on-surface/40">{place.name}</p>
+                </div>
+                <button onClick={() => setShowFriendsDetail(false)} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                  <X size={16} className="text-on-surface/60" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+                {friendsStats.ratings.map((r) => {
+                  const scoreColor = Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500';
+                  return (
+                    <div key={r.id} className="bg-white rounded-xl border border-on-surface/8 p-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                            <UserCircle size={16} className="text-primary/50" />
+                          </div>
+                          <span className="text-sm font-semibold text-on-surface/70">Friend</span>
+                        </div>
+                        <span className={cn("text-xl font-serif font-bold", scoreColor)}>{Number(r.score).toFixed(1)}</span>
+                      </div>
+                      {r.notes && <p className="text-xs text-on-surface/50 italic mt-2">"{r.notes}"</p>}
+                      {r.tags && r.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {r.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>

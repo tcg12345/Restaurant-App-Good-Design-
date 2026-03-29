@@ -143,7 +143,7 @@ export async function searchNearbyRestaurants(
     },
   };
 
-  const textQueries = ['best restaurants', 'popular dining', 'top rated restaurants'];
+  const textQueries = ['popular restaurants'];
 
   console.log('[Places] multi-query request:', lat, lng, radiusMeters, hasLocation ? `(restricted to ${locationName})` : '');
 
@@ -304,9 +304,57 @@ export async function searchPlacesByText(
   return mapPlaces(data.places || []);
 }
 
+export async function searchHotels(
+  query: string,
+  lat: number,
+  lng: number,
+): Promise<PlaceResult[]> {
+  const body: any = {
+    textQuery: query || 'hotels',
+    includedType: 'hotel',
+    maxResultCount: 20,
+    locationBias: {
+      circle: {
+        center: { latitude: lat, longitude: lng },
+        radius: 50000,
+      },
+    },
+  };
+
+  console.log('[Places] hotelSearch request:', query);
+
+  const res = await fetch(`${BASE_URL}/places:searchText`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+      'X-Goog-FieldMask': FIELDS,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    console.error('[Places] hotelSearch error:', data);
+    return [];
+  }
+  return mapPlaces(data.places || []);
+}
+
 const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,photos,types,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
 
+// In-memory cache for place details (5 min TTL)
+const placeDetailsCache = new Map<string, { data: PlaceDetails; ts: number }>();
+const DETAIL_CACHE_TTL = 5 * 60 * 1000;
+
 export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
+  // Check cache first
+  const cached = placeDetailsCache.get(placeId);
+  if (cached && Date.now() - cached.ts < DETAIL_CACHE_TTL) {
+    console.log('[Places] getPlaceDetails (cached):', placeId);
+    return cached.data;
+  }
+
   console.log('[Places] getPlaceDetails:', placeId);
 
   const res = await fetch(`${BASE_URL}/places/${placeId}`, {
@@ -335,7 +383,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
 
   const isOpen = p.currentOpeningHours?.openNow ?? null;
 
-  return {
+  const details: PlaceDetails = {
     id: p.id || placeId,
     name: p.displayName?.text || 'Unknown',
     lat: p.location?.latitude ?? 0,
@@ -353,4 +401,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     hours,
     isOpen,
   };
+
+  placeDetailsCache.set(placeId, { data: details, ts: Date.now() });
+  return details;
 }

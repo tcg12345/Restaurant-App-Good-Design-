@@ -1,6 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
+import { supabaseConfigured } from '../lib/supabase';
+import { saveRecentViews } from '../lib/supabase-db';
+import { getCommunityStats, getFriendsStats, getCommunityPhotos, type CommunityStats, type FriendsStats, type CommunityPhoto } from '../lib/supabase-community';
+import { useAuth } from '../contexts/AuthContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, priceLevelToString, CUISINE_TYPES, type PlaceDetails } from '../lib/places';
@@ -41,6 +45,7 @@ export function getTodayHours(hours: string[]): string {
 export function useRestaurantDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [place, setPlace] = useState<PlaceDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,15 +113,35 @@ export function useRestaurantDetail() {
       const filtered = views.filter((v: any) => v.id !== place.id);
       const next = [entry, ...filtered].slice(0, 20);
       localStorage.setItem(key, JSON.stringify(next));
+      // Sync to Supabase
+      if (user?.id && supabaseConfigured) saveRecentViews(user.id, next);
     } catch {}
-  }, [place]);
+  }, [place, user]);
+
+  // Community & friends data
+  const [communityStats, setCommunityStats] = useState<CommunityStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
+  const [friendsStats, setFriendsStats] = useState<FriendsStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
+  const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>([]);
+  const [showFriendsDetail, setShowFriendsDetail] = useState(false);
+
+  useEffect(() => {
+    if (!place?.id) return;
+    getCommunityStats(place.id).then(setCommunityStats);
+    getCommunityPhotos(place.id).then(setCommunityPhotos);
+    if (user?.id) getFriendsStats(user.id, place.id).then(setFriendsStats);
+  }, [place?.id, user?.id]);
 
   const priceStr = place ? priceLevelToString(place.priceLevel) : '';
   const cuisine = place ? getCuisineLabel(place.types) : '';
 
-  const photos = place
-    ? place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : [])
-    : [];
+  // Merge Google Places photos with community user-uploaded photos
+  const photos = useMemo(() => {
+    const googlePhotos = place
+      ? place.photoUrls.length > 0 ? place.photoUrls : (place.photoUrl ? [place.photoUrl] : [])
+      : [];
+    const userPhotoUrls = communityPhotos.map((p) => p.url).filter((url) => url && url.length < 500000); // Skip oversized base64
+    return [...googlePhotos, ...userPhotoUrls];
+  }, [place, communityPhotos]);
   const directionsUrl = place
     ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.address)}&destination_place_id=${place.id}`
     : '';
@@ -142,5 +167,11 @@ export function useRestaurantDetail() {
     photos,
     directionsUrl,
     mapsUrl,
+
+    communityStats,
+    friendsStats,
+    communityPhotos,
+    showFriendsDetail,
+    setShowFriendsDetail,
   };
 }
