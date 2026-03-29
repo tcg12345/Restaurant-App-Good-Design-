@@ -1,12 +1,13 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
-import { searchHotels, type PlaceResult } from '../lib/places';
+import { searchHotels, searchPlacesByText, type PlaceResult } from '../lib/places';
+import { getCuisineLabel } from './useRestaurantDetail';
 import { useAuth } from '../contexts/AuthContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 
@@ -224,10 +225,12 @@ const AddFromRatedSheet: React.FC<{
   onClose: () => void;
   listId: string;
   listRestaurantIds: string[];
-}> = ({ open, onClose, listId, listRestaurantIds }) => {
+  onCreateNewRating?: (restaurantId: string, meta: RestaurantMeta) => void;
+}> = ({ open, onClose, listId, listRestaurantIds, onCreateNewRating }) => {
   const { ratings, addToList, removeFromList } = useLists();
   const { phoneMode } = useSettings();
   const [search, setSearch] = useState('');
+  const [promptRating, setPromptRating] = useState<RestaurantRating | null>(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return ratings;
@@ -235,9 +238,26 @@ const AddFromRatedSheet: React.FC<{
     return ratings.filter((r) => r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.address.toLowerCase().includes(q));
   }, [ratings, search]);
 
-  const handleToggle = (restaurantId: string) => {
-    if (listRestaurantIds.includes(restaurantId)) removeFromList(listId, restaurantId);
-    else addToList(listId, restaurantId);
+  const handleToggle = (r: RestaurantRating) => {
+    if (listRestaurantIds.includes(r.restaurantId)) {
+      removeFromList(listId, r.restaurantId);
+    } else {
+      setPromptRating(r);
+    }
+  };
+
+  const handleUseSame = () => {
+    if (!promptRating) return;
+    addToList(listId, promptRating.restaurantId);
+    setPromptRating(null);
+  };
+
+  const handleCreateNew = () => {
+    if (!promptRating) return;
+    const r = promptRating;
+    setPromptRating(null);
+    onClose();
+    onCreateNewRating?.(r.restaurantId, { id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address });
   };
 
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
@@ -275,7 +295,7 @@ const AddFromRatedSheet: React.FC<{
               ) : filtered.map((r) => {
                 const isInList = listRestaurantIds.includes(r.restaurantId);
                 return (
-                  <button key={r.restaurantId} onClick={() => handleToggle(r.restaurantId)}
+                  <button key={r.restaurantId} onClick={() => handleToggle(r)}
                     className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left", isInList ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
                     <div className="w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5">
                       {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold text-sm">{r.name.charAt(0)}</div>}
@@ -292,6 +312,38 @@ const AddFromRatedSheet: React.FC<{
                 );
               })}
             </div>
+
+            {/* Rating choice prompt */}
+            <AnimatePresence>
+              {promptRating && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-black/40 z-10 flex items-end sm:items-center justify-center"
+                  onClick={() => setPromptRating(null)}>
+                  <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}
+                    transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white rounded-2xl shadow-2xl border border-on-surface/8 mx-5 mb-8 sm:mb-0 w-full max-w-xs overflow-hidden">
+                    <div className="p-5 text-center">
+                      <div className="w-12 h-12 rounded-xl overflow-hidden mx-auto mb-3 bg-on-surface/5">
+                        {promptRating.image ? <img src={promptRating.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold">{promptRating.name.charAt(0)}</div>}
+                      </div>
+                      <p className="font-serif font-bold text-sm mb-1">{promptRating.name}</p>
+                      <p className="text-[11px] text-on-surface/40 mb-4">How would you like to add this?</p>
+                      <div className="space-y-2">
+                        <button onClick={handleUseSame}
+                          className="w-full py-3 bg-primary text-white rounded-xl text-sm font-semibold active:scale-[0.98] transition-transform">
+                          Use Existing Rating ({promptRating.score.toFixed(1)})
+                        </button>
+                        <button onClick={handleCreateNew}
+                          className="w-full py-3 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl text-sm font-semibold text-on-surface/70 hover:bg-on-surface/[0.08] transition-colors">
+                          Create New Rating
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         </motion.div>
       )}
@@ -603,7 +655,7 @@ const HotelSubPage: React.FC<{
 }> = ({ children, onBack, title, rightAction }) => (
   <motion.div initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
     transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-    className="flex flex-col h-full" onTouchMove={(e) => e.stopPropagation()}>
+    className="flex flex-col flex-1 min-h-0" onTouchMove={(e) => e.stopPropagation()}>
     <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
       <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
         <ArrowLeft size={20} />
@@ -736,6 +788,7 @@ const AddHotelBreakfastModal: React.FC<{
 
   const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
   const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
+  const togglePhotoFavorite = (idx: number) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, isFavorite: !p.isFavorite } : p));
 
   const handleSave = () => {
     if (!selectedHotel) return;
@@ -794,7 +847,7 @@ const AddHotelBreakfastModal: React.FC<{
           className={cn("bg-surface w-full overflow-hidden flex flex-col",
             phoneMode
               ? "h-full rounded-none"
-              : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl")}
+              : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl")}
         >
           {photoInput}
           <AnimatePresence mode="wait">
@@ -1003,6 +1056,17 @@ const AddHotelBreakfastModal: React.FC<{
                             <input type="text" value={photo.caption} onChange={(e) => updatePhotoCaption(idx, e.target.value)}
                               placeholder="What's this dish?"
                               className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full" />
+                            <button onClick={() => togglePhotoFavorite(idx)}
+                              className={cn("flex items-center gap-2 mt-2 text-xs font-medium transition-colors",
+                                photo.isFavorite ? "text-primary" : "text-on-surface/35"
+                              )}>
+                              <span className="text-on-surface/40">Mark as a favorite dish:</span>
+                              <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                photo.isFavorite ? "bg-primary border-primary text-white" : "border-on-surface/20"
+                              )}>
+                                {photo.isFavorite && <Star size={10} fill="white" />}
+                              </div>
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -1026,10 +1090,23 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating } = useLists();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [hotelModalOpen, setHotelModalOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const pendingListRatingRef = useRef<{ restaurantId: string; openedAt: number } | null>(null);
+
+  // Watch for the global rating being updated after we opened the modal for a list-specific rating
+  useEffect(() => {
+    const pending = pendingListRatingRef.current;
+    if (!pending) return;
+    const globalRating = ratings.find((r) => r.restaurantId === pending.restaurantId);
+    if (globalRating && globalRating.createdAt && globalRating.createdAt >= pending.openedAt) {
+      // The rating was just saved/updated — move it to list-specific storage
+      setListRating(list.id, globalRating);
+      pendingListRatingRef.current = null;
+    }
+  }, [ratings, list.id, setListRating]);
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmDeleteList, setConfirmDeleteList] = useState(false);
 
@@ -1038,8 +1115,11 @@ const ListDetailView: React.FC<{
 
   const ratedRestaurants = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
-    const rating = ratings.find((r) => r.restaurantId === id);
-    return { id, info, rating };
+    // Prefer list-specific rating over global rating
+    const listRating = getListRating(list.id, id);
+    const globalRating = ratings.find((r) => r.restaurantId === id);
+    const rating = listRating || globalRating;
+    return { id, info, rating, hasListRating: !!listRating };
   }).filter(({ info }) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
@@ -1214,7 +1294,13 @@ const ListDetailView: React.FC<{
         </div>
       )}
 
-      <AddFromRatedSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)} listId={list.id} listRestaurantIds={list.restaurantIds} />
+      <AddFromRatedSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)} listId={list.id} listRestaurantIds={list.restaurantIds}
+        onCreateNewRating={(restaurantId, meta) => {
+          pendingListRatingRef.current = { restaurantId, openedAt: Date.now() };
+          addToList(list.id, restaurantId);
+          openAddRestaurantModal(meta);
+        }}
+      />
       <AddHotelBreakfastModal open={hotelModalOpen} onClose={() => setHotelModalOpen(false)} listId={list.id} />
     </div>
   );
@@ -1438,6 +1524,443 @@ const MEAL_COLORS: Record<string, string> = {
   dinner: 'bg-purple-100 text-purple-700', drinks: 'bg-pink-100 text-pink-700', snack: 'bg-green-100 text-green-700',
 };
 
+/* ── Add to Night Sheet ── */
+type AddNightPage = 'select' | 'from-rated' | 'search-new' | 'hotel';
+const MEAL_TYPES: TripRestaurant['mealType'][] = ['breakfast', 'lunch', 'drinks', 'dinner', 'snack'];
+
+const AddToNightSheet: React.FC<{
+  open: boolean;
+  nightIndex: number;
+  nightDate: string;
+  tripId: string;
+  tripLat: number;
+  tripLng: number;
+  existingRestaurantIds: Set<string>;
+  ratings: RestaurantRating[];
+  addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
+  openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
+  rateRestaurant: (rating: RestaurantRating) => void;
+  onClose: () => void;
+}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, rateRestaurant, onClose }) => {
+  const { phoneMode } = useSettings();
+  const [page, setPage] = useState<AddNightPage>('select');
+  const [mealType, setMealType] = useState<TripRestaurant['mealType']>('dinner');
+  const [reservationTime, setReservationTime] = useState('');
+  const [ratedSearch, setRatedSearch] = useState('');
+  const [placeSearch, setPlaceSearch] = useState('');
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
+  const [placeLoading, setPlaceLoading] = useState(false);
+  const [hotelSearch, setHotelSearch] = useState('');
+  const [hotelResults, setHotelResults] = useState<PlaceResult[]>([]);
+  const [hotelLoading, setHotelLoading] = useState(false);
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setPage('select');
+      setMealType('dinner');
+      setReservationTime('');
+      setRatedSearch('');
+      setPlaceSearch('');
+      setPlaceResults([]);
+      setHotelSearch('');
+      setHotelResults([]);
+      setJustAdded(null);
+    }
+  }, [open]);
+
+  const lat = tripLat || 40.735;
+  const lng = tripLng || -73.99;
+
+  const handleSearchPlaces = async () => {
+    if (!placeSearch.trim()) return;
+    setPlaceLoading(true);
+    try {
+      const res = await searchPlacesByText(placeSearch, lat, lng);
+      setPlaceResults(res);
+    } catch { setPlaceResults([]); }
+    finally { setPlaceLoading(false); }
+  };
+
+  const handleSearchHotels = async () => {
+    if (!hotelSearch.trim()) return;
+    setHotelLoading(true);
+    try {
+      const res = await searchHotels(hotelSearch, lat, lng);
+      setHotelResults(res);
+    } catch { setHotelResults([]); }
+    finally { setHotelLoading(false); }
+  };
+
+  const addFromRating = (r: RestaurantRating) => {
+    if (existingRestaurantIds.has(r.restaurantId)) return;
+    addRestaurantToTrip(tripId, {
+      restaurantId: r.restaurantId,
+      name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address,
+      night: nightIndex, mealType, status: 'planned',
+      reservationTime: reservationTime || undefined,
+    });
+    setJustAdded(r.restaurantId);
+    setTimeout(() => setJustAdded(null), 1200);
+  };
+
+  const addFromSearch = (place: PlaceResult) => {
+    const cuisine = getCuisineLabel(place.types);
+    const meta: RestaurantMeta = {
+      id: place.id, name: place.name, image: place.photoUrl || '',
+      cuisine, price: '', address: place.address,
+    };
+    // Add to trip immediately
+    addRestaurantToTrip(tripId, {
+      restaurantId: place.id,
+      name: place.name, image: place.photoUrl || '', cuisine, price: '', address: place.address,
+      night: nightIndex, mealType, status: 'planned',
+      reservationTime: reservationTime || undefined,
+    });
+    // Open rating modal so user can rate it
+    onClose();
+    openAddRestaurantModal(meta);
+  };
+
+  const addHotel = (hotel: PlaceResult) => {
+    addRestaurantToTrip(tripId, {
+      restaurantId: hotel.id,
+      name: hotel.name, image: hotel.photoUrl || '', cuisine: 'Hotel Breakfast', price: '', address: hotel.address,
+      night: nightIndex, mealType: mealType === 'dinner' ? 'breakfast' : mealType, status: 'planned',
+      reservationTime: reservationTime || undefined,
+    });
+    setJustAdded(hotel.id);
+    setTimeout(() => setJustAdded(null), 1200);
+  };
+
+  const filteredRatings = ratedSearch.trim()
+    ? ratings.filter((r) => r.name.toLowerCase().includes(ratedSearch.toLowerCase()) || r.cuisine.toLowerCase().includes(ratedSearch.toLowerCase()))
+    : ratings;
+
+  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+
+  if (!open) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
+          phoneMode ? "items-end" : "items-end sm:items-center")}
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+          transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+          onClick={(e) => e.stopPropagation()}
+          className={cn("bg-surface w-full overflow-hidden flex flex-col",
+            phoneMode ? "h-full rounded-none" : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl")}
+        >
+          {phoneMode && <div className="flex justify-center pt-3 pb-1 flex-shrink-0"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+
+          <AnimatePresence mode="wait">
+            {/* ═══ PAGE 1: SELECT MODE ═══ */}
+            {page === 'select' && (
+              <motion.div key="select" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
+                className="flex flex-col flex-1 min-h-0">
+                <div className="px-5 pt-4 pb-3 flex items-center justify-between flex-shrink-0">
+                  <div>
+                    <h2 className="font-serif font-bold text-lg">Add to Night {nightIndex + 1}</h2>
+                    <p className="text-xs text-on-surface/40">{nightDate}</p>
+                  </div>
+                  <button onClick={onClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
+                </div>
+
+                {/* Meal type + time */}
+                <div className="px-5 pb-4 flex-shrink-0">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2">Meal Type</p>
+                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3">
+                    {MEAL_TYPES.map((m) => (
+                      <button key={m} onClick={() => setMealType(m)}
+                        className={cn("px-3 py-1.5 rounded-full text-xs font-semibold border-2 capitalize transition-all whitespace-nowrap",
+                          mealType === m ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/40")}>
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                  <input type="text" value={reservationTime} onChange={(e) => setReservationTime(e.target.value)}
+                    placeholder="Reservation time (e.g. 7:30 PM)"
+                    className="w-full px-3.5 py-2.5 bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
+                </div>
+
+                <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+                  {/* Option cards */}
+                  <div className="space-y-2.5 mb-4">
+                    <button onClick={() => setPage('from-rated')}
+                      className="w-full flex items-center gap-4 p-4 bg-white border border-on-surface/8 rounded-2xl text-left hover:border-primary/20 hover:shadow-sm transition-all">
+                      <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <Star size={20} className="text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-on-surface">From My Ratings</p>
+                        <p className="text-[11px] text-on-surface/40 mt-0.5">Pick from restaurants you've already reviewed</p>
+                      </div>
+                      <ChevronRight size={16} className="text-on-surface/20 flex-shrink-0" />
+                    </button>
+
+                    <button onClick={() => setPage('search-new')}
+                      className="w-full flex items-center gap-4 p-4 bg-white border border-on-surface/8 rounded-2xl text-left hover:border-primary/20 hover:shadow-sm transition-all">
+                      <div className="w-11 h-11 rounded-xl bg-violet-50 flex items-center justify-center flex-shrink-0">
+                        <Search size={20} className="text-violet-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-on-surface">Search New Restaurant</p>
+                        <p className="text-[11px] text-on-surface/40 mt-0.5">Find a restaurant and add a new rating</p>
+                      </div>
+                      <ChevronRight size={16} className="text-on-surface/20 flex-shrink-0" />
+                    </button>
+                  </div>
+
+                  {/* Secondary option */}
+                  <button onClick={() => { setPage('hotel'); if (mealType === 'dinner') setMealType('breakfast'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-on-surface/[0.03] border border-on-surface/6 rounded-xl text-left hover:bg-on-surface/[0.05] transition-all">
+                    <Building2 size={16} className="text-on-surface/35 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-on-surface/60">Hotel / Hotel Breakfast</p>
+                      <p className="text-[10px] text-on-surface/30">Restaurant inside a hotel</p>
+                    </div>
+                    <ChevronRight size={14} className="text-on-surface/15 flex-shrink-0" />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ═══ PAGE 2A: FROM MY RATINGS ═══ */}
+            {page === 'from-rated' && (
+              <motion.div key="from-rated" initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
+                transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+                className="flex flex-col h-full">
+                <div className="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
+                  <button onClick={() => setPage('select')} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40"><ChevronLeft size={22} /></button>
+                  <h2 className="font-serif font-bold text-lg flex-1">From My Ratings</h2>
+                </div>
+
+                <div className="px-5 pt-3 pb-2 flex-shrink-0">
+                  <div className="relative">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                    <input type="text" value={ratedSearch} onChange={(e) => setRatedSearch(e.target.value)} placeholder="Search your ratings..."
+                      className="w-full pl-10 pr-4 py-2.5 bg-on-surface/5 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  </div>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+                  {ratings.length === 0 ? (
+                    <div className="text-center py-16">
+                      <Star size={28} className="mx-auto text-on-surface/15 mb-2" />
+                      <p className="text-sm text-on-surface/40 font-medium">No rated restaurants yet</p>
+                      <button onClick={() => setPage('search-new')} className="mt-3 text-sm font-semibold text-primary">Search for a restaurant</button>
+                    </div>
+                  ) : filteredRatings.length === 0 ? (
+                    <div className="text-center py-12">
+                      <p className="text-sm text-on-surface/40">No matches for "{ratedSearch}"</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 pt-2">
+                      {filteredRatings.map((r) => {
+                        const alreadyAdded = existingRestaurantIds.has(r.restaurantId);
+                        const wasJustAdded = justAdded === r.restaurantId;
+                        return (
+                          <div key={r.restaurantId} className="flex items-center gap-3 py-2.5">
+                            {r.image ? (
+                              <img src={r.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-11 h-11 rounded-lg bg-on-surface/[0.04] flex items-center justify-center flex-shrink-0 text-sm font-serif font-bold text-on-surface/20">{r.name.charAt(0)}</div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-semibold truncate">{r.name}</p>
+                              <p className="text-[10px] text-on-surface/40">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
+                            </div>
+                            {r.score > 0 && <span className={cn("text-sm font-serif font-bold flex-shrink-0", scoreColor(r.score))}>{r.score.toFixed(1)}</span>}
+                            <button
+                              onClick={() => !alreadyAdded && !wasJustAdded && addFromRating(r)}
+                              disabled={alreadyAdded}
+                              className={cn("w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all",
+                                wasJustAdded ? "bg-green-100 text-green-600" :
+                                alreadyAdded ? "bg-on-surface/5 text-on-surface/20 cursor-not-allowed" :
+                                "bg-primary/10 text-primary hover:bg-primary/20")}
+                            >
+                              {wasJustAdded || alreadyAdded ? <Check size={14} /> : <Plus size={14} />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+                  <button onClick={onClose} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">Done</button>
+                </div>
+              </motion.div>
+            )}
+
+            {/* ═══ PAGE 2B: SEARCH NEW RESTAURANT ═══ */}
+            {page === 'search-new' && (
+              <motion.div key="search-new" initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
+                transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+                className="flex flex-col h-full">
+                <div className="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
+                  <button onClick={() => setPage('select')} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40"><ChevronLeft size={22} /></button>
+                  <h2 className="font-serif font-bold text-lg flex-1">Search Restaurant</h2>
+                </div>
+
+                <form onSubmit={(e) => { e.preventDefault(); handleSearchPlaces(); }} className="px-5 pt-3 pb-2 flex-shrink-0">
+                  <div className="relative">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                    <input type="text" value={placeSearch} onChange={(e) => setPlaceSearch(e.target.value)} placeholder="Restaurant name..."
+                      autoFocus className="w-full pl-10 pr-20 py-2.5 bg-on-surface/5 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    <button type="submit" disabled={placeLoading || !placeSearch.trim()}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-bold disabled:opacity-30 transition-opacity">
+                      {placeLoading ? '...' : 'Search'}
+                    </button>
+                  </div>
+                </form>
+
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+                  {placeLoading && (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 size={24} className="animate-spin text-primary" />
+                    </div>
+                  )}
+                  {!placeLoading && placeResults.length === 0 && placeSearch && (
+                    <div className="text-center py-12">
+                      <p className="text-sm text-on-surface/40">No restaurants found</p>
+                      <p className="text-xs text-on-surface/25 mt-1">Try a different search</p>
+                    </div>
+                  )}
+                  {!placeLoading && placeResults.length > 0 && (
+                    <div className="space-y-1.5 pt-2">
+                      {placeResults.map((place) => {
+                        const alreadyAdded = existingRestaurantIds.has(place.id);
+                        return (
+                          <button key={place.id} onClick={() => !alreadyAdded && addFromSearch(place)} disabled={alreadyAdded}
+                            className={cn("w-full flex items-center gap-3 py-2.5 text-left transition-all",
+                              alreadyAdded ? "opacity-40" : "hover:bg-on-surface/[0.02]")}>
+                            {place.photoUrl ? (
+                              <img src={place.photoUrl} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-11 h-11 rounded-lg bg-on-surface/[0.04] flex items-center justify-center flex-shrink-0 text-sm font-serif font-bold text-on-surface/20">{place.name.charAt(0)}</div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-semibold truncate">{place.name}</p>
+                              <p className="text-[10px] text-on-surface/40">{getCuisineLabel(place.types)}{place.rating > 0 ? ` · ★ ${place.rating}` : ''}</p>
+                            </div>
+                            {alreadyAdded ? (
+                              <span className="text-[10px] text-on-surface/30 font-medium flex-shrink-0">Added</span>
+                            ) : (
+                              <ChevronRight size={16} className="text-on-surface/20 flex-shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* ═══ PAGE 2C: HOTEL / HOTEL BREAKFAST ═══ */}
+            {page === 'hotel' && (
+              <motion.div key="hotel" initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
+                transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+                className="flex flex-col h-full">
+                <div className="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
+                  <button onClick={() => setPage('select')} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40"><ChevronLeft size={22} /></button>
+                  <h2 className="font-serif font-bold text-lg flex-1">Hotel Restaurant</h2>
+                </div>
+
+                <form onSubmit={(e) => { e.preventDefault(); handleSearchHotels(); }} className="px-5 pt-3 pb-2 flex-shrink-0">
+                  <div className="relative">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                    <input type="text" value={hotelSearch} onChange={(e) => setHotelSearch(e.target.value)} placeholder="Hotel name or location..."
+                      autoFocus className="w-full pl-10 pr-20 py-2.5 bg-on-surface/5 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    <button type="submit" disabled={hotelLoading || !hotelSearch.trim()}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-bold disabled:opacity-30 transition-opacity">
+                      {hotelLoading ? '...' : 'Search'}
+                    </button>
+                  </div>
+                </form>
+
+                {/* Meal type selector for hotel */}
+                <div className="px-5 py-2 flex-shrink-0">
+                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                    {(['breakfast', 'lunch', 'dinner', 'snack'] as TripRestaurant['mealType'][]).map((m) => (
+                      <button key={m} onClick={() => setMealType(m)}
+                        className={cn("px-3 py-1.5 rounded-full text-xs font-semibold border-2 capitalize transition-all whitespace-nowrap",
+                          mealType === m ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/40")}>
+                        {m === 'breakfast' ? '🥐 Breakfast' : m === 'lunch' ? '🍽️ Lunch' : m === 'dinner' ? '🌙 Dinner' : '🍰 Snack'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+                  {hotelLoading && (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 size={24} className="animate-spin text-primary" />
+                    </div>
+                  )}
+                  {!hotelLoading && hotelResults.length === 0 && hotelSearch && (
+                    <div className="text-center py-12">
+                      <p className="text-sm text-on-surface/40">No hotels found</p>
+                    </div>
+                  )}
+                  {!hotelLoading && hotelResults.length === 0 && !hotelSearch && (
+                    <div className="text-center py-12">
+                      <span className="text-3xl mb-2 block">🏨</span>
+                      <p className="text-sm text-on-surface/40">Search for a hotel</p>
+                    </div>
+                  )}
+                  {!hotelLoading && hotelResults.length > 0 && (
+                    <div className="space-y-1.5 pt-2">
+                      {hotelResults.map((hotel) => {
+                        const alreadyAdded = existingRestaurantIds.has(hotel.id);
+                        const wasJustAdded = justAdded === hotel.id;
+                        return (
+                          <div key={hotel.id} className="flex items-center gap-3 py-2.5">
+                            {hotel.photoUrl ? (
+                              <img src={hotel.photoUrl} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-11 h-11 rounded-lg bg-primary/5 flex items-center justify-center flex-shrink-0 text-base">🏨</div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-semibold truncate">{hotel.name}</p>
+                              <p className="text-[10px] text-on-surface/40 truncate">{hotel.address}</p>
+                            </div>
+                            <button
+                              onClick={() => !alreadyAdded && !wasJustAdded && addHotel(hotel)}
+                              disabled={alreadyAdded}
+                              className={cn("w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all",
+                                wasJustAdded ? "bg-green-100 text-green-600" :
+                                alreadyAdded ? "bg-on-surface/5 text-on-surface/20 cursor-not-allowed" :
+                                "bg-primary/10 text-primary hover:bg-primary/20")}
+                            >
+                              {wasJustAdded || alreadyAdded ? <Check size={14} /> : <Plus size={14} />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+                  <button onClick={onClose} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">Done</button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
 /* ── Trips Tab ── */
 const TripsTab: React.FC<{
   trips: Trip[];
@@ -1463,6 +1986,8 @@ const TripsTab: React.FC<{
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
+  const [addNightSheetOpen, setAddNightSheetOpen] = useState(false);
+  const [addNightIndex, setAddNightIndex] = useState<number>(0);
 
   const selectedTrip = trips.find((t) => t.id === selectedTripId) || null;
 
@@ -1644,17 +2169,7 @@ const TripsTab: React.FC<{
                   </div>
                   {/* Add button */}
                   <button
-                    onClick={() => {
-                      const name = prompt('Restaurant name to add:');
-                      if (name) {
-                        const mealType = prompt('Meal type (breakfast/lunch/dinner/drinks/snack):') as TripRestaurant['mealType'] || 'dinner';
-                        addRestaurantToTrip(selectedTrip.id, {
-                          restaurantId: `manual-${Date.now()}`,
-                          name, image: '', cuisine: '', price: '', address: '',
-                          night: nightIdx, mealType, status: 'planned',
-                        });
-                      }
-                    }}
+                    onClick={() => { setAddNightIndex(nightIdx); setAddNightSheetOpen(true); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/[0.06] text-primary hover:bg-primary/[0.12] transition-colors flex-shrink-0"
                   >
                     <Plus size={13} />
@@ -1736,6 +2251,22 @@ const TripsTab: React.FC<{
             updateTrip(editingTrip!.id, data);
             setEditingTrip(null);
           }}
+        />
+
+        {/* Add to Night Sheet */}
+        <AddToNightSheet
+          open={addNightSheetOpen}
+          nightIndex={addNightIndex}
+          nightDate={getNightDate(selectedTrip.startDate, addNightIndex)}
+          tripId={selectedTrip.id}
+          tripLat={selectedTrip.destinationLat}
+          tripLng={selectedTrip.destinationLng}
+          existingRestaurantIds={new Set(selectedTrip.restaurants.filter((r) => r.night === addNightIndex).map((r) => r.restaurantId))}
+          ratings={ratings}
+          addRestaurantToTrip={addRestaurantToTrip}
+          openAddRestaurantModal={openAddRestaurantModal}
+          rateRestaurant={rateRestaurant}
+          onClose={() => setAddNightSheetOpen(false)}
         />
       </div>
     );
@@ -2122,7 +2653,7 @@ export const Pantry: React.FC = () => {
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
-  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added'>('recent');
+  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added'>('highest');
 
   // Quick filter dropdowns
   const [cityDropdownOpen, setCityDropdownOpen] = useState(false);

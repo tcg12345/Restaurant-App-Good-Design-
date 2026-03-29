@@ -35,7 +35,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         .select('ratings, lists, wishlist, restaurant_meta, recent_views')
         .eq('user_id', userId)
         .single();
-      data = fallback.data;
+      data = fallback.data as any;
       error = fallback.error;
     }
 

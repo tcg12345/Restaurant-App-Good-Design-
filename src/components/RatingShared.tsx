@@ -78,7 +78,7 @@ export const EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎',
 
 /* ── Custom Calendar ── */
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -102,6 +102,8 @@ export const Calendar: React.FC<{
 
   const [viewYear, setViewYear] = useState(selected?.getFullYear() ?? today.getFullYear());
   const [viewMonth, setViewMonth] = useState(selected?.getMonth() ?? today.getMonth());
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [showYearPicker, setShowYearPicker] = useState(false);
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
   const firstDay = getFirstDayOfWeek(viewYear, viewMonth);
@@ -155,9 +157,52 @@ export const Calendar: React.FC<{
 
       {/* Month nav */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-serif font-bold text-base">
-          {MONTHS[viewMonth]} {viewYear}
-        </h3>
+        <div className="flex items-center gap-1">
+          {/* Month dropdown */}
+          <div className="relative">
+            <button onClick={() => { setShowMonthPicker(!showMonthPicker); setShowYearPicker(false); }}
+              className="flex items-center gap-1 font-serif font-bold text-base hover:text-primary transition-colors">
+              {MONTHS[viewMonth]}
+              <ChevronDown size={14} className={cn("text-on-surface/40 transition-transform", showMonthPicker && "rotate-180")} />
+            </button>
+            {showMonthPicker && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowMonthPicker(false)} />
+                <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/8 z-20 max-h-52 overflow-y-auto min-w-[140px]">
+                  {MONTHS.map((m, i) => (
+                    <button key={m} onClick={() => { setViewMonth(i); setShowMonthPicker(false); }}
+                      className={cn("w-full text-left px-3.5 py-2 text-sm font-medium transition-colors",
+                        i === viewMonth ? "text-primary bg-primary/5" : "text-on-surface/70 hover:bg-on-surface/3")}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          {/* Year dropdown */}
+          <div className="relative">
+            <button onClick={() => { setShowYearPicker(!showYearPicker); setShowMonthPicker(false); }}
+              className="flex items-center gap-1 font-serif font-bold text-base hover:text-primary transition-colors">
+              {viewYear}
+              <ChevronDown size={14} className={cn("text-on-surface/40 transition-transform", showYearPicker && "rotate-180")} />
+            </button>
+            {showYearPicker && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowYearPicker(false)} />
+                <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-on-surface/8 z-20 max-h-52 overflow-y-auto min-w-[80px]">
+                  {Array.from({ length: 10 }, (_, i) => today.getFullYear() - 9 + i).map((y) => (
+                    <button key={y} onClick={() => { setViewYear(y); setShowYearPicker(false); }}
+                      className={cn("w-full text-left px-3.5 py-2 text-sm font-medium transition-colors",
+                        y === viewYear ? "text-primary bg-primary/5" : "text-on-surface/70 hover:bg-on-surface/3")}>
+                      {y}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-1">
           <button onClick={prevMonth} className="p-2 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
             <ChevronLeft size={18} />
