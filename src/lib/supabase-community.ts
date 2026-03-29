@@ -667,6 +667,28 @@ export async function publishExpertRecommendation(
   } catch (err) { console.error('[Expert] publishRecommendation exception:', err); return false; }
 }
 
+/** Get count of expert recommendations by a user. */
+export async function getExpertRecommendationCount(userId: string): Promise<number> {
+  if (!supabaseConfigured || !userId) return 0;
+  try {
+    const { count, error } = await supabase.from('expert_recommendations')
+      .select('*', { count: 'exact', head: true }).eq('user_id', userId);
+    if (error) return 0;
+    return count || 0;
+  } catch { return 0; }
+}
+
+/** Get all expert profiles (users with is_expert=true). */
+export async function getExpertProfiles(): Promise<UserProfile[]> {
+  if (!supabaseConfigured) return [];
+  try {
+    const { data, error } = await supabase.from('user_profiles')
+      .select('*').eq('is_expert', true);
+    if (error) return [];
+    return (data || []) as UserProfile[];
+  } catch { return []; }
+}
+
 /** Remove an expert recommendation. */
 export async function removeExpertRecommendation(userId: string, restaurantId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;

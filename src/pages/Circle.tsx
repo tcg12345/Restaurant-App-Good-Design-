@@ -4,16 +4,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { getFriends, sendFriendRequest, followPublicAccount, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
+import { getFriends, sendFriendRequest, followPublicAccount, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, getExpertProfiles, getUserRatings, getFollowCounts, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { Link } from 'react-router-dom';
 
 type Tab = 'friends' | 'experts';
-
-const MOCK_EXPERTS = [
-  { id: 'exp-1', name: 'Elena Vance', role: 'Senior Critic', image: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=200', stats: '1.2k Reviews' },
-  { id: 'exp-2', name: 'Marcus Thorne', role: 'Sommelier', image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200', stats: '850 Reviews' },
-  { id: 'exp-3', name: 'Sofia Rossi', role: 'Chef de Cuisine', image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&q=80&w=200', stats: '2.1k Reviews' },
-];
 
 export const Circle: React.FC = () => {
   const { user, refreshPendingRequests } = useAuth();
@@ -37,6 +31,46 @@ export const Circle: React.FC = () => {
 
   // Confirm remove
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+
+  // Expert data for Experts tab
+  const [expertProfiles, setExpertProfiles] = useState<UserProfile[]>([]);
+  const [expertRatingCounts, setExpertRatingCounts] = useState<Record<string, number>>({});
+  const [expertFollowerCounts, setExpertFollowerCounts] = useState<Record<string, number>>({});
+  const [expertsLoading, setExpertsLoading] = useState(false);
+  const [expertFollowedIds, setExpertFollowedIds] = useState<Set<string>>(new Set());
+
+  const loadExperts = useCallback(async () => {
+    setExpertsLoading(true);
+    const profiles = await getExpertProfiles();
+    setExpertProfiles(profiles);
+    if (profiles.length > 0) {
+      const results = await Promise.all(profiles.map(async (p) => {
+        const [ratings, counts] = await Promise.all([getUserRatings(p.user_id), getFollowCounts(p.user_id)]);
+        return { id: p.user_id, ratingCount: ratings.length, followers: counts.followers };
+      }));
+      const rc: Record<string, number> = {};
+      const fc: Record<string, number> = {};
+      results.forEach((r) => { rc[r.id] = r.ratingCount; fc[r.id] = r.followers; });
+      setExpertRatingCounts(rc);
+      setExpertFollowerCounts(fc);
+    }
+    // Mark which experts are already followed
+    if (userId) {
+      const fl = await getFriends(userId);
+      const ids = new Set(fl.map((f) => f.friend_id));
+      setExpertFollowedIds(ids);
+    }
+    setExpertsLoading(false);
+  }, [userId]);
+
+  const handleFollowExpert = async (expertId: string) => {
+    if (!userId) return;
+    const ok = await followPublicAccount(userId, expertId);
+    if (ok) {
+      setExpertFollowedIds((prev) => new Set([...prev, expertId]));
+      setExpertFollowerCounts((prev) => ({ ...prev, [expertId]: (prev[expertId] || 0) + 1 }));
+    }
+  };
 
   const loadData = useCallback(async () => {
     if (!userId) { setLoading(false); return; }
@@ -67,6 +101,11 @@ export const Circle: React.FC = () => {
   }, [userId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Load experts when tab switches to experts
+  useEffect(() => {
+    if (activeTab === 'experts' && expertProfiles.length === 0 && !expertsLoading) loadExperts();
+  }, [activeTab, expertProfiles.length, expertsLoading, loadExperts]);
 
   const [suggestions, setSuggestions] = useState<UserProfile[]>([]);
 
@@ -270,21 +309,50 @@ export const Circle: React.FC = () => {
         {activeTab === 'experts' && (
           <section>
             <p className="text-xs text-on-surface/40 mb-4">Follow expert reviewers for curated recommendations</p>
-            <div className="space-y-3">
-              {MOCK_EXPERTS.map((expert) => (
-                <div key={expert.id} className="flex items-center gap-3 bg-white rounded-xl border border-on-surface/8 p-3">
-                  <img src={expert.image} alt={expert.name} className="w-11 h-11 rounded-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold">{expert.name}</p>
-                    <p className="text-[10px] text-on-surface/40">{expert.role} · {expert.stats}</p>
-                  </div>
-                  <button className="px-3 py-1.5 border border-primary/30 text-primary text-[10px] font-semibold rounded-full hover:bg-primary/5 transition-colors">
-                    Follow
-                  </button>
-                </div>
-              ))}
-            </div>
-            <p className="text-center text-xs text-on-surface/30 mt-6">More experts coming soon</p>
+            {expertsLoading ? (
+              <div className="text-center py-10"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
+            ) : expertProfiles.length === 0 ? (
+              <div className="text-center py-10 bg-white rounded-2xl border border-on-surface/8">
+                <Crown size={24} className="mx-auto text-on-surface/15 mb-2" />
+                <p className="text-sm font-medium text-on-surface/40">No experts yet</p>
+                <p className="text-xs text-on-surface/30 mt-1">Expert reviewers will appear here soon</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {expertProfiles.map((expert) => {
+                  const isFollowed = expertFollowedIds.has(expert.user_id);
+                  const rCount = expertRatingCounts[expert.user_id] || 0;
+                  const fCount = expertFollowerCounts[expert.user_id] || 0;
+                  const formatCount = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+                  return (
+                    <div key={expert.user_id} className="flex items-center gap-3 bg-white rounded-xl border border-on-surface/8 p-3">
+                      <Link to={`/user/${expert.username}`} className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="w-11 h-11 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                          <span className="text-lg font-serif font-bold text-amber-700">{expert.display_name.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-semibold truncate">{expert.display_name}</p>
+                            <Crown size={12} className="text-amber-500 flex-shrink-0" />
+                          </div>
+                          <p className="text-[10px] text-on-surface/40">{formatCount(rCount)} Review{rCount !== 1 ? 's' : ''} · {formatCount(fCount)} Follower{fCount !== 1 ? 's' : ''}</p>
+                        </div>
+                      </Link>
+                      {isFollowed ? (
+                        <span className="flex items-center gap-1 px-3 py-1.5 bg-on-surface/5 border border-on-surface/10 text-[10px] font-semibold text-on-surface/40 rounded-full">
+                          <Check size={10} /> Following
+                        </span>
+                      ) : (
+                        <button onClick={() => handleFollowExpert(expert.user_id)}
+                          className="px-3 py-1.5 border border-primary/30 text-primary text-[10px] font-semibold rounded-full hover:bg-primary/5 transition-colors">
+                          Follow
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         )}
       </main>
