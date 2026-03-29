@@ -1046,11 +1046,17 @@ const ListDetailView: React.FC<{
     return info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q);
   });
 
-  const wishlistedRestaurants = (list.wishlistIds || []).map((id) => {
-    const info = getRestaurantInfo(id);
-    const wishItem = wishlist.find((w) => w.restaurantId === id);
-    return { id, info, wishItem };
-  }).filter(({ info }) => info); // only show if we have metadata
+  const wishlistedRestaurants = isHotelBreakfast
+    ? wishlist.filter((w) => w.cuisine === 'Hotel Breakfast').map((w) => ({
+        id: w.restaurantId,
+        info: getRestaurantInfo(w.restaurantId) || { id: w.restaurantId, name: w.name, image: w.image, cuisine: w.cuisine, price: w.price, address: w.address },
+        wishItem: w,
+      }))
+    : (list.wishlistIds || []).map((id) => {
+        const info = getRestaurantInfo(id);
+        const wishItem = wishlist.find((w) => w.restaurantId === id);
+        return { id, info, wishItem };
+      }).filter(({ info }) => info);
 
   const totalCount = list.restaurantIds.length + (list.wishlistIds?.length || 0);
 
