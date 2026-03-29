@@ -1201,9 +1201,9 @@ const ListDetailView: React.FC<{
             </div>
           )}
           {/* Add more button */}
-          <button onClick={() => setAddSheetOpen(true)}
+          <button onClick={() => isHotelBreakfast ? setHotelModalOpen(true) : setAddSheetOpen(true)}
             className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
-            <Plus size={16} /><span className="text-sm font-semibold">Add Restaurants</span>
+            <Plus size={16} /><span className="text-sm font-semibold">{isHotelBreakfast ? 'Add Hotel' : 'Add Restaurants'}</span>
           </button>
         </div>
       )}
