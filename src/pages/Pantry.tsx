@@ -2568,7 +2568,7 @@ export const Pantry: React.FC = () => {
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
-  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added'>('recent');
+  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added'>('highest');
 
   // Quick filter dropdowns
   const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
