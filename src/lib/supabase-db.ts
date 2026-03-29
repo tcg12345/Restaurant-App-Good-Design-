@@ -21,11 +21,23 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
   if (!supabaseConfigured || !userId) return null;
 
   try {
-    const { data, error } = await supabase
+    // Try loading with trips column first; fall back without it if column doesn't exist yet
+    let { data, error } = await supabase
       .from('user_app_data')
       .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips')
       .eq('user_id', userId)
       .single();
+
+    // If the trips column doesn't exist yet, retry without it
+    if (error && !data && error.code !== 'PGRST116') {
+      const fallback = await supabase
+        .from('user_app_data')
+        .select('ratings, lists, wishlist, restaurant_meta, recent_views')
+        .eq('user_id', userId)
+        .single();
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       if (error.code === 'PGRST116') return null; // no rows found
@@ -39,7 +51,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       wishlist: (data.wishlist as WishlistItem[]) || [],
       restaurantMeta: (data.restaurant_meta as Record<string, RestaurantMeta>) || {},
       recentViews: (data.recent_views as any[]) || [],
-      trips: (data.trips as Trip[]) || [],
+      trips: ((data as any).trips as Trip[]) || [],
     };
   } catch (err) {
     console.error('[Supabase] loadUserData exception:', err);
@@ -55,7 +67,8 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
   if (!supabaseConfigured || !userId) return false;
 
   try {
-    const { error } = await supabase
+    // Try saving with trips; fall back without if column doesn't exist
+    let { error } = await supabase
       .from('user_app_data')
       .upsert({
         user_id: userId,
@@ -67,6 +80,22 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
         trips: data.trips || [],
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
+
+    if (error) {
+      // Retry without trips column
+      const fallback = await supabase
+        .from('user_app_data')
+        .upsert({
+          user_id: userId,
+          ratings: data.ratings,
+          lists: data.lists,
+          wishlist: data.wishlist,
+          restaurant_meta: data.restaurantMeta,
+          recent_views: data.recentViews || [],
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+      error = fallback.error;
+    }
 
     if (error) {
       console.error('[Supabase] saveUserData error:', error);
@@ -181,7 +210,8 @@ export async function saveTrips(userId: string, trips: Trip[]): Promise<boolean>
       .from('user_app_data')
       .update({ trips, updated_at: new Date().toISOString() })
       .eq('user_id', userId);
-    if (error) { console.error('[Supabase] saveTrips error:', error); return false; }
+    // Silently ignore if trips column doesn't exist yet
+    if (error) { console.warn('[Supabase] saveTrips error (trips column may not exist yet):', error.message); return false; }
     return true;
-  } catch (err) { console.error('[Supabase] saveTrips exception:', err); return false; }
+  } catch (err) { console.warn('[Supabase] saveTrips exception:', err); return false; }
 }
