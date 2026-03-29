@@ -288,14 +288,17 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const cloudLists = migrateLists(cloud.lists.length > 0 ? cloud.lists : DEFAULT_LISTS);
         const cloudWishlist = migrateWishlist(cloud.wishlist || []);
         const cloudMeta = cloud.restaurantMeta || {};
-        const cloudTrips = (cloud as any).trips || [];
+        // Restore trips: try dedicated column first, fall back to __trips__ in meta
+        const cloudTrips = ((cloud as any).trips && (cloud as any).trips.length > 0)
+          ? (cloud as any).trips
+          : (Array.isArray((cloudMeta as any).__trips__) ? (cloudMeta as any).__trips__ : []);
         const cloudRecentViews = cloud.recentViews || [];
 
         setRatings(cloudRatings);
         setLists(cloudLists);
         setWishlist(cloudWishlist);
         setRestaurantMeta(cloudMeta);
-        setTrips(cloudTrips);
+        setTrips(cloudTrips as Trip[]);
 
         // Also update localStorage as cache
         saveToStorage(STORAGE_KEY_RATINGS, cloudRatings);
@@ -383,8 +386,18 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (userIdRef.current && supabaseConfigured) saveMetaData(userIdRef.current, data);
   }, []);
   const syncTripsToCloud = useCallback((data: Trip[]) => {
-    if (userIdRef.current && supabaseConfigured) saveTrips(userIdRef.current, data);
-  }, []);
+    if (userIdRef.current && supabaseConfigured) {
+      // Save trips via the dedicated column (may fail if column doesn't exist)
+      saveTrips(userIdRef.current, data);
+      // Also save trips inside restaurant_meta as a fallback (always works)
+      setRestaurantMeta((prev) => {
+        const next = { ...prev, __trips__: data as unknown as RestaurantMeta };
+        saveToStorage(STORAGE_KEY_META, next);
+        syncMetaToCloud(next);
+        return next;
+      });
+    }
+  }, [syncMetaToCloud]);
 
   // ── Trip CRUD ──
   const createTrip = useCallback((trip: Omit<Trip, 'id' | 'createdAt'>): Trip => {
