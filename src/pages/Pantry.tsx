@@ -386,7 +386,7 @@ const RestaurantRow: React.FC<{
                   <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
                   <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                     <span className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider">
-                      {cuisine}{price ? ` · ${price}` : ''}
+                      {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
                     </span>
                     {location && (
                       <>
@@ -496,7 +496,7 @@ const WishlistRow: React.FC<{
             <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
           </Link>
           <p className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
-            {cuisine}{price ? ` · ${price}` : ''}
+            {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
           </p>
           {notes && (
             <p className="text-xs text-on-surface/40 mt-1 line-clamp-2 italic">&ldquo;{notes}&rdquo;</p>
@@ -561,7 +561,7 @@ const RestaurantGridCard: React.FC<{
           </div>
         </div>
         <p className="text-[10px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
-          {cuisine}{price ? ` · ${price}` : ''}
+          {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
         </p>
       </div>
       {confirmDelete && (
@@ -2179,6 +2179,7 @@ export const Pantry: React.FC = () => {
   }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, scoreRange, sortBy]);
 
   const regularRatingsCount = useMemo(() => ratings.filter((r) => r.cuisine !== 'Hotel Breakfast').length, [ratings]);
+  const regularWishlist = useMemo(() => wishlist.filter((w) => w.cuisine !== 'Hotel Breakfast'), [wishlist]);
 
   const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
@@ -2194,7 +2195,7 @@ export const Pantry: React.FC = () => {
   // Keep selectedList in sync
   const currentList = selectedList
     ? selectedList.id === '__wishlist__'
-      ? { ...selectedList, wishlistIds: wishlist.map((w) => w.restaurantId) } as CustomList
+      ? { ...selectedList, wishlistIds: regularWishlist.map((w) => w.restaurantId) } as CustomList
       : lists.find((l) => l.id === selectedList.id) ?? null
     : null;
 
@@ -2275,12 +2276,12 @@ export const Pantry: React.FC = () => {
               >
                 {/* Wishlist pill — always first, not deletable */}
                 <button
-                  onClick={() => setSelectedList({ id: '__wishlist__', name: 'Wishlist', emoji: '❤️', restaurantIds: [], wishlistIds: wishlist.map((w) => w.restaurantId), createdAt: 0 } as CustomList)}
+                  onClick={() => setSelectedList({ id: '__wishlist__', name: 'Wishlist', emoji: '❤️', restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId), createdAt: 0 } as CustomList)}
                   className="flex items-center gap-1.5 px-3.5 py-2 bg-red-50 rounded-full border border-red-200 shadow-sm hover:shadow-md transition-all flex-shrink-0"
                 >
                   <span className="text-sm">❤️</span>
                   <span className="text-xs font-semibold text-red-500 whitespace-nowrap">Wishlist</span>
-                  <span className="text-[10px] text-red-400 font-medium">{wishlist.length}</span>
+                  <span className="text-[10px] text-red-400 font-medium">{regularWishlist.length}</span>
                 </button>
 
                 {/* Trips pill — only shown when trips exist */}
@@ -2403,10 +2404,10 @@ export const Pantry: React.FC = () => {
                     Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span>/10
                   </p>
                 )}
-                {wishlist.length > 0 && (
+                {regularWishlist.length > 0 && (
                   <p className="text-xs text-on-surface/40">
                     <Heart size={10} className="inline text-red-400 fill-red-400 mr-0.5" />
-                    <span className="font-bold text-on-surface">{wishlist.length}</span> wishlisted
+                    <span className="font-bold text-on-surface">{regularWishlist.length}</span> wishlisted
                   </p>
                 )}
                 <div className="ml-auto flex items-center gap-2">
@@ -2436,7 +2437,7 @@ export const Pantry: React.FC = () => {
             </AnimatePresence>
 
             {/* ── Restaurant list ── */}
-            {regularRatingsCount === 0 && wishlist.length === 0 ? (
+            {regularRatingsCount === 0 && regularWishlist.length === 0 ? (
               <div className="text-center py-16">
                 <Star size={32} className="mx-auto text-on-surface/15 mb-3" />
                 <p className="text-sm font-medium text-on-surface/40">No restaurants yet</p>
@@ -2494,14 +2495,14 @@ export const Pantry: React.FC = () => {
                 ) : null}
 
                 {/* Wishlist section (global) */}
-                {wishlist.length > 0 && (
+                {regularWishlist.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-3 mt-2">
                       <Heart size={14} className="text-red-400 fill-red-400" />
-                      <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlist.length})</h3>
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({regularWishlist.length})</h3>
                     </div>
                     <div className="space-y-3">
-                      {wishlist.map((w) => (
+                      {regularWishlist.map((w) => (
                         <WishlistRow
                           key={w.restaurantId}
                           restaurantId={w.restaurantId}
