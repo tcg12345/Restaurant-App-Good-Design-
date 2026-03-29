@@ -79,7 +79,8 @@ const CreateListSheet: React.FC<{
   onClose: () => void;
   onCreate: (name: string, emoji: string, type?: PresetList['type']) => void;
   existingListNames: string[];
-}> = ({ open, onClose, onCreate, existingListNames }) => {
+  onCreateTrip?: () => void;
+}> = ({ open, onClose, onCreate, existingListNames, onCreateTrip }) => {
   const { phoneMode } = useSettings();
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<'browse' | 'custom'>('browse');
@@ -134,7 +135,7 @@ const CreateListSheet: React.FC<{
                       className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
                   </div>
                 </div>
-                <div className="px-5 pb-3">
+                <div className="px-5 pb-3 space-y-2">
                   <button onClick={() => setMode('custom')} className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-primary/20 text-primary hover:bg-primary/5 transition-all">
                     <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center"><Edit3 size={16} /></div>
                     <div className="text-left">
@@ -142,6 +143,15 @@ const CreateListSheet: React.FC<{
                       <p className="text-[11px] text-primary/60">Choose your own name & emoji</p>
                     </div>
                   </button>
+                  {onCreateTrip && (
+                    <button onClick={() => { handleClose(); onCreateTrip(); }} className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-primary/20 text-primary hover:bg-primary/5 transition-all">
+                      <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center"><Plane size={16} /></div>
+                      <div className="text-left">
+                        <p className="text-sm font-semibold">Plan a Trip</p>
+                        <p className="text-[11px] text-primary/60">Organize restaurants by night</p>
+                      </div>
+                    </button>
+                  )}
                 </div>
                 <div className="flex-1 overflow-y-auto px-5 pb-5">
                   {Object.keys(groupedPresets).length === 0 ? (
@@ -1439,7 +1449,9 @@ const TripsTab: React.FC<{
   cacheRestaurantMeta: (meta: RestaurantMeta) => void;
   ratings: RestaurantRating[];
   onBack: () => void;
-}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip, rateRestaurant, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack }) => {
+  autoCreate?: boolean;
+  onAutoCreateHandled?: () => void;
+}> = ({ trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip, rateRestaurant, openAddRestaurantModal, cacheRestaurantMeta, ratings, onBack, autoCreate, onAutoCreateHandled }) => {
   const navigate = useNavigate();
   const { phoneMode } = useSettings();
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
@@ -1447,6 +1459,14 @@ const TripsTab: React.FC<{
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
 
   const selectedTrip = trips.find((t) => t.id === selectedTripId) || null;
+
+  // Auto-open create sheet when navigating from "Plan a Trip" in the lists popup
+  useEffect(() => {
+    if (autoCreate && !createOpen) {
+      setCreateOpen(true);
+      onAutoCreateHandled?.();
+    }
+  }, [autoCreate]);
 
   // Sort: active first, then upcoming by start date, then completed most-recent-first
   const sortedTrips = useMemo(() => {
@@ -2010,6 +2030,7 @@ export const Pantry: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [activeTab, setActiveTab] = useState<PantryTab>('lists');
   const [showTrips, setShowTrips] = useState(false);
+  const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
 
@@ -2240,6 +2261,8 @@ export const Pantry: React.FC = () => {
             cacheRestaurantMeta={cacheRestaurantMeta}
             ratings={ratings}
             onBack={() => setShowTrips(false)}
+            autoCreate={createTripFromList}
+            onAutoCreateHandled={() => setCreateTripFromList(false)}
           />
         ) : (
           <>
@@ -2260,15 +2283,17 @@ export const Pantry: React.FC = () => {
                   <span className="text-[10px] text-red-400 font-medium">{wishlist.length}</span>
                 </button>
 
-                {/* Trips pill */}
-                <button
-                  onClick={() => setShowTrips(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-primary/5 rounded-full border border-primary/20 shadow-sm hover:shadow-md transition-all flex-shrink-0"
-                >
-                  <Plane size={13} className="text-primary" />
-                  <span className="text-xs font-semibold text-primary whitespace-nowrap">Trips</span>
-                  {trips.length > 0 && <span className="text-[10px] text-primary/60 font-medium">{trips.length}</span>}
-                </button>
+                {/* Trips pill — only shown when trips exist */}
+                {trips.length > 0 && (
+                  <button
+                    onClick={() => setShowTrips(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-primary/5 rounded-full border border-primary/20 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                  >
+                    <Plane size={13} className="text-primary" />
+                    <span className="text-xs font-semibold text-primary whitespace-nowrap">Trips</span>
+                    <span className="text-[10px] text-primary/60 font-medium">{trips.length}</span>
+                  </button>
+                )}
 
                 {lists.map((list) => {
                   const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
@@ -2521,6 +2546,7 @@ export const Pantry: React.FC = () => {
         onClose={() => setCreateSheetOpen(false)}
         onCreate={(name, emoji, type) => createList(name, emoji, type)}
         existingListNames={lists.map((l) => l.name)}
+        onCreateTrip={() => { setShowTrips(true); setCreateTripFromList(true); }}
       />
 
       {/* City picker — full page sheet */}
