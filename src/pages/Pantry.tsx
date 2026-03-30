@@ -9,6 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useAuth } from '../contexts/AuthContext';
+import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 
 /* ── Preset list suggestions ── */
@@ -1537,11 +1538,12 @@ const AddToNightSheet: React.FC<{
   tripLng: number;
   existingRestaurantIds: Set<string>;
   ratings: RestaurantRating[];
+  tripHotels?: TripHotel[];
   addRestaurantToTrip: (tripId: string, restaurant: TripRestaurant) => void;
   openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
   rateRestaurant: (rating: RestaurantRating) => void;
   onClose: () => void;
-}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, rateRestaurant, onClose }) => {
+}> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, existingRestaurantIds, ratings, tripHotels = [], addRestaurantToTrip, openAddRestaurantModal, rateRestaurant, onClose }) => {
   const { phoneMode } = useSettings();
   const [page, setPage] = useState<AddNightPage>('select');
   const [mealType, setMealType] = useState<TripRestaurant['mealType']>('dinner');
@@ -1874,20 +1876,8 @@ const AddToNightSheet: React.FC<{
                   <h2 className="font-serif font-bold text-lg flex-1">Hotel Restaurant</h2>
                 </div>
 
-                <form onSubmit={(e) => { e.preventDefault(); handleSearchHotels(); }} className="px-5 pt-3 pb-2 flex-shrink-0">
-                  <div className="relative">
-                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                    <input type="text" value={hotelSearch} onChange={(e) => setHotelSearch(e.target.value)} placeholder="Hotel name or location..."
-                      autoFocus className="w-full pl-10 pr-20 py-2.5 bg-on-surface/5 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                    <button type="submit" disabled={hotelLoading || !hotelSearch.trim()}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-bold disabled:opacity-30 transition-opacity">
-                      {hotelLoading ? '...' : 'Search'}
-                    </button>
-                  </div>
-                </form>
-
                 {/* Meal type selector for hotel */}
-                <div className="px-5 py-2 flex-shrink-0">
+                <div className="px-5 pt-3 pb-2 flex-shrink-0">
                   <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
                     {(['breakfast', 'lunch', 'dinner', 'snack'] as TripRestaurant['mealType'][]).map((m) => (
                       <button key={m} onClick={() => setMealType(m)}
@@ -1900,6 +1890,68 @@ const AddToNightSheet: React.FC<{
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+                  {/* Trip hotels quick-add */}
+                  {tripHotels.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2">Your Trip Hotels</p>
+                      <div className="space-y-1.5">
+                        {tripHotels.map((hotel) => {
+                          const hotelId = hotel.placeId || hotel.id;
+                          const alreadyAdded = existingRestaurantIds.has(hotelId);
+                          const wasJustAdded = justAdded === hotelId;
+                          return (
+                            <div key={hotel.id} className="flex items-center gap-3 py-2.5 px-3 rounded-xl bg-teal-50/50 border border-teal-200/40">
+                              {hotel.image ? (
+                                <img src={hotel.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                              ) : (
+                                <div className="w-11 h-11 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0 text-base">🏨</div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[13px] font-semibold truncate">{hotel.name}</p>
+                                <p className="text-[10px] text-on-surface/40 truncate">{hotel.address}</p>
+                                {hotel.checkIn && <p className="text-[9px] text-teal-600/70 mt-0.5">{hotel.checkIn} → {hotel.checkOut}</p>}
+                              </div>
+                              <button
+                                onClick={() => {
+                                  if (alreadyAdded || wasJustAdded) return;
+                                  addRestaurantToTrip(tripId, {
+                                    restaurantId: hotelId,
+                                    name: hotel.name, image: hotel.image || '', cuisine: 'Hotel Breakfast', price: '', address: hotel.address,
+                                    night: nightIndex, mealType: mealType === 'dinner' ? 'breakfast' : mealType, status: 'planned',
+                                    reservationTime: reservationTime || undefined,
+                                  });
+                                  setJustAdded(hotelId);
+                                  setTimeout(() => setJustAdded(null), 1200);
+                                }}
+                                disabled={alreadyAdded}
+                                className={cn("w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all",
+                                  wasJustAdded ? "bg-green-100 text-green-600" :
+                                  alreadyAdded ? "bg-on-surface/5 text-on-surface/20 cursor-not-allowed" :
+                                  "bg-teal-100 text-teal-600 hover:bg-teal-200")}
+                              >
+                                {wasJustAdded || alreadyAdded ? <Check size={14} /> : <Plus size={14} />}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Search for other hotels */}
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2">{tripHotels.length > 0 ? 'Search Other Hotels' : 'Search Hotels'}</p>
+                  <form onSubmit={(e) => { e.preventDefault(); handleSearchHotels(); }} className="mb-3">
+                    <div className="relative">
+                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                      <input type="text" value={hotelSearch} onChange={(e) => setHotelSearch(e.target.value)} placeholder="Hotel name or location..."
+                        autoFocus={tripHotels.length === 0} className="w-full pl-10 pr-20 py-2.5 bg-on-surface/5 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      <button type="submit" disabled={hotelLoading || !hotelSearch.trim()}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-bold disabled:opacity-30 transition-opacity">
+                        {hotelLoading ? '...' : 'Search'}
+                      </button>
+                    </div>
+                  </form>
+
                   {hotelLoading && (
                     <div className="flex items-center justify-center py-12">
                       <Loader2 size={24} className="animate-spin text-primary" />
@@ -1910,7 +1962,7 @@ const AddToNightSheet: React.FC<{
                       <p className="text-sm text-on-surface/40">No hotels found</p>
                     </div>
                   )}
-                  {!hotelLoading && hotelResults.length === 0 && !hotelSearch && (
+                  {!hotelLoading && hotelResults.length === 0 && !hotelSearch && tripHotels.length === 0 && (
                     <div className="text-center py-12">
                       <span className="text-3xl mb-2 block">🏨</span>
                       <p className="text-sm text-on-surface/40">Search for a hotel</p>
@@ -1988,8 +2040,24 @@ const TripsTab: React.FC<{
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
   const [addNightSheetOpen, setAddNightSheetOpen] = useState(false);
   const [addNightIndex, setAddNightIndex] = useState<number>(0);
+  const [hotelDiningMap, setHotelDiningMap] = useState<Record<string, HotelDining[]>>({});
 
   const selectedTrip = trips.find((t) => t.id === selectedTripId) || null;
+
+  // Fetch hotel dining options for trip hotels
+  useEffect(() => {
+    if (!selectedTrip || selectedTrip.hotels.length === 0) { setHotelDiningMap({}); return; }
+    const fetchDining = async () => {
+      const map: Record<string, HotelDining[]> = {};
+      await Promise.all(selectedTrip.hotels.map(async (hotel) => {
+        const placeId = hotel.placeId || hotel.id;
+        const dining = await getHotelDining(placeId);
+        if (dining.length > 0) map[placeId] = dining;
+      }));
+      setHotelDiningMap(map);
+    };
+    fetchDining();
+  }, [selectedTrip?.id, selectedTrip?.hotels.length]);
 
   // Auto-open create sheet when navigating from "Plan a Trip" in the lists popup
   useEffect(() => {
@@ -2114,22 +2182,60 @@ const TripsTab: React.FC<{
         {selectedTrip.hotels.length > 0 && (
           <div className="mb-7">
             <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30 mb-2.5 px-1">Accommodation</p>
-            {selectedTrip.hotels.map((hotel) => (
-              <div key={hotel.id} className="bg-white rounded-2xl border border-on-surface/[0.06] shadow-sm p-3.5 mb-2 flex items-center gap-3">
-                {hotel.image ? (
-                  <img src={hotel.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-11 h-11 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0 text-base">🏨</div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-[13px] truncate">{hotel.name}</p>
-                  <p className="text-[10px] text-on-surface/35 mt-0.5">{hotel.checkIn} → {hotel.checkOut}</p>
+            {selectedTrip.hotels.map((hotel) => {
+              const hotelPlaceId = hotel.placeId || hotel.id;
+              const diningOptions = hotelDiningMap[hotelPlaceId] || [];
+              return (
+                <div key={hotel.id} className="mb-3">
+                  <div className="bg-white rounded-2xl border border-on-surface/[0.06] shadow-sm p-3.5 flex items-center gap-3">
+                    {hotel.image ? (
+                      <img src={hotel.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-11 h-11 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0 text-base">🏨</div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-[13px] truncate">{hotel.name}</p>
+                      <p className="text-[10px] text-on-surface/35 mt-0.5">{hotel.checkIn} → {hotel.checkOut}</p>
+                    </div>
+                    {hotel.confirmationNumber && (
+                      <span className="text-[9px] text-on-surface/25 font-mono flex-shrink-0">#{hotel.confirmationNumber}</span>
+                    )}
+                  </div>
+                  {/* Dining options for this hotel */}
+                  {diningOptions.length > 0 && (
+                    <div className="ml-5 mt-1.5 border-l-2 border-teal-200/50 pl-3.5">
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-teal-600/50 mb-1.5">Dining at {hotel.name.split(' ').slice(0, 3).join(' ')}</p>
+                      {diningOptions.map((d) => (
+                        <div key={d.id} className="flex items-center gap-2.5 py-1.5">
+                          <div className="w-7 h-7 rounded-md bg-teal-50 flex items-center justify-center flex-shrink-0 text-xs">
+                            {d.dining_type === 'breakfast' ? '🥐' : d.dining_type === 'bar' ? '🍸' : d.dining_type === 'room_service' ? '🛎️' : d.dining_type === 'pool_bar' ? '🏊' : d.dining_type === 'rooftop' ? '🌇' : '🍽️'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-semibold truncate">{d.restaurant_name}</p>
+                            <p className="text-[8px] text-on-surface/30 capitalize">{d.dining_type.replace('_', ' ')}</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setAddNightIndex(0);
+                              addRestaurantToTrip(selectedTrip.id, {
+                                restaurantId: d.restaurant_place_id,
+                                name: d.restaurant_name, image: '', cuisine: d.dining_type === 'breakfast' ? 'Hotel Breakfast' : 'Hotel Restaurant',
+                                price: '', address: d.hotel_address,
+                                night: 0, mealType: d.dining_type === 'breakfast' ? 'breakfast' : d.dining_type === 'bar' || d.dining_type === 'pool_bar' || d.dining_type === 'rooftop' ? 'drinks' : 'dinner',
+                                status: 'planned',
+                              });
+                            }}
+                            className="px-2 py-1 rounded-lg bg-teal-50 text-teal-600 hover:bg-teal-100 transition-colors flex-shrink-0"
+                          >
+                            <Plus size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {hotel.confirmationNumber && (
-                  <span className="text-[9px] text-on-surface/25 font-mono flex-shrink-0">#{hotel.confirmationNumber}</span>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -2263,6 +2369,7 @@ const TripsTab: React.FC<{
           tripLng={selectedTrip.destinationLng}
           existingRestaurantIds={new Set(selectedTrip.restaurants.filter((r) => r.night === addNightIndex).map((r) => r.restaurantId))}
           ratings={ratings}
+          tripHotels={selectedTrip.hotels}
           addRestaurantToTrip={addRestaurantToTrip}
           openAddRestaurantModal={openAddRestaurantModal}
           rateRestaurant={rateRestaurant}
@@ -2380,6 +2487,11 @@ const CreateTripSheet: React.FC<{
   const [coverImage, setCoverImage] = useState('');
   const [status, setStatus] = useState<Trip['status']>('planning');
   const [calendarOpen, setCalendarOpen] = useState<'start' | 'end' | null>(null);
+  const [hotels, setHotels] = useState<TripHotel[]>([]);
+
+  // Hotel suggestions
+  const [suggestedHotels, setSuggestedHotels] = useState<PlaceResult[]>([]);
+  const [hotelsLoading, setHotelsLoading] = useState(false);
 
   // Location search
   const [locQuery, setLocQuery] = useState('');
@@ -2400,6 +2512,8 @@ const CreateTripSheet: React.FC<{
       setNotes(trip?.notes || '');
       setCoverImage(trip?.coverImage || '');
       setStatus(trip?.status || 'planning');
+      setHotels(trip?.hotels || []);
+      setSuggestedHotels([]);
       setLocQuery('');
       setLocResults([]);
       setCalendarOpen(null);
@@ -2434,6 +2548,38 @@ const CreateTripSheet: React.FC<{
     })();
   }, [destination, destLat]);
 
+  // Search for hotels near destination
+  useEffect(() => {
+    if (!destLat || !destLng || !destination) { setSuggestedHotels([]); return; }
+    // Don't search if editing an existing trip (already has hotels)
+    if (trip && trip.hotels.length > 0) return;
+    setHotelsLoading(true);
+    (async () => {
+      try {
+        const results = await searchHotels('hotels', destLat, destLng);
+        setSuggestedHotels(results.slice(0, 6));
+      } catch { setSuggestedHotels([]); }
+      finally { setHotelsLoading(false); }
+    })();
+  }, [destLat, destLng, destination]);
+
+  const addSuggestedHotel = (place: PlaceResult) => {
+    if (hotels.some((h) => h.placeId === place.id)) return;
+    setHotels((prev) => [...prev, {
+      id: crypto.randomUUID(),
+      name: place.name,
+      address: place.address,
+      checkIn: startDate,
+      checkOut: endDate,
+      image: place.photoUrl || undefined,
+      placeId: place.id,
+    }]);
+  };
+
+  const removeSuggestedHotel = (hotelId: string) => {
+    setHotels((prev) => prev.filter((h) => h.id !== hotelId));
+  };
+
   const handleSave = () => {
     if (!name.trim() || !startDate || !endDate) return;
     onSave({
@@ -2444,7 +2590,7 @@ const CreateTripSheet: React.FC<{
       startDate,
       endDate,
       coverImage: coverImage || undefined,
-      hotels: trip?.hotels || [],
+      hotels,
       restaurants: trip?.restaurants || [],
       notes: notes || undefined,
       status,
@@ -2598,6 +2744,64 @@ const CreateTripSheet: React.FC<{
                     <X size={12} />
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Suggested Hotels */}
+            {destination && destLat > 0 && (
+              <div className="mb-4">
+                <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-1.5 block">Hotels</label>
+                {/* Already added hotels */}
+                {hotels.length > 0 && (
+                  <div className="space-y-1.5 mb-3">
+                    {hotels.map((h) => (
+                      <div key={h.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-teal-50/50 border border-teal-200/40">
+                        {h.image ? (
+                          <img src={h.image} className="w-9 h-9 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-9 h-9 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0 text-sm">🏨</div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold truncate">{h.name}</p>
+                          <p className="text-[9px] text-on-surface/35 truncate">{h.address}</p>
+                        </div>
+                        <button onClick={() => removeSuggestedHotel(h.id)} className="p-1 text-on-surface/20 hover:text-red-400 transition-colors flex-shrink-0">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Suggestions */}
+                {hotelsLoading && (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 size={18} className="animate-spin text-teal-500" />
+                    <span className="text-xs text-on-surface/35 ml-2">Finding hotels nearby...</span>
+                  </div>
+                )}
+                {!hotelsLoading && suggestedHotels.length > 0 && (
+                  <div className="space-y-1.5">
+                    {suggestedHotels.filter((s) => !hotels.some((h) => h.placeId === s.id)).map((place) => (
+                      <button key={place.id} onClick={() => addSuggestedHotel(place)}
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-on-surface/8 bg-white hover:border-teal-300 transition-all text-left">
+                        {place.photoUrl ? (
+                          <img src={place.photoUrl} className="w-9 h-9 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-9 h-9 rounded-lg bg-on-surface/5 flex items-center justify-center flex-shrink-0 text-sm">🏨</div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold truncate">{place.name}</p>
+                          <p className="text-[9px] text-on-surface/35 truncate">{place.address}</p>
+                          {place.rating > 0 && <p className="text-[8px] text-on-surface/25 mt-0.5">★ {place.rating.toFixed(1)}</p>}
+                        </div>
+                        <Plus size={14} className="text-teal-500 flex-shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!hotelsLoading && suggestedHotels.length === 0 && hotels.length === 0 && (
+                  <p className="text-[11px] text-on-surface/25 text-center py-3">No hotel suggestions available</p>
+                )}
               </div>
             )}
 
