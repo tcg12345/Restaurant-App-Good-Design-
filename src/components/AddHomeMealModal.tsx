@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, CalendarDays, Tag, StickyNote, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Link as LinkIcon, Search, GripVertical, Star } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, CalendarDays, Tag, StickyNote, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Link as LinkIcon, Search, GripVertical, Star, BookOpen } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem, type HomeMealDish } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Calendar } from './RatingShared';
+import { useRecipes } from '../contexts/RecipesContext';
 
 const HOME_COOKING_TAGS = [
   'Italian Night', 'Meal Prep', 'Holiday Meal', 'Grilling', 'Baking',
@@ -21,6 +22,7 @@ export const AddHomeMealModal: React.FC = () => {
     createHomeMeal, updateHomeMeal, deleteHomeMeal,
   } = useLists();
   const { phoneMode } = useSettings();
+  const { myRecipes } = useRecipes();
 
   const existing = homeMealModalData;
 
@@ -40,6 +42,8 @@ export const AddHomeMealModal: React.FC = () => {
   const [dishDescription, setDishDescription] = useState('');
   const [dishPhoto, setDishPhoto] = useState('');
   const [confirmDishDelete, setConfirmDishDelete] = useState(false);
+  const [recipePickerOpen, setRecipePickerOpen] = useState(false);
+  const [recipeSearch, setRecipeSearch] = useState('');
 
   const [tagSearch, setTagSearch] = useState('');
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -164,6 +168,8 @@ export const AddHomeMealModal: React.FC = () => {
       setDishPhoto('');
     }
     setConfirmDishDelete(false);
+    setRecipePickerOpen(false);
+    setRecipeSearch('');
     setPage('dishes');
   };
 
@@ -495,13 +501,92 @@ export const AddHomeMealModal: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Link Recipe (coming soon) */}
+                    {/* Link Recipe */}
                     <div>
-                      <button disabled
-                        className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-on-surface/8 bg-on-surface/3 text-left opacity-50 cursor-not-allowed">
-                        <LinkIcon size={17} className="text-on-surface/25 flex-shrink-0" />
-                        <span className="text-xs font-semibold text-on-surface/40 flex-1">Link Recipe (coming soon)</span>
-                      </button>
+                      {(() => {
+                        const currentDish = editingDishId ? dishes.find((d) => d.id === editingDishId) : null;
+                        const linkedRecipe = currentDish?.recipeLink ? myRecipes.find((r) => r.id === currentDish.recipeLink) : null;
+                        return (
+                          <>
+                            <button onClick={() => setRecipePickerOpen(!recipePickerOpen)}
+                              className={cn("w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left",
+                                linkedRecipe ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
+                              )}>
+                              <BookOpen size={17} className={cn("flex-shrink-0", linkedRecipe ? "text-primary" : "text-on-surface/25")} />
+                              <span className={cn("text-xs font-semibold flex-1", linkedRecipe ? "text-primary" : "text-on-surface/40")}>
+                                {linkedRecipe ? linkedRecipe.title : 'Link Recipe'}
+                              </span>
+                              {linkedRecipe && (
+                                <button onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDishes((prev) => prev.map((d) => d.id === editingDishId ? { ...d, recipeLink: '' } : d));
+                                }} className="text-primary/40 hover:text-primary">
+                                  <X size={13} />
+                                </button>
+                              )}
+                              <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
+                            </button>
+                            <AnimatePresence>
+                              {recipePickerOpen && (
+                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.2 }} className="overflow-hidden">
+                                  <div className="mt-2 border border-on-surface/8 rounded-xl bg-white overflow-hidden">
+                                    <div className="px-3 py-2 border-b border-on-surface/6">
+                                      <div className="relative">
+                                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                                        <input type="text" value={recipeSearch} onChange={(e) => setRecipeSearch(e.target.value)}
+                                          placeholder="Search recipes..." autoFocus
+                                          className="w-full bg-on-surface/3 rounded-lg pl-8 pr-3 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                                      </div>
+                                    </div>
+                                    <div className="max-h-40 overflow-y-auto">
+                                      {myRecipes.length === 0 ? (
+                                        <div className="px-3 py-4 text-center">
+                                          <BookOpen size={20} className="mx-auto text-on-surface/15 mb-1" />
+                                          <p className="text-[11px] text-on-surface/30">No recipes yet</p>
+                                        </div>
+                                      ) : (
+                                        (() => {
+                                          const filtered = recipeSearch.trim()
+                                            ? myRecipes.filter((r) => r.title.toLowerCase().includes(recipeSearch.toLowerCase()))
+                                            : myRecipes;
+                                          return filtered.length === 0 ? (
+                                            <p className="px-3 py-4 text-center text-[11px] text-on-surface/30">No matching recipes</p>
+                                          ) : filtered.map((recipe) => {
+                                            const isLinked = currentDish?.recipeLink === recipe.id;
+                                            return (
+                                              <button key={recipe.id} onClick={() => {
+                                                if (editingDishId) {
+                                                  setDishes((prev) => prev.map((d) => d.id === editingDishId ? { ...d, recipeLink: recipe.id } : d));
+                                                }
+                                                setRecipePickerOpen(false);
+                                                setRecipeSearch('');
+                                              }}
+                                                className={cn("w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors border-b border-on-surface/4 last:border-0",
+                                                  isLinked ? "bg-primary/5" : "hover:bg-on-surface/3"
+                                                )}>
+                                                {recipe.photos?.[0] ? (
+                                                  <img src={recipe.photos[0]} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                                                ) : (
+                                                  <div className="w-8 h-8 rounded-lg bg-primary/5 flex items-center justify-center flex-shrink-0">
+                                                    <BookOpen size={12} className="text-primary/30" />
+                                                  </div>
+                                                )}
+                                                <span className={cn("text-xs font-medium flex-1 truncate", isLinked ? "text-primary" : "text-on-surface/60")}>{recipe.title}</span>
+                                                {isLinked && <Check size={14} className="text-primary flex-shrink-0" />}
+                                              </button>
+                                            );
+                                          });
+                                        })()
+                                      )}
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {/* Delete dish */}
