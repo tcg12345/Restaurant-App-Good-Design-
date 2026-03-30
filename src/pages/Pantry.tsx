@@ -1,7 +1,7 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -1371,7 +1371,7 @@ const FilterSheet: React.FC<{
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
                 <div className="flex flex-wrap gap-2">
-                  {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added']] as const).map(([key, label]) => (
+                  {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added'], ['custom', 'Custom Order']] as const).map(([key, label]) => (
                     <button key={key} onClick={() => onSortBy(key)}
                       className={cn("px-3.5 py-2 rounded-full text-xs font-semibold transition-all",
                         sortBy === key ? "bg-primary text-white" : "bg-on-surface/5 text-on-surface/50 hover:bg-on-surface/10")}>{label}</button>
@@ -2857,7 +2857,8 @@ export const Pantry: React.FC = () => {
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
-  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added'>('highest');
+  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'added' | 'custom'>('highest');
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
 
   // Quick filter dropdowns
   const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
@@ -2867,7 +2868,7 @@ export const Pantry: React.FC = () => {
 
   const closeAllDropdowns = () => { setCityDropdownOpen(false); setCuisineDropdownOpen(false); setPriceDropdownOpen(false); setSortDropdownOpen(false); };
 
-  const sortLabels: Record<string, string> = { recent: 'Recent', highest: 'Highest', lowest: 'Lowest', added: 'Date Added' };
+  const sortLabels: Record<string, string> = { recent: 'Recent', highest: 'Highest', lowest: 'Lowest', added: 'Date Added', custom: 'Custom' };
 
   // Main search
   const [mainSearchOpen, setMainSearchOpen] = useState(false);
@@ -2941,9 +2942,17 @@ export const Pantry: React.FC = () => {
     addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
     addHotelToTrip, updateHotel, removeHotelFromTrip,
     rateRestaurant, cacheRestaurantMeta, addToList,
+    customOrder, setCustomOrder,
   } = useLists();
 
   const listScrollRef = useRef<HTMLDivElement>(null);
+
+  // Clear drag on global pointer up
+  useEffect(() => {
+    const up = () => setDragIdx(null);
+    window.addEventListener('pointerup', up);
+    return () => window.removeEventListener('pointerup', up);
+  }, []);
 
   // Extract unique cities from addresses
   const allCities = useMemo(() => {
@@ -2985,18 +2994,44 @@ export const Pantry: React.FC = () => {
     if (priceFilter) result = result.filter((r) => r.price === priceFilter);
     result = result.filter((r) => r.score >= scoreRange[0] && r.score <= scoreRange[1]);
 
-    if (sortBy === 'highest') result.sort((a, b) => b.score - a.score);
+    if (sortBy === 'custom') {
+      const orderMap = new Map(customOrder.map((id, i) => [id, i]));
+      result.sort((a, b) => {
+        const ai = orderMap.get(a.restaurantId) ?? Infinity;
+        const bi = orderMap.get(b.restaurantId) ?? Infinity;
+        return ai - bi;
+      });
+    } else if (sortBy === 'highest') result.sort((a, b) => b.score - a.score);
     else if (sortBy === 'lowest') result.sort((a, b) => a.score - b.score);
     else if (sortBy === 'added') result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     return result;
-  }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, scoreRange, sortBy]);
+  }, [ratings, mainSearchQuery, cityFilter, cuisineFilter, priceFilter, scoreRange, sortBy, customOrder]);
+
+  // Drag-to-reorder for custom sort
+  const moveRating = useCallback((from: number, to: number) => {
+    if (from === to) return;
+    const ids = filteredRatings.map((r) => r.restaurantId);
+    const [moved] = ids.splice(from, 1);
+    ids.splice(to, 0, moved);
+    const fullOrder = [...ids, ...customOrder.filter((id) => !ids.includes(id))];
+    setCustomOrder(fullOrder);
+  }, [filteredRatings, customOrder, setCustomOrder]);
 
   const regularRatingsCount = useMemo(() => ratings.filter((r) => r.cuisine !== 'Hotel Breakfast').length, [ratings]);
   const regularWishlist = useMemo(() => wishlist.filter((w) => w.cuisine !== 'Hotel Breakfast'), [wishlist]);
 
-  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
+  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
+
+  // Seed custom order from current sort if empty when switching to custom
+  const handleSortBy = useCallback((v: typeof sortBy) => {
+    if (v === 'custom' && customOrder.length === 0) {
+      const sorted = [...ratings.filter((r) => r.cuisine !== 'Hotel Breakfast')].sort((a, b) => b.score - a.score);
+      setCustomOrder(sorted.map((r) => r.restaurantId));
+    }
+    setSortBy(v);
+  }, [customOrder, ratings, setCustomOrder]);
 
   const handleResetFilters = () => {
     setCityFilter([]); setCuisineFilter([]); setPriceFilter(null);
@@ -3265,10 +3300,11 @@ export const Pantry: React.FC = () => {
               <div className="space-y-5">
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
-                  <div className={effectiveViewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" : "space-y-3"}>
-                    {filteredRatings.map((r) => {
+                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" : "space-y-3"}>
+                    {filteredRatings.map((r, idx) => {
                       const inLists = getListsForRestaurant(r.restaurantId);
-                      return effectiveViewMode === 'grid' ? (
+                      const isCustom = sortBy === 'custom';
+                      return (sortBy !== 'custom' && effectiveViewMode === 'grid') ? (
                         <RestaurantGridCard
                           key={r.restaurantId}
                           restaurantId={r.restaurantId}
@@ -3281,22 +3317,52 @@ export const Pantry: React.FC = () => {
                           onRemove={() => removeRating(r.restaurantId)}
                         />
                       ) : (
-                        <RestaurantRow
-                          key={r.restaurantId}
-                          restaurantId={r.restaurantId}
-                          name={r.name}
-                          image={r.image}
-                          cuisine={r.cuisine}
-                          price={r.price}
-                          address={r.address}
-                          score={r.score}
-                          tags={r.tags}
-                          notes={r.notes}
-                          visitDate={r.visitDate}
-                          wouldReturn={r.wouldReturn}
-                          listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
-                          onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
-                        />
+                        <div key={r.restaurantId} className="flex items-center gap-2">
+                          {isCustom && (
+                            <>
+                              <div className="flex flex-col items-center w-7 shrink-0">
+                                {idx === 0 ? (
+                                  <Crown size={18} className="text-amber-500 fill-amber-500" />
+                                ) : (
+                                  <span className="text-xs font-bold text-on-surface/35">#{idx + 1}</span>
+                                )}
+                              </div>
+                              <button
+                                className="touch-none shrink-0 w-7 h-10 flex items-center justify-center cursor-grab active:cursor-grabbing text-on-surface/25 hover:text-on-surface/50 transition-colors"
+                                onPointerDown={() => setDragIdx(idx)}
+                                onPointerUp={() => {
+                                  if (dragIdx !== null && dragIdx !== idx) moveRating(dragIdx, idx);
+                                  setDragIdx(null);
+                                }}
+                                onPointerEnter={() => {
+                                  if (dragIdx !== null && dragIdx !== idx) {
+                                    moveRating(dragIdx, idx);
+                                    setDragIdx(idx);
+                                  }
+                                }}
+                              >
+                                <GripVertical size={16} />
+                              </button>
+                            </>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <RestaurantRow
+                              restaurantId={r.restaurantId}
+                              name={r.name}
+                              image={r.image}
+                              cuisine={r.cuisine}
+                              price={r.price}
+                              address={r.address}
+                              score={r.score}
+                              tags={r.tags}
+                              notes={r.notes}
+                              visitDate={r.visitDate}
+                              wouldReturn={r.wouldReturn}
+                              listBadges={inLists.map((l) => ({ emoji: l.emoji, name: l.name }))}
+                              onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                            />
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
@@ -3341,7 +3407,7 @@ export const Pantry: React.FC = () => {
         open={filtersOpen}
         onClose={() => setFiltersOpen(false)}
         sortBy={sortBy}
-        onSortBy={setSortBy}
+        onSortBy={handleSortBy}
         scoreRange={scoreRange}
         onScoreRange={setScoreRange}
         cityFilter={cityFilter}
@@ -3482,8 +3548,8 @@ export const Pantry: React.FC = () => {
                   </button>
                 </div>
                 <div className="space-y-1.5">
-                  {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added']] as const).map(([key, label]) => (
-                    <button key={key} onClick={() => { setSortBy(key); setSortDropdownOpen(false); }}
+                  {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added'], ['custom', 'Custom Order']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => { handleSortBy(key); setSortDropdownOpen(false); }}
                       className={cn("w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left",
                         sortBy === key ? "bg-primary/5 text-primary" : "text-on-surface/70 hover:bg-on-surface/3")}>
                       <span className="text-sm font-medium">{label}</span>

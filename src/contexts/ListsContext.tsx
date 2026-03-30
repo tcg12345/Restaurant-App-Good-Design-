@@ -175,6 +175,10 @@ interface ListsContextValue {
   addHotelToTrip: (tripId: string, hotel: TripHotel) => void;
   updateHotel: (tripId: string, hotelId: string, updates: Partial<TripHotel>) => void;
   removeHotelFromTrip: (tripId: string, hotelId: string) => void;
+
+  // Custom ranking order
+  customOrder: string[];
+  setCustomOrder: (order: string[]) => void;
 }
 
 const STORAGE_KEY_RATINGS = 'gourmad-ratings';
@@ -182,6 +186,7 @@ const STORAGE_KEY_LISTS = 'gourmad-lists';
 const STORAGE_KEY_WISHLIST = 'gourmad-wishlist';
 const STORAGE_KEY_META = 'gourmad-restaurant-meta';
 const STORAGE_KEY_TRIPS = 'gourmad-trips';
+const STORAGE_KEY_CUSTOM_ORDER = 'gourmad-custom-order';
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -243,6 +248,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [wishlist, setWishlist] = useState<WishlistItem[]>(() => migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, [])));
   const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
   const [trips, setTrips] = useState<Trip[]>(() => loadFromStorage(STORAGE_KEY_TRIPS, []));
+  const [customOrder, setCustomOrderState] = useState<string[]>(() => loadFromStorage(STORAGE_KEY_CUSTOM_ORDER, []));
   const [cloudLoaded, setCloudLoaded] = useState(false);
 
   // Track userId and profile for cloud save helpers
@@ -268,6 +274,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.removeItem(STORAGE_KEY_WISHLIST);
       localStorage.removeItem(STORAGE_KEY_META);
       localStorage.removeItem(STORAGE_KEY_TRIPS);
+      localStorage.removeItem(STORAGE_KEY_CUSTOM_ORDER);
       localStorage.removeItem('gourmad-recent-views');
       // Reset state to empty
       setRatings([]);
@@ -275,6 +282,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setWishlist([]);
       setRestaurantMeta({});
       setTrips([]);
+      setCustomOrderState([]);
     }
     localStorage.setItem('gourmad-user-id', userId);
 
@@ -296,12 +304,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           ? (cloud as any).trips
           : (Array.isArray((cloudMeta as any).__trips__) ? (cloudMeta as any).__trips__ : []);
         const cloudRecentViews = cloud.recentViews || [];
+        // Restore custom order from meta
+        const cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
 
         setRatings(cloudRatings);
         setLists(cloudLists);
         setWishlist(cloudWishlist);
         setRestaurantMeta(cloudMeta);
         setTrips(cloudTrips as Trip[]);
+        setCustomOrderState(cloudCustomOrder);
 
         // Also update localStorage as cache
         saveToStorage(STORAGE_KEY_RATINGS, cloudRatings);
@@ -309,6 +320,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
         saveToStorage(STORAGE_KEY_META, cloudMeta);
         saveToStorage(STORAGE_KEY_TRIPS, cloudTrips);
+        saveToStorage(STORAGE_KEY_CUSTOM_ORDER, cloudCustomOrder);
         if (cloudRecentViews.length > 0) {
           localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews));
         }
@@ -338,6 +350,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setWishlist([]);
         setRestaurantMeta({});
         setTrips([]);
+        setCustomOrderState([]);
 
         // Save empty state to cloud
         await saveUserData(userId, {
@@ -355,6 +368,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_WISHLIST, []);
         saveToStorage(STORAGE_KEY_META, {});
         saveToStorage(STORAGE_KEY_TRIPS, []);
+        saveToStorage(STORAGE_KEY_CUSTOM_ORDER, []);
         localStorage.setItem('gourmad-recent-views', '[]');
       }
 
@@ -400,6 +414,19 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return next;
       });
     }
+  }, [syncMetaToCloud]);
+
+  // ── Custom Order ──
+  const setCustomOrder = useCallback((order: string[]) => {
+    setCustomOrderState(order);
+    saveToStorage(STORAGE_KEY_CUSTOM_ORDER, order);
+    // Persist inside restaurant_meta for cloud sync
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, __custom_order__: order as unknown as RestaurantMeta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
   }, [syncMetaToCloud]);
 
   // ── Trip CRUD ──
@@ -569,6 +596,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
     }
     cacheRestaurantMeta({ id: rating.restaurantId, name: rating.name, image: rating.image, cuisine: rating.cuisine, price: rating.price, address: rating.address });
+    // Add new ratings to top of custom order
+    setCustomOrderState((prev) => {
+      if (prev.includes(rating.restaurantId)) return prev;
+      const next = [rating.restaurantId, ...prev];
+      saveToStorage(STORAGE_KEY_CUSTOM_ORDER, next);
+      return next;
+    });
     // Publish to community
     if (userIdRef.current) {
       publishCommunityRating(userIdRef.current, rating.restaurantId, {
@@ -600,6 +634,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const next = prev.filter((r) => r.restaurantId !== restaurantId);
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
+      return next;
+    });
+    setCustomOrderState((prev) => {
+      const next = prev.filter((id) => id !== restaurantId);
+      saveToStorage(STORAGE_KEY_CUSTOM_ORDER, next);
       return next;
     });
     if (userIdRef.current) {
@@ -796,6 +835,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
       wishlistModalOpen, wishlistModalMeta, openWishlistModal, closeWishlistModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
+      customOrder, setCustomOrder,
     }}>
       {children}
     </ListsContext.Provider>
