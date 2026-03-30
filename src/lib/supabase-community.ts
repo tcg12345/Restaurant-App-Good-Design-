@@ -758,3 +758,76 @@ export async function removeHotelDining(userId: string, hotelPlaceId: string, re
     return true;
   } catch (err) { console.error('[HotelDining] removeHotelDining exception:', err); return false; }
 }
+
+/* ═══════════════════════════════════════════════
+   VISIT HISTORY
+   ═══════════════════════════════════════════════ */
+
+export interface VisitRecord {
+  id: string;
+  user_id: string;
+  restaurant_id: string;
+  score: number;
+  notes: string;
+  visit_date: string;
+  tags: string[];
+  would_return: boolean;
+  photos: { url: string; caption: string; isFavorite: boolean }[];
+  friend_ids: string[];
+  created_at: string;
+}
+
+/** Save a previous rating as a visit history record. */
+export async function saveVisitRecord(
+  userId: string,
+  data: {
+    restaurantId: string;
+    score: number;
+    notes: string;
+    visitDate: string;
+    tags: string[];
+    wouldReturn: boolean;
+    photos: { url: string; caption: string; isFavorite: boolean }[];
+    friendIds: string[];
+  }
+): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    const { error } = await supabase.from('visit_history').insert({
+      user_id: userId,
+      restaurant_id: data.restaurantId,
+      score: data.score,
+      notes: data.notes,
+      visit_date: data.visitDate,
+      tags: data.tags,
+      would_return: data.wouldReturn,
+      photos: data.photos,
+      friend_ids: data.friendIds,
+    });
+    if (error) { console.error('[VisitHistory] saveVisitRecord error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[VisitHistory] saveVisitRecord exception:', err); return false; }
+}
+
+/** Get visit history for a user + restaurant, ordered by visit date DESC. */
+export async function getVisitHistory(userId: string, restaurantId: string): Promise<VisitRecord[]> {
+  if (!supabaseConfigured || !userId || !restaurantId) return [];
+  try {
+    const { data, error } = await supabase.from('visit_history')
+      .select('*').eq('user_id', userId).eq('restaurant_id', restaurantId)
+      .order('created_at', { ascending: false });
+    if (error) { console.error('[VisitHistory] getVisitHistory error:', error); return []; }
+    return (data || []) as VisitRecord[];
+  } catch (err) { console.error('[VisitHistory] getVisitHistory exception:', err); return []; }
+}
+
+/** Delete a visit history record. */
+export async function deleteVisitRecord(userId: string, recordId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !recordId) return false;
+  try {
+    const { error } = await supabase.from('visit_history')
+      .delete().eq('user_id', userId).eq('id', recordId);
+    if (error) { console.error('[VisitHistory] deleteVisitRecord error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[VisitHistory] deleteVisitRecord exception:', err); return false; }
+}

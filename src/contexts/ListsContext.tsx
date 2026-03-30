@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips } from '../lib/supabase-db';
-import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos } from '../lib/supabase-community';
+import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 
 /* ── Types ── */
@@ -532,6 +532,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Ratings
   const rateRestaurant = useCallback((rating: RestaurantRating) => {
     setRatings((prev) => {
+      // Save old rating to visit history before overwriting
+      const existing = prev.find((r) => r.restaurantId === rating.restaurantId);
+      if (existing && userIdRef.current) {
+        saveVisitRecord(userIdRef.current, {
+          restaurantId: existing.restaurantId,
+          score: existing.score,
+          notes: existing.notes,
+          visitDate: existing.visitDate,
+          tags: existing.tags,
+          wouldReturn: existing.wouldReturn,
+          photos: existing.photos || [],
+          friendIds: existing.friendIds || [],
+        }).catch(() => console.warn('[VisitHistory] Failed to save visit record'));
+      }
       const next = [rating, ...prev.filter((r) => r.restaurantId !== rating.restaurantId)];
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
