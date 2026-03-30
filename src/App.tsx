@@ -18,6 +18,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ListsProvider } from './contexts/ListsContext';
+import { RecipesProvider } from './contexts/RecipesContext';
 import { RatingModal } from './components/RatingModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
@@ -146,7 +147,9 @@ export default function App() {
       <AuthProvider>
         <SettingsProvider>
           <ListsProvider>
-            <AppContent />
+            <RecipesProvider>
+              <AppContent />
+            </RecipesProvider>
           </ListsProvider>
         </SettingsProvider>
       </AuthProvider>
