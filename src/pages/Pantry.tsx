@@ -1,9 +1,9 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, ChefHat, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
+import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, type PlaceResult } from '../lib/places';
@@ -2634,12 +2634,287 @@ const CreateTripSheet: React.FC<{
   );
 };
 
+/* ── Home Cooking Tab ── */
+const HOME_MEAL_TAGS = ['Comfort Food', 'Healthy', 'Quick & Easy', 'Baking', 'Date Night', 'Meal Prep', 'Grill', 'Pasta', 'Asian', 'Mexican', 'Italian', 'Dessert', 'Breakfast', 'Soup', 'Salad', 'Seafood', 'Vegetarian', 'New Recipe'];
+
+const HomeCookingTab: React.FC<{
+  meals: HomeMeal[];
+  onCreateMeal: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
+  onUpdateMeal: (id: string, updates: Partial<HomeMeal>) => void;
+  onDeleteMeal: (id: string) => void;
+  onOpenModal: (meal?: HomeMeal) => void;
+  onBack: () => void;
+}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack }) => {
+  const { phoneMode } = useSettings();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<'recent' | 'highest'>('recent');
+  const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const selectedMeal = meals.find((m) => m.id === selectedMealId) || null;
+
+  const filteredMeals = useMemo(() => {
+    let result = [...meals];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((m) =>
+        m.name.toLowerCase().includes(q) ||
+        m.dishes.some((d) => d.name.toLowerCase().includes(q)) ||
+        m.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    }
+
+    if (sortBy === 'recent') {
+      result.sort((a, b) => b.createdAt - a.createdAt);
+    } else {
+      result.sort((a, b) => b.score - a.score);
+    }
+
+    return result;
+  }, [meals, searchQuery, sortBy]);
+
+  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+
+  // ── Meal detail view ──
+  if (selectedMeal) {
+    return (
+      <div>
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => setSelectedMealId(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+            <ArrowLeft size={20} />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-serif font-bold text-xl truncate">{selectedMeal.name}</h2>
+            <p className="text-xs text-on-surface/40">
+              {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+            </p>
+          </div>
+          <button onClick={() => onOpenModal(selectedMeal)}
+            className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
+            <Edit3 size={18} />
+          </button>
+          <button onClick={() => setConfirmDeleteId(selectedMeal.id)}
+            className="p-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
+            <Trash2 size={18} />
+          </button>
+        </div>
+
+        {/* Score + tags row */}
+        <div className="flex items-center gap-3 mb-4">
+          <div className={cn("text-2xl font-bold", scoreColor(selectedMeal.score))}>{selectedMeal.score.toFixed(1)}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {selectedMeal.tags.map((tag) => (
+              <span key={tag} className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[11px] font-semibold">{tag}</span>
+            ))}
+          </div>
+        </div>
+
+        {/* Description */}
+        {selectedMeal.description && (
+          <p className="text-sm text-on-surface/70 mb-5 leading-relaxed">{selectedMeal.description}</p>
+        )}
+
+        {/* Photos */}
+        {selectedMeal.photos.length > 0 && (
+          <div className="mb-5">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/40 mb-3">Photos</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {selectedMeal.photos.map((photo, i) => (
+                <div key={i} className="aspect-square rounded-xl overflow-hidden">
+                  <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Dishes */}
+        {selectedMeal.dishes.length > 0 && (
+          <div className="mb-5">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/40 mb-3">Dishes ({selectedMeal.dishes.length})</h3>
+            <div className="space-y-3">
+              {selectedMeal.dishes.map((dish) => (
+                <div key={dish.id} className="flex gap-3 p-3 bg-white rounded-xl border border-on-surface/6">
+                  {dish.photo && (
+                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
+                      <img src={dish.photo} alt={dish.name} className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-on-surface truncate">{dish.name}</p>
+                    {dish.description && <p className="text-xs text-on-surface/50 mt-0.5 line-clamp-2">{dish.description}</p>}
+                    {dish.recipeLink && (
+                      <a href={dish.recipeLink} target="_blank" rel="noopener noreferrer"
+                        className="text-[11px] text-primary font-medium mt-1 inline-block hover:underline">View Recipe</a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {selectedMeal.isPublic && (
+          <p className="text-[11px] text-on-surface/30 mt-4">Shared on social feed</p>
+        )}
+
+        {/* Delete confirm */}
+        <AnimatePresence>
+          {confirmDeleteId && (
+            <>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/40 z-50" onClick={() => setConfirmDeleteId(null)} />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 bg-white rounded-2xl p-5 z-50 shadow-xl text-center"
+              >
+                <p className="font-semibold text-on-surface mb-2">Delete this meal?</p>
+                <p className="text-sm text-on-surface/50 mb-4">This cannot be undone.</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setConfirmDeleteId(null)}
+                    className="flex-1 py-2 rounded-xl bg-on-surface/5 text-on-surface/60 text-sm font-semibold">Cancel</button>
+                  <button onClick={() => { onDeleteMeal(confirmDeleteId); setConfirmDeleteId(null); setSelectedMealId(null); }}
+                    className="flex-1 py-2 rounded-xl bg-red-500 text-white text-sm font-semibold">Delete</button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  // ── Meal list view ──
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+          <ArrowLeft size={20} />
+        </button>
+        <ChefHat size={22} className="text-emerald-600" />
+        <div className="flex-1 min-w-0">
+          <h2 className="font-serif font-bold text-xl">Home Cooking</h2>
+          <p className="text-xs text-on-surface/40">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
+        </div>
+        <button onClick={() => setSearchOpen(!searchOpen)}
+          className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
+          <Search size={18} />
+        </button>
+        <button onClick={() => onOpenModal()}
+          className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Log a meal">
+          <Plus size={20} />
+        </button>
+      </div>
+
+      {/* Search bar */}
+      <AnimatePresence>
+        {searchOpen && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden mb-3">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
+              <input
+                type="text"
+                placeholder="Search meals or dishes..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoFocus
+                className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 transition-all"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Sort bar */}
+      <div className="flex gap-2 mb-4">
+        {(['recent', 'highest'] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setSortBy(s)}
+            className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
+              sortBy === s ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+          >
+            {s === 'recent' ? 'Recent' : 'Highest Rated'}
+          </button>
+        ))}
+      </div>
+
+      {/* Meal cards */}
+      {filteredMeals.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <UtensilsCrossed size={40} className="text-on-surface/15 mb-3" />
+          <p className="text-sm font-semibold text-on-surface/40 mb-1">
+            {searchQuery.trim() ? 'No meals found' : 'No meals logged yet'}
+          </p>
+          <p className="text-xs text-on-surface/30 mb-4 max-w-[220px]">
+            {searchQuery.trim() ? 'Try a different search' : 'Tap + to log your first home-cooked meal'}
+          </p>
+          {!searchQuery.trim() && (
+            <button onClick={() => onOpenModal()}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-semibold hover:bg-emerald-700 transition-colors">
+              Log a Meal
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredMeals.map((meal) => (
+            <button
+              key={meal.id}
+              onClick={() => setSelectedMealId(meal.id)}
+              className="w-full flex gap-3 p-3 bg-white rounded-2xl border border-on-surface/6 shadow-sm hover:shadow-md transition-all text-left"
+            >
+              {/* Photo thumbnail */}
+              {meal.photos.length > 0 ? (
+                <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0">
+                  <img src={meal.photos[0].url} alt={meal.name} className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="w-20 h-20 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                  <ChefHat size={24} className="text-emerald-300" />
+                </div>
+              )}
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-on-surface truncate">{meal.name}</p>
+                  <span className={cn("text-sm font-bold flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
+                </div>
+
+                <p className="text-[11px] text-on-surface/40 mt-0.5">
+                  {new Date(meal.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {meal.dishes.length > 0 && ` · ${meal.dishes.length} dish${meal.dishes.length !== 1 ? 'es' : ''}`}
+                </p>
+
+                {meal.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {meal.tags.slice(0, 3).map((tag) => (
+                      <span key={tag} className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-semibold">{tag}</span>
+                    ))}
+                    {meal.tags.length > 3 && (
+                      <span className="px-2 py-0.5 bg-on-surface/5 text-on-surface/40 rounded-full text-[10px] font-semibold">+{meal.tags.length - 3}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const Pantry: React.FC = () => {
   const [selectedList, setSelectedList] = useState<CustomList | null>(null);
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [activeTab, setActiveTab] = useState<PantryTab>('lists');
   const [showTrips, setShowTrips] = useState(false);
+  const [showHomeCooking, setShowHomeCooking] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -2737,6 +3012,7 @@ export const Pantry: React.FC = () => {
     addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
     addHotelToTrip, updateHotel, removeHotelFromTrip,
     rateRestaurant, cacheRestaurantMeta, addToList,
+    homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
   } = useLists();
 
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -2855,6 +3131,15 @@ export const Pantry: React.FC = () => {
       <main className="px-3">
         {currentList ? (
           <ListDetailView list={currentList} viewMode={effectiveViewMode} onViewModeChange={setViewMode} onBack={() => setSelectedList(null)} />
+        ) : showHomeCooking ? (
+          <HomeCookingTab
+            meals={homeMeals}
+            onCreateMeal={createHomeMeal}
+            onUpdateMeal={updateHomeMeal}
+            onDeleteMeal={deleteHomeMeal}
+            onOpenModal={openHomeMealModal}
+            onBack={() => setShowHomeCooking(false)}
+          />
         ) : showTrips ? (
           <TripsTab
             trips={trips}
@@ -2905,6 +3190,18 @@ export const Pantry: React.FC = () => {
                     <span className="text-[10px] text-primary/60 font-medium">{trips.length}</span>
                   </button>
                 )}
+
+                {/* Home Cooking pill */}
+                <button
+                  onClick={() => setShowHomeCooking(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 rounded-full border border-emerald-200 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                >
+                  <ChefHat size={13} className="text-emerald-600" />
+                  <span className="text-xs font-semibold text-emerald-700 whitespace-nowrap">Home Cooking</span>
+                  {homeMeals.length > 0 && (
+                    <span className="text-[10px] text-emerald-500 font-medium">{homeMeals.length}</span>
+                  )}
+                </button>
 
                 {lists.map((list) => {
                   const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
