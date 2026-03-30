@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon } from 'lucide-react';
+import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, ChefHat, UtensilsCrossed } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -8,9 +8,10 @@ import { useLists } from '../contexts/ListsContext';
 import {
   getProfileByUsername, getFollowCounts, canViewProfile, getFriends,
   sendFriendRequest, followPublicAccount, getUserRatings, getUserPhotos, getUserLists,
-  getUserWishlist, publishCommunityRating,
+  getUserWishlist, publishCommunityRating, getUserPublicHomeMeals,
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
+import type { HomeMeal } from '../contexts/ListsContext';
 import mapboxgl from 'mapbox-gl';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { searchPlacesByText, type PlaceResult } from '../lib/places';
@@ -21,6 +22,7 @@ const profileCache: Record<string, {
   isFollowing: boolean; ratings: CommunityRating[]; photos: CommunityPhoto[];
   lists: { id: string; name: string; emoji: string; restaurantIds: string[] }[];
   wishlistItems: { restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[];
+  publicHomeMeals: HomeMeal[];
   ts: number;
 }> = {};
 
@@ -42,6 +44,7 @@ export const UserProfile: React.FC = () => {
   // Content
   const [userRatings, setUserRatings] = useState<CommunityRating[]>([]);
   const [userPhotos, setUserPhotos] = useState<CommunityPhoto[]>([]);
+  const [publicHomeMeals, setPublicHomeMeals] = useState<HomeMeal[]>([]);
   const [userLists, setUserLists] = useState<{ id: string; name: string; emoji: string; restaurantIds: string[] }[]>([]);
   const [userWishlistItems, setUserWishlistItems] = useState<{ restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[]>([]);
 
@@ -83,6 +86,7 @@ export const UserProfile: React.FC = () => {
       setUserPhotos(cached.photos);
       setUserLists(cached.lists);
       setUserWishlistItems(cached.wishlistItems || []);
+      setPublicHomeMeals(cached.publicHomeMeals || []);
       setLoading(false);
       return;
     }
@@ -99,6 +103,7 @@ export const UserProfile: React.FC = () => {
         getUserRatings(p.user_id),
         getUserLists(p.user_id),
         getUserWishlist(p.user_id),
+        getUserPublicHomeMeals(p.user_id),
       ];
       if (isAuthed) {
         queries.push(canViewProfile(userId!, p));
@@ -113,7 +118,7 @@ export const UserProfile: React.FC = () => {
       const results = await Promise.all(queries);
       if (cancelled) return;
 
-      const [counts, ratings, lists, wishlistItems, viewable, friends, photos] = results;
+      const [counts, ratings, lists, wishlistItems, pubMeals, viewable, friends, photos] = results;
       const fCounts = counts as { followers: number; following: number };
       const fRatings = (ratings || []) as CommunityRating[];
       const fLists = ((lists || []) as any[]).filter((l: any) => l.restaurantIds?.length > 0);
@@ -125,9 +130,12 @@ export const UserProfile: React.FC = () => {
       setFollowing(fCounts.following || 0);
       const fWishlistItems = (wishlistItems || []) as typeof userWishlistItems;
 
+      const fPublicHomeMeals = (pubMeals || []) as HomeMeal[];
+
       setUserRatings(fRatings);
       setUserLists(fLists);
       setUserWishlistItems(fWishlistItems);
+      setPublicHomeMeals(fPublicHomeMeals);
       setCanView(fCanView);
       setIsFollowing(fIsFollowing);
       setUserPhotos(fPhotos);
@@ -137,7 +145,7 @@ export const UserProfile: React.FC = () => {
         profile: p, canView: fCanView, followers: fCounts.followers || 0,
         following: fCounts.following || 0, isFollowing: fIsFollowing,
         ratings: fRatings, photos: fPhotos, lists: fLists,
-        wishlistItems: fWishlistItems, ts: Date.now(),
+        wishlistItems: fWishlistItems, publicHomeMeals: fPublicHomeMeals, ts: Date.now(),
       };
 
       setLoading(false);
@@ -627,6 +635,43 @@ export const UserProfile: React.FC = () => {
                 })
               )}
             </div>
+            )}
+
+            {/* Home Cooking section */}
+            {canView && publicHomeMeals.length > 0 && (
+              <section className="mb-5 mt-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <ChefHat size={14} className="text-emerald-600" />
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Home Cooking ({publicHomeMeals.length})</h3>
+                </div>
+                <div className="space-y-2">
+                  {publicHomeMeals.map((meal) => (
+                    <div key={meal.id} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
+                      {meal.photos.length > 0 && (
+                        <img src={meal.photos[0].url} alt={meal.name} className="w-full aspect-[16/9] object-cover" />
+                      )}
+                      <div className="px-3 py-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-serif font-bold text-sm truncate">{meal.name}</h4>
+                            <p className="text-[10px] text-on-surface/40">
+                              {new Date(meal.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              {meal.dishes.length > 0 && (
+                                <> · <UtensilsCrossed size={9} className="inline -mt-0.5" /> {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</>
+                              )}
+                            </p>
+                          </div>
+                          <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
+                        </div>
+                        {meal.description && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-2">&ldquo;{meal.description}&rdquo;</p>}
+                        {meal.tags.length > 0 && (
+                          <div className="flex gap-1 mt-1">{meal.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600">{t}</span>)}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
             )}
 
             {/* Floating map button */}

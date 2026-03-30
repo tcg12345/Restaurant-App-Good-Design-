@@ -2677,20 +2677,18 @@ const HomeCookingTab: React.FC<{
 
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
 
-  // ── Meal detail view ──
+  // ── Meal detail view (diary / blog entry style) ──
   if (selectedMeal) {
+    const heroPhoto = selectedMeal.photos.length > 0 ? selectedMeal.photos[0] : null;
+
     return (
       <div>
-        <div className="flex items-center gap-3 mb-6">
+        {/* Back + actions header */}
+        <div className="flex items-center gap-3 mb-4">
           <button onClick={() => setSelectedMealId(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
             <ArrowLeft size={20} />
           </button>
-          <div className="flex-1 min-w-0">
-            <h2 className="font-serif font-bold text-xl truncate">{selectedMeal.name}</h2>
-            <p className="text-xs text-on-surface/40">
-              {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-            </p>
-          </div>
+          <div className="flex-1" />
           <button onClick={() => onOpenModal(selectedMeal)}
             className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
             <Edit3 size={18} />
@@ -2701,25 +2699,100 @@ const HomeCookingTab: React.FC<{
           </button>
         </div>
 
-        {/* Score + tags row */}
+        {/* Hero photo */}
+        {heroPhoto && (
+          <div className="relative -mx-3 mb-5 rounded-2xl overflow-hidden">
+            <img src={heroPhoto.url} alt={selectedMeal.name} className="w-full aspect-[16/9] object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+            <div className="absolute bottom-3 left-4 right-4">
+              <h2 className="font-serif font-bold text-xl text-white drop-shadow-lg">{selectedMeal.name}</h2>
+              <p className="text-xs text-white/70 mt-0.5">
+                {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Title (no hero) */}
+        {!heroPhoto && (
+          <div className="mb-4">
+            <h2 className="font-serif font-bold text-xl">{selectedMeal.name}</h2>
+            <p className="text-xs text-on-surface/40 mt-0.5">
+              {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+            </p>
+          </div>
+        )}
+
+        {/* Score + would make again + tags */}
         <div className="flex items-center gap-3 mb-4">
           <div className={cn("text-2xl font-bold", scoreColor(selectedMeal.score))}>{selectedMeal.score.toFixed(1)}</div>
-          <div className="flex flex-wrap gap-1.5">
+          <span className="text-[10px] text-on-surface/30 font-medium">/ 10</span>
+          {'wouldMakeAgain' in selectedMeal && (
+            <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium",
+              selectedMeal.wouldMakeAgain ? "bg-green-50 text-green-600" : "bg-red-50 text-red-500"
+            )}>
+              {selectedMeal.wouldMakeAgain ? 'Would make again' : 'Wouldn\'t repeat'}
+            </span>
+          )}
+        </div>
+        {selectedMeal.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-5">
             {selectedMeal.tags.map((tag) => (
               <span key={tag} className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[11px] font-semibold">{tag}</span>
             ))}
           </div>
-        </div>
-
-        {/* Description */}
-        {selectedMeal.description && (
-          <p className="text-sm text-on-surface/70 mb-5 leading-relaxed">{selectedMeal.description}</p>
         )}
 
-        {/* Photos */}
-        {selectedMeal.photos.length > 0 && (
+        {/* Notes */}
+        {selectedMeal.description && (
+          <div className="mb-5 bg-white rounded-2xl border border-on-surface/6 p-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2">Notes</h3>
+            <p className="text-sm text-on-surface/70 leading-relaxed whitespace-pre-wrap">{selectedMeal.description}</p>
+          </div>
+        )}
+
+        {/* Dishes */}
+        {selectedMeal.dishes.length > 0 && (
           <div className="mb-5">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/40 mb-3">Photos</h3>
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Dishes ({selectedMeal.dishes.length})</h3>
+            <div className="space-y-3">
+              {selectedMeal.dishes.map((dish) => (
+                <div key={dish.id} className="bg-white rounded-2xl border border-on-surface/6 overflow-hidden">
+                  {dish.photo && (
+                    <img src={dish.photo} alt={dish.name} className="w-full aspect-[3/2] object-cover" />
+                  )}
+                  <div className="p-3">
+                    <p className="text-sm font-semibold text-on-surface">{dish.name}</p>
+                    {dish.description && <p className="text-xs text-on-surface/50 mt-1 leading-relaxed">{dish.description}</p>}
+                    {dish.recipeLink && (
+                      <a href={dish.recipeLink} target="_blank" rel="noopener noreferrer"
+                        className="text-[11px] text-primary font-medium mt-2 inline-block hover:underline">View Recipe →</a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Additional photos gallery (excluding hero) */}
+        {selectedMeal.photos.length > 1 && (
+          <div className="mb-5">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {selectedMeal.photos.slice(1).map((photo, i) => (
+                <div key={i} className="aspect-square rounded-xl overflow-hidden">
+                  <img src={photo.url} alt={photo.caption || `Photo ${i + 2}`} className="w-full h-full object-cover" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Photos gallery (no hero — show all) */}
+        {!heroPhoto && selectedMeal.photos.length > 0 && (
+          <div className="mb-5">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
             <div className="grid grid-cols-3 gap-2">
               {selectedMeal.photos.map((photo, i) => (
                 <div key={i} className="aspect-square rounded-xl overflow-hidden">
@@ -2730,34 +2803,10 @@ const HomeCookingTab: React.FC<{
           </div>
         )}
 
-        {/* Dishes */}
-        {selectedMeal.dishes.length > 0 && (
-          <div className="mb-5">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/40 mb-3">Dishes ({selectedMeal.dishes.length})</h3>
-            <div className="space-y-3">
-              {selectedMeal.dishes.map((dish) => (
-                <div key={dish.id} className="flex gap-3 p-3 bg-white rounded-xl border border-on-surface/6">
-                  {dish.photo && (
-                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-                      <img src={dish.photo} alt={dish.name} className="w-full h-full object-cover" />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-on-surface truncate">{dish.name}</p>
-                    {dish.description && <p className="text-xs text-on-surface/50 mt-0.5 line-clamp-2">{dish.description}</p>}
-                    {dish.recipeLink && (
-                      <a href={dish.recipeLink} target="_blank" rel="noopener noreferrer"
-                        className="text-[11px] text-primary font-medium mt-1 inline-block hover:underline">View Recipe</a>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {selectedMeal.isPublic && (
-          <p className="text-[11px] text-on-surface/30 mt-4">Shared on social feed</p>
+          <p className="text-[11px] text-on-surface/30 mt-4 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Shared on social feed
+          </p>
         )}
 
         {/* Delete confirm */}
