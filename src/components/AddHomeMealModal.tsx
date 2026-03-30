@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, ChevronLeft, ChevronRight, CalendarDays, Tag, StickyNote, Image, UtensilsCrossed, Globe, Lock } from 'lucide-react';
+import { X, Plus, ChevronLeft, ChevronRight, CalendarDays, Tag, StickyNote, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Link as LinkIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useLists, type PhotoItem } from '../contexts/ListsContext';
+import { useLists, type PhotoItem, type HomeMealDish } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Calendar } from './RatingShared';
 
@@ -24,11 +24,20 @@ export const AddHomeMealModal: React.FC = () => {
   const [wouldMakeAgain, setWouldMakeAgain] = useState(true);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [dishes, setDishes] = useState<HomeMealDish[]>([]);
   const [isPublic, setIsPublic] = useState(false);
+
+  // Dish editing state
+  const [editingDishId, setEditingDishId] = useState<string | null>(null);
+  const [dishName, setDishName] = useState('');
+  const [dishDescription, setDishDescription] = useState('');
+  const [dishPhoto, setDishPhoto] = useState('');
+  const [confirmDishDelete, setConfirmDishDelete] = useState(false);
 
   const [page, setPage] = useState<Page>('main');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dishPhotoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (homeMealModalOpen) {
@@ -39,7 +48,13 @@ export const AddHomeMealModal: React.FC = () => {
       setWouldMakeAgain(existing?.wouldMakeAgain ?? true);
       setSelectedTags(existing?.tags ?? []);
       setPhotos(existing?.photos ?? []);
+      setDishes(existing?.dishes ?? []);
       setIsPublic(existing?.isPublic ?? false);
+      setEditingDishId(null);
+      setDishName('');
+      setDishDescription('');
+      setDishPhoto('');
+      setConfirmDishDelete(false);
       setPage('main');
       setConfirmDelete(false);
     }
@@ -96,6 +111,61 @@ export const AddHomeMealModal: React.FC = () => {
     }
   };
 
+  const handleDishPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = Array.from(files).find((f) => f.type.startsWith('image/'));
+    if (!file) return;
+    try {
+      const compressed = await compressImage(file);
+      setDishPhoto(compressed);
+    } catch { /* skip */ }
+    e.target.value = '';
+  };
+
+  const openDishPage = (dish?: HomeMealDish) => {
+    if (dish) {
+      setEditingDishId(dish.id);
+      setDishName(dish.name);
+      setDishDescription(dish.description);
+      setDishPhoto(dish.photo);
+    } else {
+      setEditingDishId(null);
+      setDishName('');
+      setDishDescription('');
+      setDishPhoto('');
+    }
+    setConfirmDishDelete(false);
+    setPage('dishes');
+  };
+
+  const handleSaveDish = () => {
+    if (!dishName.trim()) return;
+    if (editingDishId) {
+      setDishes((prev) => prev.map((d) => d.id === editingDishId
+        ? { ...d, name: dishName.trim(), description: dishDescription, photo: dishPhoto }
+        : d
+      ));
+    } else {
+      const newDish: HomeMealDish = {
+        id: crypto.randomUUID(),
+        name: dishName.trim(),
+        description: dishDescription,
+        photo: dishPhoto,
+        recipeLink: '',
+      };
+      setDishes((prev) => [...prev, newDish]);
+    }
+    setPage('main');
+  };
+
+  const handleDeleteDish = () => {
+    if (editingDishId) {
+      setDishes((prev) => prev.filter((d) => d.id !== editingDishId));
+    }
+    setPage('main');
+  };
+
   const handleSave = () => {
     if (!mealName.trim()) return;
     if (existing) {
@@ -107,6 +177,7 @@ export const AddHomeMealModal: React.FC = () => {
         description: notes,
         photos,
         tags: selectedTags,
+        dishes,
         isPublic,
       });
     } else {
@@ -118,7 +189,7 @@ export const AddHomeMealModal: React.FC = () => {
         description: notes,
         photos,
         tags: selectedTags,
-        dishes: [],
+        dishes,
         isPublic,
       });
     }
@@ -129,6 +200,7 @@ export const AddHomeMealModal: React.FC = () => {
   const scoreBg = score >= 8 ? 'from-green-500/20 to-green-600/5' : score >= 5 ? 'from-yellow-500/20 to-yellow-600/5' : 'from-red-500/20 to-red-600/5';
   const scoreRing = score >= 8 ? 'ring-green-400/30' : score >= 5 ? 'ring-yellow-400/30' : 'ring-red-400/30';
 
+  const hasDishes = dishes.length > 0;
   const hasNotes = notes.trim().length > 0;
   const hasTags = selectedTags.length > 0;
   const hasPhotos = photos.length > 0;
@@ -158,6 +230,7 @@ export const AddHomeMealModal: React.FC = () => {
             )}
           >
             {photoInput}
+            <input ref={dishPhotoInputRef} type="file" accept="image/*" onChange={handleDishPhotoUpload} className="hidden" />
             <AnimatePresence mode="wait">
               {/* ═══════════ MAIN PAGE ═══════════ */}
               {page === 'main' && (
@@ -214,29 +287,41 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Dishes section (placeholder) */}
+                    {/* Dishes section */}
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
                       <div className="flex items-center justify-between mb-2.5">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35">Dishes</p>
                         <button
-                          onClick={() => {
-                            // Coming soon toast
-                            const toast = document.createElement('div');
-                            toast.textContent = 'Dish logging coming soon!';
-                            toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-on-surface text-surface px-4 py-2 rounded-full text-sm font-medium z-[200] shadow-lg';
-                            document.body.appendChild(toast);
-                            setTimeout(() => toast.remove(), 2000);
-                          }}
+                          onClick={() => openDishPage()}
                           className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
                         >
                           <Plus size={14} />
                           Add Dish
                         </button>
                       </div>
-                      <div className="flex items-center gap-3 px-3.5 py-4 rounded-xl border border-dashed border-on-surface/10 bg-on-surface/2">
-                        <UtensilsCrossed size={18} className="text-on-surface/20" />
-                        <p className="text-xs text-on-surface/30">Add dishes you prepared — coming soon</p>
-                      </div>
+                      {hasDishes ? (
+                        <div className="space-y-1.5">
+                          {dishes.map((dish) => (
+                            <button key={dish.id} onClick={() => openDishPage(dish)}
+                              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-on-surface/8 bg-white hover:border-on-surface/15 transition-all text-left">
+                              {dish.photo ? (
+                                <img src={dish.photo} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-on-surface/5 flex items-center justify-center flex-shrink-0">
+                                  <UtensilsCrossed size={16} className="text-on-surface/20" />
+                                </div>
+                              )}
+                              <span className="text-sm font-medium text-on-surface/70 flex-1 truncate">{dish.name}</span>
+                              <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-3 px-3.5 py-4 rounded-xl border border-dashed border-on-surface/10 bg-on-surface/2">
+                          <UtensilsCrossed size={18} className="text-on-surface/20" />
+                          <p className="text-xs text-on-surface/30">No dishes added</p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Detail buttons */}
@@ -321,6 +406,92 @@ export const AddHomeMealModal: React.FC = () => {
                 </SubPage>
               )}
 
+              {/* ═══════════ DISHES ═══════════ */}
+              {page === 'dishes' && (
+                <SubPage key="dishes" onBack={() => setPage('main')} title={editingDishId ? 'Edit Dish' : 'Add Dish'}>
+                  <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5 space-y-4">
+                    {/* Dish name */}
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Dish Name</p>
+                      <input
+                        type="text"
+                        value={dishName}
+                        onChange={(e) => setDishName(e.target.value)}
+                        placeholder="e.g. Spaghetti Carbonara"
+                        autoFocus
+                        className="w-full bg-white border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Description</p>
+                      <textarea
+                        value={dishDescription}
+                        onChange={(e) => setDishDescription(e.target.value)}
+                        placeholder="How did it turn out? What would you change next time?"
+                        rows={4}
+                        className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed"
+                      />
+                    </div>
+
+                    {/* Photo */}
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Photo</p>
+                      {dishPhoto ? (
+                        <div className="relative w-full aspect-video rounded-2xl overflow-hidden border border-on-surface/10">
+                          <img src={dishPhoto} alt="" className="w-full h-full object-cover" />
+                          <div className="absolute top-2 right-2 flex gap-1.5">
+                            <button onClick={() => dishPhotoInputRef.current?.click()}
+                              className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
+                              <Camera size={14} className="text-white" />
+                            </button>
+                            <button onClick={() => setDishPhoto('')}
+                              className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
+                              <X size={14} className="text-white" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={() => dishPhotoInputRef.current?.click()}
+                          className="w-full flex flex-col items-center justify-center gap-2 py-8 rounded-2xl border-2 border-dashed border-on-surface/10 bg-on-surface/2 hover:border-on-surface/20 transition-colors">
+                          <Camera size={24} className="text-on-surface/25" />
+                          <span className="text-xs font-medium text-on-surface/35">Add a photo</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Link Recipe (coming soon) */}
+                    <div>
+                      <button disabled
+                        className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-on-surface/8 bg-on-surface/3 text-left opacity-50 cursor-not-allowed">
+                        <LinkIcon size={17} className="text-on-surface/25 flex-shrink-0" />
+                        <span className="text-xs font-semibold text-on-surface/40 flex-1">Link Recipe (coming soon)</span>
+                      </button>
+                    </div>
+
+                    {/* Delete dish */}
+                    {editingDishId && !confirmDishDelete && (
+                      <button onClick={() => setConfirmDishDelete(true)}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors">
+                        <Trash2 size={14} />
+                        Delete Dish
+                      </button>
+                    )}
+                    {editingDishId && confirmDishDelete && (
+                      <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                        <p className="text-xs text-red-600 font-medium">Delete this dish?</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => setConfirmDishDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
+                          <button onClick={handleDeleteDish} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <BottomBtn label={editingDishId ? 'Update Dish' : 'Add Dish'} onClick={handleSaveDish} disabled={!dishName.trim()} />
+                </SubPage>
+              )}
+
               {/* ═══════════ TAGS (placeholder — sub-page coming soon) ═══════════ */}
               {page === 'tags' && (
                 <SubPage key="tags" onBack={() => setPage('main')} title="Tags">
@@ -372,8 +543,8 @@ const SubPage: React.FC<{
   </motion.div>
 );
 
-const BottomBtn: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
+const BottomBtn: React.FC<{ label: string; onClick: () => void; disabled?: boolean }> = ({ label, onClick, disabled }) => (
   <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-    <button onClick={onClick} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{label}</button>
+    <button onClick={onClick} disabled={disabled} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40">{label}</button>
   </div>
 );
