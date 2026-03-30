@@ -107,6 +107,27 @@ export interface Trip {
   createdAt: number;
 }
 
+export interface HomeMealDish {
+  id: string;
+  name: string;
+  description: string;
+  photo: string;          // base64 data-url
+  recipeLink: string;     // optional URL
+}
+
+export interface HomeMeal {
+  id: string;
+  name: string;
+  date: string;           // ISO date string
+  score: number;          // 0–10
+  description: string;
+  photos: PhotoItem[];
+  tags: string[];
+  dishes: HomeMealDish[];
+  isPublic: boolean;      // visible on social feed
+  createdAt: number;
+}
+
 interface ListsContextValue {
   // Ratings
   ratings: RestaurantRating[];
@@ -179,8 +200,22 @@ interface ListsContextValue {
   // Custom ranking order
   customOrder: string[];
   setCustomOrder: (order: string[]) => void;
+
+  // Home meals
+  homeMeals: HomeMeal[];
+  createHomeMeal: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
+  updateHomeMeal: (id: string, updates: Partial<HomeMeal>) => void;
+  deleteHomeMeal: (id: string) => void;
+  getHomeMeal: (id: string) => HomeMeal | undefined;
+
+  // Home meal modal
+  homeMealModalOpen: boolean;
+  homeMealModalData: HomeMeal | null;
+  openHomeMealModal: (meal?: HomeMeal) => void;
+  closeHomeMealModal: () => void;
 }
 
+const STORAGE_KEY_HOME_MEALS = 'gourmad-home-meals';
 const STORAGE_KEY_RATINGS = 'gourmad-ratings';
 const STORAGE_KEY_LISTS = 'gourmad-lists';
 const STORAGE_KEY_WISHLIST = 'gourmad-wishlist';
@@ -249,6 +284,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
   const [trips, setTrips] = useState<Trip[]>(() => loadFromStorage(STORAGE_KEY_TRIPS, []));
   const [customOrder, setCustomOrderState] = useState<string[]>(() => loadFromStorage(STORAGE_KEY_CUSTOM_ORDER, []));
+  const [homeMeals, setHomeMeals] = useState<HomeMeal[]>(() => loadFromStorage(STORAGE_KEY_HOME_MEALS, []));
   const [cloudLoaded, setCloudLoaded] = useState(false);
 
   // Track userId and profile for cloud save helpers
@@ -275,6 +311,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.removeItem(STORAGE_KEY_META);
       localStorage.removeItem(STORAGE_KEY_TRIPS);
       localStorage.removeItem(STORAGE_KEY_CUSTOM_ORDER);
+      localStorage.removeItem(STORAGE_KEY_HOME_MEALS);
       localStorage.removeItem('gourmad-recent-views');
       // Reset state to empty
       setRatings([]);
@@ -283,6 +320,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setRestaurantMeta({});
       setTrips([]);
       setCustomOrderState([]);
+      setHomeMeals([]);
     }
     localStorage.setItem('gourmad-user-id', userId);
 
@@ -306,6 +344,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const cloudRecentViews = cloud.recentViews || [];
         // Restore custom order from meta
         const cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
+        // Restore home meals from meta
+        const cloudHomeMeals = Array.isArray((cloudMeta as any).__home_meals__) ? (cloudMeta as any).__home_meals__ as HomeMeal[] : [];
 
         setRatings(cloudRatings);
         setLists(cloudLists);
@@ -313,6 +353,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setRestaurantMeta(cloudMeta);
         setTrips(cloudTrips as Trip[]);
         setCustomOrderState(cloudCustomOrder);
+        setHomeMeals(cloudHomeMeals);
 
         // Also update localStorage as cache
         saveToStorage(STORAGE_KEY_RATINGS, cloudRatings);
@@ -321,6 +362,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_META, cloudMeta);
         saveToStorage(STORAGE_KEY_TRIPS, cloudTrips);
         saveToStorage(STORAGE_KEY_CUSTOM_ORDER, cloudCustomOrder);
+        saveToStorage(STORAGE_KEY_HOME_MEALS, cloudHomeMeals);
         if (cloudRecentViews.length > 0) {
           localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews));
         }
@@ -351,6 +393,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setRestaurantMeta({});
         setTrips([]);
         setCustomOrderState([]);
+        setHomeMeals([]);
 
         // Save empty state to cloud
         await saveUserData(userId, {
@@ -360,6 +403,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           restaurantMeta: {},
           recentViews: [],
           trips: [],
+          homeMeals: [],
         });
 
         // Clear localStorage
@@ -369,6 +413,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_META, {});
         saveToStorage(STORAGE_KEY_TRIPS, []);
         saveToStorage(STORAGE_KEY_CUSTOM_ORDER, []);
+        saveToStorage(STORAGE_KEY_HOME_MEALS, []);
         localStorage.setItem('gourmad-recent-views', '[]');
       }
 
@@ -428,6 +473,48 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return next;
     });
   }, [syncMetaToCloud]);
+
+  // ── Home Meals cloud sync ──
+  const syncHomeMealsToCloud = useCallback((data: HomeMeal[]) => {
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, __home_meals__: data as unknown as RestaurantMeta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
+  }, [syncMetaToCloud]);
+
+  // ── Home Meal CRUD ──
+  const createHomeMeal = useCallback((meal: Omit<HomeMeal, 'id' | 'createdAt'>): HomeMeal => {
+    const newMeal: HomeMeal = { ...meal, id: `meal-${Date.now()}`, createdAt: Date.now() };
+    setHomeMeals((prev) => {
+      const next = [...prev, newMeal];
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+    return newMeal;
+  }, [syncHomeMealsToCloud]);
+
+  const updateHomeMeal = useCallback((id: string, updates: Partial<HomeMeal>) => {
+    setHomeMeals((prev) => {
+      const next = prev.map((m) => m.id === id ? { ...m, ...updates } : m);
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
+
+  const deleteHomeMeal = useCallback((id: string) => {
+    setHomeMeals((prev) => {
+      const next = prev.filter((m) => m.id !== id);
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
+
+  const getHomeMeal = useCallback((id: string) => homeMeals.find((m) => m.id === id), [homeMeals]);
 
   // ── Trip CRUD ──
   const createTrip = useCallback((trip: Omit<Trip, 'id' | 'createdAt'>): Trip => {
@@ -536,6 +623,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addRestaurantModalInitialPage, setAddRestaurantModalInitialPage] = useState<string | null>(null);
   const [wishlistModalOpen, setWishlistModalOpen] = useState(false);
   const [wishlistModalMeta, setWishlistModalMeta] = useState<RestaurantMeta | null>(null);
+  const [homeMealModalOpen, setHomeMealModalOpen] = useState(false);
+  const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
 
   // Restaurant metadata cache
   const cacheRestaurantMeta = useCallback((meta: RestaurantMeta) => {
@@ -824,6 +913,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta]);
   const closeWishlistModal = useCallback(() => { setWishlistModalOpen(false); setWishlistModalMeta(null); }, []);
 
+  const openHomeMealModal = useCallback((meal?: HomeMeal) => {
+    setHomeMealModalData(meal || null);
+    setHomeMealModalOpen(true);
+  }, []);
+  const closeHomeMealModal = useCallback(() => { setHomeMealModalOpen(false); setHomeMealModalData(null); }, []);
+
   return (
     <ListsContext.Provider value={{
       ratings, rateRestaurant, updateRating, removeRating, getRating,
@@ -836,6 +931,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       wishlistModalOpen, wishlistModalMeta, openWishlistModal, closeWishlistModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
       customOrder, setCustomOrder,
+      homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, getHomeMeal,
+      homeMealModalOpen, homeMealModalData, openHomeMealModal, closeHomeMealModal,
     }}>
       {children}
     </ListsContext.Provider>

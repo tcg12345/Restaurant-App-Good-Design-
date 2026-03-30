@@ -3,7 +3,7 @@
  * Stores ratings, lists, wishlist, and metadata as JSONB in a single row per user.
  */
 import { supabase, supabaseConfigured } from './supabase';
-import type { RestaurantRating, CustomList, WishlistItem, RestaurantMeta, Trip } from '../contexts/ListsContext';
+import type { RestaurantRating, CustomList, WishlistItem, RestaurantMeta, Trip, HomeMeal } from '../contexts/ListsContext';
 
 export interface UserAppData {
   ratings: RestaurantRating[];
@@ -12,6 +12,7 @@ export interface UserAppData {
   restaurantMeta: Record<string, RestaurantMeta>;
   recentViews: any[];
   trips: Trip[];
+  homeMeals: HomeMeal[];
 }
 
 /**

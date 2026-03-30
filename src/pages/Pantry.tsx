@@ -1,9 +1,9 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
+import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, type PlaceResult } from '../lib/places';
@@ -2013,6 +2013,183 @@ const AddToNightSheet: React.FC<{
   );
 };
 
+/* ── Home Cooking Tab ── */
+const HomeCookingTab: React.FC<{
+  meals: HomeMeal[];
+  onBack: () => void;
+  onAdd: () => void;
+  onTapMeal: (meal: HomeMeal) => void;
+  onDelete: (id: string) => void;
+}> = ({ meals, onBack, onAdd, onTapMeal, onDelete }) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<'recent' | 'highest'>('recent');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    let result = [...meals];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((m) =>
+        m.name.toLowerCase().includes(q) ||
+        m.dishes.some((d) => d.name.toLowerCase().includes(q)) ||
+        m.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    }
+    if (sortBy === 'recent') result.sort((a, b) => b.createdAt - a.createdAt);
+    else result.sort((a, b) => b.score - a.score);
+    return result;
+  }, [meals, searchQuery, sortBy]);
+
+  const scoreColor = (s: number) => s >= 8 ? 'text-emerald-600' : s >= 5 ? 'text-amber-500' : 'text-red-500';
+  const scoreBg = (s: number) => s >= 8 ? 'bg-emerald-50 border-emerald-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+          <ArrowLeft size={20} />
+        </button>
+        <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center">
+          <ChefHat size={18} className="text-emerald-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="font-serif font-bold text-xl">Home Cooking</h2>
+          <p className="text-xs text-on-surface/40">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
+        </div>
+        <button onClick={() => setSearchOpen(!searchOpen)}
+          className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-emerald-600 bg-emerald-50" : "text-on-surface/40 hover:text-on-surface")}>
+          <Search size={18} />
+        </button>
+        <button onClick={onAdd}
+          className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors">
+          <Plus size={20} />
+        </button>
+      </div>
+
+      {/* Search bar */}
+      <AnimatePresence>
+        {searchOpen && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
+            <div className="relative mb-4">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+              <input
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search meals or dishes..."
+                className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl border border-on-surface/10 bg-on-surface/3 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Sort pills */}
+      <div className="flex gap-2 mb-4">
+        {([['recent', 'Recent'], ['highest', 'Highest Rated']] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setSortBy(key)}
+            className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all",
+              sortBy === key ? "bg-emerald-600 text-white" : "bg-on-surface/5 text-on-surface/50 hover:bg-on-surface/10")}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Meal cards */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-16">
+          <ChefHat size={32} className="mx-auto text-on-surface/15 mb-3" />
+          <p className="text-sm font-medium text-on-surface/40">
+            {meals.length === 0 ? 'No meals logged yet' : 'No matches'}
+          </p>
+          <p className="text-xs text-on-surface/30 mt-1">
+            {meals.length === 0 ? 'Tap + to log your first home-cooked meal' : 'Try adjusting your search'}
+          </p>
+          {meals.length === 0 && (
+            <button onClick={onAdd}
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white text-xs font-semibold rounded-xl hover:bg-emerald-700 transition-colors">
+              <Plus size={14} />Log a Meal
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((meal) => {
+            const coverPhoto = meal.photos[0]?.url || meal.dishes.find((d) => d.photo)?.photo;
+            return (
+              <motion.div
+                key={meal.id}
+                layout
+                className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => onTapMeal(meal)}
+              >
+                <div className="flex">
+                  {/* Photo thumbnail */}
+                  {coverPhoto ? (
+                    <div className="w-24 h-24 flex-shrink-0">
+                      <img src={coverPhoto} alt="" className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-24 h-24 flex-shrink-0 bg-emerald-50 flex items-center justify-center">
+                      <UtensilsCrossed size={24} className="text-emerald-300" />
+                    </div>
+                  )}
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold text-on-surface truncate">{meal.name}</h3>
+                        <p className="text-[11px] text-on-surface/40 mt-0.5">
+                          {new Date(meal.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {meal.dishes.length > 0 && ` · ${meal.dishes.length} dish${meal.dishes.length !== 1 ? 'es' : ''}`}
+                        </p>
+                      </div>
+                      <div className={cn("px-2 py-0.5 rounded-lg border text-xs font-bold", scoreBg(meal.score), scoreColor(meal.score))}>
+                        {meal.score.toFixed(1)}
+                      </div>
+                    </div>
+
+                    {/* Tags */}
+                    {meal.tags.length > 0 && (
+                      <div className="flex gap-1 mt-1.5 overflow-hidden">
+                        {meal.tags.slice(0, 3).map((tag) => (
+                          <span key={tag} className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-medium rounded-md">
+                            {tag}
+                          </span>
+                        ))}
+                        {meal.tags.length > 3 && (
+                          <span className="text-[10px] text-on-surface/30 self-center">+{meal.tags.length - 3}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Delete confirmation */}
+                {confirmDeleteId === meal.id && (
+                  <div className="px-3 py-2 bg-red-50 border-t border-red-100 flex items-center justify-between"
+                    onClick={(e) => e.stopPropagation()}>
+                    <span className="text-xs text-red-600 font-medium">Delete this meal?</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => setConfirmDeleteId(null)}
+                        className="px-3 py-1 text-xs font-semibold text-on-surface/50 hover:text-on-surface">Cancel</button>
+                      <button onClick={() => { onDelete(meal.id); setConfirmDeleteId(null); }}
+                        className="px-3 py-1 text-xs font-semibold text-red-600 bg-red-100 rounded-lg hover:bg-red-200">Delete</button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── Trips Tab ── */
 const TripsTab: React.FC<{
   trips: Trip[];
@@ -2844,6 +3021,7 @@ export const Pantry: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [activeTab, setActiveTab] = useState<PantryTab>('lists');
   const [showTrips, setShowTrips] = useState(false);
+  const [showHomeCooking, setShowHomeCooking] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -2928,10 +3106,10 @@ export const Pantry: React.FC = () => {
 
   // Hide bottom nav when filter/city/cuisine sheets are open
   useEffect(() => {
-    const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen;
+    const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen || showHomeCooking;
     setHideBottomNav(anyOpen);
     return () => setHideBottomNav(false);
-  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, setHideBottomNav]);
+  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, showHomeCooking, setHideBottomNav]);
 
   const {
     lists, createList,
@@ -2943,6 +3121,7 @@ export const Pantry: React.FC = () => {
     addHotelToTrip, updateHotel, removeHotelFromTrip,
     rateRestaurant, cacheRestaurantMeta, addToList,
     customOrder, setCustomOrder,
+    homeMeals, deleteHomeMeal, openHomeMealModal,
   } = useLists();
 
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -3114,6 +3293,14 @@ export const Pantry: React.FC = () => {
             autoCreate={createTripFromList}
             onAutoCreateHandled={() => setCreateTripFromList(false)}
           />
+        ) : showHomeCooking ? (
+          <HomeCookingTab
+            meals={homeMeals}
+            onBack={() => setShowHomeCooking(false)}
+            onAdd={() => openHomeMealModal()}
+            onTapMeal={(meal) => openHomeMealModal(meal)}
+            onDelete={deleteHomeMeal}
+          />
         ) : (
           <>
             {/* ── Horizontal list row ── */}
@@ -3144,6 +3331,16 @@ export const Pantry: React.FC = () => {
                     <span className="text-[10px] text-primary/60 font-medium">{trips.length}</span>
                   </button>
                 )}
+
+                {/* Home Cooking pill */}
+                <button
+                  onClick={() => setShowHomeCooking(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 rounded-full border border-emerald-200 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                >
+                  <ChefHat size={13} className="text-emerald-600" />
+                  <span className="text-xs font-semibold text-emerald-600 whitespace-nowrap">Home Cooking</span>
+                  {homeMeals.length > 0 && <span className="text-[10px] text-emerald-500 font-medium">{homeMeals.length}</span>}
+                </button>
 
                 {lists.map((list) => {
                   const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
