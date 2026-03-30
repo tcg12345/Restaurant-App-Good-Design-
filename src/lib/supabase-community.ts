@@ -584,3 +584,177 @@ export async function getFriendActivity(friendIds: string[], limit = 20): Promis
     return (data || []) as CommunityRating[];
   } catch (err) { console.error('[Friends] getActivity exception:', err); return []; }
 }
+
+/* ── Expert Recommendations ── */
+
+export interface ExpertRecommendation {
+  id: string;
+  user_id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  cuisine: string;
+  price: string;
+  address: string;
+  photo_url: string;
+  recommendation_text: string;
+  highlight_dishes: string[];
+  rating: number;
+  created_at: string;
+  updated_at: string;
+  // Joined from user_profiles
+  expert_name: string;
+  expert_username: string;
+}
+
+/** Get expert recommendations for a restaurant (joined with profile data). */
+export async function getExpertRecommendations(restaurantId: string): Promise<ExpertRecommendation[]> {
+  if (!supabaseConfigured || !restaurantId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('expert_recommendations')
+      .select('*, user_profiles!expert_recommendations_user_id_fkey(display_name, username)')
+      .eq('restaurant_id', restaurantId)
+      .order('updated_at', { ascending: false });
+    if (error) {
+      // Fallback: if join fails (FK not recognized), fetch separately
+      console.warn('[Expert] Join failed, falling back to separate queries:', error.message);
+      const { data: recs, error: recErr } = await supabase
+        .from('expert_recommendations')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .order('updated_at', { ascending: false });
+      if (recErr || !recs || recs.length === 0) return [];
+      const userIds = [...new Set(recs.map((r: any) => r.user_id))];
+      const profiles = await getProfilesByIds(userIds);
+      return recs.map((r: any) => ({
+        ...r,
+        expert_name: profiles[r.user_id]?.display_name || 'Expert',
+        expert_username: profiles[r.user_id]?.username || '',
+      })) as ExpertRecommendation[];
+    }
+    return (data || []).map((r: any) => ({
+      ...r,
+      expert_name: r.user_profiles?.display_name || 'Expert',
+      expert_username: r.user_profiles?.username || '',
+      user_profiles: undefined,
+    })) as ExpertRecommendation[];
+  } catch (err) { console.error('[Expert] getRecommendations exception:', err); return []; }
+}
+
+/** Publish an expert recommendation for a restaurant. */
+export async function publishExpertRecommendation(
+  userId: string,
+  restaurantId: string,
+  data: { name: string; cuisine: string; price: string; address: string; photoUrl: string; text: string; highlightDishes: string[]; rating: number }
+): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    const { error } = await supabase.from('expert_recommendations').upsert({
+      user_id: userId,
+      restaurant_id: restaurantId,
+      restaurant_name: data.name,
+      cuisine: data.cuisine,
+      price: data.price,
+      address: data.address,
+      photo_url: data.photoUrl,
+      recommendation_text: data.text,
+      highlight_dishes: data.highlightDishes,
+      rating: data.rating,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,restaurant_id' });
+    if (error) { console.error('[Expert] publishRecommendation error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[Expert] publishRecommendation exception:', err); return false; }
+}
+
+/** Get count of expert recommendations by a user. */
+export async function getExpertRecommendationCount(userId: string): Promise<number> {
+  if (!supabaseConfigured || !userId) return 0;
+  try {
+    const { count, error } = await supabase.from('expert_recommendations')
+      .select('*', { count: 'exact', head: true }).eq('user_id', userId);
+    if (error) return 0;
+    return count || 0;
+  } catch { return 0; }
+}
+
+/** Get all expert profiles (users with is_expert=true). */
+export async function getExpertProfiles(): Promise<UserProfile[]> {
+  if (!supabaseConfigured) return [];
+  try {
+    const { data, error } = await supabase.from('user_profiles')
+      .select('*').eq('is_expert', true);
+    if (error) return [];
+    return (data || []) as UserProfile[];
+  } catch { return []; }
+}
+
+/** Remove an expert recommendation. */
+export async function removeExpertRecommendation(userId: string, restaurantId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    const { error } = await supabase.from('expert_recommendations')
+      .delete().eq('user_id', userId).eq('restaurant_id', restaurantId);
+    if (error) { console.error('[Expert] removeRecommendation error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[Expert] removeRecommendation exception:', err); return false; }
+}
+
+/* ─── Hotel Dining ─── */
+
+export type DiningType = 'breakfast' | 'restaurant' | 'bar' | 'room_service' | 'pool_bar' | 'rooftop';
+
+export interface HotelDining {
+  id: string;
+  hotel_place_id: string;
+  hotel_name: string;
+  hotel_address: string;
+  restaurant_place_id: string;
+  restaurant_name: string;
+  dining_type: DiningType;
+  added_by: string;
+  created_at: string;
+}
+
+/** Get all dining options for a hotel. */
+export async function getHotelDining(hotelPlaceId: string): Promise<HotelDining[]> {
+  if (!supabaseConfigured || !hotelPlaceId) return [];
+  try {
+    const { data, error } = await supabase.from('hotel_dining')
+      .select('*').eq('hotel_place_id', hotelPlaceId).order('created_at', { ascending: false });
+    if (error) { console.error('[HotelDining] getHotelDining error:', error); return []; }
+    return (data || []) as HotelDining[];
+  } catch (err) { console.error('[HotelDining] getHotelDining exception:', err); return []; }
+}
+
+/** Add a dining option to a hotel. */
+export async function addHotelDining(
+  userId: string,
+  data: { hotelPlaceId: string; hotelName: string; hotelAddress: string; restaurantPlaceId: string; restaurantName: string; diningType: DiningType }
+): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    const { error } = await supabase.from('hotel_dining').upsert({
+      hotel_place_id: data.hotelPlaceId,
+      hotel_name: data.hotelName,
+      hotel_address: data.hotelAddress,
+      restaurant_place_id: data.restaurantPlaceId,
+      restaurant_name: data.restaurantName,
+      dining_type: data.diningType,
+      added_by: userId,
+    }, { onConflict: 'hotel_place_id,restaurant_place_id' });
+    if (error) { console.error('[HotelDining] addHotelDining error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[HotelDining] addHotelDining exception:', err); return false; }
+}
+
+/** Remove a dining option from a hotel. */
+export async function removeHotelDining(userId: string, hotelPlaceId: string, restaurantPlaceId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    const { error } = await supabase.from('hotel_dining')
+      .delete().eq('added_by', userId).eq('hotel_place_id', hotelPlaceId).eq('restaurant_place_id', restaurantPlaceId);
+    if (error) { console.error('[HotelDining] removeHotelDining error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[HotelDining] removeHotelDining exception:', err); return false; }
+}
