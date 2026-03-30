@@ -120,6 +120,7 @@ export interface HomeMeal {
   name: string;
   date: string;            // ISO date string
   score: number;           // 0–10
+  wouldMakeAgain: boolean;
   description: string;
   photos: PhotoItem[];
   tags: string[];
