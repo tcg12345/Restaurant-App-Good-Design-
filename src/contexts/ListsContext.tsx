@@ -217,7 +217,7 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
     ...r,
     listIds: r.listIds ?? [],
     friendIds: r.friendIds ?? [],
-    photos: (r.photos ?? []).map((p: any) =>
+    photos: (r.photos ?? []).map((p: PhotoItem | string) =>
       typeof p === 'string' ? { url: p, caption: '', isFavorite: false } : p
     ),
   }));

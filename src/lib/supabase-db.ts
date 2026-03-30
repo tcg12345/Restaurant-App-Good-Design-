@@ -10,7 +10,7 @@ export interface UserAppData {
   lists: CustomList[];
   wishlist: WishlistItem[];
   restaurantMeta: Record<string, RestaurantMeta>;
-  recentViews: any[];
+  recentViews: unknown[];
   trips: Trip[];
 }
 
@@ -35,7 +35,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         .select('ratings, lists, wishlist, restaurant_meta, recent_views')
         .eq('user_id', userId)
         .single();
-      data = fallback.data as any;
+      data = fallback.data as typeof data;
       error = fallback.error;
     }
 
@@ -50,8 +50,8 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       lists: (data.lists as CustomList[]) || [],
       wishlist: (data.wishlist as WishlistItem[]) || [],
       restaurantMeta: (data.restaurant_meta as Record<string, RestaurantMeta>) || {},
-      recentViews: (data.recent_views as any[]) || [],
-      trips: ((data as any).trips as Trip[]) || [],
+      recentViews: (data.recent_views as unknown[]) || [],
+      trips: ((data as Record<string, unknown>).trips as Trip[]) || [],
     };
   } catch (err) {
     console.error('[Supabase] loadUserData exception:', err);
@@ -114,15 +114,18 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
  * Ensure a row exists for this user. Call once after first sign-in.
  */
 async function ensureRow(userId: string): Promise<void> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('user_app_data')
     .select('user_id')
     .eq('user_id', userId)
     .single();
 
+  if (error && error.code !== 'PGRST116') {
+    console.error('[Supabase] ensureRow check error:', error);
+  }
+
   if (!data) {
-    // Create the row with defaults
-    await supabase.from('user_app_data').insert({
+    const { error: insertErr } = await supabase.from('user_app_data').insert({
       user_id: userId,
       ratings: [],
       lists: [],
@@ -130,6 +133,9 @@ async function ensureRow(userId: string): Promise<void> {
       restaurant_meta: {},
       updated_at: new Date().toISOString(),
     });
+    if (insertErr) {
+      console.error('[Supabase] ensureRow insert error:', insertErr);
+    }
   }
 }
 
@@ -189,7 +195,7 @@ export async function saveMetaData(userId: string, restaurantMeta: Record<string
   } catch (err) { console.error('[Supabase] saveMeta exception:', err); return false; }
 }
 
-export async function saveRecentViews(userId: string, recentViews: any[]): Promise<boolean> {
+export async function saveRecentViews(userId: string, recentViews: unknown[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
     await ensureRow(userId);
