@@ -4,13 +4,15 @@ import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Images, Users, UserCircle, Search, Share2, Heart,
-  StickyNote, DollarSign, CalendarDays, Tag, Image, Edit3,
+  StickyNote, DollarSign, CalendarDays, Tag, Image, Edit3, Building2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
-import { getProfilesByIds, type CommunityPhoto } from '../lib/supabase-community';
+import { useAuth } from '../contexts/AuthContext';
+import { getProfilesByIds, getCommunityStats, type CommunityPhoto, type HotelDining, type DiningType } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
+import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 
 /** Parse hours array to find next opening time when currently closed */
 function getNextOpenTime(hours: string[]): string {
@@ -291,11 +293,16 @@ export const RestaurantDetailDesktop: React.FC = () => {
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos,
     showFriendsDetail, setShowFriendsDetail,
+    hotelDiningOptions, refreshHotelDining,
   } = useRestaurantDetail();
 
   const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const { user } = useAuth();
   const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
+  const [diningFilter, setDiningFilter] = useState<DiningType | 'all'>('all');
+  const [addDiningOpen, setAddDiningOpen] = useState(false);
+  const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
 
   const myRating = place ? getRating(place.id) : undefined;
   // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
@@ -309,6 +316,19 @@ export const RestaurantDetailDesktop: React.FC = () => {
       setFriendNames(names);
     });
   }, [myRating?.friendIds]);
+
+  // Load community ratings for hotel dining options
+  useEffect(() => {
+    if (hotelDiningOptions.length === 0) return;
+    (async () => {
+      const ratings: Record<string, number> = {};
+      for (const d of hotelDiningOptions) {
+        const stats = await getCommunityStats(d.restaurant_place_id);
+        if (stats.avgScore > 0) ratings[d.restaurant_place_id] = stats.avgScore;
+      }
+      setDiningRatings(ratings);
+    })();
+  }, [hotelDiningOptions]);
 
   if (loading) {
     return (
@@ -583,6 +603,72 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </div>
         </section>
 
+        {/* Hotel Dining */}
+        {isHotel && (
+          <section className="mb-7">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-on-surface/70 uppercase tracking-wider">Hotel Dining</h3>
+              {user?.id && (
+                <button onClick={() => setAddDiningOpen(true)} className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
+                  + Add Option
+                </button>
+              )}
+            </div>
+
+            {/* Category filter pills */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3">
+              {([{ value: 'all' as const, label: 'All' }, { value: 'restaurant' as const, label: 'Restaurants' }, { value: 'breakfast' as const, label: 'Breakfast' }, { value: 'bar' as const, label: 'Bars' }, { value: 'room_service' as const, label: 'Room Service' }, { value: 'pool_bar' as const, label: 'Pool Bar' }, { value: 'rooftop' as const, label: 'Rooftop' }] as const).map((f) => (
+                <button key={f.value} onClick={() => setDiningFilter(f.value)}
+                  className={cn("px-3.5 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap border transition-all flex-shrink-0",
+                    diningFilter === f.value ? "bg-primary/10 border-primary/25 text-primary" : "bg-white border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
+                  )}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {hotelDiningOptions.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-on-surface/8 p-6 text-center">
+                <Building2 size={24} className="mx-auto text-on-surface/15 mb-2" />
+                <p className="text-xs text-on-surface/35">No dining options added yet</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {hotelDiningOptions
+                  .filter((d) => diningFilter === 'all' || d.dining_type === diningFilter)
+                  .map((d) => {
+                    const score = diningRatings[d.restaurant_place_id];
+                    return (
+                      <div key={d.id} onClick={() => navigate(`/restaurant/${d.restaurant_place_id}`)}
+                        className="bg-white rounded-2xl border border-on-surface/8 p-3.5 hover:shadow-md transition-all cursor-pointer">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-serif font-bold text-sm truncate">{d.restaurant_name}</h4>
+                            <span className={cn(
+                              "inline-block mt-1 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full",
+                              d.dining_type === 'restaurant' ? "bg-primary/8 text-primary/70" :
+                              d.dining_type === 'breakfast' ? "bg-amber-50 text-amber-600" :
+                              d.dining_type === 'bar' ? "bg-violet-50 text-violet-600" :
+                              d.dining_type === 'rooftop' ? "bg-sky-50 text-sky-600" :
+                              "bg-on-surface/5 text-on-surface/50"
+                            )}>
+                              {d.dining_type.replace('_', ' ')}
+                            </span>
+                          </div>
+                          {score != null && (
+                            <span className={cn("text-lg font-serif font-bold flex-shrink-0", score >= 8 ? 'text-green-600' : score >= 5 ? 'text-yellow-600' : 'text-red-500')}>
+                              {score.toFixed(1)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </section>
+        )}
+
         {/* Hours */}
         {place.hours.length > 0 && (
           <section className="mb-3">
@@ -792,6 +878,19 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </>
         )}
       </AnimatePresence>
+
+      {/* Add Hotel Dining Modal */}
+      {place && isHotel && user?.id && (
+        <AddHotelDiningModal
+          open={addDiningOpen}
+          onClose={() => setAddDiningOpen(false)}
+          hotelPlaceId={place.id}
+          hotelName={place.name}
+          hotelAddress={place.address}
+          userId={user.id}
+          onSaved={refreshHotelDining}
+        />
+      )}
     </div>
   );
 };
