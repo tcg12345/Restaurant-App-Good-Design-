@@ -1,10 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, ChevronLeft, ChevronRight, CalendarDays, Tag, StickyNote, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Link as LinkIcon } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, CalendarDays, Tag, StickyNote, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Link as LinkIcon, Search, GripVertical, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem, type HomeMealDish } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Calendar } from './RatingShared';
+
+const HOME_COOKING_TAGS = [
+  'Italian Night', 'Meal Prep', 'Holiday Meal', 'Grilling', 'Baking',
+  'Quick Meal', 'Comfort Food', 'Date Night In', 'Family Recipe',
+  'Healthy', 'Indulgent', 'Breakfast', 'Lunch', 'Dinner', 'Dessert',
+  'Snack', 'Brunch', 'BBQ', 'One-Pot', 'Slow Cooker', 'Air Fryer',
+];
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'date' | 'dishes';
 
@@ -34,6 +41,9 @@ export const AddHomeMealModal: React.FC = () => {
   const [dishPhoto, setDishPhoto] = useState('');
   const [confirmDishDelete, setConfirmDishDelete] = useState(false);
 
+  const [tagSearch, setTagSearch] = useState('');
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+
   const [page, setPage] = useState<Page>('main');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,6 +65,7 @@ export const AddHomeMealModal: React.FC = () => {
       setDishDescription('');
       setDishPhoto('');
       setConfirmDishDelete(false);
+      setTagSearch('');
       setPage('main');
       setConfirmDelete(false);
     }
@@ -98,16 +109,33 @@ export const AddHomeMealModal: React.FC = () => {
         newPhotos.push({ url: compressed, caption: '', isFavorite: false });
       } catch { /* skip failed photos */ }
     }
-    setPhotos((prev) => [...prev, ...newPhotos]);
+    setPhotos((prev) => {
+      const updated = [...prev, ...newPhotos];
+      setTimeout(() => setPage('photos'), 0);
+      return updated;
+    });
     e.target.value = '';
   };
+
+  const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
+  const togglePhotoFavorite = (idx: number) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, isFavorite: !p.isFavorite } : p));
+  const movePhoto = (from: number, to: number) => {
+    setPhotos((prev) => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+
+  const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
 
   const handlePhotosClick = () => {
     if (photos.length === 0) {
       fileInputRef.current?.click();
     } else {
-      // Sub-page coming soon — for now just open file picker
-      fileInputRef.current?.click();
+      setPage('photos');
     }
   };
 
@@ -206,6 +234,12 @@ export const AddHomeMealModal: React.FC = () => {
   const hasPhotos = photos.length > 0;
   const hasDate = visitDate !== '';
   const dateLabel = hasDate ? new Date(visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined;
+
+  const filteredTags = useMemo(() => {
+    if (!tagSearch.trim()) return HOME_COOKING_TAGS;
+    const q = tagSearch.toLowerCase();
+    return HOME_COOKING_TAGS.filter((t) => t.toLowerCase().includes(q));
+  }, [tagSearch]);
 
   const photoInput = <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />;
 
@@ -492,14 +526,109 @@ export const AddHomeMealModal: React.FC = () => {
                 </SubPage>
               )}
 
-              {/* ═══════════ TAGS (placeholder — sub-page coming soon) ═══════════ */}
+              {/* ═══════════ TAGS ═══════════ */}
               {page === 'tags' && (
-                <SubPage key="tags" onBack={() => setPage('main')} title="Tags">
-                  <div className="px-5 py-16 flex flex-col items-center justify-center text-on-surface/30">
-                    <Tag size={28} className="mb-2" />
-                    <p className="text-sm font-semibold">Tags sub-page coming soon</p>
+                <SubPage key="tags" onBack={() => { setPage('main'); setTagSearch(''); }} title="Tags">
+                  <div className="px-5 pt-4 pb-2 flex-shrink-0">
+                    <div className="relative">
+                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                      <input type="text" value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags..."
+                        className="w-full bg-white border border-on-surface/10 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    </div>
+                    {hasTags && (
+                      <div className="flex flex-wrap gap-1.5 mt-2.5">
+                        {selectedTags.map((tag) => (
+                          <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
+                            {tag}<button onClick={() => toggleTag(tag)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <BottomBtn label="Done" onClick={() => setPage('main')} />
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3"
+                    onTouchMove={(e) => e.stopPropagation()}>
+                    {filteredTags.map((tag) => {
+                      const sel = selectedTags.includes(tag);
+                      return (
+                        <button key={tag} onClick={() => toggleTag(tag)}
+                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors",
+                            sel ? "bg-primary/3" : "hover:bg-on-surface/3"
+                          )}>
+                          <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0",
+                            sel ? "bg-primary border-primary text-white" : "border-on-surface/20"
+                          )}>{sel && <Check size={12} strokeWidth={3} />}</div>
+                          <span className={cn("text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{tag}</span>
+                        </button>
+                      );
+                    })}
+                    {filteredTags.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No tags match &ldquo;{tagSearch}&rdquo;</p>}
+                  </div>
+                  <BottomBtn label={hasTags ? `Done (${selectedTags.length})` : 'Done'} onClick={() => { setPage('main'); setTagSearch(''); }} />
+                </SubPage>
+              )}
+
+              {/* ═══════════ PHOTOS ═══════════ */}
+              {page === 'photos' && (
+                <SubPage key="photos" onBack={() => setPage('main')} title="Photos" rightAction={
+                  <button onClick={() => fileInputRef.current?.click()} className="text-xs font-semibold text-primary">
+                    Add More
+                  </button>
+                }>
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+                    onTouchMove={(e) => e.stopPropagation()}>
+                    {photos.length === 0 ? (
+                      <div className="px-5 py-16 flex flex-col items-center justify-center text-on-surface/30">
+                        <Camera size={28} className="mb-2" />
+                        <p className="text-sm font-semibold">No photos yet</p>
+                        <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-on-surface/8">
+                        {photos.map((photo, idx) => (
+                          <div key={idx} className="flex gap-3 px-5 py-4">
+                            <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
+                              <img src={photo.url} alt="" className="w-full h-full object-cover" />
+                              <button onClick={() => removePhoto(idx)}
+                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
+                                <X size={10} className="text-white" />
+                              </button>
+                            </div>
+                            <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                              <input
+                                type="text"
+                                value={photo.caption}
+                                onChange={(e) => updatePhotoCaption(idx, e.target.value)}
+                                placeholder="What's this?"
+                                className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full"
+                              />
+                              <button onClick={() => togglePhotoFavorite(idx)}
+                                className={cn("flex items-center gap-2 mt-2 text-xs font-medium transition-colors",
+                                  photo.isFavorite ? "text-primary" : "text-on-surface/35"
+                                )}>
+                                <span className="text-on-surface/40">Mark as favorite:</span>
+                                <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                  photo.isFavorite ? "bg-primary border-primary text-white" : "border-on-surface/20"
+                                )}>
+                                  {photo.isFavorite && <Star size={10} fill="white" />}
+                                </div>
+                              </button>
+                            </div>
+                            <div className="flex items-start pt-1 flex-shrink-0">
+                              <div className="text-on-surface/20 cursor-grab active:cursor-grabbing p-1"
+                                onPointerDown={() => setDragIdx(idx)}
+                                onPointerUp={() => {
+                                  if (dragIdx !== null && dragIdx !== idx) movePhoto(dragIdx, idx);
+                                  setDragIdx(null);
+                                }}>
+                                <GripVertical size={18} />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <BottomBtn label={hasPhotos ? `Done (${photos.length})` : 'Done'} onClick={() => setPage('main')} />
                 </SubPage>
               )}
             </AnimatePresence>
