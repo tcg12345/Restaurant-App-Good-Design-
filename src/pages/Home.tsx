@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { CircleActivity } from '../components/CircleActivity';
-import { Search, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles } from 'lucide-react';
+import { Search, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
-import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabaseConfigured } from '../lib/supabase';
@@ -19,7 +19,7 @@ import { SocialFeed } from '../components/SocialFeed';
 const DEFAULT_LAT = 40.735;
 const DEFAULT_LNG = -73.99;
 
-const QUICK_FILTERS = ['Near Me', 'Italian', 'Fine Dining', 'Sushi', 'Mexican'];
+const QUICK_FILTERS = ['Near Me', 'Hotels', 'Italian', 'Fine Dining', 'Sushi', 'Mexican'];
 
 type SortOption = 'popularity' | 'rating' | 'price_low' | 'price_high';
 
@@ -241,6 +241,7 @@ export const Home: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState(ss?.searchQuery || '');
   const [activeFilter, setActiveFilter] = useState<string | null>(ss?.activeFilter || null);
+  const [hotelIds, setHotelIds] = useState<Set<string>>(new Set(ss?.hotelIds || []));
   const [userLat, setUserLat] = useState(ss?.userLat || DEFAULT_LAT);
   const [userLng, setUserLng] = useState(ss?.userLng || DEFAULT_LNG);
 
@@ -303,8 +304,9 @@ export const Home: React.FC = () => {
     saveSearchState({
       searchQuery, rawPlaces, places, activeFilter, userLat, userLng,
       sortBy, selectedPrice, selectedCuisines, locationLabel,
+      hotelIds: [...hotelIds],
     });
-  }, [searchActive, searchQuery, rawPlaces, places, activeFilter, userLat, userLng, sortBy, selectedPrice, selectedCuisines, locationLabel]);
+  }, [searchActive, searchQuery, rawPlaces, places, activeFilter, userLat, userLng, sortBy, selectedPrice, selectedCuisines, locationLabel, hotelIds]);
 
   const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
@@ -387,8 +389,24 @@ export const Home: React.FC = () => {
     setActiveFilter(null);
     setShowAllResults(false);
     try {
-      const results = await searchPlacesByText(query, userLat, userLng, locationLabel || undefined);
-      setRawPlaces(results);
+      const isHotelQuery = /hotel/i.test(query);
+      if (isHotelQuery) {
+        // Prioritize hotel results, then regular results
+        const [hotelResults, textResults] = await Promise.all([
+          searchHotels(query, userLat, userLng),
+          searchPlacesByText(query, userLat, userLng, locationLabel || undefined),
+        ]);
+        const hIds = new Set(hotelResults.map((p) => p.id));
+        setHotelIds(hIds);
+        // Merge: hotels first, then non-duplicate regular results
+        const seen = new Set(hotelResults.map((p) => p.id));
+        const extra = textResults.filter((p) => !seen.has(p.id));
+        setRawPlaces([...hotelResults, ...extra]);
+      } else {
+        setHotelIds(new Set());
+        const results = await searchPlacesByText(query, userLat, userLng, locationLabel || undefined);
+        setRawPlaces(results);
+      }
     } catch (err) {
       console.error('Search failed:', err);
     } finally {
@@ -417,6 +435,7 @@ export const Home: React.FC = () => {
     setShowAllResults(false);
     if (activeFilter === filter) {
       setActiveFilter(null);
+      setHotelIds(new Set());
       setIsLoading(true);
       try {
         const results = await searchNearbyRestaurants(userLat, userLng, 2000, selectedCuisines, 0, locationLabel || undefined);
@@ -432,9 +451,14 @@ export const Home: React.FC = () => {
     setIsLoading(true);
     try {
       let results: PlaceResult[];
-      if (filter === 'Near Me') {
+      if (filter === 'Hotels') {
+        results = await searchHotels('hotels', userLat, userLng);
+        setHotelIds(new Set(results.map((p) => p.id)));
+      } else if (filter === 'Near Me') {
+        setHotelIds(new Set());
         results = await searchNearbyRestaurants(userLat, userLng, 1000, selectedCuisines, 0, locationLabel || undefined);
       } else {
+        setHotelIds(new Set());
         results = await searchPlacesByText(filter, userLat, userLng, locationLabel || undefined);
       }
       setRawPlaces(results);
@@ -466,6 +490,7 @@ export const Home: React.FC = () => {
     setActiveFilter(null);
     setShowAllResults(false);
     setShowLocationResults(false);
+    setHotelIds(new Set());
     clearSearchState();
   };
 
@@ -731,12 +756,13 @@ export const Home: React.FC = () => {
                 <div className={cn(!phoneMode && "ml-9")}>
                   {isLoading ? (
                     <div className="flex items-center justify-center py-16">
-                      <Loader2 size={24} className="text-primary animate-spin" />
-                      <span className="ml-3 text-sm text-on-surface/50 font-medium">Finding restaurants...</span>
+                      <Loader2 size={24} className={cn("animate-spin", activeFilter === 'Hotels' ? "text-teal-600" : "text-primary")} />
+                      <span className="ml-3 text-sm text-on-surface/50 font-medium">{activeFilter === 'Hotels' ? 'Finding hotels...' : 'Finding restaurants...'}</span>
                     </div>
                   ) : places.length === 0 && (searchQuery.trim() || activeFilter) ? (
                     <div className="text-center py-16">
-                      <p className="text-on-surface/40 text-sm font-medium">No restaurants found</p>
+                      {activeFilter === 'Hotels' ? <Building2 size={32} className="mx-auto text-on-surface/15 mb-3" /> : null}
+                      <p className="text-on-surface/40 text-sm font-medium">{activeFilter === 'Hotels' ? 'No hotels found' : 'No restaurants found'}</p>
                       <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
                     </div>
                   ) : places.length === 0 ? (
@@ -873,10 +899,12 @@ export const Home: React.FC = () => {
                         <div className={cn("grid gap-3 sm:gap-4", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
                           {visiblePlaces.map((place) => {
                             const props = placeToCardProps(place);
+                            const placeIsHotel = hotelIds.has(place.id) || place.types?.includes('hotel') || place.types?.includes('lodging');
                             return (
                               <RestaurantCard
                                 key={place.id}
                                 {...props}
+                                isHotel={placeIsHotel}
                                 isWishlisted={isWishlisted(place.id)}
                                 onAdd={() => openAddRestaurantModal({
                                   id: place.id,
