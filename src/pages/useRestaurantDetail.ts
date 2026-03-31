@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
-import { getCommunityStats, getFriendsStats, getCommunityPhotos, type CommunityStats, type FriendsStats, type CommunityPhoto } from '../lib/supabase-community';
+import { getCommunityStats, getFriendsStats, getCommunityPhotos, getExpertRecommendations, type CommunityStats, type FriendsStats, type CommunityPhoto, type ExpertRecommendation } from '../lib/supabase-community';
 import { useAuth } from '../contexts/AuthContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -122,12 +122,14 @@ export function useRestaurantDetail() {
   const [communityStats, setCommunityStats] = useState<CommunityStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
   const [friendsStats, setFriendsStats] = useState<FriendsStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
   const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>([]);
+  const [expertRecommendations, setExpertRecommendations] = useState<ExpertRecommendation[]>([]);
   const [showFriendsDetail, setShowFriendsDetail] = useState(false);
 
   useEffect(() => {
     if (!place?.id) return;
     getCommunityStats(place.id).then(setCommunityStats);
     getCommunityPhotos(place.id).then(setCommunityPhotos);
+    getExpertRecommendations(place.id).then(setExpertRecommendations);
     if (user?.id) getFriendsStats(user.id, place.id).then(setFriendsStats);
   }, [place?.id, user?.id]);
 
@@ -171,6 +173,7 @@ export function useRestaurantDetail() {
     communityStats,
     friendsStats,
     communityPhotos,
+    expertRecommendations,
     showFriendsDetail,
     setShowFriendsDetail,
   };
