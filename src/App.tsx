@@ -22,6 +22,7 @@ import { RatingModal } from './components/RatingModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
 import { WishlistModal } from './components/WishlistModal';
+import { AddRecipeModal } from './components/AddRecipeModal';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
@@ -133,6 +134,7 @@ const AppContent: React.FC = () => {
         <AddToListModal />
         <AddRestaurantModal />
         <WishlistModal />
+        <AddRecipeModal />
       </div>
     </div>
   );
