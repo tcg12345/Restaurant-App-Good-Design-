@@ -10,9 +10,10 @@ import { cn } from '../lib/utils';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getProfilesByIds, getCommunityStats, type CommunityPhoto, type HotelDining, type DiningType } from '../lib/supabase-community';
+import { getProfilesByIds, getCommunityStats, type CommunityPhoto, type HotelDining, type DiningType, type ExpertRecommendation } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
+import { Link } from 'react-router-dom';
 
 /** Parse hours array to find next opening time when currently closed */
 function getNextOpenTime(hours: string[]): string {
@@ -291,7 +292,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
     mapContainerRef,
     priceStr, cuisine,
     photos, directionsUrl, mapsUrl,
-    communityStats, friendsStats, communityPhotos,
+    communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
     hotelDiningOptions, refreshHotelDining,
     visitHistory, visitCount,
@@ -305,6 +306,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [diningFilter, setDiningFilter] = useState<DiningType | 'all'>('all');
   const [addDiningOpen, setAddDiningOpen] = useState(false);
   const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
+  const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
 
   const myRating = place ? getRating(place.id) : undefined;
   // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
@@ -682,6 +684,85 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   })}
               </div>
             )}
+          </section>
+        )}
+
+        {/* Expert Picks */}
+        {expertRecommendations.length > 0 && (
+          <section className="mb-5">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">
+                <Star size={13} className="text-amber-600 fill-amber-600" />
+              </div>
+              <h3 className="text-sm font-serif font-bold text-on-surface">Expert Picks</h3>
+              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{expertRecommendations.length}</span>
+            </div>
+            <div className="space-y-3">
+              {expertRecommendations.map((rec) => {
+                const isExpanded = expandedExpertId === rec.id;
+                const scoreColor = Number(rec.rating) >= 8 ? 'text-green-600' : Number(rec.rating) >= 5 ? 'text-yellow-600' : 'text-red-500';
+                return (
+                  <motion.div
+                    key={rec.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white rounded-2xl border border-amber-200/60 overflow-hidden"
+                  >
+                    <button
+                      onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
+                      className="w-full px-4 py-3.5 hover:bg-amber-50/50 transition-colors"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                          <UserCircle size={18} className="text-amber-600" />
+                        </div>
+                        <div className="flex-1 min-w-0 text-left">
+                          <div className="flex items-center gap-2">
+                            <Link
+                              to={`/user/${rec.expert_username}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-sm font-semibold text-on-surface hover:text-primary truncate"
+                            >
+                              {rec.expert_name}
+                            </Link>
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full flex-shrink-0">Expert</span>
+                          </div>
+                          <p className={cn("text-sm mt-1", isExpanded ? "" : "line-clamp-2", "text-on-surface/60")}>{rec.recommendation_text}</p>
+                        </div>
+                        <div className="flex flex-col items-center flex-shrink-0 ml-1">
+                          <span className={cn("text-xl font-serif font-bold", scoreColor)}>{Number(rec.rating).toFixed(1)}</span>
+                          <span className="text-[8px] text-on-surface/30 font-semibold uppercase">/ 10</span>
+                        </div>
+                      </div>
+                    </button>
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          {rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
+                            <div className="px-4 pb-3 pt-0.5">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600/70 mb-2">Highlight Dishes</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {rec.highlight_dishes.map((dish) => (
+                                  <span key={dish} className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200/50">
+                                    {dish}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                );
+              })}
+            </div>
           </section>
         )}
 
