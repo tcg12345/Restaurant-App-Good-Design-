@@ -2,6 +2,7 @@
  * Community ratings & photos — shared data across all users.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import type { HomeMeal } from '../contexts/ListsContext';
 
 export interface CommunityRating {
   id: string;
@@ -229,7 +230,10 @@ export async function searchUsersByUsername(query: string, currentUserId: string
   if (!supabaseConfigured) return [];
   try {
     let q = supabase.from('user_profiles').select('*').neq('user_id', currentUserId).limit(20);
-    if (query.trim()) q = q.ilike('username', `%${query.trim()}%`);
+    if (query.trim()) {
+      const escaped = query.trim().replace(/[%_\\]/g, '\\$&');
+      q = q.ilike('username', `%${escaped}%`);
+    }
     const { data, error } = await q;
     if (error) return [];
     return (data || []) as UserProfile[];
@@ -583,4 +587,44 @@ export async function getFriendActivity(friendIds: string[], limit = 20): Promis
     if (error) { console.error('[Friends] getActivity error:', error); return []; }
     return (data || []) as CommunityRating[];
   } catch (err) { console.error('[Friends] getActivity exception:', err); return []; }
+}
+
+/** Fetch public home meals from a list of friend user IDs. */
+export interface FriendHomeMeal extends HomeMeal {
+  userId: string;
+}
+
+export async function getFriendsPublicHomeMeals(friendIds: string[]): Promise<FriendHomeMeal[]> {
+  if (!supabaseConfigured || friendIds.length === 0) return [];
+  try {
+    const { data, error } = await supabase.from('user_app_data')
+      .select('user_id, home_meals')
+      .in('user_id', friendIds);
+    if (error) { console.error('[Friends] getPublicHomeMeals error:', error); return []; }
+    const result: FriendHomeMeal[] = [];
+    for (const row of data || []) {
+      const meals = (row.home_meals as HomeMeal[]) || [];
+      for (const meal of meals) {
+        if (meal.isPublic) {
+          result.push({ ...meal, userId: row.user_id });
+        }
+      }
+    }
+    result.sort((a, b) => b.createdAt - a.createdAt);
+    return result;
+  } catch (err) { console.error('[Friends] getPublicHomeMeals exception:', err); return []; }
+}
+
+/** Fetch public home meals for a single user (for profile view). */
+export async function getUserPublicHomeMeals(userId: string): Promise<HomeMeal[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('user_app_data')
+      .select('home_meals')
+      .eq('user_id', userId)
+      .single();
+    if (error || !data) return [];
+    const meals = (data.home_meals as HomeMeal[]) || [];
+    return meals.filter((m) => m.isPublic).sort((a, b) => b.createdAt - a.createdAt);
+  } catch (err) { console.error('[Community] getUserPublicHomeMeals exception:', err); return []; }
 }

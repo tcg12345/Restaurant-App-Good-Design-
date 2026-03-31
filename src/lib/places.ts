@@ -57,8 +57,22 @@ function photoUrl(photoName: string | undefined): string | null {
   return `${BASE_URL}/${photoName}/media?maxWidthPx=400&maxHeightPx=400&key=${GOOGLE_PLACES_KEY}`;
 }
 
-function mapPlaces(places: any[]): PlaceResult[] {
-  return (places || []).map((p: any) => ({
+interface GooglePlace {
+  id?: string;
+  name?: string;
+  displayName?: { text: string };
+  location?: { latitude: number; longitude: number };
+  rating?: number;
+  priceLevel?: string | number;
+  shortFormattedAddress?: string;
+  formattedAddress?: string;
+  photos?: { name: string }[];
+  types?: string[];
+  userRatingCount?: number;
+}
+
+function mapPlaces(places: GooglePlace[]): PlaceResult[] {
+  return (places || []).map((p) => ({
     id: p.id || p.name || crypto.randomUUID(),
     name: p.displayName?.text || 'Unknown',
     lat: p.location?.latitude ?? 0,
@@ -167,7 +181,7 @@ export async function searchNearbyRestaurants(
         ...locationParam,
       }),
     }).then((r) => r.json()).then((d) => mapPlaces(d.places || []))
-      .catch(() => [] as PlaceResult[])
+      .catch((err) => { console.error('[Places] textSearch error:', err); return [] as PlaceResult[]; })
   );
 
   const [nearbyRes, ...textResults] = await Promise.all([
@@ -180,7 +194,7 @@ export async function searchNearbyRestaurants(
       },
       body: JSON.stringify(nearbyBody),
     }).then((r) => r.json()).then((d) => mapPlaces(d.places || []))
-      .catch(() => [] as PlaceResult[]),
+      .catch((err) => { console.error('[Places] searchNearby error:', err); return [] as PlaceResult[]; }),
     ...textFetches,
   ]);
 
@@ -213,7 +227,7 @@ async function searchWithFilters(
     : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: filterRadius } } };
 
   const promises = queries.map(async (cuisine) => {
-    const body: any = {
+    const body: Record<string, unknown> = {
       textQuery: cuisine,
       includedType: 'restaurant',
       maxResultCount: 20,
@@ -258,7 +272,7 @@ export async function searchPlacesByText(
 
   // Use includedType to restrict to restaurants instead of polluting the query text.
   // Keep the user's raw query clean so Google can match restaurant names accurately.
-  const body: any = {
+  const body: Record<string, unknown> = {
     textQuery: query,
     includedType: 'restaurant',
     maxResultCount: 20,
@@ -309,7 +323,7 @@ export async function searchHotels(
   lat: number,
   lng: number,
 ): Promise<PlaceResult[]> {
-  const body: any = {
+  const body: Record<string, unknown> = {
     textQuery: query || 'hotels',
     includedType: 'hotel',
     maxResultCount: 20,
@@ -373,7 +387,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     throw new Error(`Place details failed: ${p.error?.message || res.status}`);
   }
 
-  const photos = (p.photos || []).slice(0, 5).map((photo: any) =>
+  const photos = (p.photos || []).slice(0, 5).map((photo: { name: string }) =>
     `${BASE_URL}/${photo.name}/media?maxWidthPx=800&maxHeightPx=600&key=${GOOGLE_PLACES_KEY}`
   );
 
