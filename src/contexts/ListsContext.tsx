@@ -39,14 +39,40 @@ export interface RestaurantMeta {
   address: string;
 }
 
+export interface RecipeIngredient {
+  name: string;
+  amount: string;
+  unit: string;
+}
+
+export interface Recipe {
+  id: string;
+  title: string;
+  description: string;
+  coverPhoto: string;       // base64 data-url
+  prepTime: number;         // minutes
+  cookTime: number;         // minutes
+  servings: number;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  cuisine: string;
+  ingredients: RecipeIngredient[];
+  steps: string[];
+  photos: PhotoItem[];
+  tags: string[];
+  score: number;            // 0–10 rating
+  isPrivate: boolean;
+  createdAt: number;
+}
+
 export interface CustomList {
   id: string;
   name: string;
   emoji: string;
-  type?: 'default' | 'hotel-breakfast'; // special list types
+  type?: 'default' | 'hotel-breakfast' | 'home-cooking'; // special list types
   restaurantIds: string[];   // rated restaurants
   wishlistIds: string[];     // wishlisted restaurants
   listRatings?: Record<string, RestaurantRating>; // per-list rating overrides keyed by restaurantId
+  recipes?: Recipe[];        // home-cooking recipes
   createdAt: number;
 }
 
@@ -185,6 +211,19 @@ interface ListsContextValue {
   wishlistModalMeta: RestaurantMeta | null;
   openWishlistModal: (restaurant: RestaurantMeta) => void;
   closeWishlistModal: () => void;
+
+  // Recipes (home-cooking lists)
+  addRecipe: (listId: string, recipe: Recipe) => void;
+  updateRecipe: (listId: string, recipeId: string, updates: Partial<Recipe>) => void;
+  removeRecipe: (listId: string, recipeId: string) => void;
+  getRecipes: (listId: string) => Recipe[];
+
+  // Add recipe modal
+  addRecipeModalOpen: boolean;
+  addRecipeModalListId: string | null;
+  addRecipeModalRecipe: Recipe | null;
+  openAddRecipeModal: (listId: string, recipe?: Recipe) => void;
+  closeAddRecipeModal: () => void;
 
   // Trips
   trips: Trip[];
@@ -574,6 +613,56 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   }, [syncTripsToCloud]);
 
+  // ── Recipe CRUD (stored inside list.recipes) ──
+  const addRecipe = useCallback((listId: string, recipe: Recipe) => {
+    setLists((prev) => {
+      const next = prev.map((l) => l.id === listId ? { ...l, recipes: [...(l.recipes || []), recipe] } : l);
+      saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
+      return next;
+    });
+  }, [syncListsToCloud]);
+
+  const updateRecipe = useCallback((listId: string, recipeId: string, updates: Partial<Recipe>) => {
+    setLists((prev) => {
+      const next = prev.map((l) => l.id === listId ? { ...l, recipes: (l.recipes || []).map((r) => r.id === recipeId ? { ...r, ...updates } : r) } : l);
+      saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
+      return next;
+    });
+  }, [syncListsToCloud]);
+
+  const removeRecipe = useCallback((listId: string, recipeId: string) => {
+    setLists((prev) => {
+      const next = prev.map((l) => l.id === listId ? { ...l, recipes: (l.recipes || []).filter((r) => r.id !== recipeId) } : l);
+      saveToStorage(STORAGE_KEY_LISTS, next);
+      syncListsToCloud(next);
+      return next;
+    });
+  }, [syncListsToCloud]);
+
+  const getRecipes = useCallback((listId: string): Recipe[] => {
+    const list = lists.find((l) => l.id === listId);
+    return list?.recipes || [];
+  }, [lists]);
+
+  // Add recipe modal state
+  const [addRecipeModalOpen, setAddRecipeModalOpen] = useState(false);
+  const [addRecipeModalListId, setAddRecipeModalListId] = useState<string | null>(null);
+  const [addRecipeModalRecipe, setAddRecipeModalRecipe] = useState<Recipe | null>(null);
+
+  const openAddRecipeModal = useCallback((listId: string, recipe?: Recipe) => {
+    setAddRecipeModalListId(listId);
+    setAddRecipeModalRecipe(recipe || null);
+    setAddRecipeModalOpen(true);
+  }, []);
+
+  const closeAddRecipeModal = useCallback(() => {
+    setAddRecipeModalOpen(false);
+    setAddRecipeModalListId(null);
+    setAddRecipeModalRecipe(null);
+  }, []);
+
   // ── Home Meal sync + CRUD ──
   const syncHomeMealsToCloud = useCallback((data: HomeMeal[]) => {
     if (userIdRef.current && supabaseConfigured) saveHomeMeals(userIdRef.current, data);
@@ -925,6 +1014,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
       wishlistModalOpen, wishlistModalMeta, openWishlistModal, closeWishlistModal,
+      addRecipe, updateRecipe, removeRecipe, getRecipes,
+      addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, openAddRecipeModal, closeAddRecipeModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
       customOrder, setCustomOrder,
       homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, getHomeMeal,

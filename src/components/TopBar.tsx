@@ -1,10 +1,12 @@
 import React from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useChat } from '../contexts/ChatContext';
 
 export const TopBar: React.FC<{ title?: string; rightAction?: React.ReactNode }> = ({ title = "Gourmet Canvas", rightAction }) => {
   const { pendingRequestCount } = useAuth();
+  const { unreadCount } = useChat();
   const navigate = useNavigate();
 
   return (
@@ -17,6 +19,14 @@ export const TopBar: React.FC<{ title?: string; rightAction?: React.ReactNode }>
       </div>
       <div className="flex items-center gap-2 text-on-surface/60">
         {rightAction}
+        <button className="p-2 hover:bg-muted rounded-full transition-colors relative" onClick={() => navigate('/messages')}>
+          <MessageCircle size={20} />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 bg-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center border-2 border-surface">
+              {unreadCount}
+            </span>
+          )}
+        </button>
         <button className="p-2 hover:bg-muted rounded-full transition-colors relative" onClick={() => navigate('/circle')}>
           <Bell size={20} />
           {pendingRequestCount > 0 && (

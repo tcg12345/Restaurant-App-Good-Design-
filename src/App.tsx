@@ -23,6 +23,7 @@ import { RatingModal } from './components/RatingModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
 import { WishlistModal } from './components/WishlistModal';
+import { AddRecipeModal } from './components/AddRecipeModal';
 import { AddHomeMealModal } from './components/AddHomeMealModal';
 import { RecipeModal } from './components/RecipeModal';
 import { RecipeDetail } from './pages/RecipeDetail';
@@ -31,11 +32,13 @@ import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
+import { Messages } from './pages/Messages';
+import { ChatProvider } from './contexts/ChatContext';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/';
-  const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/');
+  const showBottomNav = !['/onboarding', '/messages'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
 
@@ -119,6 +122,7 @@ const AppContent: React.FC = () => {
               <Route path="/import" element={<ImportRestaurants />} />
               <Route path="/recipe/:id" element={<RecipeDetail />} />
               <Route path="/user/:username" element={<UserProfile />} />
+              <Route path="/messages" element={<Messages />} />
             </Routes>
           </AnimatePresence>
         </div>
@@ -138,6 +142,7 @@ const AppContent: React.FC = () => {
         <AddToListModal />
         <AddRestaurantModal />
         <WishlistModal />
+        <AddRecipeModal />
         <AddHomeMealModal />
         <RecipeModal />
       </div>
@@ -152,7 +157,9 @@ export default function App() {
         <SettingsProvider>
           <ListsProvider>
             <RecipesProvider>
-              <AppContent />
+              <ChatProvider>
+                <AppContent />
+              </ChatProvider>
             </RecipesProvider>
           </ListsProvider>
         </SettingsProvider>

@@ -13,7 +13,7 @@ import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 
 /* ── Preset list suggestions ── */
-interface PresetList { name: string; emoji: string; category: string; type?: 'hotel-breakfast'; }
+interface PresetList { name: string; emoji: string; category: string; type?: 'hotel-breakfast' | 'home-cooking'; }
 
 const PRESET_LISTS: PresetList[] = [
   { name: 'Best Date Night Spots', emoji: '🕯️', category: 'Occasion & Vibe' },
@@ -28,6 +28,7 @@ const PRESET_LISTS: PresetList[] = [
   { name: 'Airport Food', emoji: '✈️', category: 'Travel & Location' },
   { name: 'Hotel Restaurants', emoji: '🏨', category: 'Travel & Location' },
   { name: 'Hotel Breakfasts', emoji: '🛏️', category: 'Travel & Location', type: 'hotel-breakfast' },
+  { name: 'Home Cooking', emoji: '🍳', category: 'Functional & Daily', type: 'home-cooking' },
   { name: 'Vacation Eats', emoji: '🏖️', category: 'Travel & Location' },
   { name: 'Road Trip Stops', emoji: '🚗', category: 'Travel & Location' },
   { name: 'Ski Resort Dining', emoji: '⛷️', category: 'Travel & Location' },
@@ -1091,7 +1092,7 @@ const ListDetailView: React.FC<{
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
-  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating } = useLists();
+  const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe } = useLists();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [hotelModalOpen, setHotelModalOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1113,6 +1114,14 @@ const ListDetailView: React.FC<{
 
   const isWishlistView = list.id === '__wishlist__';
   const isHotelBreakfast = list.type === 'hotel-breakfast';
+  const isHomeCooking = list.type === 'home-cooking';
+
+  const recipes = getRecipes(list.id);
+  const filteredRecipes = useMemo(() => {
+    if (!searchQuery.trim()) return recipes;
+    const q = searchQuery.toLowerCase();
+    return recipes.filter((r) => r.title.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.tags.some((t) => t.toLowerCase().includes(q)));
+  }, [recipes, searchQuery]);
 
   const ratedRestaurants = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
@@ -1139,7 +1148,13 @@ const ListDetailView: React.FC<{
         return { id, info, wishItem };
       }).filter(({ info }) => info);
 
-  const totalCount = list.restaurantIds.length + (list.wishlistIds?.length || 0);
+  const totalCount = isHomeCooking ? recipes.length : list.restaurantIds.length + (list.wishlistIds?.length || 0);
+
+  const handlePlusClick = () => {
+    if (isHomeCooking) openAddRecipeModal(list.id);
+    else if (isHotelBreakfast) setHotelModalOpen(true);
+    else setAddSheetOpen(true);
+  };
 
   return (
     <div>
@@ -1151,7 +1166,7 @@ const ListDetailView: React.FC<{
         <div className="flex-1 min-w-0">
           <h2 className="font-serif font-bold text-xl">{list.name}</h2>
           <p className="text-xs text-on-surface/40">
-            {totalCount} restaurant{totalCount !== 1 ? 's' : ''}
+            {isHomeCooking ? `${totalCount} recipe${totalCount !== 1 ? 's' : ''}` : `${totalCount} restaurant${totalCount !== 1 ? 's' : ''}`}
           </p>
         </div>
         <button onClick={() => setSearchOpen(!searchOpen)}
@@ -1159,8 +1174,8 @@ const ListDetailView: React.FC<{
           <Search size={18} />
         </button>
         {!isWishlistView && (
-          <button onClick={() => isHotelBreakfast ? setHotelModalOpen(true) : setAddSheetOpen(true)}
-            className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title={isHotelBreakfast ? "Add hotel" : "Add restaurants"}>
+          <button onClick={handlePlusClick}
+            className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title={isHomeCooking ? "Add recipe" : isHotelBreakfast ? "Add hotel" : "Add restaurants"}>
             <Plus size={20} />
           </button>
         )}
@@ -1210,7 +1225,65 @@ const ListDetailView: React.FC<{
         </div>
       )}
 
-      {totalCount === 0 ? (
+      {isHomeCooking ? (
+        /* ── Home Cooking: Recipe list ── */
+        recipes.length === 0 ? (
+          <div className="text-center py-16">
+            <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
+            <p className="text-sm font-medium text-on-surface/40">No recipes yet</p>
+            <p className="text-xs text-on-surface/30 mt-1">Add your first home cooking recipe</p>
+            <button onClick={() => openAddRecipeModal(list.id)}
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
+              <Plus size={14} />Add Recipe
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredRecipes.map((recipe) => {
+              const scoreColor = recipe.score >= 8 ? 'text-green-500' : recipe.score >= 5 ? 'text-yellow-500' : 'text-red-400';
+              return (
+                <button key={recipe.id} onClick={() => openAddRecipeModal(list.id, recipe)}
+                  className="w-full flex items-center gap-3 p-3 bg-white border border-on-surface/8 rounded-2xl hover:shadow-md transition-all text-left">
+                  {recipe.coverPhoto ? (
+                    <img src={recipe.coverPhoto} alt={recipe.title} className="w-16 h-16 rounded-xl object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-on-surface/5 flex items-center justify-center flex-shrink-0">
+                      <span className="text-2xl">🍳</span>
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-on-surface/80 truncate">{recipe.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {recipe.cuisine && <span className="text-[11px] text-on-surface/40">{recipe.cuisine}</span>}
+                      {recipe.difficulty && <span className="text-[11px] text-on-surface/30">· {recipe.difficulty}</span>}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1">
+                      {(recipe.prepTime > 0 || recipe.cookTime > 0) && (
+                        <span className="text-[10px] text-on-surface/35">{recipe.prepTime + recipe.cookTime} min</span>
+                      )}
+                      {recipe.ingredients.length > 0 && (
+                        <span className="text-[10px] text-on-surface/35">{recipe.ingredients.length} ingredients</span>
+                      )}
+                      {recipe.tags.length > 0 && (
+                        <span className="text-[10px] text-on-surface/35">{recipe.tags[0]}{recipe.tags.length > 1 ? ` +${recipe.tags.length - 1}` : ''}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <span className={cn("text-lg font-serif font-bold tabular-nums", scoreColor)}>{recipe.score.toFixed(1)}</span>
+                    <p className="text-[9px] text-on-surface/30 font-medium">/ 10</p>
+                  </div>
+                </button>
+              );
+            })}
+            {/* Add more button */}
+            <button onClick={() => openAddRecipeModal(list.id)}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
+              <Plus size={16} /><span className="text-sm font-semibold">Add Recipe</span>
+            </button>
+          </div>
+        )
+      ) : totalCount === 0 ? (
         <div className="text-center py-16">
           <ListPlus size={32} className="mx-auto text-on-surface/15 mb-3" />
           <p className="text-sm font-medium text-on-surface/40">This list is empty</p>
@@ -1288,7 +1361,7 @@ const ListDetailView: React.FC<{
             </div>
           )}
           {/* Add more button */}
-          <button onClick={() => isHotelBreakfast ? setHotelModalOpen(true) : setAddSheetOpen(true)}
+          <button onClick={handlePlusClick}
             className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
             <Plus size={16} /><span className="text-sm font-semibold">{isHotelBreakfast ? 'Add Hotel' : 'Add Restaurants'}</span>
           </button>
