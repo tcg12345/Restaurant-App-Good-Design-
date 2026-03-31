@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon } from 'lucide-react';
+import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, Crown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -8,7 +8,7 @@ import { useLists } from '../contexts/ListsContext';
 import {
   getProfileByUsername, getFollowCounts, canViewProfile, getFriends,
   sendFriendRequest, followPublicAccount, getUserRatings, getUserPhotos, getUserLists,
-  getUserWishlist, publishCommunityRating,
+  getUserWishlist, publishCommunityRating, getExpertRecommendationCount,
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
 import mapboxgl from 'mapbox-gl';
@@ -44,6 +44,9 @@ export const UserProfile: React.FC = () => {
   const [userPhotos, setUserPhotos] = useState<CommunityPhoto[]>([]);
   const [userLists, setUserLists] = useState<{ id: string; name: string; emoji: string; restaurantIds: string[] }[]>([]);
   const [userWishlistItems, setUserWishlistItems] = useState<{ restaurantId: string; name: string; cuisine: string; price: string; address: string; notes: string }[]>([]);
+
+  // Expert recommendation count
+  const [expertRecCount, setExpertRecCount] = useState(0);
 
   // Expanded review
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -131,6 +134,11 @@ export const UserProfile: React.FC = () => {
       setCanView(fCanView);
       setIsFollowing(fIsFollowing);
       setUserPhotos(fPhotos);
+
+      // Fetch expert recommendation count if this is an expert
+      if (p.is_expert) {
+        getExpertRecommendationCount(p.user_id).then((c) => { if (!cancelled) setExpertRecCount(c); });
+      }
 
       // Save to cache
       profileCache[cacheKey] = {
@@ -381,9 +389,17 @@ export const UserProfile: React.FC = () => {
           <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-3">
             <span className="text-3xl font-serif font-bold text-primary">{profile.display_name.charAt(0).toUpperCase()}</span>
           </div>
-          <h2 className="text-xl font-serif font-bold">{profile.display_name}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-serif font-bold">{profile.display_name}</h2>
+            {profile.is_expert && <Crown size={18} className="text-amber-500" />}
+          </div>
           <p className="text-sm text-on-surface/40">@{profile.username}</p>
-          {!profile.is_public && (
+          {profile.is_expert && (
+            <span className="mt-1.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/60 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+              <Star size={10} className="fill-amber-500 text-amber-500" /> Verified Expert
+            </span>
+          )}
+          {!profile.is_public && !profile.is_expert && (
             <div className="flex items-center gap-1 mt-1 text-on-surface/30">
               <Lock size={11} /><span className="text-[10px] font-medium">Private Account</span>
             </div>
@@ -395,6 +411,9 @@ export const UserProfile: React.FC = () => {
             <div className="text-center"><p className="text-sm font-bold text-on-surface">{following}</p><p className="text-[10px] text-on-surface/40">Following</p></div>
             {canView && userRatings.length > 0 && (
               <div className="text-center"><p className="text-sm font-bold text-on-surface">{userRatings.length}</p><p className="text-[10px] text-on-surface/40">Ratings</p></div>
+            )}
+            {profile.is_expert && expertRecCount > 0 && (
+              <div className="text-center"><p className="text-sm font-bold text-amber-600">{expertRecCount}</p><p className="text-[10px] text-amber-500/70">Picks</p></div>
             )}
           </div>
 
