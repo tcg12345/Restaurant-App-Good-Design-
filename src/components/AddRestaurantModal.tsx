@@ -6,7 +6,7 @@ import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 import { useAuth } from '../contexts/AuthContext';
-import { getFriends, getProfilesByIds, type UserProfile, type FriendInfo } from '../lib/supabase-community';
+import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
@@ -58,23 +58,39 @@ export const AddRestaurantModal: React.FC = () => {
 
   const [page, setPage] = useState<Page>('main');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isNewVisit, setIsNewVisit] = useState(false);
+  const [visitCount, setVisitCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (addRestaurantModalOpen && restaurant) {
       const ex = getRating(restaurant.id);
-      setScore(ex?.score ?? 7);
-      setNotes(ex?.notes ?? '');
-      setVisitDate(ex?.visitDate ?? '');
-      setWouldReturn(ex?.wouldReturn ?? true);
-      setSelectedTags(ex?.tags ?? []);
-      setPhotos(ex?.photos ?? []);
-      setSelectedListIds(ex?.listIds ?? []);
-      setSelectedFriends(ex?.friendIds ?? []);
+      const startAsNewVisit = addRestaurantModalInitialPage === 'new-visit';
+      if (startAsNewVisit && ex) {
+        // New visit: start fresh but keep restaurant context
+        setScore(7);
+        setNotes('');
+        setVisitDate(new Date().toISOString().slice(0, 10));
+        setWouldReturn(true);
+        setSelectedTags([]);
+        setPhotos([]);
+        setSelectedListIds(ex.listIds ?? []);
+        setSelectedFriends([]);
+      } else {
+        setScore(ex?.score ?? 7);
+        setNotes(ex?.notes ?? '');
+        setVisitDate(ex?.visitDate ?? '');
+        setWouldReturn(ex?.wouldReturn ?? true);
+        setSelectedTags(ex?.tags ?? []);
+        setPhotos(ex?.photos ?? []);
+        setSelectedListIds(ex?.listIds ?? []);
+        setSelectedFriends(ex?.friendIds ?? []);
+      }
+      setIsNewVisit(startAsNewVisit);
       setPriceIndex(-1);
       setPriceAmount('');
-      setPage((addRestaurantModalInitialPage as Page) || 'main');
+      setPage(startAsNewVisit ? 'main' : ((addRestaurantModalInitialPage as Page) || 'main'));
       setConfirmDelete(false);
       setCreatingList(false);
       setNewListSheetOpen(false);
@@ -84,6 +100,12 @@ export const AddRestaurantModal: React.FC = () => {
       setListDropdownOpen(false);
       setTagSearch('');
       setFriendSearch('');
+      // Fetch visit count
+      if (ex && user?.id) {
+        getVisitHistory(user.id, restaurant.id).then((h) => setVisitCount(h.length));
+      } else {
+        setVisitCount(0);
+      }
     }
   }, [addRestaurantModalOpen, restaurant]);
 
@@ -269,11 +291,54 @@ export const AddRestaurantModal: React.FC = () => {
                   className="flex flex-col flex-1 min-h-0">
                   <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
                     <div className="min-w-0">
-                      <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Restaurant'}</h2>
+                      <h2 className="font-serif font-bold text-lg truncate">
+                        {existing ? (isNewVisit ? 'New Visit' : 'Update Rating') : 'Rate Restaurant'}
+                        {existing && visitCount > 0 && (
+                          <span className="text-xs font-normal text-on-surface/30 ml-1.5">Visit #{visitCount + (isNewVisit ? 2 : 1)}</span>
+                        )}
+                      </h2>
                       <p className="text-xs text-on-surface/40 truncate">{restaurant.name}</p>
                     </div>
                     <button onClick={closeAddRestaurantModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
+
+                  {/* New Visit vs Update toggle */}
+                  {existing && (
+                    <div className="px-5 pb-2 flex-shrink-0">
+                      <div className="flex bg-on-surface/[0.04] rounded-xl p-0.5">
+                        <button
+                          onClick={() => {
+                            if (!isNewVisit) {
+                              setIsNewVisit(true);
+                              setScore(7); setNotes(''); setVisitDate(new Date().toISOString().slice(0, 10));
+                              setWouldReturn(true); setSelectedTags([]); setPhotos([]); setSelectedFriends([]);
+                            }
+                          }}
+                          className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
+                            isNewVisit ? "bg-white shadow-sm text-primary" : "text-on-surface/40")}
+                        >
+                          Log New Visit
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (isNewVisit) {
+                              setIsNewVisit(false);
+                              const ex = getRating(restaurant.id);
+                              if (ex) {
+                                setScore(ex.score); setNotes(ex.notes); setVisitDate(ex.visitDate);
+                                setWouldReturn(ex.wouldReturn); setSelectedTags(ex.tags); setPhotos(ex.photos);
+                                setSelectedFriends(ex.friendIds || []);
+                              }
+                            }
+                          }}
+                          className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
+                            !isNewVisit ? "bg-white shadow-sm text-on-surface/70" : "text-on-surface/40")}
+                        >
+                          Update Current
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* List selector */}
                   <div className="px-5 pb-2 flex-shrink-0 relative z-20">
@@ -357,7 +422,7 @@ export const AddRestaurantModal: React.FC = () => {
                   </div>
                   <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
                     <button onClick={handleSaveRating} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
-                      {existing ? 'Update Rating' : 'Save Rating'}
+                      {existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
                     </button>
                     {existing && !confirmDelete && (
                       <button onClick={() => setConfirmDelete(true)}

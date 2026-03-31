@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, Heart, Users, Award, Plus } from 'lucide-react';
+import { Star, Heart, Users, Award, Plus, Building2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -17,6 +17,7 @@ interface RestaurantCardProps {
   onAdd?: () => void;
   onHeart?: () => void;
   isWishlisted?: boolean;
+  isHotel?: boolean;
 
   className?: string;
 }
@@ -33,6 +34,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   onAdd,
   onHeart,
   isWishlisted = false,
+  isHotel = false,
 
   className,
 }) => {
@@ -42,6 +44,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
         whileHover={{ y: -5 }}
         className={cn(
           "group relative overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-500 hover:shadow-xl",
+          isHotel && "ring-1 ring-teal-200",
           className
         )}
       >
@@ -80,13 +83,20 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
               <Plus size={18} className="sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5" />
             </button>
           )}
+
+          {isHotel && (
+            <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-teal-600/90 backdrop-blur-sm z-10">
+              <Building2 size={10} className="text-white" />
+              <span className="text-[9px] font-bold text-white uppercase tracking-wider">Hotel</span>
+            </div>
+          )}
         </div>
 
         <div className="p-3 sm:p-3">
           <div className="flex items-start justify-between gap-1.5 mb-0.5">
             <h3 className="font-serif text-sm sm:text-base lg:text-sm font-bold leading-tight line-clamp-3 sm:line-clamp-2 min-h-[3rem] sm:min-h-[2.25rem] lg:min-h-[2.5rem]">{name}</h3>
-            <div className="flex items-center gap-0.5 text-primary flex-shrink-0">
-              <Star size={13} className="fill-primary sm:w-3.5 sm:h-3.5 lg:w-3 lg:h-3" />
+            <div className={cn("flex items-center gap-0.5 flex-shrink-0", isHotel ? "text-teal-600" : "text-primary")}>
+              <Star size={13} className={cn("sm:w-3.5 sm:h-3.5 lg:w-3 lg:h-3", isHotel ? "fill-teal-600" : "fill-primary")} />
               <span className="text-xs sm:text-sm lg:text-xs font-bold">{rating}</span>
             </div>
           </div>

@@ -4,13 +4,16 @@ import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Images, Users, UserCircle, Share2, Heart,
-  StickyNote, DollarSign, CalendarDays, Tag, Image, Edit3,
+  StickyNote, DollarSign, CalendarDays, Tag, Image, Edit3, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
-import { getProfilesByIds, type UserProfile as UP, type CommunityPhoto, type ExpertRecommendation } from '../lib/supabase-community';
+import { useAuth } from '../contexts/AuthContext';
+import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type CommunityPhoto, type HotelDining, type DiningType, type ExpertRecommendation } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
+import { Link } from 'react-router-dom';
+import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
 
 /** Parse hours array to find next opening time when currently closed */
@@ -56,11 +59,18 @@ export const RestaurantDetailMobile: React.FC = () => {
     photos, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
+    hotelDiningOptions, refreshHotelDining,
+    visitHistory, visitCount,
   } = useRestaurantDetail();
 
   const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const { user } = useAuth();
   const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
+  const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
+  const [diningFilter, setDiningFilter] = useState<DiningType | 'all'>('all');
+  const [addDiningOpen, setAddDiningOpen] = useState(false);
+  const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
 
   const myRating = place ? getRating(place.id) : undefined;
@@ -76,6 +86,19 @@ export const RestaurantDetailMobile: React.FC = () => {
       setFriendNames(names);
     });
   }, [myRating?.friendIds]);
+
+  // Load community ratings for hotel dining options
+  useEffect(() => {
+    if (hotelDiningOptions.length === 0) return;
+    (async () => {
+      const ratings: Record<string, number> = {};
+      for (const d of hotelDiningOptions) {
+        const stats = await getCommunityStats(d.restaurant_place_id);
+        if (stats.avgScore > 0) ratings[d.restaurant_place_id] = stats.avgScore;
+      }
+      setDiningRatings(ratings);
+    })();
+  }, [hotelDiningOptions]);
 
   if (loading) {
     return (
@@ -221,8 +244,8 @@ export const RestaurantDetailMobile: React.FC = () => {
       {/* ── Main Content ── */}
       <main className="px-3 pt-6">
 
-        {/* Action buttons — Rate, Wishlist */}
-        <div className="grid grid-cols-2 gap-2 mb-3">
+        {/* Action buttons — Rate, Wishlist, Rate Again */}
+        <div className={cn("grid gap-2 mb-3", place && getRating(place.id) ? "grid-cols-3" : "grid-cols-2")}>
           <button
             onClick={() => place && openAddRestaurantModal({
               id: place.id, name: place.name,
@@ -237,6 +260,20 @@ export const RestaurantDetailMobile: React.FC = () => {
             <Star size={16} />
             {place && getRating(place.id) ? `${getRating(place.id)!.score.toFixed(1)}` : 'Rate'}
           </button>
+          {place && getRating(place.id) && (
+            <button
+              onClick={() => openAddRestaurantModal({
+                id: place.id, name: place.name,
+                image: place.photoUrl || '',
+                cuisine, price: priceStr,
+                address: place.address,
+              }, 'new-visit')}
+              className="flex items-center justify-center gap-1.5 py-3 rounded-2xl font-medium text-sm active:scale-[0.98] transition-transform bg-primary/10 text-primary border border-primary/20"
+            >
+              <Plus size={14} />
+              Re-rate
+            </button>
+          )}
           <button
             onClick={() => place && openWishlistModal({
               id: place.id, name: place.name,
@@ -382,6 +419,72 @@ export const RestaurantDetailMobile: React.FC = () => {
             </div>
           )}
         </section>
+
+        {/* Hotel Dining */}
+        {isHotel && (
+          <section className="mb-7">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-on-surface/70 uppercase tracking-wider">Hotel Dining</h3>
+              {user?.id && (
+                <button onClick={() => setAddDiningOpen(true)} className="text-xs font-semibold text-primary active:scale-95 transition-transform">
+                  + Add Option
+                </button>
+              )}
+            </div>
+
+            {/* Category filter pills */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3">
+              {([{ value: 'all' as const, label: 'All' }, { value: 'restaurant' as const, label: 'Restaurants' }, { value: 'breakfast' as const, label: 'Breakfast' }, { value: 'bar' as const, label: 'Bars' }, { value: 'room_service' as const, label: 'Room Service' }, { value: 'pool_bar' as const, label: 'Pool Bar' }, { value: 'rooftop' as const, label: 'Rooftop' }] as const).map((f) => (
+                <button key={f.value} onClick={() => setDiningFilter(f.value)}
+                  className={cn("px-3.5 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap border transition-all flex-shrink-0",
+                    diningFilter === f.value ? "bg-primary/10 border-primary/25 text-primary" : "bg-white border-on-surface/10 text-on-surface/50"
+                  )}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {hotelDiningOptions.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-on-surface/8 p-6 text-center">
+                <Building2 size={24} className="mx-auto text-on-surface/15 mb-2" />
+                <p className="text-xs text-on-surface/35">No dining options added yet</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {hotelDiningOptions
+                  .filter((d) => diningFilter === 'all' || d.dining_type === diningFilter)
+                  .map((d) => {
+                    const score = diningRatings[d.restaurant_place_id];
+                    return (
+                      <div key={d.id} onClick={() => navigate(`/restaurant/${d.restaurant_place_id}`)}
+                        className="bg-white rounded-2xl border border-on-surface/8 p-3.5 active:scale-[0.99] transition-transform cursor-pointer">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-serif font-bold text-sm truncate">{d.restaurant_name}</h4>
+                            <span className={cn(
+                              "inline-block mt-1 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full",
+                              d.dining_type === 'restaurant' ? "bg-primary/8 text-primary/70" :
+                              d.dining_type === 'breakfast' ? "bg-amber-50 text-amber-600" :
+                              d.dining_type === 'bar' ? "bg-violet-50 text-violet-600" :
+                              d.dining_type === 'rooftop' ? "bg-sky-50 text-sky-600" :
+                              "bg-on-surface/5 text-on-surface/50"
+                            )}>
+                              {d.dining_type.replace('_', ' ')}
+                            </span>
+                          </div>
+                          {score != null && (
+                            <span className={cn("text-lg font-serif font-bold flex-shrink-0", score >= 8 ? 'text-green-600' : score >= 5 ? 'text-yellow-600' : 'text-red-500')}>
+                              {score.toFixed(1)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Expert Picks */}
         {expertRecommendations.length > 0 && (
@@ -589,6 +692,93 @@ export const RestaurantDetailMobile: React.FC = () => {
           );
         })()}
 
+        {/* Visit History Timeline */}
+        {myRating && visitHistory.length > 0 && place && (
+          <section className="mb-7">
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <RotateCcw size={14} className="text-on-surface/30" />
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30">Visit History</h3>
+              <span className="text-[10px] text-on-surface/20 font-medium">{visitHistory.length + 1} visits</span>
+            </div>
+
+            {/* Current rating - highlighted */}
+            <div className="relative pl-6 mb-1">
+              <div className="absolute left-[9px] top-3 bottom-0 w-0.5 bg-on-surface/8" />
+              <div className="absolute left-0 top-2.5 w-[19px] h-[19px] rounded-full bg-primary flex items-center justify-center z-10">
+                <Star size={10} className="text-white fill-white" />
+              </div>
+              <div className="bg-primary/[0.04] border border-primary/15 rounded-xl p-3.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={cn("text-lg font-serif font-bold", myRating.score >= 8 ? "text-green-600" : myRating.score >= 5 ? "text-yellow-600" : "text-red-500")}>{myRating.score.toFixed(1)}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded">Current</span>
+                  {visitHistory.length > 0 && (() => {
+                    const prev = visitHistory[0];
+                    const diff = myRating.score - prev.score;
+                    if (diff > 0.1) return <span className="flex items-center gap-0.5 text-[10px] text-green-600 font-medium"><TrendingUp size={10} />+{diff.toFixed(1)}</span>;
+                    if (diff < -0.1) return <span className="flex items-center gap-0.5 text-[10px] text-red-500 font-medium"><TrendingDown size={10} />{diff.toFixed(1)}</span>;
+                    return <span className="flex items-center gap-0.5 text-[10px] text-on-surface/30 font-medium"><Minus size={10} />Same</span>;
+                  })()}
+                </div>
+                {myRating.visitDate && <p className="text-[11px] text-on-surface/45">{new Date(myRating.visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>}
+                {myRating.notes && <p className="text-[11px] text-on-surface/50 italic mt-1 line-clamp-2">"{myRating.notes}"</p>}
+                {myRating.wouldReturn !== undefined && (
+                  <p className="text-[10px] mt-1 font-medium">{myRating.wouldReturn ? <span className="text-green-600">Would return</span> : <span className="text-red-500">Wouldn't return</span>}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Previous visits */}
+            {visitHistory.map((visit, idx) => {
+              const isExpanded = expandedVisit === visit.id;
+              const prevVisit = visitHistory[idx + 1];
+              const scoreDiff = prevVisit ? visit.score - prevVisit.score : 0;
+              return (
+                <div key={visit.id} className="relative pl-6 mb-1">
+                  {idx < visitHistory.length - 1 && <div className="absolute left-[9px] top-3 bottom-0 w-0.5 bg-on-surface/8" />}
+                  <div className={cn("absolute left-[3px] top-2.5 w-[13px] h-[13px] rounded-full border-2 z-10",
+                    visit.score >= 8 ? "border-green-400 bg-green-50" : visit.score >= 5 ? "border-yellow-400 bg-yellow-50" : "border-red-400 bg-red-50")} />
+                  <button onClick={() => setExpandedVisit(isExpanded ? null : visit.id)}
+                    className="w-full text-left bg-white border border-on-surface/8 rounded-xl p-3 active:bg-on-surface/[0.02] transition-colors">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-sm font-serif font-bold", visit.score >= 8 ? "text-green-600" : visit.score >= 5 ? "text-yellow-600" : "text-red-500")}>{visit.score.toFixed(1)}</span>
+                      {prevVisit && Math.abs(scoreDiff) > 0.1 && (
+                        scoreDiff > 0
+                          ? <TrendingUp size={10} className="text-green-500" />
+                          : <TrendingDown size={10} className="text-red-400" />
+                      )}
+                      <span className="flex-1 text-[11px] text-on-surface/40">
+                        {visit.visit_date ? new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
+                      </span>
+                      <ChevronDown size={12} className={cn("text-on-surface/20 transition-transform", isExpanded && "rotate-180")} />
+                    </div>
+                    {!isExpanded && visit.notes && <p className="text-[10px] text-on-surface/35 italic mt-1 line-clamp-1">"{visit.notes}"</p>}
+                  </button>
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="bg-white border border-t-0 border-on-surface/8 rounded-b-xl px-3 pb-3 -mt-1 pt-2 space-y-1.5">
+                          {visit.notes && <p className="text-[11px] text-on-surface/50 italic">"{visit.notes}"</p>}
+                          {visit.tags && visit.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {visit.tags.map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-on-surface/5 text-on-surface/40 font-medium">{t}</span>)}
+                            </div>
+                          )}
+                          {visit.photos && visit.photos.length > 0 && (
+                            <div className="flex gap-1 overflow-x-auto no-scrollbar">
+                              {visit.photos.slice(0, 4).map((p, i) => <img key={i} src={p.url} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />)}
+                            </div>
+                          )}
+                          <p className="text-[10px] font-medium">{visit.would_return ? <span className="text-green-600">Would return</span> : <span className="text-red-500">Wouldn't return</span>}</p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </section>
+        )}
+
         {/* Map */}
         <section className="mb-8">
           <div className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
@@ -671,6 +861,19 @@ export const RestaurantDetailMobile: React.FC = () => {
           </>
         )}
       </AnimatePresence>
+
+      {/* Add Hotel Dining Modal */}
+      {place && isHotel && user?.id && (
+        <AddHotelDiningModal
+          open={addDiningOpen}
+          onClose={() => setAddDiningOpen(false)}
+          hotelPlaceId={place.id}
+          hotelName={place.name}
+          hotelAddress={place.address}
+          userId={user.id}
+          onSaved={refreshHotelDining}
+        />
+      )}
     </div>
   );
 };
