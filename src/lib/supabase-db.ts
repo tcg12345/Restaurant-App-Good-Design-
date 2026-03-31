@@ -10,7 +10,7 @@ export interface UserAppData {
   lists: CustomList[];
   wishlist: WishlistItem[];
   restaurantMeta: Record<string, RestaurantMeta>;
-  recentViews: any[];
+  recentViews: unknown[];
   trips: Trip[];
   homeMeals: HomeMeal[];
 }
@@ -25,7 +25,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
     // Try loading with trips column first; fall back without it if column doesn't exist yet
     let { data, error } = await supabase
       .from('user_app_data')
-      .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips')
+      .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals')
       .eq('user_id', userId)
       .single();
 
@@ -36,7 +36,7 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
         .select('ratings, lists, wishlist, restaurant_meta, recent_views')
         .eq('user_id', userId)
         .single();
-      data = fallback.data as any;
+      data = fallback.data as typeof data;
       error = fallback.error;
     }
 
@@ -51,8 +51,9 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       lists: (data.lists as CustomList[]) || [],
       wishlist: (data.wishlist as WishlistItem[]) || [],
       restaurantMeta: (data.restaurant_meta as Record<string, RestaurantMeta>) || {},
-      recentViews: (data.recent_views as any[]) || [],
-      trips: ((data as any).trips as Trip[]) || [],
+      recentViews: (data.recent_views as unknown[]) || [],
+      trips: ((data as Record<string, unknown>).trips as Trip[]) || [],
+      homeMeals: ((data as Record<string, unknown>).home_meals as HomeMeal[]) || [],
     };
   } catch (err) {
     console.error('[Supabase] loadUserData exception:', err);
@@ -79,6 +80,7 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
         restaurant_meta: data.restaurantMeta,
         recent_views: data.recentViews || [],
         trips: data.trips || [],
+        home_meals: data.homeMeals || [],
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
 
@@ -115,15 +117,18 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
  * Ensure a row exists for this user. Call once after first sign-in.
  */
 async function ensureRow(userId: string): Promise<void> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('user_app_data')
     .select('user_id')
     .eq('user_id', userId)
     .single();
 
+  if (error && error.code !== 'PGRST116') {
+    console.error('[Supabase] ensureRow check error:', error);
+  }
+
   if (!data) {
-    // Create the row with defaults
-    await supabase.from('user_app_data').insert({
+    const { error: insertErr } = await supabase.from('user_app_data').insert({
       user_id: userId,
       ratings: [],
       lists: [],
@@ -131,6 +136,9 @@ async function ensureRow(userId: string): Promise<void> {
       restaurant_meta: {},
       updated_at: new Date().toISOString(),
     });
+    if (insertErr) {
+      console.error('[Supabase] ensureRow insert error:', insertErr);
+    }
   }
 }
 
@@ -190,7 +198,7 @@ export async function saveMetaData(userId: string, restaurantMeta: Record<string
   } catch (err) { console.error('[Supabase] saveMeta exception:', err); return false; }
 }
 
-export async function saveRecentViews(userId: string, recentViews: any[]): Promise<boolean> {
+export async function saveRecentViews(userId: string, recentViews: unknown[]): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
     await ensureRow(userId);
@@ -215,4 +223,17 @@ export async function saveTrips(userId: string, trips: Trip[]): Promise<boolean>
     if (error) { console.warn('[Supabase] saveTrips error (trips column may not exist yet):', error.message); return false; }
     return true;
   } catch (err) { console.warn('[Supabase] saveTrips exception:', err); return false; }
+}
+
+export async function saveHomeMeals(userId: string, homeMeals: HomeMeal[]): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    await ensureRow(userId);
+    const { error } = await supabase
+      .from('user_app_data')
+      .update({ home_meals: homeMeals, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+    if (error) { console.warn('[Supabase] saveHomeMeals error (column may not exist yet):', error.message); return false; }
+    return true;
+  } catch (err) { console.warn('[Supabase] saveHomeMeals exception:', err); return false; }
 }

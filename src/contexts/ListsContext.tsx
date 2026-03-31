@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
-import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips } from '../lib/supabase-db';
+import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 
@@ -111,20 +111,21 @@ export interface HomeMealDish {
   id: string;
   name: string;
   description: string;
-  photo: string;          // base64 data-url
-  recipeLink: string;     // optional URL
+  photo: string;           // base64 data-url
+  recipeLink: string;      // optional URL
 }
 
 export interface HomeMeal {
   id: string;
   name: string;
-  date: string;           // ISO date string
-  score: number;          // 0–10
+  date: string;            // ISO date string
+  score: number;           // 0–10
+  wouldMakeAgain: boolean;
   description: string;
   photos: PhotoItem[];
   tags: string[];
   dishes: HomeMealDish[];
-  isPublic: boolean;      // visible on social feed
+  isPublic: boolean;
   createdAt: number;
 }
 
@@ -201,6 +202,7 @@ interface ListsContextValue {
   customOrder: string[];
   setCustomOrder: (order: string[]) => void;
 
+
   // Home meals
   homeMeals: HomeMeal[];
   createHomeMeal: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
@@ -257,7 +259,7 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
     ...r,
     listIds: r.listIds ?? [],
     friendIds: r.friendIds ?? [],
-    photos: (r.photos ?? []).map((p: any) =>
+    photos: (r.photos ?? []).map((p: PhotoItem | string) =>
       typeof p === 'string' ? { url: p, caption: '', isFavorite: false } : p
     ),
   }));
@@ -344,8 +346,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const cloudRecentViews = cloud.recentViews || [];
         // Restore custom order from meta
         const cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
-        // Restore home meals from meta
-        const cloudHomeMeals = Array.isArray((cloudMeta as any).__home_meals__) ? (cloudMeta as any).__home_meals__ as HomeMeal[] : [];
+        const cloudHomeMeals = cloud.homeMeals || [];
 
         setRatings(cloudRatings);
         setLists(cloudLists);
@@ -475,47 +476,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncMetaToCloud]);
 
   // ── Home Meals cloud sync ──
-  const syncHomeMealsToCloud = useCallback((data: HomeMeal[]) => {
-    setRestaurantMeta((prev) => {
-      const next = { ...prev, __home_meals__: data as unknown as RestaurantMeta };
-      saveToStorage(STORAGE_KEY_META, next);
-      syncMetaToCloud(next);
-      return next;
-    });
-  }, [syncMetaToCloud]);
-
-  // ── Home Meal CRUD ──
-  const createHomeMeal = useCallback((meal: Omit<HomeMeal, 'id' | 'createdAt'>): HomeMeal => {
-    const newMeal: HomeMeal = { ...meal, id: `meal-${Date.now()}`, createdAt: Date.now() };
-    setHomeMeals((prev) => {
-      const next = [...prev, newMeal];
-      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
-      syncHomeMealsToCloud(next);
-      return next;
-    });
-    return newMeal;
-  }, [syncHomeMealsToCloud]);
-
-  const updateHomeMeal = useCallback((id: string, updates: Partial<HomeMeal>) => {
-    setHomeMeals((prev) => {
-      const next = prev.map((m) => m.id === id ? { ...m, ...updates } : m);
-      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
-      syncHomeMealsToCloud(next);
-      return next;
-    });
-  }, [syncHomeMealsToCloud]);
-
-  const deleteHomeMeal = useCallback((id: string) => {
-    setHomeMeals((prev) => {
-      const next = prev.filter((m) => m.id !== id);
-      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
-      syncHomeMealsToCloud(next);
-      return next;
-    });
-  }, [syncHomeMealsToCloud]);
-
-  const getHomeMeal = useCallback((id: string) => homeMeals.find((m) => m.id === id), [homeMeals]);
-
   // ── Trip CRUD ──
   const createTrip = useCallback((trip: Omit<Trip, 'id' | 'createdAt'>): Trip => {
     const newTrip: Trip = { ...trip, id: `trip-${Date.now()}`, createdAt: Date.now() };
@@ -613,6 +573,42 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return next;
     });
   }, [syncTripsToCloud]);
+
+  // ── Home Meal sync + CRUD ──
+  const syncHomeMealsToCloud = useCallback((data: HomeMeal[]) => {
+    if (userIdRef.current && supabaseConfigured) saveHomeMeals(userIdRef.current, data);
+  }, []);
+
+  const createHomeMeal = useCallback((meal: Omit<HomeMeal, 'id' | 'createdAt'>): HomeMeal => {
+    const newMeal: HomeMeal = { ...meal, id: `meal-${Date.now()}`, createdAt: Date.now() };
+    setHomeMeals((prev) => {
+      const next = [...prev, newMeal];
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+    return newMeal;
+  }, [syncHomeMealsToCloud]);
+
+  const updateHomeMeal = useCallback((id: string, updates: Partial<HomeMeal>) => {
+    setHomeMeals((prev) => {
+      const next = prev.map((m) => m.id === id ? { ...m, ...updates } : m);
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
+
+  const deleteHomeMeal = useCallback((id: string) => {
+    setHomeMeals((prev) => {
+      const next = prev.filter((m) => m.id !== id);
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
+
+  const getHomeMeal = useCallback((id: string) => homeMeals.find((m) => m.id === id), [homeMeals]);
 
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
   const [ratingModalRestaurant, setRatingModalRestaurant] = useState<RestaurantMeta | null>(null);
