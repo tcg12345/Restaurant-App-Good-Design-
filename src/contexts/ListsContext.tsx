@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
-import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips } from '../lib/supabase-db';
+import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 
@@ -107,6 +107,28 @@ export interface Trip {
   createdAt: number;
 }
 
+export interface HomeMealDish {
+  id: string;
+  name: string;
+  description: string;
+  photo: string;           // base64 data-url
+  recipeLink: string;      // optional URL
+}
+
+export interface HomeMeal {
+  id: string;
+  name: string;
+  date: string;            // ISO date string
+  score: number;           // 0–10
+  wouldMakeAgain: boolean;
+  description: string;
+  photos: PhotoItem[];
+  tags: string[];
+  dishes: HomeMealDish[];
+  isPublic: boolean;
+  createdAt: number;
+}
+
 interface ListsContextValue {
   // Ratings
   ratings: RestaurantRating[];
@@ -175,6 +197,19 @@ interface ListsContextValue {
   addHotelToTrip: (tripId: string, hotel: TripHotel) => void;
   updateHotel: (tripId: string, hotelId: string, updates: Partial<TripHotel>) => void;
   removeHotelFromTrip: (tripId: string, hotelId: string) => void;
+
+  // Home meals
+  homeMeals: HomeMeal[];
+  createHomeMeal: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
+  updateHomeMeal: (id: string, updates: Partial<HomeMeal>) => void;
+  deleteHomeMeal: (id: string) => void;
+  getHomeMeal: (id: string) => HomeMeal | undefined;
+
+  // Home meal modal
+  homeMealModalOpen: boolean;
+  homeMealModalData: HomeMeal | null;
+  openHomeMealModal: (meal?: HomeMeal) => void;
+  closeHomeMealModal: () => void;
 }
 
 const STORAGE_KEY_RATINGS = 'gourmad-ratings';
@@ -182,6 +217,7 @@ const STORAGE_KEY_LISTS = 'gourmad-lists';
 const STORAGE_KEY_WISHLIST = 'gourmad-wishlist';
 const STORAGE_KEY_META = 'gourmad-restaurant-meta';
 const STORAGE_KEY_TRIPS = 'gourmad-trips';
+const STORAGE_KEY_HOME_MEALS = 'gourmad-home-meals';
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -217,7 +253,7 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
     ...r,
     listIds: r.listIds ?? [],
     friendIds: r.friendIds ?? [],
-    photos: (r.photos ?? []).map((p: any) =>
+    photos: (r.photos ?? []).map((p: PhotoItem | string) =>
       typeof p === 'string' ? { url: p, caption: '', isFavorite: false } : p
     ),
   }));
@@ -243,6 +279,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [wishlist, setWishlist] = useState<WishlistItem[]>(() => migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, [])));
   const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
   const [trips, setTrips] = useState<Trip[]>(() => loadFromStorage(STORAGE_KEY_TRIPS, []));
+  const [homeMeals, setHomeMeals] = useState<HomeMeal[]>(() => loadFromStorage(STORAGE_KEY_HOME_MEALS, []));
   const [cloudLoaded, setCloudLoaded] = useState(false);
 
   // Track userId and profile for cloud save helpers
@@ -268,6 +305,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.removeItem(STORAGE_KEY_WISHLIST);
       localStorage.removeItem(STORAGE_KEY_META);
       localStorage.removeItem(STORAGE_KEY_TRIPS);
+      localStorage.removeItem(STORAGE_KEY_HOME_MEALS);
       localStorage.removeItem('gourmad-recent-views');
       // Reset state to empty
       setRatings([]);
@@ -275,6 +313,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setWishlist([]);
       setRestaurantMeta({});
       setTrips([]);
+      setHomeMeals([]);
     }
     localStorage.setItem('gourmad-user-id', userId);
 
@@ -296,12 +335,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           ? (cloud as any).trips
           : (Array.isArray((cloudMeta as any).__trips__) ? (cloudMeta as any).__trips__ : []);
         const cloudRecentViews = cloud.recentViews || [];
+        const cloudHomeMeals = cloud.homeMeals || [];
 
         setRatings(cloudRatings);
         setLists(cloudLists);
         setWishlist(cloudWishlist);
         setRestaurantMeta(cloudMeta);
         setTrips(cloudTrips as Trip[]);
+        setHomeMeals(cloudHomeMeals);
 
         // Also update localStorage as cache
         saveToStorage(STORAGE_KEY_RATINGS, cloudRatings);
@@ -309,6 +350,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
         saveToStorage(STORAGE_KEY_META, cloudMeta);
         saveToStorage(STORAGE_KEY_TRIPS, cloudTrips);
+        saveToStorage(STORAGE_KEY_HOME_MEALS, cloudHomeMeals);
         if (cloudRecentViews.length > 0) {
           localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews));
         }
@@ -338,6 +380,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setWishlist([]);
         setRestaurantMeta({});
         setTrips([]);
+        setHomeMeals([]);
 
         // Save empty state to cloud
         await saveUserData(userId, {
@@ -347,6 +390,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           restaurantMeta: {},
           recentViews: [],
           trips: [],
+          homeMeals: [],
         });
 
         // Clear localStorage
@@ -355,6 +399,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_WISHLIST, []);
         saveToStorage(STORAGE_KEY_META, {});
         saveToStorage(STORAGE_KEY_TRIPS, []);
+        saveToStorage(STORAGE_KEY_HOME_MEALS, []);
         localStorage.setItem('gourmad-recent-views', '[]');
       }
 
@@ -500,6 +545,42 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   }, [syncTripsToCloud]);
 
+  // ── Home Meal sync + CRUD ──
+  const syncHomeMealsToCloud = useCallback((data: HomeMeal[]) => {
+    if (userIdRef.current && supabaseConfigured) saveHomeMeals(userIdRef.current, data);
+  }, []);
+
+  const createHomeMeal = useCallback((meal: Omit<HomeMeal, 'id' | 'createdAt'>): HomeMeal => {
+    const newMeal: HomeMeal = { ...meal, id: `meal-${Date.now()}`, createdAt: Date.now() };
+    setHomeMeals((prev) => {
+      const next = [...prev, newMeal];
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+    return newMeal;
+  }, [syncHomeMealsToCloud]);
+
+  const updateHomeMeal = useCallback((id: string, updates: Partial<HomeMeal>) => {
+    setHomeMeals((prev) => {
+      const next = prev.map((m) => m.id === id ? { ...m, ...updates } : m);
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
+
+  const deleteHomeMeal = useCallback((id: string) => {
+    setHomeMeals((prev) => {
+      const next = prev.filter((m) => m.id !== id);
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+  }, [syncHomeMealsToCloud]);
+
+  const getHomeMeal = useCallback((id: string) => homeMeals.find((m) => m.id === id), [homeMeals]);
+
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
   const [ratingModalRestaurant, setRatingModalRestaurant] = useState<RestaurantMeta | null>(null);
   const [addToListModalOpen, setAddToListModalOpen] = useState(false);
@@ -509,6 +590,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addRestaurantModalInitialPage, setAddRestaurantModalInitialPage] = useState<string | null>(null);
   const [wishlistModalOpen, setWishlistModalOpen] = useState(false);
   const [wishlistModalMeta, setWishlistModalMeta] = useState<RestaurantMeta | null>(null);
+  const [homeMealModalOpen, setHomeMealModalOpen] = useState(false);
+  const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
 
   // Restaurant metadata cache
   const cacheRestaurantMeta = useCallback((meta: RestaurantMeta) => {
@@ -771,6 +854,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta]);
   const closeWishlistModal = useCallback(() => { setWishlistModalOpen(false); setWishlistModalMeta(null); }, []);
 
+  const openHomeMealModal = useCallback((meal?: HomeMeal) => {
+    setHomeMealModalData(meal || null);
+    setHomeMealModalOpen(true);
+  }, []);
+  const closeHomeMealModal = useCallback(() => { setHomeMealModalOpen(false); setHomeMealModalData(null); }, []);
+
   return (
     <ListsContext.Provider value={{
       ratings, rateRestaurant, updateRating, removeRating, getRating,
@@ -782,6 +871,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
       wishlistModalOpen, wishlistModalMeta, openWishlistModal, closeWishlistModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
+      homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, getHomeMeal,
+      homeMealModalOpen, homeMealModalData, openHomeMealModal, closeHomeMealModal,
     }}>
       {children}
     </ListsContext.Provider>

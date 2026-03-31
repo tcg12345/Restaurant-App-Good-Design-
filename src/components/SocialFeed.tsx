@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, UserCircle } from 'lucide-react';
+import { Heart, MessageSquare, Send, UserCircle, ChefHat, UtensilsCrossed } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
@@ -7,14 +7,20 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments,
-  type CommunityRating, type UserProfile, type ActivityComment,
+  getFriendsPublicHomeMeals,
+  type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
+
+type FeedItem =
+  | { type: 'rating'; data: CommunityRating; sortTime: number }
+  | { type: 'homeMeal'; data: FriendHomeMeal; sortTime: number };
 
 export const SocialFeed: React.FC = () => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
   const [activity, setActivity] = useState<CommunityRating[]>([]);
+  const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
   const [likes, setLikes] = useState<Record<string, number>>({});
   const [userLiked, setUserLiked] = useState<Set<string>>(new Set());
@@ -34,14 +40,22 @@ export const SocialFeed: React.FC = () => {
     if (friends.length === 0) { setLoading(false); return; }
 
     const friendIds = friends.map((f) => f.friend_id);
-    const act = await getFriendActivity(friendIds, 15);
+    const [act, meals] = await Promise.all([
+      getFriendActivity(friendIds, 15),
+      getFriendsPublicHomeMeals(friendIds),
+    ]);
     setActivity(act);
+    setHomeMeals(meals);
 
-    if (act.length > 0) {
-      const userIds = [...new Set(act.map((a) => a.user_id))];
+    // Collect all user IDs from both sources
+    const allUserIds = new Set<string>();
+    act.forEach((a) => allUserIds.add(a.user_id));
+    meals.forEach((m) => allUserIds.add(m.userId));
+
+    if (allUserIds.size > 0) {
       const ratingIds = act.map((a) => a.id).filter(Boolean);
       const [profs, likesData, ccounts] = await Promise.all([
-        getProfilesByIds(userIds),
+        getProfilesByIds([...allUserIds]),
         ratingIds.length > 0 ? getLikesForRatings(userId, ratingIds) : Promise.resolve({ likes: {} as Record<string, number>, userLiked: new Set<string>() }),
         ratingIds.length > 0 ? getCommentCounts(ratingIds) : Promise.resolve({} as Record<string, number>),
       ]);
@@ -54,6 +68,18 @@ export const SocialFeed: React.FC = () => {
   }, [userId]);
 
   useEffect(() => { loadFeed(); }, [loadFeed]);
+
+  // Merge and sort feed items by time
+  const feedItems: FeedItem[] = [
+    ...activity.map((r): FeedItem => ({
+      type: 'rating', data: r,
+      sortTime: r.created_at ? new Date(r.created_at).getTime() : 0,
+    })),
+    ...homeMeals.map((m): FeedItem => ({
+      type: 'homeMeal', data: m,
+      sortTime: m.createdAt,
+    })),
+  ].sort((a, b) => b.sortTime - a.sortTime);
 
   const handleLike = async (ratingId: string) => {
     if (!userId || !ratingId) return;
@@ -106,13 +132,66 @@ export const SocialFeed: React.FC = () => {
   };
 
   if (loading) return <div className="text-center py-6"><div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>;
-  if (activity.length === 0) return null;
+  if (feedItems.length === 0) return null;
 
   return (
     <section className="mb-8">
       <h2 className="text-lg font-serif font-bold mb-4">Friend Activity</h2>
       <div className="space-y-3">
-        {activity.map((r) => (
+        {feedItems.map((item) => {
+          if (item.type === 'homeMeal') {
+            const m = item.data;
+            const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
+            return (
+              <div key={`meal-${m.id}`} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
+                {/* User header */}
+                <div className="px-3.5 pt-3 pb-2 flex items-center gap-2.5">
+                  <Link to={`/user/${getUsername(m.userId)}`}>
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <ChefHat size={16} className="text-emerald-600" />
+                    </div>
+                  </Link>
+                  <div className="flex-1 min-w-0">
+                    <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
+                    <p className="text-[10px] text-emerald-600 font-medium">cooked at home</p>
+                  </div>
+                  <span className="text-[10px] text-on-surface/30">{mealTimeAgo}</span>
+                </div>
+
+                {/* Meal card */}
+                <div className="px-3.5 pb-2">
+                  <div className="bg-surface rounded-xl border border-on-surface/5 overflow-hidden">
+                    {/* Photo */}
+                    {m.photos.length > 0 && (
+                      <img src={m.photos[0].url} alt={m.name} className="w-full aspect-[16/9] object-cover" />
+                    )}
+                    <div className="p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-serif font-bold text-sm truncate">{m.name}</h3>
+                          <p className="text-[10px] text-on-surface/40">
+                            {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            {m.dishes.length > 0 && (
+                              <> · <UtensilsCrossed size={9} className="inline -mt-0.5" /> {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>
+                            )}
+                          </p>
+                        </div>
+                        <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(m.score))}>{m.score.toFixed(1)}</span>
+                      </div>
+                      {m.description && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-2">&ldquo;{m.description}&rdquo;</p>}
+                      {m.tags.length > 0 && (
+                        <div className="flex gap-1 mt-1">{m.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600">{t}</span>)}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          // Restaurant rating card (existing)
+          const r = item.data as CommunityRating;
+          return (
           <div key={r.id} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
             {/* User header */}
             <div className="px-3.5 pt-3 pb-2 flex items-center gap-2.5">
@@ -138,7 +217,7 @@ export const SocialFeed: React.FC = () => {
                   </div>
                   <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
                 </div>
-                {r.notes && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-2">"{r.notes}"</p>}
+                {r.notes && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-2">&ldquo;{r.notes}&rdquo;</p>}
                 {r.tags && r.tags.length > 0 && (
                   <div className="flex gap-1 mt-1">{r.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}</div>
                 )}
@@ -199,7 +278,8 @@ export const SocialFeed: React.FC = () => {
               )}
             </AnimatePresence>
           </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

@@ -18,10 +18,14 @@ import { AnimatePresence, motion } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ListsProvider } from './contexts/ListsContext';
+import { RecipesProvider } from './contexts/RecipesContext';
 import { RatingModal } from './components/RatingModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
 import { WishlistModal } from './components/WishlistModal';
+import { AddHomeMealModal } from './components/AddHomeMealModal';
+import { RecipeModal } from './components/RecipeModal';
+import { RecipeDetail } from './pages/RecipeDetail';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
@@ -31,7 +35,7 @@ import { UserProfile } from './pages/UserProfile';
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/';
-  const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/');
+  const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
 
@@ -113,6 +117,7 @@ const AppContent: React.FC = () => {
               <Route path="/restaurant/:id" element={<RestaurantDetail />} />
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/import" element={<ImportRestaurants />} />
+              <Route path="/recipe/:id" element={<RecipeDetail />} />
               <Route path="/user/:username" element={<UserProfile />} />
             </Routes>
           </AnimatePresence>
@@ -133,6 +138,8 @@ const AppContent: React.FC = () => {
         <AddToListModal />
         <AddRestaurantModal />
         <WishlistModal />
+        <AddHomeMealModal />
+        <RecipeModal />
       </div>
     </div>
   );
@@ -144,7 +151,9 @@ export default function App() {
       <AuthProvider>
         <SettingsProvider>
           <ListsProvider>
-            <AppContent />
+            <RecipesProvider>
+              <AppContent />
+            </RecipesProvider>
           </ListsProvider>
         </SettingsProvider>
       </AuthProvider>
