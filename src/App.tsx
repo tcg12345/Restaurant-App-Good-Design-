@@ -28,11 +28,13 @@ import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
+import { Messages } from './pages/Messages';
+import { ChatProvider } from './contexts/ChatContext';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/';
-  const showBottomNav = !['/onboarding'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/');
+  const showBottomNav = !['/onboarding', '/messages'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
 
@@ -115,6 +117,7 @@ const AppContent: React.FC = () => {
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/import" element={<ImportRestaurants />} />
               <Route path="/user/:username" element={<UserProfile />} />
+              <Route path="/messages" element={<Messages />} />
             </Routes>
           </AnimatePresence>
         </div>
@@ -146,7 +149,9 @@ export default function App() {
       <AuthProvider>
         <SettingsProvider>
           <ListsProvider>
-            <AppContent />
+            <ChatProvider>
+              <AppContent />
+            </ChatProvider>
           </ListsProvider>
         </SettingsProvider>
       </AuthProvider>

@@ -1,0 +1,169 @@
+import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { useAuth } from './AuthContext';
+
+/* ── Types ── */
+
+export interface SharedRestaurant {
+  restaurantId: string;
+  name: string;
+  image: string;
+  cuisine: string;
+  price: string;
+  address: string;
+  score?: number;       // if sharing a review
+  notes?: string;       // review notes
+  wouldReturn?: boolean;
+  tags?: string[];
+  isReview: boolean;    // true = sharing a review, false = sharing a detail page
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  text: string;
+  sharedRestaurant?: SharedRestaurant;
+  timestamp: number;
+}
+
+export interface Conversation {
+  id: string;
+  name?: string;          // group name (undefined for 1:1 chats)
+  participantIds: string[];
+  messages: ChatMessage[];
+  lastMessageAt: number;
+  createdAt: number;
+  isGroup: boolean;
+}
+
+interface ChatContextValue {
+  conversations: Conversation[];
+  createConversation: (participantIds: string[], name?: string) => Conversation;
+  sendMessage: (conversationId: string, text: string, sharedRestaurant?: SharedRestaurant) => void;
+  getConversation: (id: string) => Conversation | undefined;
+  findDirectConversation: (friendId: string) => Conversation | undefined;
+  deleteConversation: (id: string) => void;
+  markRead: (conversationId: string) => void;
+  unreadCount: number;
+  getUnreadForConversation: (conversationId: string) => number;
+}
+
+const STORAGE_KEY = 'gourmad-chats';
+const READ_KEY = 'gourmad-chats-read';
+
+function loadFromStorage<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveToStorage(key: string, value: unknown) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+const ChatContext = createContext<ChatContextValue | null>(null);
+
+export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+
+  const [conversations, setConversations] = useState<Conversation[]>(() => loadFromStorage(STORAGE_KEY, []));
+  // Track last-read timestamps per conversation
+  const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>(() => loadFromStorage(READ_KEY, {}));
+
+  // Persist conversations
+  useEffect(() => {
+    saveToStorage(STORAGE_KEY, conversations);
+  }, [conversations]);
+
+  useEffect(() => {
+    saveToStorage(READ_KEY, readTimestamps);
+  }, [readTimestamps]);
+
+  const createConversation = useCallback((participantIds: string[], name?: string): Conversation => {
+    const allParticipants = userId ? [...new Set([userId, ...participantIds])] : participantIds;
+    const isGroup = allParticipants.length > 2 || !!name;
+    const conv: Conversation = {
+      id: `conv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: isGroup ? (name || 'Group Chat') : undefined,
+      participantIds: allParticipants,
+      messages: [],
+      lastMessageAt: Date.now(),
+      createdAt: Date.now(),
+      isGroup,
+    };
+    setConversations((prev) => [conv, ...prev]);
+    return conv;
+  }, [userId]);
+
+  const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant) => {
+    if (!userId) return;
+    const msg: ChatMessage = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      senderId: userId,
+      text,
+      sharedRestaurant,
+      timestamp: Date.now(),
+    };
+    setConversations((prev) => prev.map((c) =>
+      c.id === conversationId
+        ? { ...c, messages: [...c.messages, msg], lastMessageAt: Date.now() }
+        : c
+    ));
+    // Mark this conversation as read for sender
+    setReadTimestamps((prev) => ({ ...prev, [conversationId]: Date.now() }));
+  }, [userId]);
+
+  const getConversation = useCallback((id: string) => conversations.find((c) => c.id === id), [conversations]);
+
+  const findDirectConversation = useCallback((friendId: string): Conversation | undefined => {
+    if (!userId) return undefined;
+    return conversations.find((c) =>
+      !c.isGroup &&
+      c.participantIds.length === 2 &&
+      c.participantIds.includes(userId) &&
+      c.participantIds.includes(friendId)
+    );
+  }, [conversations, userId]);
+
+  const deleteConversation = useCallback((id: string) => {
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  const markRead = useCallback((conversationId: string) => {
+    setReadTimestamps((prev) => ({ ...prev, [conversationId]: Date.now() }));
+  }, []);
+
+  const getUnreadForConversation = useCallback((conversationId: string): number => {
+    if (!userId) return 0;
+    const conv = conversations.find((c) => c.id === conversationId);
+    if (!conv) return 0;
+    const lastRead = readTimestamps[conversationId] || 0;
+    return conv.messages.filter((m) => m.senderId !== userId && m.timestamp > lastRead).length;
+  }, [conversations, readTimestamps, userId]);
+
+  const unreadCount = conversations.reduce((sum, c) => {
+    if (!userId) return sum;
+    const lastRead = readTimestamps[c.id] || 0;
+    const unread = c.messages.filter((m) => m.senderId !== userId && m.timestamp > lastRead).length;
+    return sum + unread;
+  }, 0);
+
+  return (
+    <ChatContext.Provider value={{
+      conversations, createConversation, sendMessage, getConversation,
+      findDirectConversation, deleteConversation, markRead,
+      unreadCount, getUnreadForConversation,
+    }}>
+      {children}
+    </ChatContext.Provider>
+  );
+};
+
+export function useChat() {
+  const ctx = useContext(ChatContext);
+  if (!ctx) throw new Error('useChat must be used within ChatProvider');
+  return ctx;
+}
