@@ -1247,7 +1247,7 @@ export const Map: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
-                className="flex items-center gap-3 overflow-x-auto no-scrollbar"
+                className="flex items-center gap-3 overflow-x-auto scrollbar-hide"
               >
                 <button
                   onClick={() => {
