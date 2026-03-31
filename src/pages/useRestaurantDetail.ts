@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
-import { getCommunityStats, getFriendsStats, getCommunityPhotos, type CommunityStats, type FriendsStats, type CommunityPhoto } from '../lib/supabase-community';
+import { getCommunityStats, getFriendsStats, getCommunityPhotos, getHotelDining, getVisitHistory, getExpertRecommendations, type CommunityStats, type FriendsStats, type CommunityPhoto, type HotelDining, type VisitRecord, type ExpertRecommendation } from '../lib/supabase-community';
 import { useAuth } from '../contexts/AuthContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -122,13 +122,23 @@ export function useRestaurantDetail() {
   const [communityStats, setCommunityStats] = useState<CommunityStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
   const [friendsStats, setFriendsStats] = useState<FriendsStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
   const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>([]);
+  const [expertRecommendations, setExpertRecommendations] = useState<ExpertRecommendation[]>([]);
   const [showFriendsDetail, setShowFriendsDetail] = useState(false);
+  const [hotelDiningOptions, setHotelDiningOptions] = useState<HotelDining[]>([]);
+  const [visitHistory, setVisitHistory] = useState<VisitRecord[]>([]);
 
   useEffect(() => {
     if (!place?.id) return;
     getCommunityStats(place.id).then(setCommunityStats);
     getCommunityPhotos(place.id).then(setCommunityPhotos);
-    if (user?.id) getFriendsStats(user.id, place.id).then(setFriendsStats);
+    getExpertRecommendations(place.id).then(setExpertRecommendations);
+    if (user?.id) {
+      getFriendsStats(user.id, place.id).then(setFriendsStats);
+      getVisitHistory(user.id, place.id).then(setVisitHistory);
+    }
+    // Fetch hotel dining if this place looks like a hotel
+    const isHotel = place.types[0] === 'hotel' || place.types[0] === 'lodging';
+    if (isHotel) getHotelDining(place.id).then(setHotelDiningOptions);
   }, [place?.id, user?.id]);
 
   const priceStr = place ? priceLevelToString(place.priceLevel) : '';
@@ -171,7 +181,12 @@ export function useRestaurantDetail() {
     communityStats,
     friendsStats,
     communityPhotos,
+    expertRecommendations,
     showFriendsDetail,
     setShowFriendsDetail,
+    hotelDiningOptions,
+    refreshHotelDining: () => { if (place?.id) getHotelDining(place.id).then(setHotelDiningOptions); },
+    visitHistory,
+    visitCount: visitHistory.length,
   };
 }

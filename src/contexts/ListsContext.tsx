@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
-import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos } from '../lib/supabase-community';
+import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 
 /* ── Types ── */
@@ -237,6 +237,11 @@ interface ListsContextValue {
   updateHotel: (tripId: string, hotelId: string, updates: Partial<TripHotel>) => void;
   removeHotelFromTrip: (tripId: string, hotelId: string) => void;
 
+  // Custom ranking order
+  customOrder: string[];
+  setCustomOrder: (order: string[]) => void;
+
+
   // Home meals
   homeMeals: HomeMeal[];
   createHomeMeal: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
@@ -251,12 +256,13 @@ interface ListsContextValue {
   closeHomeMealModal: () => void;
 }
 
+const STORAGE_KEY_HOME_MEALS = 'gourmad-home-meals';
 const STORAGE_KEY_RATINGS = 'gourmad-ratings';
 const STORAGE_KEY_LISTS = 'gourmad-lists';
 const STORAGE_KEY_WISHLIST = 'gourmad-wishlist';
 const STORAGE_KEY_META = 'gourmad-restaurant-meta';
 const STORAGE_KEY_TRIPS = 'gourmad-trips';
-const STORAGE_KEY_HOME_MEALS = 'gourmad-home-meals';
+const STORAGE_KEY_CUSTOM_ORDER = 'gourmad-custom-order';
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -318,6 +324,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [wishlist, setWishlist] = useState<WishlistItem[]>(() => migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, [])));
   const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
   const [trips, setTrips] = useState<Trip[]>(() => loadFromStorage(STORAGE_KEY_TRIPS, []));
+  const [customOrder, setCustomOrderState] = useState<string[]>(() => loadFromStorage(STORAGE_KEY_CUSTOM_ORDER, []));
   const [homeMeals, setHomeMeals] = useState<HomeMeal[]>(() => loadFromStorage(STORAGE_KEY_HOME_MEALS, []));
   const [cloudLoaded, setCloudLoaded] = useState(false);
 
@@ -344,6 +351,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.removeItem(STORAGE_KEY_WISHLIST);
       localStorage.removeItem(STORAGE_KEY_META);
       localStorage.removeItem(STORAGE_KEY_TRIPS);
+      localStorage.removeItem(STORAGE_KEY_CUSTOM_ORDER);
       localStorage.removeItem(STORAGE_KEY_HOME_MEALS);
       localStorage.removeItem('gourmad-recent-views');
       // Reset state to empty
@@ -352,6 +360,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setWishlist([]);
       setRestaurantMeta({});
       setTrips([]);
+      setCustomOrderState([]);
       setHomeMeals([]);
     }
     localStorage.setItem('gourmad-user-id', userId);
@@ -374,6 +383,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           ? (cloud as any).trips
           : (Array.isArray((cloudMeta as any).__trips__) ? (cloudMeta as any).__trips__ : []);
         const cloudRecentViews = cloud.recentViews || [];
+        // Restore custom order from meta
+        const cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
         const cloudHomeMeals = cloud.homeMeals || [];
 
         setRatings(cloudRatings);
@@ -381,6 +392,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setWishlist(cloudWishlist);
         setRestaurantMeta(cloudMeta);
         setTrips(cloudTrips as Trip[]);
+        setCustomOrderState(cloudCustomOrder);
         setHomeMeals(cloudHomeMeals);
 
         // Also update localStorage as cache
@@ -389,6 +401,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
         saveToStorage(STORAGE_KEY_META, cloudMeta);
         saveToStorage(STORAGE_KEY_TRIPS, cloudTrips);
+        saveToStorage(STORAGE_KEY_CUSTOM_ORDER, cloudCustomOrder);
         saveToStorage(STORAGE_KEY_HOME_MEALS, cloudHomeMeals);
         if (cloudRecentViews.length > 0) {
           localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews));
@@ -419,6 +432,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setWishlist([]);
         setRestaurantMeta({});
         setTrips([]);
+        setCustomOrderState([]);
         setHomeMeals([]);
 
         // Save empty state to cloud
@@ -438,6 +452,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_WISHLIST, []);
         saveToStorage(STORAGE_KEY_META, {});
         saveToStorage(STORAGE_KEY_TRIPS, []);
+        saveToStorage(STORAGE_KEY_CUSTOM_ORDER, []);
         saveToStorage(STORAGE_KEY_HOME_MEALS, []);
         localStorage.setItem('gourmad-recent-views', '[]');
       }
@@ -486,6 +501,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, [syncMetaToCloud]);
 
+  // ── Custom Order ──
+  const setCustomOrder = useCallback((order: string[]) => {
+    setCustomOrderState(order);
+    saveToStorage(STORAGE_KEY_CUSTOM_ORDER, order);
+    // Persist inside restaurant_meta for cloud sync
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, __custom_order__: order as unknown as RestaurantMeta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
+  }, [syncMetaToCloud]);
+
+  // ── Home Meals cloud sync ──
   // ── Trip CRUD ──
   const createTrip = useCallback((trip: Omit<Trip, 'id' | 'createdAt'>): Trip => {
     const newTrip: Trip = { ...trip, id: `trip-${Date.now()}`, createdAt: Date.now() };
@@ -704,6 +733,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Ratings
   const rateRestaurant = useCallback((rating: RestaurantRating) => {
     setRatings((prev) => {
+      // Save old rating to visit history before overwriting
+      const existing = prev.find((r) => r.restaurantId === rating.restaurantId);
+      if (existing && userIdRef.current) {
+        saveVisitRecord(userIdRef.current, {
+          restaurantId: existing.restaurantId,
+          score: existing.score,
+          notes: existing.notes,
+          visitDate: existing.visitDate,
+          tags: existing.tags,
+          wouldReturn: existing.wouldReturn,
+          photos: existing.photos || [],
+          friendIds: existing.friendIds || [],
+        }).catch(() => console.warn('[VisitHistory] Failed to save visit record'));
+      }
       const next = [rating, ...prev.filter((r) => r.restaurantId !== rating.restaurantId)];
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
@@ -727,6 +770,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
     }
     cacheRestaurantMeta({ id: rating.restaurantId, name: rating.name, image: rating.image, cuisine: rating.cuisine, price: rating.price, address: rating.address });
+    // Add new ratings to top of custom order
+    setCustomOrderState((prev) => {
+      if (prev.includes(rating.restaurantId)) return prev;
+      const next = [rating.restaurantId, ...prev];
+      saveToStorage(STORAGE_KEY_CUSTOM_ORDER, next);
+      return next;
+    });
     // Publish to community
     if (userIdRef.current) {
       publishCommunityRating(userIdRef.current, rating.restaurantId, {
@@ -758,6 +808,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const next = prev.filter((r) => r.restaurantId !== restaurantId);
       saveToStorage(STORAGE_KEY_RATINGS, next);
       syncRatingsToCloud(next);
+      return next;
+    });
+    setCustomOrderState((prev) => {
+      const next = prev.filter((id) => id !== restaurantId);
+      saveToStorage(STORAGE_KEY_CUSTOM_ORDER, next);
       return next;
     });
     if (userIdRef.current) {
@@ -962,6 +1017,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addRecipe, updateRecipe, removeRecipe, getRecipes,
       addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, openAddRecipeModal, closeAddRecipeModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
+      customOrder, setCustomOrder,
       homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, getHomeMeal,
       homeMealModalOpen, homeMealModalData, openHomeMealModal, closeHomeMealModal,
     }}>

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -10,7 +10,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, type CommunityRating, type UserProfile } from '../lib/supabase-community';
-import { searchNearbyRestaurants, searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -125,14 +125,17 @@ export const Map: React.FC = () => {
       tabDataCache.friendProfiles = profs;
     })();
   }, [userId, tabDataLoaded]);
-  const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts'>(() => {
+  const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts' | 'hotels'>(() => {
     const saved = sessionStorage.getItem('map-mode');
-    return (saved === 'myratings' || saved === 'friends' || saved === 'experts') ? saved : 'discover';
+    return (saved === 'myratings' || saved === 'friends' || saved === 'experts' || saved === 'hotels') ? saved : 'discover';
   });
-  const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts') => {
+  const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts' | 'hotels') => {
     setMapModeRaw(mode);
     sessionStorage.setItem('map-mode', mode);
   };
+  const [hotelPlaces, setHotelPlaces] = useState<PlaceResult[]>([]);
+  const [hotelsLoading, setHotelsLoading] = useState(false);
+  const hotelMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
   const [mapModeDropdownOpen, setMapModeDropdownOpen] = useState(false);
@@ -491,12 +494,12 @@ export const Map: React.FC = () => {
 
     // Show "Search this area" button when user pans the map instead of auto-fetching
     map.on('moveend', () => {
-      if (mapModeRef.current !== 'discover') return;
+      if (mapModeRef.current !== 'discover' && mapModeRef.current !== 'hotels') return;
       if (isMarkerSelectedRef.current) return;
       // Only show button after initial load (places already populated)
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       fetchTimeoutRef.current = setTimeout(() => {
-        if (!isMarkerSelectedRef.current && mapModeRef.current === 'discover') {
+        if (!isMarkerSelectedRef.current && (mapModeRef.current === 'discover' || mapModeRef.current === 'hotels')) {
           setShowSearchHere(true);
         }
       }, 400);
@@ -560,6 +563,108 @@ export const Map: React.FC = () => {
     });
   }, []);
 
+  // Create a hotel marker element (distinct Building2 icon, teal color)
+  const createHotelMarkerElement = useCallback((place: PlaceResult) => {
+    const el = document.createElement('div');
+    el.className = 'mapbox-custom-marker';
+    el.innerHTML = `
+      <div class="marker-pin" data-id="${place.id}" style="
+        padding: 10px;
+        border-radius: 50%;
+        background: #0d9488;
+        box-shadow: 0 4px 20px rgba(13,148,136,0.3);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transform: scale(0.4);
+        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease;
+      ">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/>
+          <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>
+          <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/>
+          <path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>
+        </svg>
+      </div>
+    `;
+    el.addEventListener('mouseenter', () => {
+      const pin = el.querySelector('.marker-pin') as HTMLElement;
+      if (pin) pin.style.transform = 'scale(1.15)';
+    });
+    el.addEventListener('mouseleave', () => {
+      const pin = el.querySelector('.marker-pin') as HTMLElement;
+      if (pin) pin.style.transform = 'scale(1)';
+    });
+    return el;
+  }, []);
+
+  // Show popup for a hotel
+  const showHotelPopup = useCallback((place: PlaceResult, map: mapboxgl.Map) => {
+    if (popupRef.current) popupRef.current.remove();
+    const cityState = extractCityState(place.fullAddress, place.address);
+    const ratingHtml = place.rating > 0
+      ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="#0d9488" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span style="font-size:12px;font-weight:700;color:#0d9488;">${place.rating.toFixed(1)}</span>
+          <span style="font-size:11px;color:#aaa;margin-left:2px;">(${place.userRatingCount})</span>
+        </div>`
+      : '';
+
+    const callbackId = `popup_hotel_${Date.now()}`;
+    (window as any)[`${callbackId}_nav`] = () => {
+      popupRef.current?.remove();
+      navigateRef.current(`/restaurant/${place.id}`);
+      delete (window as any)[`${callbackId}_nav`];
+    };
+
+    const popup = new mapboxgl.Popup({
+      offset: 25, closeButton: true, closeOnClick: false, maxWidth: '240px', className: 'restaurant-popup',
+    })
+      .setLngLat([place.lng, place.lat])
+      .setHTML(`
+        <div style="font-family:inherit;padding:4px 0;">
+          <div onclick="window.${callbackId}_nav()" style="cursor:pointer;">
+            ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/></svg>
+              <span style="font-size:10px;color:#0d9488;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Hotel</span>
+            </div>
+            <div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${place.name}</div>
+            ${ratingHtml}
+            <div style="font-size:11px;color:#999;">${cityState}</div>
+          </div>
+          <button onclick="window.${callbackId}_nav()" style="margin-top:8px;width:100%;padding:8px 0;border-radius:10px;background:#0d9488;color:white;border:none;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">View Details</button>
+        </div>
+      `)
+      .addTo(map);
+
+    popup.on('close', () => {
+      setSelectedMarker(null);
+      isMarkerSelectedRef.current = false;
+      popupRef.current = null;
+      delete (window as any)[`${callbackId}_nav`];
+    });
+    popupRef.current = popup;
+  }, []);
+
+  // Fetch hotels near current map center
+  const fetchHotels = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map) return;
+    setHotelsLoading(true);
+    try {
+      const center = map.getCenter();
+      const results = await searchHotels('hotels', center.lat, center.lng);
+      setHotelPlaces(results);
+    } catch (err) {
+      console.error('Hotel search failed:', err);
+    } finally {
+      setHotelsLoading(false);
+    }
+  }, []);
+
   const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
   // Look up missing coordinates for custom tab ratings (background, once per mode)
@@ -597,6 +702,57 @@ export const Map: React.FC = () => {
     })();
   }, [mapMode, myRatings, friendRatings]);
 
+  // Fetch hotels when entering hotels mode
+  useEffect(() => {
+    if (mapMode === 'hotels' && hotelPlaces.length === 0) fetchHotels();
+  }, [mapMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Add/remove hotel markers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Clear previous hotel markers
+    hotelMarkersRef.current.forEach((m) => m.remove());
+    hotelMarkersRef.current = [];
+
+    if (mapMode !== 'hotels' || hotelPlaces.length === 0) return;
+
+    const bounds = new mapboxgl.LngLatBounds();
+    let hasMarkers = false;
+    let animIndex = 0;
+
+    for (const place of hotelPlaces) {
+      const el = createHotelMarkerElement(place);
+
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setSelectedMarker(place.id);
+        isMarkerSelectedRef.current = true;
+        map.easeTo({ center: [place.lng, place.lat], duration: 500 });
+        showHotelPopup(place, map);
+      });
+
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([place.lng, place.lat])
+        .addTo(map);
+
+      hotelMarkersRef.current.push(marker);
+      bounds.extend([place.lng, place.lat]);
+      hasMarkers = true;
+
+      // Staggered fade-in
+      const delay = Math.min(animIndex * 25, 400);
+      setTimeout(() => {
+        const pin = el.querySelector('.marker-pin') as HTMLElement;
+        if (pin) { pin.style.opacity = '1'; pin.style.transform = 'scale(1)'; }
+      }, delay);
+      animIndex++;
+    }
+
+    if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
+  }, [mapMode, hotelPlaces, createHotelMarkerElement, showHotelPopup]);
+
   // Add/remove custom markers for My Ratings and Friends modes
   const customMarkersRef = useRef<mapboxgl.Marker[]>([]);
   useEffect(() => {
@@ -614,6 +770,13 @@ export const Map: React.FC = () => {
         if (el) el.style.display = mapMode === 'discover' ? '' : 'none';
       } catch {}
     });
+
+    // Hide hotel markers when not in hotels mode (their own effect manages visibility)
+    if (mapMode !== 'hotels') {
+      hotelMarkersRef.current.forEach((m) => { try { m.getElement().style.display = 'none'; } catch {} });
+    } else {
+      hotelMarkersRef.current.forEach((m) => { try { m.getElement().style.display = ''; } catch {} });
+    }
 
     // Also close any open popups
     if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
@@ -679,16 +842,16 @@ export const Map: React.FC = () => {
 
       {/* Search this area button */}
       <AnimatePresence>
-        {showSearchHere && mapMode === 'discover' && (
+        {showSearchHere && (mapMode === 'discover' || mapMode === 'hotels') && (
           <motion.button
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-            onClick={() => { setShowSearchHere(false); fetchNearby(); }}
+            onClick={() => { setShowSearchHere(false); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
             className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-5 py-2.5 bg-white rounded-full shadow-xl border border-on-surface/10 hover:bg-muted transition-colors"
           >
-            <Search size={15} className="text-primary" />
+            <Search size={15} className={mapMode === 'hotels' ? "text-teal-600" : "text-primary"} />
             <span className="text-xs font-bold text-on-surface/80">Search this area</span>
           </motion.button>
         )}
@@ -1084,7 +1247,7 @@ export const Map: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
-                className="flex items-center gap-3 overflow-x-auto no-scrollbar"
+                className="flex items-center gap-3 overflow-x-auto scrollbar-hide"
               >
                 <button
                   onClick={() => {
@@ -1178,6 +1341,17 @@ export const Map: React.FC = () => {
                 >
                   <Star size={16} className={mapMode === 'experts' ? "text-primary fill-primary" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">Experts</span>
+                </button>
+
+                <button
+                  onClick={() => setMapMode(mapMode === 'hotels' ? 'discover' : 'hotels')}
+                  className={cn(
+                    "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
+                    mapMode === 'hotels' ? "bg-teal-600/10 border-teal-600/30 text-teal-700" : "border-on-surface/10 hover:bg-muted"
+                  )}
+                >
+                  <Building2 size={16} className={mapMode === 'hotels' ? "text-teal-600" : "text-on-surface/50"} />
+                  <span className="text-xs font-bold uppercase tracking-wider">Hotels</span>
                 </button>
               </motion.div>
             )}
@@ -1306,6 +1480,60 @@ export const Map: React.FC = () => {
               ))}
             </div>
           )}
+
+          {/* Hotels tab content */}
+          {mapMode === 'hotels' && (hotelsLoading && hotelPlaces.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={24} className="text-teal-600 animate-spin" />
+              <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching hotels...</span>
+            </div>
+          ) : hotelPlaces.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Building2 size={32} className="text-on-surface/20 mb-3" />
+              <p className="text-sm text-on-surface/40 font-medium">No hotels found</p>
+              <p className="text-xs text-on-surface/30 mt-1">Try moving the map to a different area</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {hotelPlaces.map((place) => {
+                const cityState = extractCityState(place.fullAddress, place.address);
+                return (
+                  <div
+                    key={place.id}
+                    className={cn(
+                      "flex gap-3 group cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 transition-all hover:shadow-md",
+                      selectedMarker === place.id && "ring-2 ring-teal-500/20"
+                    )}
+                    onClick={() => navigate(`/restaurant/${place.id}`)}
+                  >
+                    <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-muted self-center relative">
+                      {place.photoUrl ? (
+                        <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="h-full w-full flex items-center justify-center bg-teal-50">
+                          <Building2 size={20} className="text-teal-300" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                      <div>
+                        <h3 className="font-serif font-bold text-sm leading-snug truncate">{place.name}</h3>
+                        <p className="text-[10px] text-teal-700 font-semibold uppercase tracking-wider mt-0.5">Hotel</p>
+                        {place.rating > 0 && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <Star size={11} className="fill-teal-600 text-teal-600" />
+                            <span className="text-xs font-bold text-teal-700">{place.rating.toFixed(1)}</span>
+                            <span className="text-[11px] text-on-surface/40 ml-0.5">({place.userRatingCount})</span>
+                          </div>
+                        )}
+                        <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
 
           {/* Discover tab content (original) */}
           {mapMode === 'discover' && (isSearching && places.length === 0 ? (
