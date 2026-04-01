@@ -38,6 +38,7 @@ export const Circle: React.FC = () => {
   const [expertRatingCounts, setExpertRatingCounts] = useState<Record<string, number>>({});
   const [expertFollowerCounts, setExpertFollowerCounts] = useState<Record<string, number>>({});
   const [expertsLoading, setExpertsLoading] = useState(false);
+  const [expertsLoaded, setExpertsLoaded] = useState(false);
   const [expertFollowedIds, setExpertFollowedIds] = useState<Set<string>>(new Set());
 
   const loadExperts = useCallback(async () => {
@@ -62,6 +63,7 @@ export const Circle: React.FC = () => {
       setExpertFollowedIds(ids);
     }
     setExpertsLoading(false);
+    setExpertsLoaded(true);
   }, [userId]);
 
   const handleFollowExpert = async (expertId: string) => {
@@ -105,8 +107,8 @@ export const Circle: React.FC = () => {
 
   // Load experts when tab switches to experts
   useEffect(() => {
-    if (activeTab === 'experts' && expertProfiles.length === 0 && !expertsLoading) loadExperts();
-  }, [activeTab, expertProfiles.length, expertsLoading, loadExperts]);
+    if (activeTab === 'experts' && !expertsLoaded && !expertsLoading) loadExperts();
+  }, [activeTab, expertsLoaded, expertsLoading, loadExperts]);
 
   const [suggestions, setSuggestions] = useState<UserProfile[]>([]);
 
