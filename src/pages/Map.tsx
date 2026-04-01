@@ -221,14 +221,20 @@ export const Map: React.FC = () => {
     filtersRef.current = { sortBy, selectedCuisines, selectedPrice };
   }, [sortBy, selectedCuisines, selectedPrice]);
 
-  // Bottom sheet state
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // Bottom sheet state — tri-state: peek (collapsed), half (partial), full (full-screen discover)
+  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>('peek');
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartYRef = useRef(0);
   const dragCurrentYRef = useRef(0);
   const isDraggingRef = useRef(false);
   const PEEK_HEIGHT = 140;
-  const SHEET_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.85 : 700;
+  const FULL_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const HALF_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.65 : 520;
+  const getSheetY = (state: 'peek' | 'half' | 'full') => {
+    if (state === 'full') return 0;
+    if (state === 'half') return FULL_HEIGHT - HALF_HEIGHT;
+    return FULL_HEIGHT - PEEK_HEIGHT;
+  };
 
   // ── Discover feed state ──
   const [discoverSearchActive, setDiscoverSearchActive] = useState(false);
@@ -725,27 +731,19 @@ export const Map: React.FC = () => {
   // Listen for "open-discover-sheet" events from BottomNav Discover button
   useEffect(() => {
     const handler = () => {
-      preSearchPlacesRef.current = places;
-      setSheetOpen(true);
+      setSheetState('full');
       setMapMode('discover');
-      setShowSearchInput(true);
-      setDiscoverSearchActive(true);
-      setTimeout(() => searchInputRef.current?.focus(), 200);
     };
     window.addEventListener('open-discover-sheet', handler);
     return () => window.removeEventListener('open-discover-sheet', handler);
-  }, [places]);
+  }, []);
 
   // Handle ?discover=1 query param (from navigation)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('discover') === '1') {
-      preSearchPlacesRef.current = places;
-      setSheetOpen(true);
+      setSheetState('full');
       setMapMode('discover');
-      setShowSearchInput(true);
-      setDiscoverSearchActive(true);
-      setTimeout(() => searchInputRef.current?.focus(), 300);
       window.history.replaceState({}, '', '/');
     }
   }, []);
@@ -1318,21 +1316,27 @@ export const Map: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Bottom Sheet */}
+      {/* Bottom Sheet — tri-state: peek / half / full */}
       <motion.div
         ref={sheetRef}
-        animate={{ y: sheetOpen ? 0 : SHEET_HEIGHT - PEEK_HEIGHT }}
-        initial={{ y: SHEET_HEIGHT - PEEK_HEIGHT }}
+        animate={{ y: getSheetY(sheetState) }}
+        initial={{ y: getSheetY('peek') }}
         transition={{ type: 'spring', damping: 32, stiffness: 300, mass: 0.8 }}
-        style={{ height: SHEET_HEIGHT }}
-        className="absolute bottom-0 left-0 right-0 glass rounded-t-[3rem] shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform"
+        style={{ height: FULL_HEIGHT }}
+        className={cn(
+          "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform",
+          sheetState === 'full' ? "bg-surface rounded-t-none" : "glass rounded-t-[3rem]"
+        )}
       >
-        {/* Handle — only this area is draggable */}
+        {/* Handle — only this area is draggable (hidden in full state) */}
+        {sheetState !== 'full' && (
         <div
           className="w-full flex flex-col items-center pt-4 pb-4 cursor-grab active:cursor-grabbing flex-shrink-0"
           style={{ touchAction: 'none' }}
           onClick={() => {
-            if (Math.abs(dragCurrentYRef.current) < 5) setSheetOpen(!sheetOpen);
+            if (Math.abs(dragCurrentYRef.current) < 5) {
+              setSheetState(sheetState === 'peek' ? 'half' : 'peek');
+            }
           }}
           onTouchStart={(e) => {
             dragStartYRef.current = e.touches[0].clientY;
@@ -1345,8 +1349,8 @@ export const Map: React.FC = () => {
             dragCurrentYRef.current = delta;
             const el = sheetRef.current;
             if (!el) return;
-            const baseY = sheetOpen ? 0 : SHEET_HEIGHT - PEEK_HEIGHT;
-            const clamped = Math.max(0, Math.min(SHEET_HEIGHT - PEEK_HEIGHT, baseY + delta));
+            const baseY = getSheetY(sheetState);
+            const clamped = Math.max(0, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
             el.style.transform = `translateY(${clamped}px)`;
             el.style.transition = 'none';
           }}
@@ -1355,14 +1359,12 @@ export const Map: React.FC = () => {
             isDraggingRef.current = false;
             const delta = dragCurrentYRef.current;
             const el = sheetRef.current;
-            if (el) {
-              el.style.transform = '';
-              el.style.transition = '';
-            }
-            if (sheetOpen) {
-              if (delta > 50) setSheetOpen(false);
+            if (el) { el.style.transform = ''; el.style.transition = ''; }
+            if (sheetState === 'half') {
+              if (delta > 60) setSheetState('peek');
+              else if (delta < -60) setSheetState('full');
             } else {
-              if (delta < -50) setSheetOpen(true);
+              if (delta < -50) setSheetState('half');
             }
           }}
           onMouseDown={(e) => {
@@ -1376,8 +1378,8 @@ export const Map: React.FC = () => {
               dragCurrentYRef.current = delta;
               const el = sheetRef.current;
               if (!el) return;
-              const baseY = sheetOpen ? 0 : SHEET_HEIGHT - PEEK_HEIGHT;
-              const clamped = Math.max(0, Math.min(SHEET_HEIGHT - PEEK_HEIGHT, baseY + delta));
+              const baseY = getSheetY(sheetState);
+              const clamped = Math.max(0, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
               el.style.transform = `translateY(${clamped}px)`;
               el.style.transition = 'none';
             };
@@ -1385,14 +1387,12 @@ export const Map: React.FC = () => {
               isDraggingRef.current = false;
               const delta = dragCurrentYRef.current;
               const el = sheetRef.current;
-              if (el) {
-                el.style.transform = '';
-                el.style.transition = '';
-              }
-              if (sheetOpen) {
-                if (delta > 50) setSheetOpen(false);
+              if (el) { el.style.transform = ''; el.style.transition = ''; }
+              if (sheetState === 'half') {
+                if (delta > 60) setSheetState('peek');
+                else if (delta < -60) setSheetState('full');
               } else {
-                if (delta < -50) setSheetOpen(true);
+                if (delta < -50) setSheetState('half');
               }
               window.removeEventListener('mousemove', onMouseMove);
               window.removeEventListener('mouseup', onMouseUp);
@@ -1403,7 +1403,259 @@ export const Map: React.FC = () => {
         >
           <div className="w-12 h-1.5 bg-on-surface/10 rounded-full" />
         </div>
+        )}
 
+        {/* ══════ FULL STATE — full-screen discover page ══════ */}
+        {sheetState === 'full' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Header with back button + search bar or active search input */}
+            <div className={cn("flex items-center gap-3 flex-shrink-0 border-b border-on-surface/8", phoneMode ? "px-3 pt-3 pb-3" : "px-6 pt-4 pb-4")}>
+              <button
+                onClick={() => {
+                  if (discoverSearchActive) {
+                    setDiscoverSearchActive(false);
+                    setShowSearchInput(false);
+                    setSearchQuery('');
+                    if (preSearchPlacesRef.current.length > 0) {
+                      setPlaces(preSearchPlacesRef.current);
+                      syncMarkersRef.current?.(preSearchPlacesRef.current);
+                    }
+                  } else {
+                    setSheetState('half');
+                  }
+                }}
+                className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"
+              >
+                <ArrowLeft size={20} className="text-on-surface/60" />
+              </button>
+              {discoverSearchActive ? (
+                <form
+                  className="flex-1 relative"
+                  onSubmit={(e) => { e.preventDefault(); if (searchQuery.trim()) handleSearch(searchQuery); }}
+                >
+                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search restaurant, cuisine, occasion..."
+                    autoFocus
+                    className="w-full bg-white rounded-2xl py-3 pl-11 pr-10 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all border border-on-surface/8"
+                  />
+                  {searchQuery && (
+                    <button type="button" onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+                      className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60">
+                      <X size={16} />
+                    </button>
+                  )}
+                </form>
+              ) : (
+                <button
+                  onClick={() => {
+                    preSearchPlacesRef.current = places;
+                    setDiscoverSearchActive(true);
+                    setShowSearchInput(true);
+                    setTimeout(() => searchInputRef.current?.focus(), 100);
+                  }}
+                  className="flex-1 relative"
+                >
+                  <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
+                    <Search size={18} />
+                  </div>
+                  <div className="w-full bg-white rounded-2xl py-3 pl-11 pr-4 text-sm font-medium shadow-sm text-on-surface/40 text-left border border-on-surface/8">
+                    Search restaurant, cuisine, occasion...
+                  </div>
+                </button>
+              )}
+            </div>
+
+            {/* Full discover content — scrollable */}
+            <div className={cn("flex-1 overflow-y-auto pb-32", phoneMode ? "px-3" : "px-6")}>
+              {/* Quick filters */}
+              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1 pt-4">
+                {QUICK_FILTERS.map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => handleQuickFilter(filter)}
+                    className={cn("whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all",
+                      activeQuickFilter === filter
+                        ? 'bg-primary text-white border-primary'
+                        : 'bg-white border-muted hover:border-primary hover:text-primary'
+                    )}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search results in full state */}
+              {discoverSearchActive && (
+                <div className="mt-4">
+                  {isSearching ? (
+                    <div className="flex items-center justify-center py-16">
+                      <Loader2 size={24} className="text-primary animate-spin" />
+                      <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
+                    </div>
+                  ) : !searchQuery.trim() ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <Search size={32} className="text-on-surface/15 mb-3" />
+                      <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
+                      <p className="text-xs text-on-surface/30 mt-1">Search by name, cuisine, or use the filters above</p>
+                    </div>
+                  ) : places.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <MapPinned size={32} className="text-on-surface/20 mb-3" />
+                      <p className="text-sm text-on-surface/40 font-medium">No results found</p>
+                      <p className="text-xs text-on-surface/30 mt-1">Try a different search</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-serif font-bold">Results</h2>
+                        <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">{places.length} found</span>
+                      </div>
+                      <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                        {places.map((place) => {
+                          const props = placeToCardProps(place);
+                          return (
+                            <RestaurantCard key={place.id} {...props}
+                              isWishlisted={isWishlisted(place.id)}
+                              onAdd={() => openAddRestaurantModal({
+                                id: place.id, name: place.name, image: props.image,
+                                cuisine: props.cuisine, price: props.price, address: place.address,
+                              })}
+                              onHeart={() => openWishlistModal({
+                                id: place.id, name: place.name, image: props.image,
+                                cuisine: props.cuisine, price: props.price, address: place.address,
+                              })}
+                            />
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Feed content — hidden when searching */}
+              {!discoverSearchActive && (
+              <>
+              {/* Your Top Rated */}
+              {myLocalRatings.length > 0 && (
+                <section className="mt-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-base font-serif font-bold">Your Top Rated</h2>
+                    <Link to="/pantry" className="text-xs font-semibold text-primary">See All</Link>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
+                    {[...myLocalRatings].sort((a, b) => b.score - a.score).slice(0, 8).map((r) => (
+                      <Link key={r.restaurantId} to={`/restaurant/${r.restaurantId}`} className="flex-shrink-0 w-32 group">
+                        <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                          {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                          : <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{r.name.charAt(0)}</div>}
+                        </div>
+                        <p className="text-xs font-semibold truncate leading-tight">{r.name}</p>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className={cn("text-[10px] font-bold", r.score >= 8 ? "text-green-600" : r.score >= 5 ? "text-yellow-600" : "text-red-500")}>{r.score.toFixed(1)}</span>
+                          <span className="text-[10px] text-on-surface/30">/ 10</span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Recent Views */}
+              {recentViews.length > 0 && (
+                <section className="mt-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Clock size={15} className="text-on-surface/35" />
+                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                    {recentViews.slice(0, 8).map((place) => (
+                      <div key={place.id} className="flex-shrink-0 w-32 relative group">
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
+                          className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={10} className="text-white" />
+                        </button>
+                        <Link to={`/restaurant/${place.id}`}>
+                          <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                            {(place as any).photoUrl ? (
+                              <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
+                            )}
+                          </div>
+                          <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
+                          {place.rating > 0 && (
+                            <div className="flex items-center gap-0.5 mt-0.5">
+                              <Star size={10} className="fill-primary text-primary" />
+                              <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                            </div>
+                          )}
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Recommendations */}
+              {recsLoading ? (
+                <section className="mt-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles size={15} className="text-primary/60" />
+                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                  </div>
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={20} className="text-primary/40 animate-spin" />
+                    <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
+                  </div>
+                </section>
+              ) : recommendations.length > 0 ? (
+                <section className="mt-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles size={15} className="text-primary/60" />
+                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                  </div>
+                  <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                    {recommendations.map((place) => {
+                      const props = placeToCardProps(place as any);
+                      return (
+                        <RestaurantCard key={place.id} {...props}
+                          isWishlisted={isWishlisted(place.id)}
+                          onAdd={() => openAddRestaurantModal({
+                            id: place.id, name: place.name, image: props.image,
+                            cuisine: props.cuisine, price: props.price, address: (place as any).address,
+                          })}
+                          onHeart={() => openWishlistModal({
+                            id: place.id, name: place.name, image: props.image,
+                            cuisine: props.cuisine, price: props.price, address: (place as any).address,
+                          })}
+                        />
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              {/* Social Feed */}
+              <div className="mt-5">
+                <SocialFeed />
+              </div>
+              </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ══════ HALF STATE — filter bar + results ══════ */}
+        {sheetState !== 'full' && (
+        <>
         {/* Search Bar & Filters — only on discover tab */}
         <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
           <AnimatePresence mode="wait">
@@ -1466,7 +1718,7 @@ export const Map: React.FC = () => {
                     preSearchPlacesRef.current = places;
                     setShowSearchInput(true);
                     setDiscoverSearchActive(true);
-                    if (!sheetOpen) setSheetOpen(true);
+                    if (sheetState === 'peek') setSheetState('half');
                     setTimeout(() => searchInputRef.current?.focus(), 100);
                   }}
                   className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"
@@ -2000,6 +2252,8 @@ export const Map: React.FC = () => {
             </div>
           )}
         </div>
+        </>
+        )}
       </motion.div>
     </div>
   );
