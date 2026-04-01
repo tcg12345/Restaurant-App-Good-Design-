@@ -233,6 +233,7 @@ export const Map: React.FC = () => {
   // ── Discover feed state ──
   const [discoverSearchActive, setDiscoverSearchActive] = useState(false);
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
+  const preSearchPlacesRef = useRef<PlaceResult[]>([]);
 
   // Recent views from localStorage
   const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
@@ -724,40 +725,41 @@ export const Map: React.FC = () => {
   // Listen for "open-discover-sheet" events from BottomNav Discover button
   useEffect(() => {
     const handler = () => {
+      preSearchPlacesRef.current = places;
       setSheetOpen(true);
       setMapMode('discover');
       setShowSearchInput(true);
+      setDiscoverSearchActive(true);
       setTimeout(() => searchInputRef.current?.focus(), 200);
     };
     window.addEventListener('open-discover-sheet', handler);
     return () => window.removeEventListener('open-discover-sheet', handler);
-  }, []);
+  }, [places]);
 
   // Handle ?discover=1 query param (from navigation)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('discover') === '1') {
+      preSearchPlacesRef.current = places;
       setSheetOpen(true);
       setMapMode('discover');
       setShowSearchInput(true);
+      setDiscoverSearchActive(true);
       setTimeout(() => searchInputRef.current?.focus(), 300);
-      // Clean up the URL
       window.history.replaceState({}, '', '/');
     }
   }, []);
 
-  // Close search input when clicking outside
+  // Auto-search as user types (debounced)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!showSearchInput) return;
-    const handler = (e: MouseEvent) => {
-      if (searchWrapperRef.current && !searchWrapperRef.current.contains(e.target as Node)) {
-        setShowSearchInput(false);
-        setSearchQuery('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showSearchInput]);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!searchQuery.trim() || !discoverSearchActive) return;
+    searchDebounceRef.current = setTimeout(() => {
+      handleSearch(searchQuery);
+    }, 500);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [searchQuery, discoverSearchActive, handleSearch]);
 
   const flyToPlace = useCallback((place: PlaceResult) => {
     setSelectedMarker(place.id);
@@ -1418,7 +1420,6 @@ export const Map: React.FC = () => {
                   e.preventDefault();
                   if (searchQuery.trim()) {
                     handleSearch(searchQuery);
-                    setShowSearchInput(false);
                   }
                 }}
               >
@@ -1439,6 +1440,12 @@ export const Map: React.FC = () => {
                   onClick={() => {
                     setShowSearchInput(false);
                     setSearchQuery('');
+                    setDiscoverSearchActive(false);
+                    // Restore pre-search places and markers
+                    if (preSearchPlacesRef.current.length > 0) {
+                      setPlaces(preSearchPlacesRef.current);
+                      syncMarkersRef.current?.(preSearchPlacesRef.current);
+                    }
                   }}
                   className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"
                 >
@@ -1456,7 +1463,9 @@ export const Map: React.FC = () => {
               >
                 <button
                   onClick={() => {
+                    preSearchPlacesRef.current = places;
                     setShowSearchInput(true);
+                    setDiscoverSearchActive(true);
                     if (!sheetOpen) setSheetOpen(true);
                     setTimeout(() => searchInputRef.current?.focus(), 100);
                   }}
@@ -1865,27 +1874,53 @@ export const Map: React.FC = () => {
                   {/* Social Feed */}
                   {!discoverSearchActive && <SocialFeed />}
 
-                  {/* Nearby Restaurants heading */}
-                  {places.length > 0 && (
+                  {/* Search results or Nearby heading */}
+                  {discoverSearchActive ? (
+                    /* Search mode: show search-specific content */
+                    isSearching ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 size={24} className="text-primary animate-spin" />
+                        <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
+                      </div>
+                    ) : !searchQuery.trim() ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <Search size={32} className="text-on-surface/15 mb-3" />
+                        <p className="text-sm font-medium text-on-surface/40">Search restaurants</p>
+                        <p className="text-xs text-on-surface/30 mt-1">Type a name, cuisine, or occasion</p>
+                      </div>
+                    ) : places.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <MapPinned size={32} className="text-on-surface/20 mb-3" />
+                        <p className="text-sm text-on-surface/40 font-medium">No results found</p>
+                        <p className="text-xs text-on-surface/30 mt-1">Try a different search</p>
+                      </div>
+                    ) : null
+                  ) : (
+                    /* Feed mode: show nearby heading or empty state */
+                    places.length > 0 ? (
+                      <div className="flex items-center justify-between pt-2">
+                        <h2 className="text-sm font-serif font-bold">Nearby</h2>
+                        <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
+                      </div>
+                    ) : !myLocalRatings.length && !recentViews.length && !recommendations.length && !recsLoading ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <MapPinned size={32} className="text-on-surface/20 mb-3" />
+                        <p className="text-sm text-on-surface/40 font-medium">No restaurants found</p>
+                        <p className="text-xs text-on-surface/30 mt-1">Try searching or move the map</p>
+                      </div>
+                    ) : null
+                  )}
+
+                  {/* Results heading when searching with results */}
+                  {discoverSearchActive && searchQuery.trim() && places.length > 0 && (
                     <div className="flex items-center justify-between pt-2">
-                      <h2 className="text-sm font-serif font-bold">Nearby</h2>
+                      <h2 className="text-sm font-serif font-bold">Results</h2>
                       <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
                     </div>
                   )}
 
                   {/* Restaurant list */}
-                  {isSearching && places.length === 0 ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 size={24} className="text-primary animate-spin" />
-                      <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
-                    </div>
-                  ) : places.length === 0 && !myLocalRatings.length && !recentViews.length && !recommendations.length && !recsLoading ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                      <MapPinned size={32} className="text-on-surface/20 mb-3" />
-                      <p className="text-sm text-on-surface/40 font-medium">No restaurants found</p>
-                      <p className="text-xs text-on-surface/30 mt-1">Try searching or move the map</p>
-                    </div>
-                  ) : (
+                  {places.length > 0 && !(discoverSearchActive && !searchQuery.trim()) ? (
                     <div className="space-y-3">
                       {places.map((place) => {
                         const cityState = extractCityState(place.fullAddress, place.address);
@@ -1961,7 +1996,7 @@ export const Map: React.FC = () => {
                         );
                       })}
                     </div>
-                  )}
+                  ) : null}
             </div>
           )}
         </div>
