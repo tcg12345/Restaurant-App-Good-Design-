@@ -1328,7 +1328,7 @@ export const Map: React.FC = () => {
         style={{ height: FULL_HEIGHT }}
         className={cn(
           "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform",
-          "glass rounded-t-[3rem]"
+          sheetState === 'full' ? "glass rounded-t-none" : "glass rounded-t-[3rem]"
         )}
       >
         {/* Handle — only this area is draggable (hidden in full state) */}
