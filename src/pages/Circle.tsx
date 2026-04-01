@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown } from 'lucide-react';
+import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, Activity } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, sendFriendRequest, followPublicAccount, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, getExpertProfiles, getUserRatings, getFollowCounts, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { Link } from 'react-router-dom';
+import { CircleActivity } from '../components/CircleActivity';
 
-type Tab = 'friends' | 'experts';
+type Tab = 'friends' | 'experts' | 'activity';
 
 export const Circle: React.FC = () => {
   const { user, refreshPendingRequests } = useAuth();
@@ -177,7 +178,7 @@ export const Circle: React.FC = () => {
       <main className="px-3">
         {/* Tabs */}
         <div className="flex gap-1 bg-on-surface/5 rounded-2xl p-1 mb-5">
-          {([{ key: 'friends' as Tab, label: 'Friends', icon: Users }, { key: 'experts' as Tab, label: 'Experts', icon: Crown }]).map((tab) => (
+          {([{ key: 'friends' as Tab, label: 'Friends', icon: Users }, { key: 'experts' as Tab, label: 'Experts', icon: Crown }, { key: 'activity' as Tab, label: 'Activity', icon: Activity }]).map((tab) => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className={cn("flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all",
                 activeTab === tab.key ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40")}>
@@ -354,6 +355,11 @@ export const Circle: React.FC = () => {
               </div>
             )}
           </section>
+        )}
+
+        {/* ── Activity Tab ── */}
+        {activeTab === 'activity' && (
+          <CircleActivity />
         )}
       </main>
 

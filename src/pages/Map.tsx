@@ -14,7 +14,7 @@ import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelTo
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { SocialFeed } from '../components/SocialFeed';
-import { CircleActivity } from '../components/CircleActivity';
+
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -231,7 +231,6 @@ export const Map: React.FC = () => {
   const SHEET_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.85 : 700;
 
   // ── Discover feed state ──
-  const [discoverTab, setDiscoverTab] = useState<'general' | 'circle'>('general');
   const [discoverSearchActive, setDiscoverSearchActive] = useState(false);
   const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
 
@@ -1744,34 +1743,6 @@ export const Map: React.FC = () => {
           {/* Discover tab content — integrated feed + search */}
           {mapMode === 'discover' && (
             <div className="space-y-4">
-              {/* General Search / Circle Activity tabs */}
-              <div className="flex items-center justify-center gap-6 border-b border-muted -mx-3 px-3">
-                <button
-                  onClick={() => setDiscoverTab('general')}
-                  className={cn("pb-3 text-xs font-bold uppercase tracking-widest transition-all relative",
-                    discoverTab === 'general' ? 'text-primary' : 'text-on-surface/40'
-                  )}
-                >
-                  General Search
-                  {discoverTab === 'general' && (
-                    <motion.div layoutId="discover-tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-                  )}
-                </button>
-                <button
-                  onClick={() => setDiscoverTab('circle')}
-                  className={cn("pb-3 text-xs font-bold uppercase tracking-widest transition-all relative",
-                    discoverTab === 'circle' ? 'text-primary' : 'text-on-surface/40'
-                  )}
-                >
-                  Circle Activity
-                  {discoverTab === 'circle' && (
-                    <motion.div layoutId="discover-tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-                  )}
-                </button>
-              </div>
-
-              {discoverTab === 'general' ? (
-                <>
                   {/* Quick filters */}
                   <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
                     {QUICK_FILTERS.map((filter) => (
@@ -1991,11 +1962,6 @@ export const Map: React.FC = () => {
                       })}
                     </div>
                   )}
-                </>
-              ) : (
-                /* Circle Activity tab */
-                <CircleActivity />
-              )}
             </div>
           )}
         </div>
