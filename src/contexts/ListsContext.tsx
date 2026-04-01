@@ -444,6 +444,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           recentViews: [],
           trips: [],
           homeMeals: [],
+          chats: [],
+          chatsRead: {},
         });
 
         // Clear localStorage

@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { supabaseConfigured } from '../lib/supabase';
+import { loadUserData, saveChats } from '../lib/supabase-db';
 
 /* ── Types ── */
 
@@ -68,12 +70,52 @@ const ChatContext = createContext<ChatContextValue | null>(null);
 export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
 
   const [conversations, setConversations] = useState<Conversation[]>(() => loadFromStorage(STORAGE_KEY, []));
   // Track last-read timestamps per conversation
   const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>(() => loadFromStorage(READ_KEY, {}));
+  const [cloudLoaded, setCloudLoaded] = useState(false);
 
-  // Persist conversations
+  // ── Load from Supabase on sign-in ──
+  useEffect(() => {
+    if (!userId || !supabaseConfigured) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const cloud = await loadUserData(userId);
+        if (cancelled) return;
+        if (cloud) {
+          const cloudChats = cloud.chats || [];
+          const cloudRead = cloud.chatsRead || {};
+
+          if (cloudChats.length > 0 || conversations.length === 0) {
+            setConversations(cloudChats);
+            setReadTimestamps(cloudRead);
+            saveToStorage(STORAGE_KEY, cloudChats);
+            saveToStorage(READ_KEY, cloudRead);
+          }
+        }
+        setCloudLoaded(true);
+      } catch (err) {
+        console.warn('[Chat] Failed to load from cloud:', err);
+        setCloudLoaded(true);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  // ── Sync to cloud helper ──
+  const syncToCloud = useCallback((chats: Conversation[], read: Record<string, number>) => {
+    if (userIdRef.current && supabaseConfigured) {
+      saveChats(userIdRef.current, chats, read);
+    }
+  }, []);
+
+  // Persist conversations to localStorage + cloud
   useEffect(() => {
     saveToStorage(STORAGE_KEY, conversations);
   }, [conversations]);
@@ -94,9 +136,13 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       createdAt: Date.now(),
       isGroup,
     };
-    setConversations((prev) => [conv, ...prev]);
+    setConversations((prev) => {
+      const next = [conv, ...prev];
+      syncToCloud(next, readTimestamps);
+      return next;
+    });
     return conv;
-  }, [userId]);
+  }, [userId, syncToCloud, readTimestamps]);
 
   const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant) => {
     if (!userId) return;
@@ -107,14 +153,19 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       sharedRestaurant,
       timestamp: Date.now(),
     };
-    setConversations((prev) => prev.map((c) =>
-      c.id === conversationId
-        ? { ...c, messages: [...c.messages, msg], lastMessageAt: Date.now() }
-        : c
-    ));
+    setConversations((prev) => {
+      const next = prev.map((c) =>
+        c.id === conversationId
+          ? { ...c, messages: [...c.messages, msg], lastMessageAt: Date.now() }
+          : c
+      );
+      const newRead = { ...readTimestamps, [conversationId]: Date.now() };
+      syncToCloud(next, newRead);
+      return next;
+    });
     // Mark this conversation as read for sender
     setReadTimestamps((prev) => ({ ...prev, [conversationId]: Date.now() }));
-  }, [userId]);
+  }, [userId, syncToCloud, readTimestamps]);
 
   const getConversation = useCallback((id: string) => conversations.find((c) => c.id === id), [conversations]);
 
@@ -129,12 +180,20 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [conversations, userId]);
 
   const deleteConversation = useCallback((id: string) => {
-    setConversations((prev) => prev.filter((c) => c.id !== id));
-  }, []);
+    setConversations((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      syncToCloud(next, readTimestamps);
+      return next;
+    });
+  }, [syncToCloud, readTimestamps]);
 
   const markRead = useCallback((conversationId: string) => {
-    setReadTimestamps((prev) => ({ ...prev, [conversationId]: Date.now() }));
-  }, []);
+    setReadTimestamps((prev) => {
+      const next = { ...prev, [conversationId]: Date.now() };
+      syncToCloud(conversations, next);
+      return next;
+    });
+  }, [syncToCloud, conversations]);
 
   const getUnreadForConversation = useCallback((conversationId: string): number => {
     if (!userId) return 0;
