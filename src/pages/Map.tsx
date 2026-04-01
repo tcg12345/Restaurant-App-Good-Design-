@@ -1596,8 +1596,8 @@ export const Map: React.FC = () => {
                         </button>
                         <Link to={`/restaurant/${place.id}`}>
                           <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                            {(place as any).photoUrl ? (
-                              <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                            {((place as any).photoUrl || (place as any).image) ? (
+                              <img src={(place as any).photoUrl || (place as any).image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
                             )}
@@ -2200,8 +2200,8 @@ export const Map: React.FC = () => {
                             </button>
                             <Link to={`/restaurant/${place.id}`}>
                               <div className="w-28 h-20 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                                {(place as any).photoUrl ? (
-                                  <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                {((place as any).photoUrl || (place as any).image) ? (
+                                  <img src={(place as any).photoUrl || (place as any).image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
                                 )}
