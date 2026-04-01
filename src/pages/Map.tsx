@@ -229,7 +229,7 @@ export const Map: React.FC = () => {
   const isDraggingRef = useRef(false);
   const PEEK_HEIGHT = 140;
   const FULL_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const HALF_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.65 : 520;
+  const HALF_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.85 : 680;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     if (state === 'full') return 0;
     if (state === 'half') return FULL_HEIGHT - HALF_HEIGHT;
