@@ -345,6 +345,7 @@ const ChatView: React.FC<{
   const [text, setText] = useState('');
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pendingShare, setPendingShare] = useState<SharedRestaurant | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -359,9 +360,10 @@ const ChatView: React.FC<{
   }, [conversation.messages.length]);
 
   const handleSend = () => {
-    if (!text.trim()) return;
-    sendMessage(conversation.id, text.trim());
+    if (!text.trim() && !pendingShare) return;
+    sendMessage(conversation.id, text.trim(), pendingShare || undefined);
     setText('');
+    setPendingShare(null);
     inputRef.current?.focus();
   };
 
@@ -373,7 +375,9 @@ const ChatView: React.FC<{
   };
 
   const handleShareRestaurant = (restaurant: SharedRestaurant) => {
-    sendMessage(conversation.id, '', restaurant);
+    setPendingShare(restaurant);
+    setShareSheetOpen(false);
+    setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const handleRestaurantClick = (restaurant: SharedRestaurant) => {
@@ -489,6 +493,46 @@ const ChatView: React.FC<{
         })}
       </div>
 
+      {/* Pending share preview */}
+      <AnimatePresence>
+        {pendingShare && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden flex-shrink-0 border-t border-on-surface/6 bg-on-surface/[0.02]"
+          >
+            <div className="px-4 pt-3 pb-2 flex items-start gap-3">
+              <div className="flex-1 min-w-0 flex items-start gap-2.5 bg-white rounded-xl border border-on-surface/10 p-2.5 shadow-sm">
+                {pendingShare.image && (
+                  <img src={pendingShare.image} alt={pendingShare.name} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-on-surface/80 truncate">{pendingShare.name}</p>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {pendingShare.cuisine && <span className="text-[10px] text-on-surface/40">{pendingShare.cuisine}</span>}
+                    {pendingShare.price && <span className="text-[10px] text-on-surface/30">{pendingShare.price}</span>}
+                    {pendingShare.isReview && pendingShare.score !== undefined && (
+                      <span className={cn("text-[10px] font-bold", pendingShare.score >= 8 ? 'text-green-500' : pendingShare.score >= 5 ? 'text-yellow-500' : 'text-red-400')}>
+                        {pendingShare.score.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[9px] font-semibold text-primary mt-0.5 inline-block">
+                    {pendingShare.isReview ? 'Review' : 'Details'}
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => setPendingShare(null)}
+                className="p-1.5 text-on-surface/30 hover:text-on-surface/60 hover:bg-on-surface/5 rounded-full transition-colors flex-shrink-0 mt-1">
+                <X size={14} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Input bar */}
       <div className="flex items-center gap-2 px-4 py-3 border-t border-on-surface/6 bg-surface flex-shrink-0">
         <button onClick={() => setShareSheetOpen(true)}
@@ -502,10 +546,10 @@ const ChatView: React.FC<{
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Type a message..."
+          placeholder={pendingShare ? "Add a message..." : "Type a message..."}
           className="flex-1 bg-on-surface/5 rounded-2xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
-        <button onClick={handleSend} disabled={!text.trim()}
+        <button onClick={handleSend} disabled={!text.trim() && !pendingShare}
           className="p-2.5 bg-primary text-white rounded-full disabled:opacity-30 transition-opacity flex-shrink-0 active:scale-95">
           <Send size={16} />
         </button>
