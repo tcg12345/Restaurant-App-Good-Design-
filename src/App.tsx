@@ -5,7 +5,6 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
-import { Home } from './pages/Home';
 import { Map } from './pages/Map';
 import { Experts } from './pages/Experts';
 import { Profile } from './pages/Profile';
@@ -112,7 +111,6 @@ const AppContent: React.FC = () => {
           <AnimatePresence mode="wait">
             <Routes location={location}>
               <Route path="/" element={<Map />} />
-              <Route path="/search" element={<Home />} />
               <Route path="/circle" element={<Circle />} />
               <Route path="/experts" element={<Experts />} />
               <Route path="/profile" element={<Profile />} />

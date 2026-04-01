@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Search, Home, Users, User, ListPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -7,7 +7,7 @@ import { useSettings } from '../contexts/SettingsContext';
 
 const navItems = [
   { icon: Home, label: 'Home', path: '/' },
-  { icon: Search, label: 'Discover', path: '/search' },
+  { icon: Search, label: 'Discover', path: '/', isDiscover: true },
   { icon: ListPlus, label: 'Lists', path: '/pantry' },
   { icon: Users, label: 'Circle', path: '/circle' },
   { icon: User, label: 'Profile', path: '/profile' },
@@ -16,6 +16,8 @@ const navItems = [
 export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = false }) => {
   const [expanded, setExpanded] = useState(false);
   const { phoneMode, hideBottomNav } = useSettings();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const isExpanded = !collapsible || expanded;
 
@@ -49,7 +51,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
 
           return (
             <motion.div
-              key={item.path}
+              key={item.label}
               layout
               initial={{ opacity: 0, scale: 0, filter: 'blur(4px)' }}
               animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
@@ -70,6 +72,25 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                 >
                   <Home size={phoneMode ? 18 : 22} strokeWidth={2.5} />
                   <span className={cn("font-semibold uppercase", phoneMode ? "text-[8px] tracking-wide" : "text-[10px] tracking-wider")}>Home</span>
+                </button>
+              ) : (item as any).isDiscover ? (
+                <button
+                  onClick={() => {
+                    if (location.pathname === '/') {
+                      window.dispatchEvent(new CustomEvent('open-discover-sheet'));
+                    } else {
+                      navigate('/?discover=1');
+                    }
+                    if (collapsible) setTimeout(() => setExpanded(false), 150);
+                  }}
+                  className={cn(
+                    "flex flex-col items-center transition-colors duration-200",
+                    phoneMode ? "gap-1 px-1" : "gap-1.5 px-2",
+                    location.pathname === '/' ? "text-primary" : "text-on-surface/40 hover:text-on-surface/60"
+                  )}
+                >
+                  <item.icon size={phoneMode ? 18 : 22} strokeWidth={2} />
+                  <span className={cn("font-semibold uppercase", phoneMode ? "text-[8px] tracking-wide" : "text-[10px] tracking-wider")}>{item.label}</span>
                 </button>
               ) : (
                 <NavLink
