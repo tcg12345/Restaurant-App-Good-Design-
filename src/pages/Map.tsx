@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -1328,7 +1328,7 @@ export const Map: React.FC = () => {
         style={{ height: FULL_HEIGHT }}
         className={cn(
           "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform",
-          sheetState === 'full' ? "bg-surface rounded-t-none" : "glass rounded-t-[3rem]"
+          "glass rounded-t-[3rem]"
         )}
       >
         {/* Handle — only this area is draggable (hidden in full state) */}
@@ -1404,7 +1404,16 @@ export const Map: React.FC = () => {
             window.addEventListener('mouseup', onMouseUp);
           }}
         >
-          <div className="w-12 h-1.5 bg-on-surface/10 rounded-full" />
+          {sheetState === 'half' ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); setSheetState('full'); }}
+              className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+            >
+              <ChevronsUp size={20} className="text-on-surface/50" />
+            </button>
+          ) : (
+            <div className="w-12 h-1.5 bg-on-surface/10 rounded-full" />
+          )}
         </div>
         )}
 
@@ -1412,7 +1421,7 @@ export const Map: React.FC = () => {
         {sheetState === 'full' && (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Header with back button + search bar or active search input */}
-            <div className={cn("flex items-center gap-3 flex-shrink-0 border-b border-on-surface/8", phoneMode ? "px-3 pt-3 pb-3" : "px-6 pt-4 pb-4")}>
+            <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-1 pb-3" : "px-6 pt-2 pb-4")}>
               <button
                 onClick={() => {
                   if (discoverSearchActive) {
@@ -1444,7 +1453,7 @@ export const Map: React.FC = () => {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search restaurant, cuisine, occasion..."
                     autoFocus
-                    className="w-full bg-white rounded-2xl py-3 pl-11 pr-10 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all border border-on-surface/8"
+                    className="w-full bg-white/60 backdrop-blur-sm rounded-full py-3 pl-11 pr-10 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all border border-on-surface/10"
                   />
                   {searchQuery && (
                     <button type="button" onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
@@ -1466,7 +1475,7 @@ export const Map: React.FC = () => {
                   <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
                     <Search size={18} />
                   </div>
-                  <div className="w-full bg-white rounded-2xl py-3 pl-11 pr-4 text-sm font-medium shadow-sm text-on-surface/40 text-left border border-on-surface/8">
+                  <div className="w-full bg-white/60 backdrop-blur-sm rounded-full py-3 pl-11 pr-4 text-sm font-medium text-on-surface/40 text-left border border-on-surface/10">
                     Search restaurant, cuisine, occasion...
                   </div>
                 </button>
@@ -1484,7 +1493,7 @@ export const Map: React.FC = () => {
                     className={cn("whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all",
                       activeQuickFilter === filter
                         ? 'bg-primary text-white border-primary'
-                        : 'bg-white border-muted hover:border-primary hover:text-primary'
+                        : 'bg-white/60 backdrop-blur-sm border-on-surface/10 hover:border-primary hover:text-primary'
                     )}
                   >
                     {filter}
