@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Search, Home, Users, User, ListPlus } from 'lucide-react';
+import { Compass, Users, User, ListPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 
 const navItems = [
-  { icon: Home, label: 'Home', path: '/' },
-  { icon: Search, label: 'Discover', path: '/', isDiscover: true },
+  { icon: Compass, label: 'Explore', path: '/', isExplore: true },
   { icon: ListPlus, label: 'Lists', path: '/pantry' },
   { icon: Users, label: 'Circle', path: '/circle' },
   { icon: User, label: 'Profile', path: '/profile' },
@@ -31,7 +30,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
         phoneMode ? "bottom-3" : "bottom-6",
         isExpanded
           ? phoneMode ? "gap-2 px-3 py-3" : "gap-2 px-8 py-4"
-          : phoneMode ? "px-3 py-3" : "px-4 py-4"
+          : phoneMode ? "px-2 py-2" : "px-3 py-3"
       )}
       style={{ x: '-50%' }}
       transition={{
@@ -44,8 +43,8 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
     >
       <AnimatePresence mode="popLayout">
         {navItems.map((item) => {
-          const isHome = item.path === '/';
-          const shouldShow = isExpanded || isHome;
+          const isExplore = (item as any).isExplore;
+          const shouldShow = isExpanded || isExplore;
 
           if (!shouldShow) return null;
 
@@ -64,18 +63,13 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
               }}
               className={cn("flex items-center justify-center", isExpanded ? `flex-1 ${phoneMode ? 'min-w-[3rem]' : 'min-w-[3.5rem]'}` : "flex-none")}
             >
-              {collapsible && isHome && !isExpanded ? (
-                <button
-                  className={cn("flex flex-col items-center text-primary cursor-pointer", phoneMode ? "gap-1 px-1" : "gap-1.5 px-2")}
-                  onClick={() => setExpanded(true)}
-                  onTouchStart={() => setExpanded(true)}
-                >
-                  <Home size={phoneMode ? 18 : 22} strokeWidth={2.5} />
-                  <span className={cn("font-semibold uppercase", phoneMode ? "text-[8px] tracking-wide" : "text-[10px] tracking-wider")}>Home</span>
-                </button>
-              ) : (item as any).isDiscover ? (
+              {isExplore ? (
                 <button
                   onClick={() => {
+                    if (!isExpanded) {
+                      setExpanded(true);
+                      return;
+                    }
                     if (location.pathname === '/') {
                       window.dispatchEvent(new CustomEvent('open-discover-sheet'));
                     } else {
@@ -83,20 +77,30 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                     }
                     if (collapsible) setTimeout(() => setExpanded(false), 150);
                   }}
+                  onTouchStart={() => {
+                    if (!isExpanded && collapsible) setExpanded(true);
+                  }}
                   className={cn(
                     "flex flex-col items-center transition-colors duration-200",
-                    phoneMode ? "gap-1 px-1" : "gap-1.5 px-2",
+                    isExpanded
+                      ? phoneMode ? "gap-1 px-1" : "gap-1.5 px-2"
+                      : phoneMode ? "gap-0.5 px-0.5" : "gap-1 px-1",
                     location.pathname === '/' ? "text-primary" : "text-on-surface/40 hover:text-on-surface/60"
                   )}
                 >
-                  <item.icon size={phoneMode ? 18 : 22} strokeWidth={2} />
-                  <span className={cn("font-semibold uppercase", phoneMode ? "text-[8px] tracking-wide" : "text-[10px] tracking-wider")}>{item.label}</span>
+                  <item.icon size={isExpanded ? (phoneMode ? 18 : 22) : (phoneMode ? 16 : 18)} strokeWidth={location.pathname === '/' ? 2.5 : 2} />
+                  <span className={cn(
+                    "font-semibold uppercase",
+                    isExpanded
+                      ? phoneMode ? "text-[8px] tracking-wide" : "text-[10px] tracking-wider"
+                      : phoneMode ? "text-[7px] tracking-wide" : "text-[8px] tracking-wider"
+                  )}>{item.label}</span>
                 </button>
               ) : (
                 <NavLink
                   to={item.path}
                   onClick={() => {
-                    if (collapsible && isHome) {
+                    if (collapsible) {
                       setTimeout(() => setExpanded(false), 150);
                     }
                   }}
