@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -2122,17 +2122,28 @@ export const Map: React.FC = () => {
                             );
                           })}
                         </div>
-                        {hasMore && (
-                          <button
-                            onClick={() => setNearbyShowCount((prev) => prev + NEARBY_INCREMENT)}
-                            className="w-full flex items-center justify-center gap-2 mt-3 py-3 rounded-2xl border-2 border-on-surface/8 text-on-surface/50 hover:border-primary/30 hover:text-primary transition-colors"
-                          >
-                            <ChevronDown size={16} />
-                            <span className="text-xs font-bold uppercase tracking-wider">
-                              Show More ({Math.min(NEARBY_INCREMENT, places.length - nearbyShowCount)} more)
-                            </span>
-                          </button>
-                        )}
+                        <div className="flex gap-2 mt-3">
+                          {nearbyShowCount > NEARBY_INITIAL && (
+                            <button
+                              onClick={() => setNearbyShowCount(NEARBY_INITIAL)}
+                              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-on-surface/8 text-on-surface/50 hover:border-primary/30 hover:text-primary transition-colors"
+                            >
+                              <ChevronUp size={16} />
+                              <span className="text-xs font-bold uppercase tracking-wider">Show Less</span>
+                            </button>
+                          )}
+                          {hasMore && (
+                            <button
+                              onClick={() => setNearbyShowCount((prev) => prev + NEARBY_INCREMENT)}
+                              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-on-surface/8 text-on-surface/50 hover:border-primary/30 hover:text-primary transition-colors"
+                            >
+                              <ChevronDown size={16} />
+                              <span className="text-xs font-bold uppercase tracking-wider">
+                                Show More ({Math.min(NEARBY_INCREMENT, places.length - nearbyShowCount)} more)
+                              </span>
+                            </button>
+                          )}
+                        </div>
                       </section>
                     );
                   })() : null}
