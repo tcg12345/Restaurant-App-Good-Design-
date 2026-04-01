@@ -2102,7 +2102,7 @@ export const Map: React.FC = () => {
                         <Sparkles size={13} className="text-primary/60" />
                         <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                       </div>
-                      <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2")}>
+                      <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
                         {recommendations.map((place) => {
                           const props = placeToCardProps(place as any);
                           return (
