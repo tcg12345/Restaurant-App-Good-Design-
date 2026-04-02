@@ -1759,6 +1759,55 @@ export const Map: React.FC = () => {
               {/* Feed content — hidden when searching */}
               {!discoverSearchActive && (
               <>
+              {/* Recommendations */}
+              {recsLoading ? (
+                <section className="mt-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles size={15} className="text-primary/60" />
+                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                  </div>
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={20} className="text-primary/40 animate-spin" />
+                    <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
+                  </div>
+                </section>
+              ) : recommendations.length > 0 ? (
+                <section className="mt-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles size={15} className="text-primary/60" />
+                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                    {recommendations.map((place) => {
+                      const cuisine = getCuisineLabel((place as any).types || []);
+                      const wishlisted = isWishlisted(place.id);
+                      return (
+                        <div key={place.id} className={cn("flex-shrink-0 w-44 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md")} onClick={() => navigate(`/restaurant/${place.id}`)}>
+                          <div className="w-full h-32 overflow-hidden relative">
+                            {(place as any).photoUrl ? <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={24} className="text-on-surface/15" /></div>}
+                            <div className="absolute top-1.5 right-1.5 flex gap-1">
+                              <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }} className="w-7 h-7 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors", wishlisted ? "bg-red-50/80 text-red-400" : "bg-white/80 text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
+                            </div>
+                          </div>
+                          <div className="p-2.5">
+                            <h3 className="font-serif font-bold text-xs leading-snug truncate">{place.name}</h3>
+                            <p className="text-[9px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
+                            {(place as any).rating > 0 && (
+                              <div className="flex items-center gap-1 mt-1">
+                                <Star size={10} className="fill-primary text-primary" />
+                                <span className="text-[10px] font-bold text-primary">{(place as any).rating.toFixed(1)}</span>
+                                {(place as any).priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {priceLevelToString((place as any).priceLevel)}</span>}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
               {/* Recent Views */}
               {recentViews.length > 0 && (
                 <section className="mt-5">
@@ -1796,45 +1845,6 @@ export const Map: React.FC = () => {
                   </div>
                 </section>
               )}
-
-              {/* Recommendations */}
-              {recsLoading ? (
-                <section className="mt-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles size={15} className="text-primary/60" />
-                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
-                  </div>
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 size={20} className="text-primary/40 animate-spin" />
-                    <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
-                  </div>
-                </section>
-              ) : recommendations.length > 0 ? (
-                <section className="mt-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles size={15} className="text-primary/60" />
-                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
-                  </div>
-                  <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
-                    {recommendations.map((place) => {
-                      const props = placeToCardProps(place as any);
-                      return (
-                        <RestaurantCard key={place.id} {...props}
-                          isWishlisted={isWishlisted(place.id)}
-                          onAdd={() => openAddRestaurantModal({
-                            id: place.id, name: place.name, image: props.image,
-                            cuisine: props.cuisine, price: props.price, address: (place as any).address,
-                          })}
-                          onHeart={() => openWishlistModal({
-                            id: place.id, name: place.name, image: props.image,
-                            cuisine: props.cuisine, price: props.price, address: (place as any).address,
-                          })}
-                        />
-                      );
-                    })}
-                  </div>
-                </section>
-              ) : null}
 
               {/* Social Feed */}
               <div className="mt-5">
@@ -2314,6 +2324,55 @@ export const Map: React.FC = () => {
                     </section>
                   ) : null}
 
+                  {/* Recommendations */}
+                  {recsLoading ? (
+                    <section>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Sparkles size={13} className="text-primary/60" />
+                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                      </div>
+                      <div className="flex items-center justify-center py-6">
+                        <Loader2 size={18} className="text-primary/40 animate-spin" />
+                        <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
+                      </div>
+                    </section>
+                  ) : recommendations.length > 0 ? (
+                    <section>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Sparkles size={13} className="text-primary/60" />
+                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                      </div>
+                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                        {recommendations.map((place) => {
+                          const cuisine = getCuisineLabel((place as any).types || []);
+                          const wishlisted = isWishlisted(place.id);
+                          return (
+                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md")} onClick={() => navigate(`/restaurant/${place.id}`)}>
+                              <div className="w-full h-28 overflow-hidden relative">
+                                {(place as any).photoUrl ? <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={24} className="text-on-surface/15" /></div>}
+                                <div className="absolute top-1.5 right-1.5 flex gap-1">
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }} className="w-7 h-7 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors", wishlisted ? "bg-red-50/80 text-red-400" : "bg-white/80 text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                </div>
+                              </div>
+                              <div className="p-2.5">
+                                <h3 className="font-serif font-bold text-xs leading-snug truncate">{place.name}</h3>
+                                <p className="text-[9px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
+                                {(place as any).rating > 0 && (
+                                  <div className="flex items-center gap-1 mt-1">
+                                    <Star size={10} className="fill-primary text-primary" />
+                                    <span className="text-[10px] font-bold text-primary">{(place as any).rating.toFixed(1)}</span>
+                                    {(place as any).priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {priceLevelToString((place as any).priceLevel)}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
+
                   {/* Recent Views */}
                   {recentViews.length > 0 && (
                     <section>
@@ -2351,45 +2410,6 @@ export const Map: React.FC = () => {
                       </div>
                     </section>
                   )}
-
-                  {/* Recommendations */}
-                  {recsLoading ? (
-                    <section>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Sparkles size={13} className="text-primary/60" />
-                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
-                      </div>
-                      <div className="flex items-center justify-center py-6">
-                        <Loader2 size={18} className="text-primary/40 animate-spin" />
-                        <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
-                      </div>
-                    </section>
-                  ) : recommendations.length > 0 ? (
-                    <section>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Sparkles size={13} className="text-primary/60" />
-                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
-                      </div>
-                      <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
-                        {recommendations.map((place) => {
-                          const props = placeToCardProps(place as any);
-                          return (
-                            <RestaurantCard key={place.id} {...props}
-                              isWishlisted={isWishlisted(place.id)}
-                              onAdd={() => openAddRestaurantModal({
-                                id: place.id, name: place.name, image: props.image,
-                                cuisine: props.cuisine, price: props.price, address: (place as any).address,
-                              })}
-                              onHeart={() => openWishlistModal({
-                                id: place.id, name: place.name, image: props.image,
-                                cuisine: props.cuisine, price: props.price, address: (place as any).address,
-                              })}
-                            />
-                          );
-                        })}
-                      </div>
-                    </section>
-                  ) : null}
 
                   {/* Social Feed */}
                   <SocialFeed />
