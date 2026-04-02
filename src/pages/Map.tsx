@@ -1216,56 +1216,84 @@ export const Map: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Selected Place Card — above bottom sheet */}
+      {/* Selected Place Card — above bottom sheet, swipeable */}
       <AnimatePresence>
-        {selectedPlace && sheetState === 'peek' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={cn("fixed z-40", phoneMode ? "left-3 right-3" : "left-1/2 -translate-x-1/2 w-full max-w-md")}
-            style={{ bottom: (sheetState === 'half' ? HALF_HEIGHT : sheetState === 'full' ? FULL_HEIGHT : PEEK_HEIGHT) + (phoneMode ? 8 : 16) }}
-          >
-            <div className="glass rounded-2xl shadow-2xl border border-white/30 overflow-hidden flex"
-              onClick={() => { setSelectedPlace(null); setSelectedMarker(null); navigate(`/restaurant/${selectedPlace.id}`); }}
-              style={{ cursor: 'pointer' }}
+        {selectedPlace && sheetState === 'peek' && (() => {
+          const currentIndex = places.findIndex((p) => p.id === selectedPlace.id);
+          const swipeCard = (dir: number) => {
+            if (currentIndex < 0) return;
+            const nextIndex = currentIndex + dir;
+            if (nextIndex >= 0 && nextIndex < places.length) {
+              const next = places[nextIndex];
+              setSelectedPlace(next);
+              setSelectedMarker(next.id);
+              mapRef.current?.flyTo({ center: [next.lng, next.lat], duration: 400 });
+            }
+          };
+          return (
+            <motion.div
+              key={selectedPlace.id}
+              initial={{ opacity: 0, x: 0, y: 20 }}
+              animate={{ opacity: 1, x: 0, y: 0 }}
+              exit={{ opacity: 0, x: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.4}
+              onDragEnd={(_e, info) => {
+                if (info.offset.x < -60 || info.velocity.x < -300) {
+                  swipeCard(1);
+                } else if (info.offset.x > 60 || info.velocity.x > 300) {
+                  swipeCard(-1);
+                }
+              }}
+              className={cn("fixed z-40 touch-pan-y", phoneMode ? "left-3 right-3" : "left-1/2 -translate-x-1/2 w-full max-w-md")}
+              style={{ bottom: PEEK_HEIGHT + (phoneMode ? 8 : 16) }}
             >
-              {/* Photo */}
-              <div className="w-28 h-28 flex-shrink-0">
-                {selectedPlace.photoUrl ? (
-                  <img src={selectedPlace.photoUrl} alt={selectedPlace.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-on-surface/5">
-                    <MapPinned size={24} className="text-on-surface/15" />
-                  </div>
-                )}
-              </div>
-              {/* Info */}
-              <div className="flex-1 min-w-0 p-3 flex flex-col justify-between">
-                <div>
-                  <h3 className="font-serif font-bold text-sm leading-snug truncate">{selectedPlace.name}</h3>
-                  <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{getCuisineLabel(selectedPlace.types)}</p>
-                  {selectedPlace.rating > 0 && (
-                    <div className="flex items-center gap-1 mt-1">
-                      <Star size={11} className="fill-primary text-primary" />
-                      <span className="text-xs font-bold text-primary">{selectedPlace.rating.toFixed(1)}</span>
-                      <span className="text-[10px] text-on-surface/35 ml-0.5">({selectedPlace.userRatingCount})</span>
-                      {selectedPlace.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-1">· {priceLevelToString(selectedPlace.priceLevel)}</span>}
+              <div className="glass rounded-2xl shadow-2xl border border-white/30 overflow-hidden flex"
+                onClick={() => { setSelectedPlace(null); setSelectedMarker(null); navigate(`/restaurant/${selectedPlace.id}`); }}
+                style={{ cursor: 'pointer' }}
+              >
+                {/* Photo */}
+                <div className="w-28 h-28 flex-shrink-0">
+                  {selectedPlace.photoUrl ? (
+                    <img src={selectedPlace.photoUrl} alt={selectedPlace.name} className="w-full h-full object-cover pointer-events-none" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5">
+                      <MapPinned size={24} className="text-on-surface/15" />
                     </div>
                   )}
-                  <p className="text-[10px] text-on-surface/40 mt-0.5 truncate">{extractCityState(selectedPlace.fullAddress, selectedPlace.address)}</p>
+                </div>
+                {/* Info */}
+                <div className="flex-1 min-w-0 p-3 flex flex-col justify-between">
+                  <div>
+                    <h3 className="font-serif font-bold text-sm leading-snug truncate">{selectedPlace.name}</h3>
+                    <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{getCuisineLabel(selectedPlace.types)}</p>
+                    {selectedPlace.rating > 0 && (
+                      <div className="flex items-center gap-1 mt-1">
+                        <Star size={11} className="fill-primary text-primary" />
+                        <span className="text-xs font-bold text-primary">{selectedPlace.rating.toFixed(1)}</span>
+                        <span className="text-[10px] text-on-surface/35 ml-0.5">({selectedPlace.userRatingCount})</span>
+                        {selectedPlace.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-1">· {priceLevelToString(selectedPlace.priceLevel)}</span>}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-on-surface/40 mt-0.5 truncate">{extractCityState(selectedPlace.fullAddress, selectedPlace.address)}</p>
+                  </div>
+                  {/* Position indicator */}
+                  {currentIndex >= 0 && places.length > 1 && (
+                    <p className="text-[9px] text-on-surface/25 font-semibold mt-1">{currentIndex + 1} / {places.length}</p>
+                  )}
+                </div>
+                {/* Action buttons */}
+                <div className="flex flex-col items-center justify-center gap-1.5 pr-3 flex-shrink-0">
+                  <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openAddRestaurantModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openWishlistModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", isWishlisted(selectedPlace.id) ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={isWishlisted(selectedPlace.id) ? "fill-red-400" : ""} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); setSelectedPlace(null); setSelectedMarker(null); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/30 hover:text-on-surface/60 transition-colors"><X size={14} /></button>
                 </div>
               </div>
-              {/* Action buttons */}
-              <div className="flex flex-col items-center justify-center gap-1.5 pr-3 flex-shrink-0">
-                <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openAddRestaurantModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
-                <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openWishlistModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", isWishlisted(selectedPlace.id) ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={isWishlisted(selectedPlace.id) ? "fill-red-400" : ""} /></button>
-                <button onClick={(e) => { e.stopPropagation(); setSelectedPlace(null); setSelectedMarker(null); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/30 hover:text-on-surface/60 transition-colors"><X size={14} /></button>
-              </div>
-            </div>
-          </motion.div>
-        )}
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* Bottom Sheet — tri-state: peek / half / full */}
