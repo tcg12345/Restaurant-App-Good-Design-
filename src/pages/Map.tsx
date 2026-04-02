@@ -2072,72 +2072,48 @@ export const Map: React.FC = () => {
                   <>
                   {/* ── Feed mode: Nearby first, then other sections ── */}
 
-                  {/* Nearby Restaurants — prominent, at top */}
+                  {/* Nearby Restaurants — horizontal scroll */}
                   {isSearching && places.length === 0 ? (
                     <div className="flex items-center justify-center py-8">
                       <Loader2 size={20} className="text-primary animate-spin" />
                       <span className="ml-2 text-sm text-on-surface/50 font-medium">Finding nearby...</span>
                     </div>
-                  ) : places.length > 0 ? (() => {
-                    const visiblePlaces = places.slice(0, nearbyShowCount);
-                    const hasMore = places.length > nearbyShowCount;
-                    return (
-                      <section>
-                        <div className="flex items-center justify-between mb-3">
-                          <h2 className="text-base font-serif font-bold">Nearby Restaurants</h2>
-                          <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
-                        </div>
-                        <div className="space-y-3">
-                          {visiblePlaces.map((place) => {
-                            const cityState = extractCityState(place.fullAddress, place.address);
-                            const cuisine = getCuisineLabel(place.types);
-                            const wishlisted = isWishlisted(place.id);
-                            return (
-                              <div key={place.id} className={cn("flex gap-3 group cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => navigate(`/restaurant/${place.id}`)}>
-                                <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-muted self-center relative">
-                                  {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={20} className="text-on-surface/20" /></div>}
-                                </div>
-                                <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                                  <div>
-                                    <h3 className="font-serif font-bold text-sm leading-snug truncate">{place.name}</h3>
-                                    <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                                    {place.rating > 0 && <div className="flex items-center gap-1 mt-0.5"><Star size={11} className="fill-primary text-primary" /><span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>{place.priceLevel > 0 && <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}</div>}
-                                    <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
-                                  </div>
-                                </div>
-                                <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
+                  ) : places.length > 0 ? (
+                    <section>
+                      <div className="flex items-center justify-between mb-3">
+                        <h2 className="text-base font-serif font-bold">Nearby Restaurants</h2>
+                        <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
+                      </div>
+                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                        {places.map((place) => {
+                          const cuisine = getCuisineLabel(place.types);
+                          const wishlisted = isWishlisted(place.id);
+                          return (
+                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => navigate(`/restaurant/${place.id}`)}>
+                              <div className="w-full h-28 overflow-hidden relative">
+                                {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={24} className="text-on-surface/15" /></div>}
+                                <div className="absolute top-1.5 right-1.5 flex gap-1">
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-7 h-7 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors", wishlisted ? "bg-red-50/80 text-red-400" : "bg-white/80 text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                        <div className="flex gap-2 mt-3">
-                          {nearbyShowCount > NEARBY_INITIAL && (
-                            <button
-                              onClick={() => setNearbyShowCount(NEARBY_INITIAL)}
-                              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-on-surface/8 text-on-surface/50 hover:border-primary/30 hover:text-primary transition-colors"
-                            >
-                              <ChevronUp size={16} />
-                              <span className="text-xs font-bold uppercase tracking-wider">Show Less</span>
-                            </button>
-                          )}
-                          {hasMore && (
-                            <button
-                              onClick={() => setNearbyShowCount((prev) => prev + NEARBY_INCREMENT)}
-                              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border-2 border-on-surface/8 text-on-surface/50 hover:border-primary/30 hover:text-primary transition-colors"
-                            >
-                              <ChevronDown size={16} />
-                              <span className="text-xs font-bold uppercase tracking-wider">
-                                Show More ({Math.min(NEARBY_INCREMENT, places.length - nearbyShowCount)} more)
-                              </span>
-                            </button>
-                          )}
-                        </div>
-                      </section>
-                    );
-                  })() : null}
+                              <div className="p-2.5">
+                                <h3 className="font-serif font-bold text-xs leading-snug truncate">{place.name}</h3>
+                                <p className="text-[9px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
+                                {place.rating > 0 && (
+                                  <div className="flex items-center gap-1 mt-1">
+                                    <Star size={10} className="fill-primary text-primary" />
+                                    <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                                    {place.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
 
                   {/* Recent Views */}
                   {recentViews.length > 0 && (
