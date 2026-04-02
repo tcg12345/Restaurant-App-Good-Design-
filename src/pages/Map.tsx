@@ -227,7 +227,7 @@ export const Map: React.FC = () => {
   const dragStartYRef = useRef(0);
   const dragCurrentYRef = useRef(0);
   const isDraggingRef = useRef(false);
-  const PEEK_HEIGHT = 140;
+  const PEEK_HEIGHT = 56;
   const FULL_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 800;
   const HALF_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.85 : 680;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
