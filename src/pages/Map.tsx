@@ -461,6 +461,7 @@ export const Map: React.FC = () => {
     if (popupRef.current) popupRef.current.remove();
     popupRef.current = null;
     setSelectedPlace(place);
+    setSheetState('peek');
   }, []);
 
   // Sync markers on map when places change — keeps existing markers, animates new ones in
@@ -660,6 +661,14 @@ export const Map: React.FC = () => {
     });
   }, [selectedMarker]);
 
+  // Dismiss restaurant card when sheet leaves peek state
+  useEffect(() => {
+    if (sheetState !== 'peek' && selectedPlace) {
+      setSelectedPlace(null);
+      setSelectedMarker(null);
+    }
+  }, [sheetState, selectedPlace]);
+
   // Listen for "open-discover-sheet" events from BottomNav Explore button
   useEffect(() => {
     const handler = () => {
@@ -742,6 +751,7 @@ export const Map: React.FC = () => {
     if (popupRef.current) popupRef.current.remove();
     popupRef.current = null;
     setSelectedPlace(place);
+    setSheetState('peek');
   }, []);
 
   // Fetch hotels near current map center
@@ -1208,7 +1218,7 @@ export const Map: React.FC = () => {
 
       {/* Selected Place Card — above bottom sheet */}
       <AnimatePresence>
-        {selectedPlace && (
+        {selectedPlace && sheetState === 'peek' && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
