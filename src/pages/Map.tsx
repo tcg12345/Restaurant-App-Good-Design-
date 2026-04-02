@@ -461,7 +461,6 @@ export const Map: React.FC = () => {
     if (popupRef.current) popupRef.current.remove();
     popupRef.current = null;
     setSelectedPlace(place);
-    setSheetState('peek');
   }, []);
 
   // Sync markers on map when places change — keeps existing markers, animates new ones in
@@ -743,7 +742,6 @@ export const Map: React.FC = () => {
     if (popupRef.current) popupRef.current.remove();
     popupRef.current = null;
     setSelectedPlace(place);
-    setSheetState('peek');
   }, []);
 
   // Fetch hotels near current map center
@@ -1210,14 +1208,14 @@ export const Map: React.FC = () => {
 
       {/* Selected Place Card — above bottom sheet */}
       <AnimatePresence>
-        {selectedPlace && sheetState === 'peek' && (
+        {selectedPlace && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
             className="fixed left-3 right-3 z-40"
-            style={{ bottom: PEEK_HEIGHT + (phoneMode ? 12 : 24) }}
+            style={{ bottom: (sheetState === 'half' ? HALF_HEIGHT : sheetState === 'full' ? FULL_HEIGHT : PEEK_HEIGHT) + (phoneMode ? 8 : 16) }}
           >
             <div className="glass rounded-2xl shadow-2xl border border-white/30 overflow-hidden flex"
               onClick={() => { setSelectedPlace(null); setSelectedMarker(null); navigate(`/restaurant/${selectedPlace.id}`); }}
