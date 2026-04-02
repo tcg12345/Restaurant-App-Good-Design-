@@ -915,7 +915,7 @@ export const Map: React.FC = () => {
       else if (mapMode === 'friends') { tabDataCache.friendRatings = [...ratings]; setFriendRatings((prev) => [...prev]); }
       else if (mapMode === 'experts') { tabDataCache.expertRatings = [...ratings]; setExpertRatings((prev) => [...prev]); }
     })();
-  }, [mapMode, myRatings, friendRatings]);
+  }, [mapMode, myRatings, friendRatings, expertRatings]);
 
   // Fetch hotels when entering hotels mode
   useEffect(() => {
