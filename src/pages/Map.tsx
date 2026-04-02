@@ -1553,31 +1553,6 @@ export const Map: React.FC = () => {
               {/* Feed content — hidden when searching */}
               {!discoverSearchActive && (
               <>
-              {/* Your Top Rated */}
-              {myLocalRatings.length > 0 && (
-                <section className="mt-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-base font-serif font-bold">Your Top Rated</h2>
-                    <Link to="/pantry" className="text-xs font-semibold text-primary">See All</Link>
-                  </div>
-                  <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
-                    {[...myLocalRatings].sort((a, b) => b.score - a.score).slice(0, 8).map((r) => (
-                      <Link key={r.restaurantId} to={`/restaurant/${r.restaurantId}`} className="flex-shrink-0 w-32 group">
-                        <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                          {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                          : <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{r.name.charAt(0)}</div>}
-                        </div>
-                        <p className="text-xs font-semibold truncate leading-tight">{r.name}</p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className={cn("text-[10px] font-bold", r.score >= 8 ? "text-green-600" : r.score >= 5 ? "text-yellow-600" : "text-red-500")}>{r.score.toFixed(1)}</span>
-                          <span className="text-[10px] text-on-surface/30">/ 10</span>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </section>
-              )}
-
               {/* Recent Views */}
               {recentViews.length > 0 && (
                 <section className="mt-5">
@@ -2156,31 +2131,6 @@ export const Map: React.FC = () => {
                       </section>
                     );
                   })() : null}
-
-                  {/* Your Top Rated */}
-                  {myLocalRatings.length > 0 && (
-                    <section>
-                      <div className="flex items-center justify-between mb-3">
-                        <h2 className="text-sm font-serif font-bold">Your Top Rated</h2>
-                        <Link to="/pantry" className="text-[10px] font-semibold text-primary">See All</Link>
-                      </div>
-                      <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
-                        {[...myLocalRatings].sort((a, b) => b.score - a.score).slice(0, 8).map((r) => (
-                          <Link key={r.restaurantId} to={`/restaurant/${r.restaurantId}`} className="flex-shrink-0 w-28 group">
-                            <div className="w-28 h-20 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                              {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                              : <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{r.name.charAt(0)}</div>}
-                            </div>
-                            <p className="text-[11px] font-semibold truncate leading-tight">{r.name}</p>
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <span className={cn("text-[10px] font-bold", r.score >= 8 ? "text-green-600" : r.score >= 5 ? "text-yellow-600" : "text-red-500")}>{r.score.toFixed(1)}</span>
-                              <span className="text-[10px] text-on-surface/30">/ 10</span>
-                            </div>
-                          </Link>
-                        ))}
-                      </div>
-                    </section>
-                  )}
 
                   {/* Recent Views */}
                   {recentViews.length > 0 && (
