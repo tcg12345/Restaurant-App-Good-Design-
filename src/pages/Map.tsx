@@ -90,6 +90,24 @@ function extractCityState(fullAddress: string, shortAddress: string): string {
   return shortParts[0] || '';
 }
 
+function ratingToPlace(r: CommunityRating): PlaceResult | null {
+  if (!r.lat || !r.lng) return null;
+  const priceMap: Record<string, number> = { '$': 1, '$$': 2, '$$$': 3, '$$$$': 4 };
+  return {
+    id: r.restaurant_id,
+    name: r.restaurant_name,
+    lat: r.lat,
+    lng: r.lng,
+    rating: r.score,
+    priceLevel: priceMap[r.price] || 0,
+    address: r.address || '',
+    fullAddress: r.address || '',
+    photoUrl: r.photo_url || null,
+    types: r.cuisine ? [r.cuisine.toLowerCase().replace(/\s+/g, '_')] : [],
+    userRatingCount: 0,
+  };
+}
+
 function placeToCardProps(place: PlaceResult) {
   return {
     id: place.id,
@@ -955,6 +973,10 @@ export const Map: React.FC = () => {
     }
     if (ratings.length === 0) return;
 
+    // Convert ratings to PlaceResult[] for the card/swipe system
+    const ratingPlaces = ratings.map(ratingToPlace).filter(Boolean) as PlaceResult[];
+    setPlaces(ratingPlaces);
+
     const bounds = new mapboxgl.LngLatBounds();
     let hasMarkers = false;
     const strokeColor = mapMode === 'friends' ? '#9f3012' : mapMode === 'experts' ? '#d4a017' : '#333';
@@ -965,34 +987,27 @@ export const Map: React.FC = () => {
       el.style.cssText = `width:36px;height:36px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;${mapMode === 'experts' ? 'border:2px solid #d4a017;' : ''}`;
       el.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
 
-      const cbId = `mm_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
-      const rid = r.restaurant_id;
-      const lat = r.lat, lng = r.lng;
-      const cityState = (r.address || '').split(',').slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
-      const photoHtml = r.photo_url ? `<img src="${r.photo_url}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : '';
-      const scoreHtml = `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span style="font-size:12px;font-weight:700;color:#9f3012;">${Number(r.score).toFixed(1)}</span>${r.price ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;">${r.price}</span>` : ''}</div>`;
-
-      (window as any)[cbId] = () => { navigate(`/restaurant/${rid}`); delete (window as any)[cbId]; };
+      const place = ratingToPlace(r);
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
-        const popup = new mapboxgl.Popup({ offset: [0, -20], closeButton: true, closeOnClick: false, maxWidth: '220px', className: 'restaurant-popup' })
-          .setLngLat([lng, lat])
-          .setHTML(`<div style="font-family:inherit;padding:4px 0;cursor:pointer;" onclick="window.${cbId}()">${photoHtml}<div style="font-size:13px;font-weight:700;margin-bottom:2px;">${r.restaurant_name}</div><div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;">${r.cuisine}</div>${scoreHtml}<div style="font-size:11px;color:#999;">${cityState}</div></div>`)
-          .addTo(map);
-        popup.on('close', () => { if (popupRef.current === popup) popupRef.current = null; delete (window as any)[cbId]; });
-        popupRef.current = popup;
+        if (place) {
+          setSelectedPlace(place);
+          setSelectedMarker(place.id);
+          setSheetState('peek');
+          map.easeTo({ center: [place.lng, place.lat], duration: 500 });
+        }
         isMarkerSelectedRef.current = true;
       });
 
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([r.lng, r.lat]).addTo(map);
       customMarkersRef.current.push(marker);
-      bounds.extend([lng, lat]);
+      bounds.extend([r.lng, r.lat]);
       hasMarkers = true;
     }
 
     if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
-  }, [mapMode, myRatings, friendRatings, expertRatings, selectedFriendIds, selectedListId, myLists, navigate]);
+  }, [mapMode, myRatings, friendRatings, expertRatings, selectedFriendIds, selectedListId, myLists]);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
