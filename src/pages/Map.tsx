@@ -577,7 +577,16 @@ export const Map: React.FC = () => {
       const searchCenter = searchLocationBias || map.getCenter();
       const lat = 'lat' in searchCenter ? searchCenter.lat : searchCenter.lat;
       const lng = 'lng' in searchCenter ? searchCenter.lng : searchCenter.lng;
-      const results = await searchPlacesByText(query, lat, lng);
+      // Calculate search radius from map bounds for tighter results
+      const mapBounds = map.getBounds();
+      const nw = mapBounds.getNorthWest();
+      const se = mapBounds.getSouthEast();
+      const dlat = (nw.lat - se.lat) * Math.PI / 180;
+      const dlng = (nw.lng - se.lng) * Math.PI / 180;
+      const a = Math.sin(dlat/2)**2 + Math.cos(nw.lat*Math.PI/180)*Math.cos(se.lat*Math.PI/180)*Math.sin(dlng/2)**2;
+      const searchRadius = Math.max(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 2, 2000);
+      const useRestriction = !!searchLocationBias;
+      const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction);
       const filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       setPlaces(filtered);
       syncMarkers(filtered);
