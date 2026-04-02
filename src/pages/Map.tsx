@@ -438,15 +438,37 @@ export const Map: React.FC = () => {
     return sorted;
   }, []);
 
-  // Create a marker element for a place
+  // Build a lookup of user's own ratings by restaurant ID
+  const userRatingMap = useMemo(() => {
+    const map = new Map<string, number>();
+    myLocalRatings.forEach((r) => map.set(r.restaurantId, r.score));
+    return map;
+  }, [myLocalRatings]);
+
+  // Create a marker element for a place — color/size by user rating
   const createMarkerElement = useCallback((place: PlaceResult) => {
+    const userScore = userRatingMap.get(place.id);
+    const hasRating = userScore !== undefined;
+    // Score color: green >= 8, amber >= 5, red < 5
+    let ringColor = 'transparent';
+    let dotColor = '';
+    let size = 36; // default
+    if (hasRating) {
+      if (userScore >= 8) { ringColor = '#16a34a'; dotColor = '#16a34a'; size = 42; }
+      else if (userScore >= 5) { ringColor = '#d97706'; dotColor = '#d97706'; size = 39; }
+      else { ringColor = '#dc2626'; dotColor = '#dc2626'; size = 36; }
+    }
+    const iconSize = Math.round(size * 0.5);
+
     const el = document.createElement('div');
     el.className = 'mapbox-custom-marker';
     el.innerHTML = `
       <div class="marker-pin" data-id="${place.id}" style="
-        padding: 10px;
+        width: ${size}px;
+        height: ${size}px;
         border-radius: 50%;
         background: white;
+        border: ${hasRating ? `2.5px solid ${ringColor}` : '2px solid transparent'};
         box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         cursor: pointer;
         display: flex;
@@ -454,12 +476,13 @@ export const Map: React.FC = () => {
         justify-content: center;
         opacity: 0;
         transform: scale(0.4);
-        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease;
+        transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
       ">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        ${hasRating ? `<span style="font-size:${Math.round(size * 0.35)}px;font-weight:800;color:${dotColor};line-height:1;">${userScore.toFixed(0)}</span>` : `
+        <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
           <circle cx="12" cy="10" r="3"/>
-        </svg>
+        </svg>`}
       </div>
     `;
 
@@ -473,7 +496,7 @@ export const Map: React.FC = () => {
     });
 
     return el;
-  }, []);
+  }, [userRatingMap]);
 
   // Show popup for a place
   // Use refs for callbacks so DOM event handlers always get the latest
@@ -689,15 +712,30 @@ export const Map: React.FC = () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
       if (!pin) return;
       const isSelected = id === selectedMarker;
-      pin.style.background = isSelected ? 'var(--color-primary, #8B4513)' : 'white';
-      pin.style.color = isSelected ? 'white' : 'currentColor';
+      const hasRating = userRatingMap.has(id);
+      if (isSelected) {
+        pin.style.background = 'var(--color-primary, #8B4513)';
+        pin.style.color = 'white';
+        // Override score text color for selected state
+        const scoreSpan = pin.querySelector('span');
+        if (scoreSpan) scoreSpan.style.color = 'white';
+      } else {
+        pin.style.background = 'white';
+        pin.style.color = 'currentColor';
+        // Restore score text color
+        if (hasRating) {
+          const score = userRatingMap.get(id)!;
+          const scoreSpan = pin.querySelector('span');
+          if (scoreSpan) scoreSpan.style.color = score >= 8 ? '#16a34a' : score >= 5 ? '#d97706' : '#dc2626';
+        }
+      }
       const svg = pin.querySelector('svg');
       if (svg) {
         svg.setAttribute('stroke', isSelected ? 'white' : 'currentColor');
         svg.setAttribute('fill', isSelected ? 'white' : 'none');
       }
     });
-  }, [selectedMarker]);
+  }, [selectedMarker, userRatingMap]);
 
   // Dismiss restaurant card when sheet leaves peek state
   useEffect(() => {
@@ -983,9 +1021,32 @@ export const Map: React.FC = () => {
 
     for (const r of ratings) {
       if (!r.lat || !r.lng) continue;
+      // Size hierarchy based on score
+      const score = r.score;
+      const markerSize = score >= 8 ? 42 : score >= 5 ? 38 : 34;
+      const iconSz = Math.round(markerSize * 0.42);
       const el = document.createElement('div');
-      el.style.cssText = `width:36px;height:36px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;${mapMode === 'experts' ? 'border:2px solid #d4a017;' : ''}`;
-      el.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
+
+      // Friends: warm ring + users icon; Experts: gold ring + star icon; MyRatings: score-colored
+      let borderStyle = '2px solid transparent';
+      let iconHtml = '';
+      if (mapMode === 'friends') {
+        borderStyle = `2.5px solid ${strokeColor}`;
+        iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+      } else if (mapMode === 'experts') {
+        borderStyle = `2.5px solid #d4a017`;
+        iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#d4a017" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+      } else {
+        // myratings: score color
+        const sc = score >= 8 ? '#16a34a' : score >= 5 ? '#d97706' : '#dc2626';
+        borderStyle = `2.5px solid ${sc}`;
+        iconHtml = `<span style="font-size:${Math.round(markerSize * 0.35)}px;font-weight:800;color:${sc};line-height:1;">${score.toFixed(0)}</span>`;
+      }
+
+      el.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:white;border:${borderStyle};box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.2s ease;`;
+      el.innerHTML = iconHtml;
+      el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.15)'; });
+      el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)'; });
 
       const place = ratingToPlace(r);
       el.addEventListener('click', (e) => {
@@ -1347,17 +1408,31 @@ export const Map: React.FC = () => {
       {/* Selected Place Card — above bottom sheet, swipeable with arrows */}
       <AnimatePresence mode="wait">
         {selectedPlace && sheetState === 'peek' && (() => {
-          const currentIndex = places.findIndex((p) => p.id === selectedPlace.id);
+          const isRatingsMode = mapMode === 'myratings' || mapMode === 'friends' || mapMode === 'experts';
+
+          // For ratings modes: sort places by distance to the currently selected place
+          // so arrows go to the next closest restaurant
+          const orderedPlaces = isRatingsMode && selectedPlace
+            ? (() => {
+                const ref = selectedPlace;
+                return [...places].sort((a, b) => {
+                  const da = Math.hypot(a.lat - ref.lat, a.lng - ref.lng);
+                  const db = Math.hypot(b.lat - ref.lat, b.lng - ref.lng);
+                  return da - db;
+                });
+              })()
+            : places;
+
+          const currentIndex = orderedPlaces.findIndex((p) => p.id === selectedPlace.id);
           const hasPrev = currentIndex > 0;
-          const hasNext = currentIndex >= 0 && currentIndex < places.length - 1;
+          const hasNext = currentIndex >= 0 && currentIndex < orderedPlaces.length - 1;
           const goTo = (dir: number) => {
             if (currentIndex < 0) return;
             const nextIndex = currentIndex + dir;
-            if (nextIndex >= 0 && nextIndex < places.length) {
-              const next = places[nextIndex];
+            if (nextIndex >= 0 && nextIndex < orderedPlaces.length) {
+              const next = orderedPlaces[nextIndex];
               setSelectedPlace(next);
               setSelectedMarker(next.id);
-              mapRef.current?.flyTo({ center: [next.lng, next.lat], duration: 400 });
             }
           };
           return (
@@ -1422,8 +1497,8 @@ export const Map: React.FC = () => {
                       )}
                       <p className="text-[10px] text-on-surface/40 mt-0.5 truncate">{extractCityState(selectedPlace.fullAddress, selectedPlace.address)}</p>
                     </div>
-                    {currentIndex >= 0 && places.length > 1 && (
-                      <p className="text-[9px] text-on-surface/25 font-semibold mt-1">{currentIndex + 1} / {places.length}</p>
+                    {currentIndex >= 0 && orderedPlaces.length > 1 && (
+                      <p className="text-[9px] text-on-surface/25 font-semibold mt-1">{currentIndex + 1} / {orderedPlaces.length}</p>
                     )}
                   </div>
                   {/* Action buttons */}
