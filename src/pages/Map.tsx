@@ -1224,7 +1224,7 @@ export const Map: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className="fixed left-3 right-3 z-40"
+            className={cn("fixed z-40", phoneMode ? "left-3 right-3" : "left-1/2 -translate-x-1/2 w-full max-w-md")}
             style={{ bottom: (sheetState === 'half' ? HALF_HEIGHT : sheetState === 'full' ? FULL_HEIGHT : PEEK_HEIGHT) + (phoneMode ? 8 : 16) }}
           >
             <div className="glass rounded-2xl shadow-2xl border border-white/30 overflow-hidden flex"
