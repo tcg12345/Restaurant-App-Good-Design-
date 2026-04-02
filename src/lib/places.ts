@@ -142,8 +142,8 @@ export async function searchNearbyRestaurants(
   }
 
   // Default: fetch from multiple sources in parallel for maximum results
-  const radius = Math.max(radiusMeters, 3000);
-  const bigRadius = Math.max(radiusMeters, 8000);
+  const radius = radiusMeters;
+  const bigRadius = radiusMeters;
 
   const nearbyBody = {
     includedTypes: ['restaurant'],

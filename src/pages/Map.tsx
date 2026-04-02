@@ -605,9 +605,16 @@ export const Map: React.FC = () => {
     setShowSearchHere(false);
     try {
       const center = map.getCenter();
-      const zoom = map.getZoom();
-      // Scale radius based on zoom level — use larger radius for better coverage
-      const radius = Math.min(50000, Math.max(1000, Math.round(50000 / Math.pow(2, zoom - 10))));
+      // Calculate radius from the actual visible map bounds
+      const bounds = map.getBounds();
+      const ne = bounds.getNorthEast();
+      const sw = bounds.getSouthWest();
+      // Distance from center to corner in meters (haversine approximation)
+      const dlat = (ne.lat - sw.lat) * Math.PI / 180;
+      const dlng = (ne.lng - sw.lng) * Math.PI / 180;
+      const a = Math.sin(dlat / 4) ** 2 + Math.cos(center.lat * Math.PI / 180) * Math.cos(ne.lat * Math.PI / 180) * Math.sin(dlng / 4) ** 2;
+      const halfDiag = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const radius = Math.min(50000, Math.max(500, Math.round(halfDiag)));
       const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
       const price = filtersRef.current.selectedPrice;
       const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price);
