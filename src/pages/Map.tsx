@@ -183,6 +183,7 @@ export const Map: React.FC = () => {
   const friendsButtonRef = useRef<HTMLDivElement>(null);
   const filterBarRef = useRef<HTMLDivElement>(null);
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
+  const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
@@ -456,90 +457,11 @@ export const Map: React.FC = () => {
   const openWishlistModalRef = useRef(openWishlistModal);
   openWishlistModalRef.current = openWishlistModal;
 
-  const showPopup = useCallback((place: PlaceResult, map: mapboxgl.Map) => {
+  const showPopup = useCallback((place: PlaceResult, _map: mapboxgl.Map) => {
     if (popupRef.current) popupRef.current.remove();
-    const cuisine = getCuisineLabel(place.types);
-    const cityState = extractCityState(place.fullAddress, place.address);
-    const ratingHtml = place.rating > 0
-      ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          <span style="font-size:12px;font-weight:700;color:#9f3012;">${place.rating.toFixed(1)}</span>
-          <span style="font-size:11px;color:#aaa;margin-left:2px;">(${place.userRatingCount})</span>
-          ${place.priceLevel > 0 ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;font-weight:600;">${'$'.repeat(place.priceLevel)}</span>` : ''}
-        </div>`
-      : '';
-
-    const meta = {
-      id: place.id, name: place.name,
-      image: place.photoUrl || '', cuisine,
-      price: priceLevelToString(place.priceLevel),
-      address: place.address,
-    };
-
-    // Register global callbacks so inline onclick in popup HTML can call them
-    const callbackId = `popup_${Date.now()}`;
-    (window as any)[`${callbackId}_nav`] = () => {
-      popupRef.current?.remove();
-      navigateRef.current(`/restaurant/${place.id}`);
-      delete (window as any)[`${callbackId}_nav`];
-      delete (window as any)[`${callbackId}_rate`];
-      delete (window as any)[`${callbackId}_wish`];
-    };
-    (window as any)[`${callbackId}_rate`] = () => {
-      popupRef.current?.remove();
-      openAddRestaurantModalRef.current(meta);
-      delete (window as any)[`${callbackId}_nav`];
-      delete (window as any)[`${callbackId}_rate`];
-      delete (window as any)[`${callbackId}_wish`];
-    };
-    (window as any)[`${callbackId}_wish`] = () => {
-      popupRef.current?.remove();
-      openWishlistModalRef.current(meta);
-      delete (window as any)[`${callbackId}_nav`];
-      delete (window as any)[`${callbackId}_rate`];
-      delete (window as any)[`${callbackId}_wish`];
-    };
-
-    const popup = new mapboxgl.Popup({
-      offset: 25,
-      closeButton: true,
-      closeOnClick: false,
-      maxWidth: '240px',
-      className: 'restaurant-popup',
-    })
-      .setLngLat([place.lng, place.lat])
-      .setHTML(`
-        <div style="font-family:inherit;padding:4px 0;">
-          <div onclick="window.${callbackId}_nav()" style="cursor:pointer;">
-            ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
-            <div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${place.name}</div>
-            <div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${cuisine}</div>
-            ${ratingHtml}
-            <div style="font-size:11px;color:#999;">${cityState}</div>
-          </div>
-          <div style="display:flex;gap:6px;margin-top:8px;">
-            <button onclick="event.stopPropagation();window.${callbackId}_rate()" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            </button>
-            <button onclick="event.stopPropagation();window.${callbackId}_wish()" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-            </button>
-          </div>
-        </div>
-      `)
-      .addTo(map);
-
-    popup.on('close', () => {
-      setSelectedMarker(null);
-      isMarkerSelectedRef.current = false;
-      popupRef.current = null;
-      // Clean up global callbacks
-      delete (window as any)[`${callbackId}_nav`];
-      delete (window as any)[`${callbackId}_rate`];
-      delete (window as any)[`${callbackId}_wish`];
-    });
-
-    popupRef.current = popup;
+    popupRef.current = null;
+    setSelectedPlace(place);
+    setSheetState('peek');
   }, []);
 
   // Sync markers on map when places change — keeps existing markers, animates new ones in
@@ -710,6 +632,7 @@ export const Map: React.FC = () => {
       }
       isMarkerSelectedRef.current = false;
       setSelectedMarker(null);
+      setSelectedPlace(null);
     };
     map.on('click', clearPopup);
     map.on('dragstart', clearPopup);
@@ -816,52 +739,11 @@ export const Map: React.FC = () => {
   }, []);
 
   // Show popup for a hotel
-  const showHotelPopup = useCallback((place: PlaceResult, map: mapboxgl.Map) => {
+  const showHotelPopup = useCallback((place: PlaceResult, _map: mapboxgl.Map) => {
     if (popupRef.current) popupRef.current.remove();
-    const cityState = extractCityState(place.fullAddress, place.address);
-    const ratingHtml = place.rating > 0
-      ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="#0d9488" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          <span style="font-size:12px;font-weight:700;color:#0d9488;">${place.rating.toFixed(1)}</span>
-          <span style="font-size:11px;color:#aaa;margin-left:2px;">(${place.userRatingCount})</span>
-        </div>`
-      : '';
-
-    const callbackId = `popup_hotel_${Date.now()}`;
-    (window as any)[`${callbackId}_nav`] = () => {
-      popupRef.current?.remove();
-      navigateRef.current(`/restaurant/${place.id}`);
-      delete (window as any)[`${callbackId}_nav`];
-    };
-
-    const popup = new mapboxgl.Popup({
-      offset: 25, closeButton: true, closeOnClick: false, maxWidth: '240px', className: 'restaurant-popup',
-    })
-      .setLngLat([place.lng, place.lat])
-      .setHTML(`
-        <div style="font-family:inherit;padding:4px 0;">
-          <div onclick="window.${callbackId}_nav()" style="cursor:pointer;">
-            ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
-            <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/></svg>
-              <span style="font-size:10px;color:#0d9488;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Hotel</span>
-            </div>
-            <div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${place.name}</div>
-            ${ratingHtml}
-            <div style="font-size:11px;color:#999;">${cityState}</div>
-          </div>
-          <button onclick="window.${callbackId}_nav()" style="margin-top:8px;width:100%;padding:8px 0;border-radius:10px;background:#0d9488;color:white;border:none;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">View Details</button>
-        </div>
-      `)
-      .addTo(map);
-
-    popup.on('close', () => {
-      setSelectedMarker(null);
-      isMarkerSelectedRef.current = false;
-      popupRef.current = null;
-      delete (window as any)[`${callbackId}_nav`];
-    });
-    popupRef.current = popup;
+    popupRef.current = null;
+    setSelectedPlace(place);
+    setSheetState('peek');
   }, []);
 
   // Fetch hotels near current map center
@@ -1323,6 +1205,58 @@ export const Map: React.FC = () => {
               </div>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* Selected Place Card — above bottom sheet */}
+      <AnimatePresence>
+        {selectedPlace && sheetState === 'peek' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            className="fixed left-3 right-3 z-40"
+            style={{ bottom: PEEK_HEIGHT + (phoneMode ? 12 : 24) }}
+          >
+            <div className="glass rounded-2xl shadow-2xl border border-white/30 overflow-hidden flex"
+              onClick={() => { setSelectedPlace(null); setSelectedMarker(null); navigate(`/restaurant/${selectedPlace.id}`); }}
+              style={{ cursor: 'pointer' }}
+            >
+              {/* Photo */}
+              <div className="w-28 h-28 flex-shrink-0">
+                {selectedPlace.photoUrl ? (
+                  <img src={selectedPlace.photoUrl} alt={selectedPlace.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-on-surface/5">
+                    <MapPinned size={24} className="text-on-surface/15" />
+                  </div>
+                )}
+              </div>
+              {/* Info */}
+              <div className="flex-1 min-w-0 p-3 flex flex-col justify-between">
+                <div>
+                  <h3 className="font-serif font-bold text-sm leading-snug truncate">{selectedPlace.name}</h3>
+                  <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{getCuisineLabel(selectedPlace.types)}</p>
+                  {selectedPlace.rating > 0 && (
+                    <div className="flex items-center gap-1 mt-1">
+                      <Star size={11} className="fill-primary text-primary" />
+                      <span className="text-xs font-bold text-primary">{selectedPlace.rating.toFixed(1)}</span>
+                      <span className="text-[10px] text-on-surface/35 ml-0.5">({selectedPlace.userRatingCount})</span>
+                      {selectedPlace.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-1">· {priceLevelToString(selectedPlace.priceLevel)}</span>}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-on-surface/40 mt-0.5 truncate">{extractCityState(selectedPlace.fullAddress, selectedPlace.address)}</p>
+                </div>
+              </div>
+              {/* Action buttons */}
+              <div className="flex flex-col items-center justify-center gap-1.5 pr-3 flex-shrink-0">
+                <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openAddRestaurantModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
+                <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openWishlistModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", isWishlisted(selectedPlace.id) ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={isWishlisted(selectedPlace.id) ? "fill-red-400" : ""} /></button>
+                <button onClick={(e) => { e.stopPropagation(); setSelectedPlace(null); setSelectedMarker(null); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/30 hover:text-on-surface/60 transition-colors"><X size={14} /></button>
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
