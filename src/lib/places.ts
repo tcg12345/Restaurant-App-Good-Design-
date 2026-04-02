@@ -142,8 +142,8 @@ export async function searchNearbyRestaurants(
   }
 
   // Default: fetch from multiple sources in parallel for maximum results
-  const radius = Math.max(radiusMeters, 3000);
-  const bigRadius = Math.max(radiusMeters, 8000);
+  const radius = radiusMeters;
+  const bigRadius = radiusMeters;
 
   const nearbyBody = {
     includedTypes: ['restaurant'],
@@ -262,60 +262,93 @@ async function searchWithFilters(
   return deduplicatePlaces(results.flat());
 }
 
+// Food-related place types that should be included in search results
+const FOOD_TYPES = new Set([
+  'restaurant', 'cafe', 'bakery', 'bar', 'bar_and_grill', 'coffee_shop',
+  'fast_food_restaurant', 'meal_delivery', 'meal_takeaway', 'food',
+  'american_restaurant', 'barbecue_restaurant', 'brazilian_restaurant',
+  'breakfast_restaurant', 'brunch_restaurant', 'chinese_restaurant',
+  'french_restaurant', 'greek_restaurant', 'hamburger_restaurant',
+  'indian_restaurant', 'indonesian_restaurant', 'italian_restaurant',
+  'japanese_restaurant', 'korean_restaurant', 'lebanese_restaurant',
+  'mediterranean_restaurant', 'mexican_restaurant', 'middle_eastern_restaurant',
+  'pizza_restaurant', 'ramen_restaurant', 'seafood_restaurant',
+  'spanish_restaurant', 'steak_house', 'sushi_restaurant', 'thai_restaurant',
+  'turkish_restaurant', 'vegan_restaurant', 'vegetarian_restaurant',
+  'vietnamese_restaurant', 'ice_cream_shop', 'juice_shop', 'sandwich_shop',
+]);
+
+function isFoodPlace(types: string[]): boolean {
+  return types.some((t) => FOOD_TYPES.has(t));
+}
+
 export async function searchPlacesByText(
   query: string,
   lat: number,
   lng: number,
-  locationName?: string,
+  locationNameOrRadius?: string | number,
+  useRestriction = false,
 ): Promise<PlaceResult[]> {
-  const hasLocation = !!locationName && locationName !== 'Current Location';
+  // Backward compat: 4th arg can be locationName (string) or radiusMeters (number)
+  let radiusMeters = 10000;
+  let locationName: string | undefined;
+  if (typeof locationNameOrRadius === 'string') {
+    locationName = locationNameOrRadius;
+  } else if (typeof locationNameOrRadius === 'number') {
+    radiusMeters = locationNameOrRadius;
+  }
 
-  // Use includedType to restrict to restaurants instead of polluting the query text.
-  // Keep the user's raw query clean so Google can match restaurant names accurately.
+  const hasLocation = !!locationName && locationName !== 'Current Location';
+  const shouldRestrict = useRestriction || hasLocation;
+
+  const locationParam = shouldRestrict
+    ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: Math.min(radiusMeters, 50000) } } }
+    : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: Math.min(radiusMeters, 50000) } } };
+
+  // Search 1: raw query + "restaurant" keyword for broad food results
   const body: Record<string, unknown> = {
-    textQuery: query,
-    includedType: 'restaurant',
-    maxResultCount: 20,
+    textQuery: `${query} restaurant`,
+    maxResultCount: 10,
+    ...locationParam,
   };
 
-  if (hasLocation) {
-    // Restrict results to the selected location area
-    body.locationRestriction = {
-      circle: {
-        center: { latitude: lat, longitude: lng },
-        radius: 10000,
-      },
-    };
-  } else {
-    body.locationBias = {
-      circle: {
-        center: { latitude: lat, longitude: lng },
-        radius: 10000,
-      },
-    };
-  }
+  // Search 2: raw query only — catches exact name matches (cafes, bakeries, bars, etc.)
+  const exactBody: Record<string, unknown> = {
+    textQuery: query,
+    maxResultCount: 10,
+    ...locationParam,
+  };
 
-  console.log('[Places] textSearch request:', query, hasLocation ? `(restricted to ${locationName})` : '(biased)');
+  console.log('[Places] textSearch request:', query, shouldRestrict ? '(restricted)' : '(biased)', 'radius:', radiusMeters);
 
-  const res = await fetch(`${BASE_URL}/places:searchText`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
-      'X-Goog-FieldMask': FIELDS,
-    },
-    body: JSON.stringify(body),
-  });
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+    'X-Goog-FieldMask': FIELDS,
+  };
 
-  const data = await res.json();
-  console.log('[Places] textSearch status:', res.status, 'count:', data.places?.length ?? 0);
+  // Run both searches in parallel for speed
+  const [broadRes, exactRes] = await Promise.all([
+    fetch(`${BASE_URL}/places:searchText`, {
+      method: 'POST', headers, body: JSON.stringify(body),
+    }).then((r) => r.json()).catch(() => ({ places: [] })),
+    fetch(`${BASE_URL}/places:searchText`, {
+      method: 'POST', headers, body: JSON.stringify(exactBody),
+    }).then((r) => r.json()).catch(() => ({ places: [] })),
+  ]);
 
-  if (!res.ok) {
-    console.error('[Places] textSearch error:', data);
-    throw new Error(`Places textSearch failed: ${data.error?.message || res.status}`);
-  }
+  const broadPlaces = mapPlaces(broadRes.places || []);
+  const exactPlaces = mapPlaces(exactRes.places || []);
 
-  return mapPlaces(data.places || []);
+  // Filter exact results to only food-related places
+  const foodExact = exactPlaces.filter((p) => isFoodPlace(p.types));
+
+  // Merge: exact name matches first (higher relevance), then broad results
+  const merged = [...foodExact, ...broadPlaces];
+  const result = deduplicatePlaces(merged);
+
+  console.log('[Places] textSearch results — exact:', foodExact.length, 'broad:', broadPlaces.length, 'merged:', result.length);
+  return result;
 }
 
 export async function searchHotels(

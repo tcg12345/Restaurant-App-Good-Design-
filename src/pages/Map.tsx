@@ -1,7 +1,7 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2 } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -12,6 +12,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
+import { RestaurantCard } from '../components/RestaurantCard';
+import { SocialFeed } from '../components/SocialFeed';
+
+import { supabaseConfigured } from '../lib/supabase';
+import { saveRecentViews } from '../lib/supabase-db';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Fix mapbox-gl worker for Vite production builds
@@ -49,6 +54,23 @@ const PRICE_LEVELS = [
   { value: 4, label: '$$$$' },
 ];
 
+const QUICK_FILTERS = ['Near Me', 'Hotels', 'Italian', 'Fine Dining', 'Sushi', 'Mexican'];
+
+// US state name → abbreviation
+const STATE_ABBR: Record<string, string> = {
+  'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA',
+  'Colorado':'CO','Connecticut':'CT','Delaware':'DE','Florida':'FL','Georgia':'GA',
+  'Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS',
+  'Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA',
+  'Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT',
+  'Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM',
+  'New York':'NY','North Carolina':'NC','North Dakota':'ND','Ohio':'OH','Oklahoma':'OK',
+  'Oregon':'OR','Pennsylvania':'PA','Rhode Island':'RI','South Carolina':'SC',
+  'South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT',
+  'Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY',
+  'District of Columbia':'DC',
+};
+
 // Extract "City, ST" from full or short address
 function extractCityState(fullAddress: string, shortAddress: string): string {
   // fullAddress is like "123 Main St, Westport, CT 06880, USA"
@@ -66,6 +88,38 @@ function extractCityState(fullAddress: string, shortAddress: string): string {
   const shortParts = shortAddress.split(',').map((s) => s.trim());
   if (shortParts.length >= 2) return shortParts.slice(1).join(', ');
   return shortParts[0] || '';
+}
+
+function ratingToPlace(r: CommunityRating): PlaceResult | null {
+  if (!r.lat || !r.lng) return null;
+  const priceMap: Record<string, number> = { '$': 1, '$$': 2, '$$$': 3, '$$$$': 4 };
+  return {
+    id: r.restaurant_id,
+    name: r.restaurant_name,
+    lat: r.lat,
+    lng: r.lng,
+    rating: r.score,
+    priceLevel: priceMap[r.price] || 0,
+    address: r.address || '',
+    fullAddress: r.address || '',
+    photoUrl: r.photo_url || null,
+    types: r.cuisine ? [r.cuisine.toLowerCase().replace(/\s+/g, '_')] : [],
+    userRatingCount: 0,
+  };
+}
+
+function placeToCardProps(place: PlaceResult) {
+  return {
+    id: place.id,
+    name: place.name,
+    image: place.photoUrl || 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=800',
+    rating: place.rating,
+    price: priceLevelToString(place.priceLevel),
+    cuisine: extractCityState(place.fullAddress, place.address),
+    address: place.address,
+    friendReviews: 0,
+    expertReviews: 0,
+  };
 }
 
 // Module-level cache for tab data (persists across navigations within same session)
@@ -147,6 +201,7 @@ export const Map: React.FC = () => {
   const friendsButtonRef = useRef<HTMLDivElement>(null);
   const filterBarRef = useRef<HTMLDivElement>(null);
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
+  const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
@@ -169,6 +224,15 @@ export const Map: React.FC = () => {
   const [selectedPrice, setSelectedPrice] = useState(0);
 
   const [showSearchHere, setShowSearchHere] = useState(false);
+
+  // Location search
+  const [locationSearchOpen, setLocationSearchOpen] = useState(false);
+  const [locationQuery, setLocationQuery] = useState('');
+  const [locationResults, setLocationResults] = useState<Array<{ id: string; name: string; lat: number; lng: number }>>([]);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const locationInputRef = useRef<HTMLInputElement>(null);
+  const [searchLocationBias, setSearchLocationBias] = useState<{ lat: number; lng: number } | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
@@ -185,14 +249,164 @@ export const Map: React.FC = () => {
     filtersRef.current = { sortBy, selectedCuisines, selectedPrice };
   }, [sortBy, selectedCuisines, selectedPrice]);
 
-  // Bottom sheet state
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // Bottom sheet state — tri-state: peek (collapsed), half (partial), full (full-screen discover)
+  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>('peek');
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartYRef = useRef(0);
   const dragCurrentYRef = useRef(0);
   const isDraggingRef = useRef(false);
-  const PEEK_HEIGHT = 140;
-  const SHEET_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.75 : 600;
+  const PEEK_HEIGHT = 165;
+  const FULL_HEIGHT = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const HALF_HEIGHT = typeof window !== 'undefined' ? window.innerHeight * 0.85 : 680;
+  const getSheetY = (state: 'peek' | 'half' | 'full') => {
+    if (state === 'full') return 0;
+    if (state === 'half') return FULL_HEIGHT - HALF_HEIGHT;
+    return FULL_HEIGHT - PEEK_HEIGHT;
+  };
+
+  // ── Discover feed state ──
+  const [discoverSearchActive, setDiscoverSearchActive] = useState(false);
+  const NEARBY_INITIAL = 4;
+  const NEARBY_INCREMENT = 12;
+  const [nearbyShowCount, setNearbyShowCount] = useState(NEARBY_INITIAL);
+  const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
+  const preSearchPlacesRef = useRef<PlaceResult[]>([]);
+
+  // Recent views from localStorage
+  const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
+    try {
+      const raw = localStorage.getItem('gourmad-recent-views');
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+
+  const removeRecentView = useCallback((id: string) => {
+    setRecentViews((prev) => {
+      const next = prev.filter((v) => v.id !== id);
+      localStorage.setItem('gourmad-recent-views', JSON.stringify(next));
+      if (userId && supabaseConfigured) saveRecentViews(userId, next);
+      return next;
+    });
+  }, [userId]);
+
+  // Build preference profile from user's ratings
+  const userPreferences = useMemo(() => {
+    const cuisineCounts: Record<string, number> = {};
+    const priceCounts: Record<number, number> = {};
+    const topCuisines: string[] = [];
+    myLocalRatings.forEach((r) => {
+      const weight = r.score >= 7 ? 2 : 1;
+      if (r.cuisine) cuisineCounts[r.cuisine] = (cuisineCounts[r.cuisine] || 0) + weight;
+      r.tags.forEach((t) => { cuisineCounts[t] = (cuisineCounts[t] || 0) + weight; });
+      const priceNum = r.price.length;
+      priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
+    });
+    Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).forEach(([c]) => topCuisines.push(c));
+    return { cuisineCounts, priceCounts, topCuisines };
+  }, [myLocalRatings]);
+
+  // Score-based recommendations from recentViews
+  const recentRecommendations = useMemo(() => {
+    if (recentViews.length === 0) return [];
+    const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
+    const candidates = recentViews.filter((v) => !ratedIds.has(v.id));
+    const scored = candidates.map((place) => {
+      let score = 0;
+      (place.types || []).forEach((t: string) => {
+        const label = t.replace(/_/g, ' ').replace(/restaurant/g, '').trim();
+        Object.entries(userPreferences.cuisineCounts).forEach(([tag, count]) => {
+          if (tag.toLowerCase().includes(label) || label.includes(tag.toLowerCase())) score += count * 2;
+        });
+      });
+      if (userPreferences.priceCounts[place.priceLevel]) score += userPreferences.priceCounts[place.priceLevel];
+      score += (place.rating || 0) * 0.5;
+      score += Math.min((place.userRatingCount || 0) / 500, 2);
+      return { ...place, recScore: score };
+    });
+    scored.sort((a, b) => b.recScore - a.recScore);
+    return scored.slice(0, 8);
+  }, [recentViews, myLocalRatings, userPreferences]);
+
+  // API-based recommendations
+  const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
+  const [recsLoading, setRecsLoading] = useState(false);
+  const recsFetchedRef = useRef(false);
+
+  const recommendations = useMemo(() => {
+    const combined = [...apiRecommendations, ...recentRecommendations];
+    const seen = new Set<string>();
+    return combined.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; }).slice(0, 8);
+  }, [apiRecommendations, recentRecommendations]);
+
+  // User's top rated restaurants
+  const topRated = useMemo(() => {
+    return [...myLocalRatings].filter((r) => r.score >= 7 && r.image).sort((a, b) => b.score - a.score).slice(0, 6);
+  }, [myLocalRatings]);
+
+  // Fetch API-based recommendations
+  useEffect(() => {
+    if (recsFetchedRef.current || myLocalRatings.length === 0) return;
+    recsFetchedRef.current = true;
+    const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
+    const recentIds = new Set(recentViews.map((v) => v.id));
+    const topCuisines = userPreferences.topCuisines;
+    if (topCuisines.length === 0) return;
+    setRecsLoading(true);
+    const queries = topCuisines.slice(0, 2).map((cuisine) =>
+      searchPlacesByText(`best ${cuisine} restaurants`, 40.735, -73.99).catch(() => [] as PlaceResult[])
+    );
+    Promise.all(queries).then((results) => {
+      const all = results.flat();
+      const seen = new Set<string>();
+      const fresh = all.filter((p) => { if (seen.has(p.id) || ratedIds.has(p.id) || recentIds.has(p.id)) return false; seen.add(p.id); return true; });
+      setApiRecommendations(fresh.slice(0, 8));
+      setRecsLoading(false);
+    });
+  }, [myLocalRatings, userPreferences.topCuisines, recentViews]);
+
+  // Quick filter handler for discover search
+  const handleQuickFilter = useCallback(async (filter: string) => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (activeQuickFilter === filter) {
+      setActiveQuickFilter(null);
+      fetchNearbyRef.current?.();
+      return;
+    }
+    setActiveQuickFilter(filter);
+    setIsSearching(true);
+    setShowSearchHere(false);
+    try {
+      const center = map.getCenter();
+      let results: PlaceResult[];
+      if (filter === 'Hotels') {
+        setMapMode('hotels');
+        results = await searchHotels('hotels', center.lat, center.lng);
+        setHotelPlaces(results);
+        setIsSearching(false);
+        return;
+      } else if (filter === 'Near Me') {
+        results = await searchNearbyRestaurants(center.lat, center.lng, 1000, [], 0);
+      } else {
+        results = await searchPlacesByText(filter, center.lat, center.lng);
+      }
+      setPlaces(results);
+      syncMarkersRef.current?.(results);
+      if (results.length > 0) {
+        const bounds = new mapboxgl.LngLatBounds();
+        results.forEach((p) => bounds.extend([p.lng, p.lat]));
+        map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
+      }
+    } catch (err) {
+      console.error('Quick filter search failed:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [activeQuickFilter]);
+
+  // Refs for callbacks needed before their definition
+  const fetchNearbyRef = useRef<(() => void) | null>(null);
+  const syncMarkersRef = useRef<((places: PlaceResult[]) => void) | null>(null);
 
   // Sort and filter places client-side
   const getFilteredPlaces = useCallback((allPlaces: PlaceResult[], sort: SortOption, price: number): PlaceResult[] => {
@@ -270,90 +484,11 @@ export const Map: React.FC = () => {
   const openWishlistModalRef = useRef(openWishlistModal);
   openWishlistModalRef.current = openWishlistModal;
 
-  const showPopup = useCallback((place: PlaceResult, map: mapboxgl.Map) => {
+  const showPopup = useCallback((place: PlaceResult, _map: mapboxgl.Map) => {
     if (popupRef.current) popupRef.current.remove();
-    const cuisine = getCuisineLabel(place.types);
-    const cityState = extractCityState(place.fullAddress, place.address);
-    const ratingHtml = place.rating > 0
-      ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          <span style="font-size:12px;font-weight:700;color:#9f3012;">${place.rating.toFixed(1)}</span>
-          <span style="font-size:11px;color:#aaa;margin-left:2px;">(${place.userRatingCount})</span>
-          ${place.priceLevel > 0 ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;font-weight:600;">${'$'.repeat(place.priceLevel)}</span>` : ''}
-        </div>`
-      : '';
-
-    const meta = {
-      id: place.id, name: place.name,
-      image: place.photoUrl || '', cuisine,
-      price: priceLevelToString(place.priceLevel),
-      address: place.address,
-    };
-
-    // Register global callbacks so inline onclick in popup HTML can call them
-    const callbackId = `popup_${Date.now()}`;
-    (window as any)[`${callbackId}_nav`] = () => {
-      popupRef.current?.remove();
-      navigateRef.current(`/restaurant/${place.id}`);
-      delete (window as any)[`${callbackId}_nav`];
-      delete (window as any)[`${callbackId}_rate`];
-      delete (window as any)[`${callbackId}_wish`];
-    };
-    (window as any)[`${callbackId}_rate`] = () => {
-      popupRef.current?.remove();
-      openAddRestaurantModalRef.current(meta);
-      delete (window as any)[`${callbackId}_nav`];
-      delete (window as any)[`${callbackId}_rate`];
-      delete (window as any)[`${callbackId}_wish`];
-    };
-    (window as any)[`${callbackId}_wish`] = () => {
-      popupRef.current?.remove();
-      openWishlistModalRef.current(meta);
-      delete (window as any)[`${callbackId}_nav`];
-      delete (window as any)[`${callbackId}_rate`];
-      delete (window as any)[`${callbackId}_wish`];
-    };
-
-    const popup = new mapboxgl.Popup({
-      offset: 25,
-      closeButton: true,
-      closeOnClick: false,
-      maxWidth: '240px',
-      className: 'restaurant-popup',
-    })
-      .setLngLat([place.lng, place.lat])
-      .setHTML(`
-        <div style="font-family:inherit;padding:4px 0;">
-          <div onclick="window.${callbackId}_nav()" style="cursor:pointer;">
-            ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
-            <div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${place.name}</div>
-            <div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">${cuisine}</div>
-            ${ratingHtml}
-            <div style="font-size:11px;color:#999;">${cityState}</div>
-          </div>
-          <div style="display:flex;gap:6px;margin-top:8px;">
-            <button onclick="event.stopPropagation();window.${callbackId}_rate()" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            </button>
-            <button onclick="event.stopPropagation();window.${callbackId}_wish()" style="width:36px;height:32px;display:flex;align-items:center;justify-content:center;background:#f5f0ee;border:1px solid #e5e0dd;border-radius:8px;cursor:pointer;color:#777;">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-            </button>
-          </div>
-        </div>
-      `)
-      .addTo(map);
-
-    popup.on('close', () => {
-      setSelectedMarker(null);
-      isMarkerSelectedRef.current = false;
-      popupRef.current = null;
-      // Clean up global callbacks
-      delete (window as any)[`${callbackId}_nav`];
-      delete (window as any)[`${callbackId}_rate`];
-      delete (window as any)[`${callbackId}_wish`];
-    });
-
-    popupRef.current = popup;
+    popupRef.current = null;
+    setSelectedPlace(place);
+    setSheetState('peek');
   }, []);
 
   // Sync markers on map when places change — keeps existing markers, animates new ones in
@@ -419,9 +554,16 @@ export const Map: React.FC = () => {
     setShowSearchHere(false);
     try {
       const center = map.getCenter();
-      const zoom = map.getZoom();
-      // Scale radius based on zoom level — use larger radius for better coverage
-      const radius = Math.min(50000, Math.max(1000, Math.round(50000 / Math.pow(2, zoom - 10))));
+      // Calculate radius from the actual visible map bounds
+      const bounds = map.getBounds();
+      const ne = bounds.getNorthEast();
+      const sw = bounds.getSouthWest();
+      // Distance from center to corner in meters (haversine approximation)
+      const dlat = (ne.lat - sw.lat) * Math.PI / 180;
+      const dlng = (ne.lng - sw.lng) * Math.PI / 180;
+      const a = Math.sin(dlat / 4) ** 2 + Math.cos(center.lat * Math.PI / 180) * Math.cos(ne.lat * Math.PI / 180) * Math.sin(dlng / 4) ** 2;
+      const halfDiag = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const radius = Math.min(50000, Math.max(500, Math.round(halfDiag)));
       const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
       const price = filtersRef.current.selectedPrice;
       const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price);
@@ -437,6 +579,10 @@ export const Map: React.FC = () => {
     }
   }, [syncMarkers, getFilteredPlaces]);
 
+  // Keep refs in sync for use in quick filter handler
+  fetchNearbyRef.current = fetchNearby;
+  syncMarkersRef.current = syncMarkers;
+
   // Text search
   const handleSearch = useCallback(async (query: string) => {
     const map = mapRef.current;
@@ -445,13 +591,24 @@ export const Map: React.FC = () => {
     setSelectedMarker(null);
     setShowSearchHere(false);
     try {
-      const center = map.getCenter();
-      const results = await searchPlacesByText(query, center.lat, center.lng);
+      // Use location bias if a location was searched, otherwise use map center
+      const searchCenter = searchLocationBias || map.getCenter();
+      const lat = 'lat' in searchCenter ? searchCenter.lat : searchCenter.lat;
+      const lng = 'lng' in searchCenter ? searchCenter.lng : searchCenter.lng;
+      // Calculate search radius from map bounds for tighter results
+      const mapBounds = map.getBounds();
+      const nw = mapBounds.getNorthWest();
+      const se = mapBounds.getSouthEast();
+      const dlat = (nw.lat - se.lat) * Math.PI / 180;
+      const dlng = (nw.lng - se.lng) * Math.PI / 180;
+      const a = Math.sin(dlat/2)**2 + Math.cos(nw.lat*Math.PI/180)*Math.cos(se.lat*Math.PI/180)*Math.sin(dlng/2)**2;
+      const searchRadius = Math.max(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 2, 2000);
+      const useRestriction = !!searchLocationBias;
+      const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction);
       const filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       setPlaces(filtered);
       syncMarkers(filtered);
 
-      // Fit map to results
       if (results.length > 0) {
         const bounds = new mapboxgl.LngLatBounds();
         results.forEach((p) => bounds.extend([p.lng, p.lat]));
@@ -462,7 +619,7 @@ export const Map: React.FC = () => {
     } finally {
       setIsSearching(false);
     }
-  }, [syncMarkers, getFilteredPlaces]);
+  }, [syncMarkers, getFilteredPlaces, searchLocationBias]);
 
   // Initialize Mapbox
   useEffect(() => {
@@ -513,6 +670,7 @@ export const Map: React.FC = () => {
       }
       isMarkerSelectedRef.current = false;
       setSelectedMarker(null);
+      setSelectedPlace(null);
     };
     map.on('click', clearPopup);
     map.on('dragstart', clearPopup);
@@ -541,18 +699,78 @@ export const Map: React.FC = () => {
     });
   }, [selectedMarker]);
 
-  // Close search input when clicking outside
+  // Dismiss restaurant card when sheet leaves peek state
   useEffect(() => {
-    if (!showSearchInput) return;
-    const handler = (e: MouseEvent) => {
-      if (searchWrapperRef.current && !searchWrapperRef.current.contains(e.target as Node)) {
-        setShowSearchInput(false);
-        setSearchQuery('');
-      }
+    if (sheetState !== 'peek' && selectedPlace) {
+      setSelectedPlace(null);
+      setSelectedMarker(null);
+    }
+  }, [sheetState, selectedPlace]);
+
+  // Listen for "open-discover-sheet" events from BottomNav Explore button
+  useEffect(() => {
+    const handler = () => {
+      setSheetState('peek');
+      setMapMode('discover');
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showSearchInput]);
+    window.addEventListener('open-discover-sheet', handler);
+    return () => window.removeEventListener('open-discover-sheet', handler);
+  }, []);
+
+  // Handle ?discover=1 query param (from navigation)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('discover') === '1') {
+      setSheetState('peek');
+      setMapMode('discover');
+      window.history.replaceState({}, '', '/');
+    }
+  }, []);
+
+  // Location geocoding (debounced)
+  useEffect(() => {
+    if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+    if (!locationQuery.trim()) { setLocationResults([]); return; }
+    setLocationLoading(true);
+    locationDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locationQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address,poi&limit=5`
+        );
+        const data = await res.json();
+        setLocationResults((data.features || []).map((f: any) => ({
+          id: f.id, name: f.place_name, lat: f.center[1], lng: f.center[0],
+        })));
+      } catch { setLocationResults([]); }
+      finally { setLocationLoading(false); }
+    }, 300);
+    return () => { if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current); };
+  }, [locationQuery]);
+
+  const handleSelectLocation = useCallback((name: string, lat: number, lng: number) => {
+    setLocationQuery('');
+    setLocationResults([]);
+    setLocationSearchOpen(false);
+    setSearchLocationBias({ lat, lng });
+    const map = mapRef.current;
+    if (map) {
+      map.flyTo({ center: [lng, lat], zoom: 14, duration: 1500 });
+      setTimeout(() => {
+        fetchNearbyRef.current?.();
+      }, 1600);
+    }
+  }, []);
+
+  // Auto-search as user types (debounced)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!searchQuery.trim() || !discoverSearchActive) return;
+    searchDebounceRef.current = setTimeout(() => {
+      handleSearch(searchQuery);
+    }, 500);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [searchQuery, discoverSearchActive, handleSearch]);
 
   const flyToPlace = useCallback((place: PlaceResult) => {
     setSelectedMarker(place.id);
@@ -601,52 +819,11 @@ export const Map: React.FC = () => {
   }, []);
 
   // Show popup for a hotel
-  const showHotelPopup = useCallback((place: PlaceResult, map: mapboxgl.Map) => {
+  const showHotelPopup = useCallback((place: PlaceResult, _map: mapboxgl.Map) => {
     if (popupRef.current) popupRef.current.remove();
-    const cityState = extractCityState(place.fullAddress, place.address);
-    const ratingHtml = place.rating > 0
-      ? `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="#0d9488" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          <span style="font-size:12px;font-weight:700;color:#0d9488;">${place.rating.toFixed(1)}</span>
-          <span style="font-size:11px;color:#aaa;margin-left:2px;">(${place.userRatingCount})</span>
-        </div>`
-      : '';
-
-    const callbackId = `popup_hotel_${Date.now()}`;
-    (window as any)[`${callbackId}_nav`] = () => {
-      popupRef.current?.remove();
-      navigateRef.current(`/restaurant/${place.id}`);
-      delete (window as any)[`${callbackId}_nav`];
-    };
-
-    const popup = new mapboxgl.Popup({
-      offset: 25, closeButton: true, closeOnClick: false, maxWidth: '240px', className: 'restaurant-popup',
-    })
-      .setLngLat([place.lng, place.lat])
-      .setHTML(`
-        <div style="font-family:inherit;padding:4px 0;">
-          <div onclick="window.${callbackId}_nav()" style="cursor:pointer;">
-            ${place.photoUrl ? `<img src="${place.photoUrl}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : ''}
-            <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0d9488" stroke-width="2"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/></svg>
-              <span style="font-size:10px;color:#0d9488;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Hotel</span>
-            </div>
-            <div style="font-size:14px;font-weight:700;margin-bottom:2px;line-height:1.3;">${place.name}</div>
-            ${ratingHtml}
-            <div style="font-size:11px;color:#999;">${cityState}</div>
-          </div>
-          <button onclick="window.${callbackId}_nav()" style="margin-top:8px;width:100%;padding:8px 0;border-radius:10px;background:#0d9488;color:white;border:none;cursor:pointer;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">View Details</button>
-        </div>
-      `)
-      .addTo(map);
-
-    popup.on('close', () => {
-      setSelectedMarker(null);
-      isMarkerSelectedRef.current = false;
-      popupRef.current = null;
-      delete (window as any)[`${callbackId}_nav`];
-    });
-    popupRef.current = popup;
+    popupRef.current = null;
+    setSelectedPlace(place);
+    setSheetState('peek');
   }, []);
 
   // Fetch hotels near current map center
@@ -796,6 +973,10 @@ export const Map: React.FC = () => {
     }
     if (ratings.length === 0) return;
 
+    // Convert ratings to PlaceResult[] for the card/swipe system
+    const ratingPlaces = ratings.map(ratingToPlace).filter(Boolean) as PlaceResult[];
+    setPlaces(ratingPlaces);
+
     const bounds = new mapboxgl.LngLatBounds();
     let hasMarkers = false;
     const strokeColor = mapMode === 'friends' ? '#9f3012' : mapMode === 'experts' ? '#d4a017' : '#333';
@@ -806,34 +987,27 @@ export const Map: React.FC = () => {
       el.style.cssText = `width:36px;height:36px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;${mapMode === 'experts' ? 'border:2px solid #d4a017;' : ''}`;
       el.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
 
-      const cbId = `mm_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
-      const rid = r.restaurant_id;
-      const lat = r.lat, lng = r.lng;
-      const cityState = (r.address || '').split(',').slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
-      const photoHtml = r.photo_url ? `<img src="${r.photo_url}" referrerpolicy="no-referrer" style="width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />` : '';
-      const scoreHtml = `<div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="#9f3012" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span style="font-size:12px;font-weight:700;color:#9f3012;">${Number(r.score).toFixed(1)}</span>${r.price ? `<span style="color:#ccc;margin:0 2px;">·</span><span style="font-size:11px;color:#888;">${r.price}</span>` : ''}</div>`;
-
-      (window as any)[cbId] = () => { navigate(`/restaurant/${rid}`); delete (window as any)[cbId]; };
+      const place = ratingToPlace(r);
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
-        const popup = new mapboxgl.Popup({ offset: [0, -20], closeButton: true, closeOnClick: false, maxWidth: '220px', className: 'restaurant-popup' })
-          .setLngLat([lng, lat])
-          .setHTML(`<div style="font-family:inherit;padding:4px 0;cursor:pointer;" onclick="window.${cbId}()">${photoHtml}<div style="font-size:13px;font-weight:700;margin-bottom:2px;">${r.restaurant_name}</div><div style="font-size:10px;color:#9f3012;font-weight:600;text-transform:uppercase;">${r.cuisine}</div>${scoreHtml}<div style="font-size:11px;color:#999;">${cityState}</div></div>`)
-          .addTo(map);
-        popup.on('close', () => { if (popupRef.current === popup) popupRef.current = null; delete (window as any)[cbId]; });
-        popupRef.current = popup;
+        if (place) {
+          setSelectedPlace(place);
+          setSelectedMarker(place.id);
+          setSheetState('peek');
+          map.easeTo({ center: [place.lng, place.lat], duration: 500 });
+        }
         isMarkerSelectedRef.current = true;
       });
 
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map);
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([r.lng, r.lat]).addTo(map);
       customMarkersRef.current.push(marker);
-      bounds.extend([lng, lat]);
+      bounds.extend([r.lng, r.lat]);
       hasMarkers = true;
     }
 
     if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
-  }, [mapMode, myRatings, friendRatings, expertRatings, selectedFriendIds, selectedListId, myLists, navigate]);
+  }, [mapMode, myRatings, friendRatings, expertRatings, selectedFriendIds, selectedListId, myLists]);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
@@ -857,8 +1031,67 @@ export const Map: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Floating Action Buttons */}
-      <div className="absolute right-6 top-6 flex flex-col gap-3 z-30">
+      {/* Floating Action Buttons + Location Search */}
+      <div className="absolute right-6 top-6 flex flex-col gap-3 z-30 items-end">
+        {/* Location Search */}
+        <AnimatePresence>
+          {locationSearchOpen ? (
+            <motion.div
+              initial={{ width: 40, opacity: 0.8 }}
+              animate={{ width: phoneMode ? 260 : 320, opacity: 1 }}
+              exit={{ width: 40, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white rounded-2xl shadow-xl border border-on-surface/10 overflow-hidden"
+            >
+              <div className="flex items-center gap-2 px-3 py-2">
+                <MapPin size={16} className="text-primary flex-shrink-0" />
+                <input
+                  ref={locationInputRef}
+                  type="text"
+                  value={locationQuery}
+                  onChange={(e) => setLocationQuery(e.target.value)}
+                  placeholder="Search location..."
+                  autoFocus
+                  className="flex-1 text-sm font-medium bg-transparent outline-none placeholder:text-on-surface/30"
+                />
+                <button onClick={() => { setLocationSearchOpen(false); setLocationQuery(''); setLocationResults([]); }}
+                  className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center flex-shrink-0 hover:bg-on-surface/10 transition-colors">
+                  <X size={14} className="text-on-surface/40" />
+                </button>
+              </div>
+              {(locationResults.length > 0 || locationLoading) && (
+                <div className="border-t border-on-surface/6 max-h-48 overflow-y-auto">
+                  {locationLoading && locationResults.length === 0 ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 size={16} className="text-primary animate-spin" />
+                    </div>
+                  ) : (
+                    locationResults.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => handleSelectLocation(r.name, r.lat, r.lng)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-on-surface/3 transition-colors text-left"
+                      >
+                        <MapPin size={13} className="text-on-surface/30 flex-shrink-0" />
+                        <span className="text-xs text-on-surface/70 truncate">{r.name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              onClick={() => { setLocationSearchOpen(true); setTimeout(() => locationInputRef.current?.focus(), 100); }}
+              className="w-12 h-12 glass rounded-full flex items-center justify-center shadow-xl text-on-surface/60 hover:text-primary transition-colors"
+            >
+              <MapPin size={18} />
+            </motion.button>
+          )}
+        </AnimatePresence>
         <button
           onClick={() => {
             if (navigator.geolocation) {
@@ -1111,21 +1344,133 @@ export const Map: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Bottom Sheet */}
+      {/* Selected Place Card — above bottom sheet, swipeable with arrows */}
+      <AnimatePresence mode="wait">
+        {selectedPlace && sheetState === 'peek' && (() => {
+          const currentIndex = places.findIndex((p) => p.id === selectedPlace.id);
+          const hasPrev = currentIndex > 0;
+          const hasNext = currentIndex >= 0 && currentIndex < places.length - 1;
+          const goTo = (dir: number) => {
+            if (currentIndex < 0) return;
+            const nextIndex = currentIndex + dir;
+            if (nextIndex >= 0 && nextIndex < places.length) {
+              const next = places[nextIndex];
+              setSelectedPlace(next);
+              setSelectedMarker(next.id);
+              mapRef.current?.flyTo({ center: [next.lng, next.lat], duration: 400 });
+            }
+          };
+          return (
+            <motion.div
+              key={selectedPlace.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className={cn("fixed z-40 flex items-center gap-2", phoneMode ? "left-2 right-2" : "left-1/2 -translate-x-1/2 w-full max-w-lg")}
+              style={{ bottom: PEEK_HEIGHT + (phoneMode ? 8 : 16) }}
+            >
+              {/* Left arrow */}
+              <button
+                onClick={(e) => { e.stopPropagation(); goTo(-1); }}
+                disabled={!hasPrev}
+                className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg border border-white/30 transition-all",
+                  hasPrev ? "glass text-on-surface/60 hover:text-primary" : "bg-white/30 text-on-surface/15 cursor-default"
+                )}
+              >
+                <ChevronLeft size={18} />
+              </button>
+
+              {/* Card */}
+              <motion.div
+                className="flex-1 min-w-0"
+                drag="x"
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0.3}
+                dragMomentum={false}
+                onDragEnd={(_e, info) => {
+                  if (info.offset.x < -50 && hasNext) goTo(1);
+                  else if (info.offset.x > 50 && hasPrev) goTo(-1);
+                }}
+                style={{ touchAction: 'pan-y' }}
+              >
+                <div className="glass rounded-2xl shadow-2xl border border-white/30 overflow-hidden flex cursor-pointer"
+                  onClick={() => { setSelectedPlace(null); setSelectedMarker(null); navigate(`/restaurant/${selectedPlace.id}`); }}
+                >
+                  {/* Photo */}
+                  <div className="w-24 h-24 flex-shrink-0">
+                    {selectedPlace.photoUrl ? (
+                      <img src={selectedPlace.photoUrl} alt={selectedPlace.name} className="w-full h-full object-cover pointer-events-none select-none" draggable={false} referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-on-surface/5">
+                        <MapPinned size={24} className="text-on-surface/15" />
+                      </div>
+                    )}
+                  </div>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0 p-3 flex flex-col justify-between select-none">
+                    <div>
+                      <h3 className="font-serif font-bold text-sm leading-snug truncate">{selectedPlace.name}</h3>
+                      <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{getCuisineLabel(selectedPlace.types)}</p>
+                      {selectedPlace.rating > 0 && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <Star size={11} className="fill-primary text-primary" />
+                          <span className="text-xs font-bold text-primary">{selectedPlace.rating.toFixed(1)}</span>
+                          <span className="text-[10px] text-on-surface/35 ml-0.5">({selectedPlace.userRatingCount})</span>
+                          {selectedPlace.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-1">· {priceLevelToString(selectedPlace.priceLevel)}</span>}
+                        </div>
+                      )}
+                      <p className="text-[10px] text-on-surface/40 mt-0.5 truncate">{extractCityState(selectedPlace.fullAddress, selectedPlace.address)}</p>
+                    </div>
+                    {currentIndex >= 0 && places.length > 1 && (
+                      <p className="text-[9px] text-on-surface/25 font-semibold mt-1">{currentIndex + 1} / {places.length}</p>
+                    )}
+                  </div>
+                  {/* Action buttons */}
+                  <div className="flex flex-col items-center justify-center gap-1.5 pr-3 flex-shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openAddRestaurantModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openWishlistModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", isWishlisted(selectedPlace.id) ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={isWishlisted(selectedPlace.id) ? "fill-red-400" : ""} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); setSelectedPlace(null); setSelectedMarker(null); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/30 hover:text-on-surface/60 transition-colors"><X size={14} /></button>
+                  </div>
+                </div>
+              </motion.div>
+
+              {/* Right arrow */}
+              <button
+                onClick={(e) => { e.stopPropagation(); goTo(1); }}
+                disabled={!hasNext}
+                className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg border border-white/30 transition-all",
+                  hasNext ? "glass text-on-surface/60 hover:text-primary" : "bg-white/30 text-on-surface/15 cursor-default"
+                )}
+              >
+                <ChevronRight size={18} />
+              </button>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* Bottom Sheet — tri-state: peek / half / full */}
       <motion.div
         ref={sheetRef}
-        animate={{ y: sheetOpen ? 0 : SHEET_HEIGHT - PEEK_HEIGHT }}
-        initial={{ y: SHEET_HEIGHT - PEEK_HEIGHT }}
+        animate={{ y: getSheetY(sheetState) }}
+        initial={{ y: getSheetY('peek') }}
         transition={{ type: 'spring', damping: 32, stiffness: 300, mass: 0.8 }}
-        style={{ height: SHEET_HEIGHT }}
-        className="absolute bottom-0 left-0 right-0 glass rounded-t-[3rem] shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform"
+        style={{ height: FULL_HEIGHT }}
+        className={cn(
+          "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform",
+          sheetState === 'full' ? "glass rounded-t-none" : "glass rounded-t-[3rem]"
+        )}
       >
-        {/* Handle — only this area is draggable */}
+        {/* Handle — only this area is draggable (hidden in full state) */}
+        {sheetState !== 'full' && (
         <div
           className="w-full flex flex-col items-center pt-4 pb-4 cursor-grab active:cursor-grabbing flex-shrink-0"
           style={{ touchAction: 'none' }}
           onClick={() => {
-            if (Math.abs(dragCurrentYRef.current) < 5) setSheetOpen(!sheetOpen);
+            if (Math.abs(dragCurrentYRef.current) < 5) {
+              setSheetState(sheetState === 'peek' ? 'half' : 'peek');
+            }
           }}
           onTouchStart={(e) => {
             dragStartYRef.current = e.touches[0].clientY;
@@ -1138,8 +1483,8 @@ export const Map: React.FC = () => {
             dragCurrentYRef.current = delta;
             const el = sheetRef.current;
             if (!el) return;
-            const baseY = sheetOpen ? 0 : SHEET_HEIGHT - PEEK_HEIGHT;
-            const clamped = Math.max(0, Math.min(SHEET_HEIGHT - PEEK_HEIGHT, baseY + delta));
+            const baseY = getSheetY(sheetState);
+            const clamped = Math.max(0, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
             el.style.transform = `translateY(${clamped}px)`;
             el.style.transition = 'none';
           }}
@@ -1148,14 +1493,12 @@ export const Map: React.FC = () => {
             isDraggingRef.current = false;
             const delta = dragCurrentYRef.current;
             const el = sheetRef.current;
-            if (el) {
-              el.style.transform = '';
-              el.style.transition = '';
-            }
-            if (sheetOpen) {
-              if (delta > 50) setSheetOpen(false);
+            if (el) { el.style.transform = ''; el.style.transition = ''; }
+            if (sheetState === 'half') {
+              if (delta > 60) setSheetState('peek');
+              else if (delta < -60) setSheetState('full');
             } else {
-              if (delta < -50) setSheetOpen(true);
+              if (delta < -50) setSheetState('half');
             }
           }}
           onMouseDown={(e) => {
@@ -1169,8 +1512,8 @@ export const Map: React.FC = () => {
               dragCurrentYRef.current = delta;
               const el = sheetRef.current;
               if (!el) return;
-              const baseY = sheetOpen ? 0 : SHEET_HEIGHT - PEEK_HEIGHT;
-              const clamped = Math.max(0, Math.min(SHEET_HEIGHT - PEEK_HEIGHT, baseY + delta));
+              const baseY = getSheetY(sheetState);
+              const clamped = Math.max(0, Math.min(FULL_HEIGHT - PEEK_HEIGHT, baseY + delta));
               el.style.transform = `translateY(${clamped}px)`;
               el.style.transition = 'none';
             };
@@ -1178,14 +1521,12 @@ export const Map: React.FC = () => {
               isDraggingRef.current = false;
               const delta = dragCurrentYRef.current;
               const el = sheetRef.current;
-              if (el) {
-                el.style.transform = '';
-                el.style.transition = '';
-              }
-              if (sheetOpen) {
-                if (delta > 50) setSheetOpen(false);
+              if (el) { el.style.transform = ''; el.style.transition = ''; }
+              if (sheetState === 'half') {
+                if (delta > 60) setSheetState('peek');
+                else if (delta < -60) setSheetState('full');
               } else {
-                if (delta < -50) setSheetOpen(true);
+                if (delta < -50) setSheetState('half');
               }
               window.removeEventListener('mousemove', onMouseMove);
               window.removeEventListener('mouseup', onMouseUp);
@@ -1194,9 +1535,245 @@ export const Map: React.FC = () => {
             window.addEventListener('mouseup', onMouseUp);
           }}
         >
-          <div className="w-12 h-1.5 bg-on-surface/10 rounded-full" />
+          {sheetState === 'half' ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); setSheetState('full'); }}
+              className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+            >
+              <ChevronsUp size={20} className="text-on-surface/50" />
+            </button>
+          ) : (
+            <div className="w-12 h-1.5 bg-on-surface/10 rounded-full" />
+          )}
         </div>
+        )}
 
+        {/* ══════ FULL STATE — full-screen discover page ══════ */}
+        {sheetState === 'full' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Header with back button + search bar or active search input */}
+            <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-1 pb-3" : "px-6 pt-2 pb-4")}>
+              <button
+                onClick={() => {
+                  if (discoverSearchActive) {
+                    setDiscoverSearchActive(false);
+                    setShowSearchInput(false);
+                    setSearchQuery('');
+                    if (preSearchPlacesRef.current.length > 0) {
+                      setPlaces(preSearchPlacesRef.current);
+                      syncMarkersRef.current?.(preSearchPlacesRef.current);
+                    }
+                  } else {
+                    setSheetState('half');
+                  }
+                }}
+                className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"
+              >
+                <ArrowLeft size={20} className="text-on-surface/60" />
+              </button>
+              {discoverSearchActive ? (
+                <form
+                  className="flex-1 relative"
+                  onSubmit={(e) => { e.preventDefault(); if (searchQuery.trim()) handleSearch(searchQuery); }}
+                >
+                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search restaurant, cuisine, occasion..."
+                    autoFocus
+                    className="w-full bg-white/60 backdrop-blur-sm rounded-full py-3 pl-11 pr-10 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all border border-on-surface/10"
+                  />
+                  {searchQuery && (
+                    <button type="button" onClick={() => { setSearchQuery(''); searchInputRef.current?.focus(); }}
+                      className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60">
+                      <X size={16} />
+                    </button>
+                  )}
+                </form>
+              ) : (
+                <button
+                  onClick={() => {
+                    preSearchPlacesRef.current = places;
+                    setDiscoverSearchActive(true);
+                    setShowSearchInput(true);
+                    setTimeout(() => searchInputRef.current?.focus(), 100);
+                  }}
+                  className="flex-1 relative"
+                >
+                  <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
+                    <Search size={18} />
+                  </div>
+                  <div className="w-full bg-white/60 backdrop-blur-sm rounded-full py-3 pl-11 pr-4 text-sm font-medium text-on-surface/40 text-left border border-on-surface/10">
+                    Search restaurant, cuisine, occasion...
+                  </div>
+                </button>
+              )}
+            </div>
+
+            {/* Full discover content — scrollable */}
+            <div className={cn("flex-1 overflow-y-auto pb-32", phoneMode ? "px-3" : "px-6")}>
+              {/* Quick filters */}
+              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1 pt-4">
+                {QUICK_FILTERS.map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => handleQuickFilter(filter)}
+                    className={cn("whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all",
+                      activeQuickFilter === filter
+                        ? 'bg-primary text-white border-primary'
+                        : 'bg-white/60 backdrop-blur-sm border-on-surface/10 hover:border-primary hover:text-primary'
+                    )}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search results in full state */}
+              {discoverSearchActive && (
+                <div className="mt-4">
+                  {isSearching ? (
+                    <div className="flex items-center justify-center py-16">
+                      <Loader2 size={24} className="text-primary animate-spin" />
+                      <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
+                    </div>
+                  ) : !searchQuery.trim() ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <Search size={32} className="text-on-surface/15 mb-3" />
+                      <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
+                      <p className="text-xs text-on-surface/30 mt-1">Search by name, cuisine, or use the filters above</p>
+                    </div>
+                  ) : places.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <MapPinned size={32} className="text-on-surface/20 mb-3" />
+                      <p className="text-sm text-on-surface/40 font-medium">No results found</p>
+                      <p className="text-xs text-on-surface/30 mt-1">Try a different search</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-serif font-bold">Results</h2>
+                        <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">{places.length} found</span>
+                      </div>
+                      <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                        {places.map((place) => {
+                          const props = placeToCardProps(place);
+                          return (
+                            <RestaurantCard key={place.id} {...props}
+                              isWishlisted={isWishlisted(place.id)}
+                              onAdd={() => openAddRestaurantModal({
+                                id: place.id, name: place.name, image: props.image,
+                                cuisine: props.cuisine, price: props.price, address: place.address,
+                              })}
+                              onHeart={() => openWishlistModal({
+                                id: place.id, name: place.name, image: props.image,
+                                cuisine: props.cuisine, price: props.price, address: place.address,
+                              })}
+                            />
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Feed content — hidden when searching */}
+              {!discoverSearchActive && (
+              <>
+              {/* Recent Views */}
+              {recentViews.length > 0 && (
+                <section className="mt-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Clock size={15} className="text-on-surface/35" />
+                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                    {recentViews.slice(0, 8).map((place) => (
+                      <div key={place.id} className="flex-shrink-0 w-32 relative group">
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
+                          className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={10} className="text-white" />
+                        </button>
+                        <Link to={`/restaurant/${place.id}`}>
+                          <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                            {((place as any).photoUrl || (place as any).image) ? (
+                              <img src={(place as any).photoUrl || (place as any).image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
+                            )}
+                          </div>
+                          <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
+                          {place.rating > 0 && (
+                            <div className="flex items-center gap-0.5 mt-0.5">
+                              <Star size={10} className="fill-primary text-primary" />
+                              <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                            </div>
+                          )}
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Recommendations */}
+              {recsLoading ? (
+                <section className="mt-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles size={15} className="text-primary/60" />
+                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                  </div>
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={20} className="text-primary/40 animate-spin" />
+                    <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
+                  </div>
+                </section>
+              ) : recommendations.length > 0 ? (
+                <section className="mt-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles size={15} className="text-primary/60" />
+                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                  </div>
+                  <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                    {recommendations.map((place) => {
+                      const props = placeToCardProps(place as any);
+                      return (
+                        <RestaurantCard key={place.id} {...props}
+                          isWishlisted={isWishlisted(place.id)}
+                          onAdd={() => openAddRestaurantModal({
+                            id: place.id, name: place.name, image: props.image,
+                            cuisine: props.cuisine, price: props.price, address: (place as any).address,
+                          })}
+                          onHeart={() => openWishlistModal({
+                            id: place.id, name: place.name, image: props.image,
+                            cuisine: props.cuisine, price: props.price, address: (place as any).address,
+                          })}
+                        />
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
+              {/* Social Feed */}
+              <div className="mt-5">
+                <SocialFeed />
+              </div>
+              </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ══════ HALF STATE — filter bar + results ══════ */}
+        {sheetState !== 'full' && (
+        <>
         {/* Search Bar & Filters — only on discover tab */}
         <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
           <AnimatePresence mode="wait">
@@ -1213,7 +1790,6 @@ export const Map: React.FC = () => {
                   e.preventDefault();
                   if (searchQuery.trim()) {
                     handleSearch(searchQuery);
-                    setShowSearchInput(false);
                   }
                 }}
               >
@@ -1234,6 +1810,12 @@ export const Map: React.FC = () => {
                   onClick={() => {
                     setShowSearchInput(false);
                     setSearchQuery('');
+                    setDiscoverSearchActive(false);
+                    // Restore pre-search places and markers
+                    if (preSearchPlacesRef.current.length > 0) {
+                      setPlaces(preSearchPlacesRef.current);
+                      syncMarkersRef.current?.(preSearchPlacesRef.current);
+                    }
                   }}
                   className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"
                 >
@@ -1251,8 +1833,10 @@ export const Map: React.FC = () => {
               >
                 <button
                   onClick={() => {
+                    preSearchPlacesRef.current = places;
                     setShowSearchInput(true);
-                    if (!sheetOpen) setSheetOpen(true);
+                    setDiscoverSearchActive(true);
+                    if (sheetState === 'peek') setSheetState('half');
                     setTimeout(() => searchInputRef.current?.focus(), 100);
                   }}
                   className="w-12 h-12 rounded-full border-2 border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-muted transition-colors"
@@ -1535,97 +2119,212 @@ export const Map: React.FC = () => {
             </div>
           ))}
 
-          {/* Discover tab content (original) */}
-          {mapMode === 'discover' && (isSearching && places.length === 0 ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 size={24} className="text-primary animate-spin" />
-              <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
-            </div>
-          ) : places.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <MapPinned size={32} className="text-on-surface/20 mb-3" />
-              <p className="text-sm text-on-surface/40 font-medium">No restaurants found</p>
-              <p className="text-xs text-on-surface/30 mt-1">Try searching or move the map</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {places.map((place) => {
-                const cityState = extractCityState(place.fullAddress, place.address);
-                const cuisine = getCuisineLabel(place.types);
-                const wishlisted = isWishlisted(place.id);
-
-                return (
-                  <div
-                    key={place.id}
-                    className={cn(
-                      "flex gap-3 group cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 transition-all hover:shadow-md",
-                      selectedMarker === place.id && "ring-2 ring-primary/20"
-                    )}
-                    onClick={() => navigate(`/restaurant/${place.id}`)}
-                  >
-                    <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-muted self-center relative">
-                      {place.photoUrl ? (
-                        <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center bg-on-surface/5">
-                          <MapPinned size={20} className="text-on-surface/20" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                      <div>
-                        <h3 className="font-serif font-bold text-sm leading-snug truncate">{place.name}</h3>
-                        <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                        {place.rating > 0 && (
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <Star size={11} className="fill-primary text-primary" />
-                            <span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>
-                            {place.priceLevel > 0 && (
-                              <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>
-                            )}
-                          </div>
-                        )}
-                        <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
+          {/* Discover tab content — integrated feed + search */}
+          {mapMode === 'discover' && (
+            <div className="space-y-4">
+                  {/* Quick filters */}
+                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
+                    {QUICK_FILTERS.map((filter) => (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openAddRestaurantModal({
-                            id: place.id, name: place.name,
-                            image: place.photoUrl || '', cuisine,
-                            price: priceLevelToString(place.priceLevel),
-                            address: place.address,
-                          });
-                        }}
-                        className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"
-                      >
-                        <Plus size={15} />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openWishlistModal({
-                            id: place.id, name: place.name,
-                            image: place.photoUrl || '', cuisine,
-                            price: priceLevelToString(place.priceLevel),
-                            address: place.address,
-                          });
-                        }}
-                        className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors",
-                          wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50"
+                        key={filter}
+                        onClick={() => handleQuickFilter(filter)}
+                        className={cn("whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all",
+                          activeQuickFilter === filter
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white border-muted hover:border-primary hover:text-primary'
                         )}
                       >
-                        <Heart size={14} className={wishlisted ? "fill-red-400" : ""} />
+                        {filter}
                       </button>
-                    </div>
+                    ))}
                   </div>
-                );
-              })}
+
+                  {/* ── Search mode content ── */}
+                  {discoverSearchActive ? (
+                    isSearching ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 size={24} className="text-primary animate-spin" />
+                        <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
+                      </div>
+                    ) : !searchQuery.trim() ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <Search size={32} className="text-on-surface/15 mb-3" />
+                        <p className="text-sm font-medium text-on-surface/40">Search restaurants</p>
+                        <p className="text-xs text-on-surface/30 mt-1">Type a name, cuisine, or occasion</p>
+                      </div>
+                    ) : places.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <MapPinned size={32} className="text-on-surface/20 mb-3" />
+                        <p className="text-sm text-on-surface/40 font-medium">No results found</p>
+                        <p className="text-xs text-on-surface/30 mt-1">Try a different search</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between pt-2">
+                          <h2 className="text-sm font-serif font-bold">Results</h2>
+                          <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
+                        </div>
+                        <div className="space-y-3">
+                          {places.map((place) => {
+                            const cityState = extractCityState(place.fullAddress, place.address);
+                            const cuisine = getCuisineLabel(place.types);
+                            const wishlisted = isWishlisted(place.id);
+                            return (
+                              <div key={place.id} className={cn("flex gap-3 group cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => navigate(`/restaurant/${place.id}`)}>
+                                <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-muted self-center relative">
+                                  {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={20} className="text-on-surface/20" /></div>}
+                                </div>
+                                <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                                  <div>
+                                    <h3 className="font-serif font-bold text-sm leading-snug truncate">{place.name}</h3>
+                                    <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
+                                    {place.rating > 0 && <div className="flex items-center gap-1 mt-0.5"><Star size={11} className="fill-primary text-primary" /><span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>{place.priceLevel > 0 && <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}</div>}
+                                    <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
+                                  </div>
+                                </div>
+                                <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )
+                  ) : (
+                  <>
+                  {/* ── Feed mode: Nearby first, then other sections ── */}
+
+                  {/* Nearby Restaurants — horizontal scroll */}
+                  {isSearching && places.length === 0 ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 size={20} className="text-primary animate-spin" />
+                      <span className="ml-2 text-sm text-on-surface/50 font-medium">Finding nearby...</span>
+                    </div>
+                  ) : places.length > 0 ? (
+                    <section>
+                      <div className="flex items-center justify-between mb-3">
+                        <h2 className="text-base font-serif font-bold">Nearby Restaurants</h2>
+                        <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
+                      </div>
+                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                        {places.map((place) => {
+                          const cuisine = getCuisineLabel(place.types);
+                          const wishlisted = isWishlisted(place.id);
+                          return (
+                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => navigate(`/restaurant/${place.id}`)}>
+                              <div className="w-full h-28 overflow-hidden relative">
+                                {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={24} className="text-on-surface/15" /></div>}
+                                <div className="absolute top-1.5 right-1.5 flex gap-1">
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-7 h-7 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors", wishlisted ? "bg-red-50/80 text-red-400" : "bg-white/80 text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                </div>
+                              </div>
+                              <div className="p-2.5">
+                                <h3 className="font-serif font-bold text-xs leading-snug truncate">{place.name}</h3>
+                                <p className="text-[9px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
+                                {place.rating > 0 && (
+                                  <div className="flex items-center gap-1 mt-1">
+                                    <Star size={10} className="fill-primary text-primary" />
+                                    <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                                    {place.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {/* Recent Views */}
+                  {recentViews.length > 0 && (
+                    <section>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Clock size={13} className="text-on-surface/35" />
+                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
+                      </div>
+                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                        {recentViews.slice(0, 8).map((place) => (
+                          <div key={place.id} className="flex-shrink-0 w-28 relative group">
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
+                              className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X size={10} className="text-white" />
+                            </button>
+                            <Link to={`/restaurant/${place.id}`}>
+                              <div className="w-28 h-20 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                                {((place as any).photoUrl || (place as any).image) ? (
+                                  <img src={(place as any).photoUrl || (place as any).image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
+                                )}
+                              </div>
+                              <p className="text-[11px] font-semibold truncate leading-tight">{place.name}</p>
+                              {place.rating > 0 && (
+                                <div className="flex items-center gap-0.5 mt-0.5">
+                                  <Star size={10} className="fill-primary text-primary" />
+                                  <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                                </div>
+                              )}
+                            </Link>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Recommendations */}
+                  {recsLoading ? (
+                    <section>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Sparkles size={13} className="text-primary/60" />
+                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                      </div>
+                      <div className="flex items-center justify-center py-6">
+                        <Loader2 size={18} className="text-primary/40 animate-spin" />
+                        <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
+                      </div>
+                    </section>
+                  ) : recommendations.length > 0 ? (
+                    <section>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Sparkles size={13} className="text-primary/60" />
+                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                      </div>
+                      <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                        {recommendations.map((place) => {
+                          const props = placeToCardProps(place as any);
+                          return (
+                            <RestaurantCard key={place.id} {...props}
+                              isWishlisted={isWishlisted(place.id)}
+                              onAdd={() => openAddRestaurantModal({
+                                id: place.id, name: place.name, image: props.image,
+                                cuisine: props.cuisine, price: props.price, address: (place as any).address,
+                              })}
+                              onHeart={() => openWishlistModal({
+                                id: place.id, name: place.name, image: props.image,
+                                cuisine: props.cuisine, price: props.price, address: (place as any).address,
+                              })}
+                            />
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {/* Social Feed */}
+                  <SocialFeed />
+                  </>
+                  )}
             </div>
-          ))}
+          )}
         </div>
+        </>
+        )}
       </motion.div>
     </div>
   );

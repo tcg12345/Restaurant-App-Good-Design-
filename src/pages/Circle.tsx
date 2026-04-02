@@ -1,18 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown } from 'lucide-react';
+import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, sendFriendRequest, followPublicAccount, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, getExpertProfiles, getUserRatings, getFollowCounts, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { Link } from 'react-router-dom';
-
-type Tab = 'friends' | 'experts';
+import { CircleActivity } from '../components/CircleActivity';
 
 export const Circle: React.FC = () => {
   const { user, refreshPendingRequests } = useAuth();
   const userId = user?.id ?? null;
-  const [activeTab, setActiveTab] = useState<Tab>('friends');
 
   const [friends, setFriends] = useState<FriendInfo[]>([]);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
@@ -32,11 +30,12 @@ export const Circle: React.FC = () => {
   // Confirm remove
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
-  // Expert data for Experts tab
+  // Expert data
   const [expertProfiles, setExpertProfiles] = useState<UserProfile[]>([]);
   const [expertRatingCounts, setExpertRatingCounts] = useState<Record<string, number>>({});
   const [expertFollowerCounts, setExpertFollowerCounts] = useState<Record<string, number>>({});
   const [expertsLoading, setExpertsLoading] = useState(false);
+  const [expertsLoaded, setExpertsLoaded] = useState(false);
   const [expertFollowedIds, setExpertFollowedIds] = useState<Set<string>>(new Set());
 
   const loadExperts = useCallback(async () => {
@@ -54,13 +53,13 @@ export const Circle: React.FC = () => {
       setExpertRatingCounts(rc);
       setExpertFollowerCounts(fc);
     }
-    // Mark which experts are already followed
     if (userId) {
       const fl = await getFriends(userId);
       const ids = new Set(fl.map((f) => f.friend_id));
       setExpertFollowedIds(ids);
     }
     setExpertsLoading(false);
+    setExpertsLoaded(true);
   }, [userId]);
 
   const handleFollowExpert = async (expertId: string) => {
@@ -79,7 +78,6 @@ export const Circle: React.FC = () => {
     setFriends(friendList);
     setPendingRequests(requests);
 
-    // Load profiles for pending requests
     const reqIds = requests.map((r) => r.user_id);
     if (reqIds.length > 0) {
       const reqProf = await getProfilesByIds(reqIds);
@@ -102,10 +100,10 @@ export const Circle: React.FC = () => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Load experts when tab switches to experts
+  // Load experts on mount
   useEffect(() => {
-    if (activeTab === 'experts' && expertProfiles.length === 0 && !expertsLoading) loadExperts();
-  }, [activeTab, expertProfiles.length, expertsLoading, loadExperts]);
+    if (!expertsLoaded && !expertsLoading) loadExperts();
+  }, [expertsLoaded, expertsLoading, loadExperts]);
 
   const [suggestions, setSuggestions] = useState<UserProfile[]>([]);
 
@@ -113,7 +111,6 @@ export const Circle: React.FC = () => {
     if (!userId) return;
     const results = await searchUsersByUsername('', userId);
     const friendIds = new Set(friends.map((f) => f.friend_id));
-    // Also filter out pending requests we've sent
     setSuggestions(results.filter((r) => !friendIds.has(r.user_id)));
   };
 
@@ -165,199 +162,310 @@ export const Circle: React.FC = () => {
   };
 
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+  const scoreBg = (s: number) => s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200';
   const getFriendName = (uid: string, profiles: Record<string, UserProfile>) => {
     const p = profiles[uid];
     return p ? p.display_name || `@${p.username}` : uid.slice(0, 8) + '...';
   };
+  const getFriendUsername = (uid: string, profiles: Record<string, UserProfile>) => {
+    const p = profiles[uid];
+    return p?.username || uid.slice(0, 8);
+  };
+  const formatCount = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  const timeAgo = (date: string) => {
+    if (!date) return '';
+    const diff = Date.now() - new Date(date).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days}d`;
+    return `${Math.floor(days / 7)}w`;
+  };
+
+  if (loading) {
+    return (
+      <div className="pb-32">
+        <TopBar title="Social" />
+        <div className="flex items-center justify-center py-20">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pb-32">
       <TopBar title="Social" />
 
-      <main className="px-3">
-        {/* Tabs */}
-        <div className="flex gap-1 bg-on-surface/5 rounded-2xl p-1 mb-5">
-          {([{ key: 'friends' as Tab, label: 'Friends', icon: Users }, { key: 'experts' as Tab, label: 'Experts', icon: Crown }]).map((tab) => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={cn("flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all",
-                activeTab === tab.key ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40")}>
-              <tab.icon size={14} />
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Friends Tab ── */}
-        {activeTab === 'friends' && (
-          <>
-            {/* Pending Requests */}
-            {pendingRequests.length > 0 && (
-              <section className="mb-6">
-                <h2 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider mb-3">
-                  Friend Requests ({pendingRequests.length})
-                </h2>
-                <div className="space-y-2">
-                  {pendingRequests.map((req) => {
-                    const p = requestProfiles[req.user_id];
-                    return (
-                      <div key={req.id} className="flex items-center gap-3 bg-primary/5 rounded-xl border border-primary/15 px-3 py-2.5">
-                        <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                          <UserCircle size={18} className="text-primary/50" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">{p?.display_name || 'User'}</p>
-                          <p className="text-[10px] text-on-surface/35">@{p?.username || req.user_id.slice(0, 8)} wants to follow you</p>
-                        </div>
-                        <div className="flex gap-1.5 flex-shrink-0">
-                          <button onClick={() => handleAcceptRequest(req)}
-                            className="px-2.5 py-1.5 bg-primary text-white text-[10px] font-semibold rounded-lg">
-                            Accept
-                          </button>
-                          <button onClick={() => handleDeclineRequest(req)}
-                            className="px-2.5 py-1.5 border border-on-surface/15 text-[10px] font-semibold text-on-surface/50 rounded-lg">
-                            Decline
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            <section className="mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">My Friends ({friends.length})</h2>
-                <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); setAddSuccess(null); loadSuggestions(); }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-full">
-                  <UserPlus size={12} /> Add
-                </button>
-              </div>
-
-              {loading ? (
-                <div className="text-center py-8"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
-              ) : friends.length === 0 ? (
-                <div className="text-center py-10 bg-white rounded-2xl border border-on-surface/8">
-                  <Users size={24} className="mx-auto text-on-surface/15 mb-2" />
-                  <p className="text-sm font-medium text-on-surface/40">No friends yet</p>
-                  <p className="text-xs text-on-surface/30 mt-1">Search by username to add friends</p>
-                  <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); }}
-                    className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-full">
-                    <UserPlus size={12} /> Find Friends
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {friends.map((f) => {
-                    const profile = friendProfiles[f.friend_id];
-                    return (
-                      <div key={f.friend_id} className="flex items-center gap-3 bg-white rounded-xl border border-on-surface/8 px-3 py-2.5">
-                        <Link to={`/user/${profile?.username || f.friend_id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                            <UserCircle size={18} className="text-primary/50" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold truncate">{profile?.display_name || 'User'}</p>
-                            <p className="text-[10px] text-on-surface/35">@{profile?.username || f.friend_id.slice(0, 8)}</p>
-                          </div>
-                        </Link>
-                        {confirmRemove === f.friend_id ? (
-                          <div className="flex gap-1.5">
-                            <button onClick={() => setConfirmRemove(null)} className="px-2 py-1 text-[10px] font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg">Cancel</button>
-                            <button onClick={() => handleRemoveFriend(f.friend_id)} className="px-2 py-1 text-[10px] font-semibold text-white bg-red-500 rounded-lg">Remove</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => setConfirmRemove(f.friend_id)} className="p-1.5 text-on-surface/20 hover:text-red-500 rounded-lg transition-colors">
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {/* Activity Feed */}
-            {activity.length > 0 && (
-              <section className="mb-6">
-                <h2 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider mb-3">Activity</h2>
-                <div className="space-y-2">
-                  {activity.map((r) => (
-                    <Link key={r.id} to={`/restaurant/${r.restaurant_id}`} className="block">
-                      <div className="bg-white rounded-xl border border-on-surface/8 p-3 active:scale-[0.99] transition-transform">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
-                            <UserCircle size={12} className="text-primary/50" />
-                          </div>
-                          <span className="text-[11px] font-semibold text-on-surface/60">{getFriendName(r.user_id, activityProfiles)}</span>
-                          <span className="text-[10px] text-on-surface/30 ml-auto">rated</span>
-                          <span className={cn("text-sm font-serif font-bold", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
-                        </div>
-                        <h3 className="font-serif font-bold text-sm">{r.restaurant_name}</h3>
-                        <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
-          </>
+      <main className="px-4">
+        {/* ── Pending Requests ── */}
+        {pendingRequests.length > 0 && (
+          <section className="mb-5">
+            <div className="space-y-2">
+              {pendingRequests.map((req) => {
+                const p = requestProfiles[req.user_id];
+                return (
+                  <div key={req.id} className="flex items-center gap-3 bg-primary/5 rounded-2xl border border-primary/12 px-3.5 py-3">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-serif font-bold text-primary/60">{(p?.display_name || 'U').charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{p?.display_name || 'User'}</p>
+                      <p className="text-[10px] text-on-surface/35">@{p?.username || req.user_id.slice(0, 8)} wants to follow you</p>
+                    </div>
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <button onClick={() => handleAcceptRequest(req)}
+                        className="px-3 py-1.5 bg-primary text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
+                        Accept
+                      </button>
+                      <button onClick={() => handleDeclineRequest(req)}
+                        className="px-3 py-1.5 border border-on-surface/15 text-[10px] font-bold text-on-surface/40 rounded-full uppercase tracking-wider">
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         )}
 
-        {/* ── Experts Tab ── */}
-        {activeTab === 'experts' && (
-          <section>
-            <p className="text-xs text-on-surface/40 mb-4">Follow expert reviewers for curated recommendations</p>
-            {expertsLoading ? (
-              <div className="text-center py-10"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
-            ) : expertProfiles.length === 0 ? (
-              <div className="text-center py-10 bg-white rounded-2xl border border-on-surface/8">
-                <Crown size={24} className="mx-auto text-on-surface/15 mb-2" />
-                <p className="text-sm font-medium text-on-surface/40">No experts yet</p>
-                <p className="text-xs text-on-surface/30 mt-1">Expert reviewers will appear here soon</p>
+        {/* ── Friends Section ── */}
+        <section className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">My Friends</h2>
+              <span className="text-[10px] font-bold text-on-surface/25">·</span>
+              <span className="text-[10px] font-bold text-on-surface/25">{friends.length}</span>
+            </div>
+            <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); setAddSuccess(null); }}
+              className="text-[10px] font-bold text-primary uppercase tracking-wider">
+              + Add
+            </button>
+          </div>
+          <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
+
+          {friends.length === 0 ? (
+            <div className="flex flex-col items-center py-6 bg-white/60 rounded-2xl border border-on-surface/6">
+              <Users size={20} className="text-on-surface/15 mb-2" />
+              <p className="text-xs font-medium text-on-surface/35">No friends yet</p>
+              <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); }}
+                className="mt-2.5 inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
+                <UserPlus size={11} /> Find Friends
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-4 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
+              {/* Add button as first item */}
+              <button
+                onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); setAddSuccess(null); }}
+                className="flex flex-col items-center gap-1.5 flex-shrink-0"
+              >
+                <div className="w-14 h-14 rounded-full border-2 border-dashed border-primary/30 flex items-center justify-center bg-primary/5">
+                  <UserPlus size={18} className="text-primary/50" />
+                </div>
+                <span className="text-[9px] font-bold text-primary/60 uppercase tracking-wider">Add</span>
+              </button>
+
+              {friends.map((f) => {
+                const profile = friendProfiles[f.friend_id];
+                const initial = (profile?.display_name || 'U').charAt(0).toUpperCase();
+                return (
+                  <Link key={f.friend_id} to={`/user/${profile?.username || f.friend_id}`}
+                    className="flex flex-col items-center gap-1.5 flex-shrink-0 group">
+                    <div className="relative">
+                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center border-2 border-white shadow-sm group-hover:shadow-md transition-shadow">
+                        <span className="text-lg font-serif font-bold text-primary/60">{initial}</span>
+                      </div>
+                      {confirmRemove === f.friend_id ? (
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRemoveFriend(f.friend_id); }}
+                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-sm"
+                        >
+                          <X size={10} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmRemove(f.friend_id); }}
+                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-on-surface/10 text-on-surface/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 size={9} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="text-center w-16">
+                      <p className="text-[10px] font-semibold truncate leading-tight">{profile?.display_name || 'User'}</p>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* ── Experts Section ── */}
+        <section className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">Experts</h2>
+              <span className="text-[10px] font-bold text-on-surface/25">·</span>
+              <span className="text-[10px] font-bold text-on-surface/25">{expertProfiles.length}</span>
+            </div>
+          </div>
+          <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
+
+          {expertsLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : expertProfiles.length === 0 ? (
+            <div className="flex items-center gap-3 py-4 px-4 bg-amber-50/50 rounded-2xl border border-amber-200/30">
+              <Crown size={18} className="text-amber-400 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-medium text-on-surface/50">No experts yet</p>
+                <p className="text-[10px] text-on-surface/30 mt-0.5">Expert reviewers will appear here once they join</p>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {expertProfiles.map((expert) => {
-                  const isFollowed = expertFollowedIds.has(expert.user_id);
-                  const rCount = expertRatingCounts[expert.user_id] || 0;
-                  const fCount = expertFollowerCounts[expert.user_id] || 0;
-                  const formatCount = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-                  return (
-                    <div key={expert.user_id} className="flex items-center gap-3 bg-white rounded-xl border border-on-surface/8 p-3">
-                      <Link to={`/user/${expert.username}`} className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="w-11 h-11 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                          <span className="text-lg font-serif font-bold text-amber-700">{expert.display_name.charAt(0).toUpperCase()}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="text-sm font-semibold truncate">{expert.display_name}</p>
-                            <Crown size={12} className="text-amber-500 flex-shrink-0" />
+            </div>
+          ) : (
+            <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
+              {expertProfiles.map((expert) => {
+                const isFollowed = expertFollowedIds.has(expert.user_id);
+                const rCount = expertRatingCounts[expert.user_id] || 0;
+                const fCount = expertFollowerCounts[expert.user_id] || 0;
+                return (
+                  <div key={expert.user_id} className="flex-shrink-0 w-44">
+                    <div className="bg-white rounded-2xl border border-on-surface/8 p-3 h-full">
+                      <Link to={`/user/${expert.username}`} className="block mb-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                            <span className="text-base font-serif font-bold text-amber-700">{expert.display_name.charAt(0).toUpperCase()}</span>
                           </div>
-                          <p className="text-[10px] text-on-surface/40">{formatCount(rCount)} Review{rCount !== 1 ? 's' : ''} · {formatCount(fCount)} Follower{fCount !== 1 ? 's' : ''}</p>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1">
+                              <p className="text-xs font-bold truncate">{expert.display_name}</p>
+                              <Crown size={10} className="text-amber-500 flex-shrink-0" />
+                            </div>
+                            <p className="text-[9px] text-on-surface/35 mt-0.5">
+                              {formatCount(rCount)} reviews · {formatCount(fCount)} followers
+                            </p>
+                          </div>
                         </div>
                       </Link>
                       {isFollowed ? (
-                        <span className="flex items-center gap-1 px-3 py-1.5 bg-on-surface/5 border border-on-surface/10 text-[10px] font-semibold text-on-surface/40 rounded-full">
-                          <Check size={10} /> Following
-                        </span>
+                        <div className="flex items-center justify-center gap-1 w-full py-1.5 bg-on-surface/4 rounded-full">
+                          <Check size={10} className="text-on-surface/35" />
+                          <span className="text-[9px] font-bold text-on-surface/35 uppercase tracking-wider">Following</span>
+                        </div>
                       ) : (
                         <button onClick={() => handleFollowExpert(expert.user_id)}
-                          className="px-3 py-1.5 border border-primary/30 text-primary text-[10px] font-semibold rounded-full hover:bg-primary/5 transition-colors">
+                          className="w-full py-1.5 border border-primary/25 text-primary text-[9px] font-bold rounded-full uppercase tracking-wider hover:bg-primary/5 transition-colors">
                           Follow
                         </button>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* ── Activity Feed ── */}
+        <section className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">Activity</h2>
+              {activity.length > 0 && (
+                <>
+                  <span className="text-[10px] font-bold text-on-surface/25">·</span>
+                  <span className="text-[10px] font-bold text-on-surface/25">{activity.length}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
+
+          {activity.length === 0 ? (
+            <div className="flex flex-col items-center py-8 bg-white/60 rounded-2xl border border-on-surface/6">
+              <Star size={20} className="text-on-surface/15 mb-2" />
+              <p className="text-xs font-medium text-on-surface/35">No activity yet</p>
+              <p className="text-[10px] text-on-surface/25 mt-1">Ratings from your friends will show up here</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activity.map((r) => {
+                const profile = activityProfiles[r.user_id];
+                const initial = (profile?.display_name || 'U').charAt(0).toUpperCase();
+                return (
+                  <Link key={r.id} to={`/restaurant/${r.restaurant_id}`} className="block">
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden flex active:scale-[0.99] transition-transform"
+                    >
+                      {/* Restaurant thumbnail */}
+                      <div className="w-24 flex-shrink-0 bg-on-surface/5 flex items-center justify-center">
+                        {r.image ? (
+                          <img src={r.image} alt={r.restaurant_name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <span className="text-2xl font-serif font-bold text-on-surface/10">{r.restaurant_name.charAt(0)}</span>
+                        )}
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 p-3 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-serif font-bold text-sm leading-tight truncate">{r.restaurant_name}</h3>
+                            <p className="text-[10px] text-on-surface/40 uppercase tracking-wider mt-0.5">
+                              {r.cuisine}{r.price ? ` · ${r.price}` : ''}
+                            </p>
+                          </div>
+                          {/* Rating badge */}
+                          <div className={cn("flex-shrink-0 px-2.5 py-1 rounded-lg border", scoreBg(Number(r.score)))}>
+                            <span className={cn("text-sm font-serif font-bold", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
+                          </div>
+                        </div>
+
+                        {/* Notes preview */}
+                        {r.notes && (
+                          <p className="text-[11px] text-on-surface/40 italic mt-1.5 line-clamp-1">"{r.notes}"</p>
+                        )}
+
+                        {/* Who rated + time */}
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-on-surface/5">
+                          <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <span className="text-[8px] font-serif font-bold text-primary/50">{initial}</span>
+                          </div>
+                          <span className="text-[10px] text-on-surface/40 truncate">
+                            <span className="font-semibold text-on-surface/55">{getFriendName(r.user_id, activityProfiles)}</span>
+                          </span>
+                          <span className="text-[10px] text-on-surface/25 ml-auto flex-shrink-0">{timeAgo(r.created_at)}</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* ── Circle Activity (mock data feed) ── */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">From Your Circle</h2>
+            </div>
+          </div>
+          <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
+          <CircleActivity />
+        </section>
       </main>
 
-      {/* Add Friend Sheet */}
+      {/* ── Add Friend Sheet ── */}
       <AnimatePresence>
         {addSheetOpen && (
           <>
