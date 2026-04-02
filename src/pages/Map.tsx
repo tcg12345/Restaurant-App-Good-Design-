@@ -206,6 +206,14 @@ export const Map: React.FC = () => {
   const [selectedPrice, setSelectedPrice] = useState(0);
 
   const [showSearchHere, setShowSearchHere] = useState(false);
+
+  // Location search
+  const [locationSearchOpen, setLocationSearchOpen] = useState(false);
+  const [locationQuery, setLocationQuery] = useState('');
+  const [locationResults, setLocationResults] = useState<Array<{ id: string; name: string; lat: number; lng: number }>>([]);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const locationInputRef = useRef<HTMLInputElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
@@ -689,6 +697,40 @@ export const Map: React.FC = () => {
     }
   }, []);
 
+  // Location geocoding (debounced)
+  useEffect(() => {
+    if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+    if (!locationQuery.trim()) { setLocationResults([]); return; }
+    setLocationLoading(true);
+    locationDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locationQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address,poi&limit=5`
+        );
+        const data = await res.json();
+        setLocationResults((data.features || []).map((f: any) => ({
+          id: f.id, name: f.place_name, lat: f.center[1], lng: f.center[0],
+        })));
+      } catch { setLocationResults([]); }
+      finally { setLocationLoading(false); }
+    }, 300);
+    return () => { if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current); };
+  }, [locationQuery]);
+
+  const handleSelectLocation = useCallback((name: string, lat: number, lng: number) => {
+    setLocationQuery('');
+    setLocationResults([]);
+    setLocationSearchOpen(false);
+    const map = mapRef.current;
+    if (map) {
+      map.flyTo({ center: [lng, lat], zoom: 14, duration: 1500 });
+      // Auto-search the area after flying there
+      setTimeout(() => {
+        fetchNearbyRef.current?.();
+      }, 1600);
+    }
+  }, []);
+
   // Auto-search as user types (debounced)
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -961,6 +1003,69 @@ export const Map: React.FC = () => {
           </motion.button>
         )}
       </AnimatePresence>
+
+      {/* Location Search */}
+      <div className="absolute top-4 left-4 z-30">
+        <AnimatePresence>
+          {locationSearchOpen ? (
+            <motion.div
+              initial={{ width: 40, opacity: 0.8 }}
+              animate={{ width: phoneMode ? 260 : 320, opacity: 1 }}
+              exit={{ width: 40, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white rounded-2xl shadow-xl border border-on-surface/10 overflow-hidden"
+            >
+              <div className="flex items-center gap-2 px-3 py-2">
+                <MapPin size={16} className="text-primary flex-shrink-0" />
+                <input
+                  ref={locationInputRef}
+                  type="text"
+                  value={locationQuery}
+                  onChange={(e) => setLocationQuery(e.target.value)}
+                  placeholder="Search location..."
+                  autoFocus
+                  className="flex-1 text-sm font-medium bg-transparent outline-none placeholder:text-on-surface/30"
+                />
+                <button onClick={() => { setLocationSearchOpen(false); setLocationQuery(''); setLocationResults([]); }}
+                  className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center flex-shrink-0 hover:bg-on-surface/10 transition-colors">
+                  <X size={14} className="text-on-surface/40" />
+                </button>
+              </div>
+              {/* Results dropdown */}
+              {(locationResults.length > 0 || locationLoading) && (
+                <div className="border-t border-on-surface/6 max-h-48 overflow-y-auto">
+                  {locationLoading && locationResults.length === 0 ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 size={16} className="text-primary animate-spin" />
+                    </div>
+                  ) : (
+                    locationResults.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => handleSelectLocation(r.name, r.lat, r.lng)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-on-surface/3 transition-colors text-left"
+                      >
+                        <MapPin size={13} className="text-on-surface/30 flex-shrink-0" />
+                        <span className="text-xs text-on-surface/70 truncate">{r.name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              onClick={() => { setLocationSearchOpen(true); setTimeout(() => locationInputRef.current?.focus(), 100); }}
+              className="w-10 h-10 bg-white rounded-full shadow-xl border border-on-surface/10 flex items-center justify-center hover:bg-muted transition-colors"
+            >
+              <MapPin size={18} className="text-on-surface/60" />
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Floating Action Buttons */}
       <div className="absolute right-6 top-6 flex flex-col gap-3 z-30">
