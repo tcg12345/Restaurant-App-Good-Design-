@@ -214,6 +214,7 @@ export const Map: React.FC = () => {
   const [locationLoading, setLocationLoading] = useState(false);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationInputRef = useRef<HTMLInputElement>(null);
+  const [searchLocationBias, setSearchLocationBias] = useState<{ lat: number; lng: number } | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
@@ -572,13 +573,15 @@ export const Map: React.FC = () => {
     setSelectedMarker(null);
     setShowSearchHere(false);
     try {
-      const center = map.getCenter();
-      const results = await searchPlacesByText(query, center.lat, center.lng);
+      // Use location bias if a location was searched, otherwise use map center
+      const searchCenter = searchLocationBias || map.getCenter();
+      const lat = 'lat' in searchCenter ? searchCenter.lat : searchCenter.lat;
+      const lng = 'lng' in searchCenter ? searchCenter.lng : searchCenter.lng;
+      const results = await searchPlacesByText(query, lat, lng);
       const filtered = getFilteredPlaces(results, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       setPlaces(filtered);
       syncMarkers(filtered);
 
-      // Fit map to results
       if (results.length > 0) {
         const bounds = new mapboxgl.LngLatBounds();
         results.forEach((p) => bounds.extend([p.lng, p.lat]));
@@ -589,7 +592,7 @@ export const Map: React.FC = () => {
     } finally {
       setIsSearching(false);
     }
-  }, [syncMarkers, getFilteredPlaces]);
+  }, [syncMarkers, getFilteredPlaces, searchLocationBias]);
 
   // Initialize Mapbox
   useEffect(() => {
@@ -721,10 +724,10 @@ export const Map: React.FC = () => {
     setLocationQuery('');
     setLocationResults([]);
     setLocationSearchOpen(false);
+    setSearchLocationBias({ lat, lng });
     const map = mapRef.current;
     if (map) {
       map.flyTo({ center: [lng, lat], zoom: 14, duration: 1500 });
-      // Auto-search the area after flying there
       setTimeout(() => {
         fetchNearbyRef.current?.();
       }, 1600);
@@ -1004,8 +1007,9 @@ export const Map: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Location Search */}
-      <div className="absolute top-4 left-4 z-30">
+      {/* Floating Action Buttons + Location Search */}
+      <div className="absolute right-6 top-6 flex flex-col gap-3 z-30 items-end">
+        {/* Location Search */}
         <AnimatePresence>
           {locationSearchOpen ? (
             <motion.div
@@ -1031,7 +1035,6 @@ export const Map: React.FC = () => {
                   <X size={14} className="text-on-surface/40" />
                 </button>
               </div>
-              {/* Results dropdown */}
               {(locationResults.length > 0 || locationLoading) && (
                 <div className="border-t border-on-surface/6 max-h-48 overflow-y-auto">
                   {locationLoading && locationResults.length === 0 ? (
@@ -1059,16 +1062,12 @@ export const Map: React.FC = () => {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               onClick={() => { setLocationSearchOpen(true); setTimeout(() => locationInputRef.current?.focus(), 100); }}
-              className="w-10 h-10 bg-white rounded-full shadow-xl border border-on-surface/10 flex items-center justify-center hover:bg-muted transition-colors"
+              className="w-12 h-12 glass rounded-full flex items-center justify-center shadow-xl text-on-surface/60 hover:text-primary transition-colors"
             >
-              <MapPin size={18} className="text-on-surface/60" />
+              <MapPin size={18} />
             </motion.button>
           )}
         </AnimatePresence>
-      </div>
-
-      {/* Floating Action Buttons */}
-      <div className="absolute right-6 top-6 flex flex-col gap-3 z-30">
         <button
           onClick={() => {
             if (navigator.geolocation) {
