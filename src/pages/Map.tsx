@@ -953,21 +953,20 @@ export const Map: React.FC = () => {
 
   const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
 
-  // Look up missing coordinates for custom tab ratings (background, once per mode)
+  // Background geocode missing coordinates for the CURRENT USER's own ratings only.
+  // Expert/friend ratings without coords are simply skipped (not geocoded) to avoid
+  // slow sequential API calls that block marker rendering.
   useEffect(() => {
-    const ratings = mapMode === 'myratings' ? myRatings : mapMode === 'friends' ? friendRatings : mapMode === 'experts' ? expertRatings : [];
-    if (ratings.length === 0 || mapMode === 'discover') return;
-    if (tabDataCache.coordsLookedUp[mapMode]) return;
-    tabDataCache.coordsLookedUp[mapMode] = true;
+    if (mapMode !== 'myratings' || myRatings.length === 0) return;
+    if (tabDataCache.coordsLookedUp['myratings']) return;
+    tabDataCache.coordsLookedUp['myratings'] = true;
 
-    // Also re-geocode ratings near 0,0 (likely corrupted by previous bad geocoding)
-    const missing = ratings.filter((r) => !r.lat || !r.lng || (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1));
+    const missing = myRatings.filter((r) => !r.lat || !r.lng || (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1));
     if (missing.length === 0) return;
 
     (async () => {
       for (const r of missing) {
         try {
-          // Use Mapbox geocoding with the restaurant name + address for accurate coords
           const query = `${r.restaurant_name} ${r.address || ''}`.trim();
           const res = await fetch(
             `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`
@@ -978,25 +977,20 @@ export const Map: React.FC = () => {
             const [lng, lat] = feature.center;
             r.lat = lat;
             r.lng = lng;
-            // Only save coords back to DB for the current user's own ratings
-            if (r.user_id === userId) {
-              publishCommunityRating(r.user_id, r.restaurant_id, {
-                name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
-                price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
-                wouldReturn: r.would_return, friendIds: r.friend_ids || [],
-                photoUrl: r.photo_url || '', lat, lng,
-              });
-            }
+            publishCommunityRating(r.user_id, r.restaurant_id, {
+              name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
+              price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
+              wouldReturn: r.would_return, friendIds: r.friend_ids || [],
+              photoUrl: r.photo_url || '', lat, lng,
+            });
           }
         } catch {}
         await new Promise((resolve) => setTimeout(resolve, 150));
       }
-      // Update cache with resolved coords and trigger re-render
-      if (mapMode === 'myratings') { tabDataCache.myRatings = [...ratings]; setMyRatings((prev) => [...prev]); }
-      else if (mapMode === 'friends') { tabDataCache.friendRatings = [...ratings]; setFriendRatings((prev) => [...prev]); }
-      else if (mapMode === 'experts') { tabDataCache.expertRatings = [...ratings]; setExpertRatings((prev) => [...prev]); }
+      tabDataCache.myRatings = [...myRatings];
+      setMyRatings((prev) => [...prev]);
     })();
-  }, [mapMode, myRatings, friendRatings, expertRatings]);
+  }, [mapMode, myRatings]);
 
   // Fetch hotels when entering hotels mode
   useEffect(() => {
