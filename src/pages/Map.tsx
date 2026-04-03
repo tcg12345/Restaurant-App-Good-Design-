@@ -98,7 +98,7 @@ function ratingToPlace(r: CommunityRating): PlaceResult | null {
     name: r.restaurant_name,
     lat: r.lat,
     lng: r.lng,
-    rating: r.score,
+    rating: Number(r.score) || 0,
     priceLevel: priceMap[r.price] || 0,
     address: r.address || '',
     fullAddress: r.address || '',
@@ -687,6 +687,19 @@ export const Map: React.FC = () => {
 
     // Click on map background or drag clears popup
     const clearPopup = () => {
+      // Skip clearing if a marker was just clicked (set in marker click handlers)
+      if (isMarkerSelectedRef.current) {
+        isMarkerSelectedRef.current = false;
+        return;
+      }
+      if (popupRef.current) {
+        popupRef.current.remove();
+        popupRef.current = null;
+      }
+      setSelectedMarker(null);
+      setSelectedPlace(null);
+    };
+    const clearOnDrag = () => {
       if (popupRef.current) {
         popupRef.current.remove();
         popupRef.current = null;
@@ -696,7 +709,7 @@ export const Map: React.FC = () => {
       setSelectedPlace(null);
     };
     map.on('click', clearPopup);
-    map.on('dragstart', clearPopup);
+    map.on('dragstart', clearOnDrag);
 
     return () => {
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
