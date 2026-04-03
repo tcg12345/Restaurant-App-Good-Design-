@@ -441,7 +441,7 @@ export const Map: React.FC = () => {
   // Build a lookup of user's own ratings by restaurant ID
   const userRatingMap = useMemo(() => {
     const map = new Map<string, number>();
-    myLocalRatings.forEach((r) => map.set(r.restaurantId, r.score));
+    myLocalRatings.forEach((r) => map.set(r.restaurantId, Number(r.score) || 0));
     return map;
   }, [myLocalRatings]);
 
@@ -1022,7 +1022,7 @@ export const Map: React.FC = () => {
     for (const r of ratings) {
       if (!r.lat || !r.lng) continue;
       // Size hierarchy based on score
-      const score = r.score;
+      const score = Number(r.score) || 0;
       const markerSize = score >= 8 ? 42 : score >= 5 ? 38 : 34;
       const iconSz = Math.round(markerSize * 0.42);
       const el = document.createElement('div');
