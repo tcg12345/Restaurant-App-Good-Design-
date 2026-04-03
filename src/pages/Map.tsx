@@ -975,12 +975,15 @@ export const Map: React.FC = () => {
             const [lng, lat] = feature.center;
             r.lat = lat;
             r.lng = lng;
-            publishCommunityRating(r.user_id, r.restaurant_id, {
-              name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
-              price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
-              wouldReturn: r.would_return, friendIds: r.friend_ids || [],
-              photoUrl: r.photo_url || '', lat, lng,
-            });
+            // Only save coords back to DB for the current user's own ratings
+            if (r.user_id === userId) {
+              publishCommunityRating(r.user_id, r.restaurant_id, {
+                name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
+                price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
+                wouldReturn: r.would_return, friendIds: r.friend_ids || [],
+                photoUrl: r.photo_url || '', lat, lng,
+              });
+            }
           }
         } catch {}
         await new Promise((resolve) => setTimeout(resolve, 150));
