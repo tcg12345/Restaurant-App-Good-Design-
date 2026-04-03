@@ -634,10 +634,13 @@ export const Map: React.FC = () => {
       const size = score >= 8 ? 40 : score >= 5 ? 36 : 32;
       const iconSz = Math.round(size * 0.42);
       const el = document.createElement('div');
-      el.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:white;border:2.5px solid #d4a017;box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.2s ease;`;
-      el.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#d4a017" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
-      el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.15)'; });
-      el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)'; });
+      el.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;`;
+      const inner = document.createElement('div');
+      inner.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:white;border:2.5px solid #d4a017;box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
+      inner.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#d4a017" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+      el.appendChild(inner);
+      el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
+      el.addEventListener('mouseleave', () => { inner.style.transform = 'scale(1)'; });
 
       const place = ratingToPlace(r);
       el.addEventListener('click', (e) => {
@@ -1123,10 +1126,13 @@ export const Map: React.FC = () => {
         iconHtml = `<span style="font-size:${Math.round(markerSize * 0.35)}px;font-weight:800;color:${sc};line-height:1;">${score.toFixed(0)}</span>`;
       }
 
-      el.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:white;border:${borderStyle};box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.2s ease;`;
-      el.innerHTML = iconHtml;
-      el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.15)'; });
-      el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)'; });
+      el.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;`;
+      const inner = document.createElement('div');
+      inner.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:white;border:${borderStyle};box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
+      inner.innerHTML = iconHtml;
+      el.appendChild(inner);
+      el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
+      el.addEventListener('mouseleave', () => { inner.style.transform = 'scale(1)'; });
 
       const place = ratingToPlace(r);
       el.addEventListener('click', (e) => {
