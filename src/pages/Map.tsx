@@ -159,7 +159,7 @@ export const Map: React.FC = () => {
       const [myR, friendR, expertR] = await Promise.all([
         getUserRatings(userId),
         getAllFriendRatings(userId),
-        getExpertRatings(50),
+        getExpertRatings(200),
       ]);
       setMyRatings(myR);
       setFriendRatings(friendR);
@@ -889,26 +889,33 @@ export const Map: React.FC = () => {
     if (tabDataCache.coordsLookedUp[mapMode]) return;
     tabDataCache.coordsLookedUp[mapMode] = true;
 
-    const missing = ratings.filter((r) => !r.lat || !r.lng).slice(0, 20);
+    // Also re-geocode ratings near 0,0 (likely corrupted by previous bad geocoding)
+    const missing = ratings.filter((r) => !r.lat || !r.lng || (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1));
     if (missing.length === 0) return;
 
     (async () => {
       for (const r of missing) {
         try {
-          const results = await searchPlacesByText(r.restaurant_name + ' ' + (r.address?.split(',').slice(-1)[0]?.trim() || ''), 0, 0);
-          if (results[0]?.lat && results[0]?.lng) {
-            // Save coords back to DB
-            r.lat = results[0].lat;
-            r.lng = results[0].lng;
+          // Use Mapbox geocoding with the restaurant name + address for accurate coords
+          const query = `${r.restaurant_name} ${r.address || ''}`.trim();
+          const res = await fetch(
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`
+          );
+          const data = await res.json();
+          const feature = data.features?.[0];
+          if (feature?.center) {
+            const [lng, lat] = feature.center;
+            r.lat = lat;
+            r.lng = lng;
             publishCommunityRating(r.user_id, r.restaurant_id, {
               name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
               price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
               wouldReturn: r.would_return, friendIds: r.friend_ids || [],
-              photoUrl: r.photo_url || '', lat: results[0].lat, lng: results[0].lng,
+              photoUrl: r.photo_url || '', lat, lng,
             });
           }
         } catch {}
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 150));
       }
       // Update cache with resolved coords and trigger re-render
       if (mapMode === 'myratings') { tabDataCache.myRatings = [...ratings]; setMyRatings((prev) => [...prev]); }
