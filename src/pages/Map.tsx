@@ -242,6 +242,7 @@ export const Map: React.FC = () => {
   const searchWrapperRef = useRef<HTMLFormElement>(null);
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMarkerSelectedRef = useRef(false); // tracks if a marker is actively selected (suppresses re-fetch)
+  const expertOverlayMarkersRef = useRef<mapboxgl.Marker[]>([]); // expert markers shown in discover mode
   const filtersRef = useRef({ sortBy: 'popularity' as SortOption, selectedCuisines: [] as string[], selectedPrice: 0 });
 
   // Keep ref in sync with state so the moveend callback sees current values
@@ -593,6 +594,8 @@ export const Map: React.FC = () => {
       const sorted = getFilteredPlaces(results, filtersRef.current.sortBy, 0); // price already filtered server-side
       setPlaces(sorted);
       syncMarkers(sorted);
+      // Add expert overlay markers in the visible area
+      setTimeout(() => addExpertOverlayRef.current?.(), 100);
       tabDataCache.discoverPlaces = sorted;
       tabDataCache.discoverTs = Date.now();
     } catch (err) {
@@ -605,6 +608,55 @@ export const Map: React.FC = () => {
   // Keep refs in sync for use in quick filter handler
   fetchNearbyRef.current = fetchNearby;
   syncMarkersRef.current = syncMarkers;
+
+  // Overlay expert-rated markers on the discover map for the visible area
+  const addExpertOverlayMarkers = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || mapModeRef.current !== 'discover') return;
+    // Clear previous expert overlay markers
+    expertOverlayMarkersRef.current.forEach((m) => m.remove());
+    expertOverlayMarkersRef.current = [];
+
+    if (expertRatings.length === 0) return;
+
+    const bounds = map.getBounds();
+    const discoverIds = new Set(Object.keys(markersRef.current));
+
+    const visibleExperts = expertRatings.filter((r) => {
+      if (!r.lat || !r.lng) return false;
+      if (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1) return false; // skip corrupted coords
+      if (discoverIds.has(r.restaurant_id)) return false; // already shown as discover marker
+      return bounds.contains([r.lng, r.lat]);
+    });
+
+    for (const r of visibleExperts) {
+      const score = Number(r.score) || 0;
+      const size = score >= 8 ? 40 : score >= 5 ? 36 : 32;
+      const iconSz = Math.round(size * 0.42);
+      const el = document.createElement('div');
+      el.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:white;border:2.5px solid #d4a017;box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.2s ease;`;
+      el.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#d4a017" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+      el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.15)'; });
+      el.addEventListener('mouseleave', () => { el.style.transform = 'scale(1)'; });
+
+      const place = ratingToPlace(r);
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
+        if (place) {
+          setSelectedPlace(place);
+          setSelectedMarker(place.id);
+          setSheetState('peek');
+        }
+        isMarkerSelectedRef.current = true;
+      });
+
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([r.lng!, r.lat!]).addTo(map);
+      expertOverlayMarkersRef.current.push(marker);
+    }
+  }, [expertRatings]);
+  const addExpertOverlayRef = useRef<() => void>(addExpertOverlayMarkers);
+  addExpertOverlayRef.current = addExpertOverlayMarkers;
 
   // Text search
   const handleSearch = useCallback(async (query: string) => {
@@ -637,6 +689,8 @@ export const Map: React.FC = () => {
         results.forEach((p) => bounds.extend([p.lng, p.lat]));
         map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
       }
+      // Add expert overlay markers in the visible area
+      setTimeout(() => addExpertOverlayRef.current?.(), 1200);
     } catch (err) {
       console.error('Text search failed:', err);
     } finally {
@@ -667,6 +721,7 @@ export const Map: React.FC = () => {
       const hasCachedPlaces = tabDataCache.discoverPlaces.length > 0 && (Date.now() - tabDataCache.discoverTs) < TAB_CACHE_TTL;
       if (hasCachedPlaces) {
         syncMarkers(tabDataCache.discoverPlaces);
+        setTimeout(() => addExpertOverlayRef.current?.(), 100);
       } else {
         fetchNearby();
       }
@@ -994,9 +1049,11 @@ export const Map: React.FC = () => {
     const map = mapRef.current;
     if (!map) return;
 
-    // Clear custom markers
+    // Clear custom markers and expert overlay markers
     customMarkersRef.current.forEach((m) => m.remove());
     customMarkersRef.current = [];
+    expertOverlayMarkersRef.current.forEach((m) => m.remove());
+    expertOverlayMarkersRef.current = [];
 
     // Hide/show discover markers based on mode
     Object.values(markersRef.current).forEach((marker) => {
