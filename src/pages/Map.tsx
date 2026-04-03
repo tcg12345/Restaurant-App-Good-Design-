@@ -440,14 +440,14 @@ export const Map: React.FC = () => {
 
   // Build a lookup of user's own ratings by restaurant ID
   const userRatingMap = useMemo(() => {
-    const map = new Map<string, number>();
-    myLocalRatings.forEach((r) => map.set(r.restaurantId, Number(r.score) || 0));
-    return map;
+    const lookup: Record<string, number> = {};
+    myLocalRatings.forEach((r) => { lookup[r.restaurantId] = Number(r.score) || 0; });
+    return lookup;
   }, [myLocalRatings]);
 
   // Create a marker element for a place — color/size by user rating
   const createMarkerElement = useCallback((place: PlaceResult) => {
-    const userScore = userRatingMap.get(place.id);
+    const userScore = userRatingMap[place.id];
     const hasRating = userScore !== undefined;
     // Score color: green >= 8, amber >= 5, red < 5
     let ringColor = 'transparent';
@@ -712,7 +712,7 @@ export const Map: React.FC = () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
       if (!pin) return;
       const isSelected = id === selectedMarker;
-      const hasRating = userRatingMap.has(id);
+      const hasRating = id in userRatingMap;
       if (isSelected) {
         pin.style.background = 'var(--color-primary, #8B4513)';
         pin.style.color = 'white';
@@ -724,7 +724,7 @@ export const Map: React.FC = () => {
         pin.style.color = 'currentColor';
         // Restore score text color
         if (hasRating) {
-          const score = userRatingMap.get(id)!;
+          const score = userRatingMap[id];
           const scoreSpan = pin.querySelector('span');
           if (scoreSpan) scoreSpan.style.color = score >= 8 ? '#16a34a' : score >= 5 ? '#d97706' : '#dc2626';
         }
