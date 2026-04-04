@@ -186,6 +186,13 @@ export const Map: React.FC = () => {
   const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts' | 'hotels') => {
     setMapModeRaw(mode);
     sessionStorage.setItem('map-mode', mode);
+    // Reset rating filters when switching modes
+    setRatingSortBy('recent');
+    setScoreRange([0, 10]);
+    setRatingCuisines([]);
+    setRatingPrice(null);
+    setRatingCities([]);
+    setWouldReturnFilter('all');
   };
   const [hotelPlaces, setHotelPlaces] = useState<PlaceResult[]>([]);
   const [hotelsLoading, setHotelsLoading] = useState(false);
@@ -193,12 +200,8 @@ export const Map: React.FC = () => {
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
   const [mapModeDropdownOpen, setMapModeDropdownOpen] = useState(false);
-  const [friendFilterOpen, setFriendFilterOpen] = useState(false);
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
-  const [listFilterOpen, setListFilterOpen] = useState(false);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
-  const myRatingsButtonRef = useRef<HTMLDivElement>(null);
-  const friendsButtonRef = useRef<HTMLDivElement>(null);
   const filterBarRef = useRef<HTMLDivElement>(null);
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
@@ -211,17 +214,30 @@ export const Map: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showFiltersRaw, setShowFiltersRaw] = useState(false);
-  const setShowFilters = useCallback((show: boolean) => {
-    setShowFiltersRaw(show);
+  const [filterSheetOpen, setFilterSheetOpenRaw] = useState(false);
+  const setFilterSheetOpen = useCallback((show: boolean) => {
+    setFilterSheetOpenRaw(show);
     setHideBottomNav(show);
   }, [setHideBottomNav]);
-  const showFilters = showFiltersRaw;
 
-  // Filter state
+  // Filter state — discover
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
+  const [discoverRadius, setDiscoverRadius] = useState(5); // km
+
+  // Filter state — ratings modes (myratings / friends / experts)
+  const [ratingSortBy, setRatingSortBy] = useState<'recent' | 'highest' | 'lowest' | 'visited'>('recent');
+  const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
+  const [ratingCuisines, setRatingCuisines] = useState<string[]>([]);
+  const [ratingPrice, setRatingPrice] = useState<string | null>(null);
+  const [ratingCities, setRatingCities] = useState<string[]>([]);
+  const [wouldReturnFilter, setWouldReturnFilter] = useState<'all' | 'yes' | 'no'>('all');
+
+  // Filter state — hotels
+  const [hotelStarFilter, setHotelStarFilter] = useState<number>(0); // 0=Any, 3/4/5
+  const [hotelPriceFilter, setHotelPriceFilter] = useState(0);
+  const [hotelSortBy, setHotelSortBy] = useState<'popularity' | 'rating' | 'price_low'>('popularity');
 
   const [showSearchHere, setShowSearchHere] = useState(false);
 
@@ -951,7 +967,100 @@ export const Map: React.FC = () => {
     }
   }, []);
 
-  const activeFilterCount = (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
+  const activeFilterCount = useMemo(() => {
+    if (mapMode === 'discover') {
+      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0) + (discoverRadius !== 5 ? 1 : 0);
+    }
+    if (mapMode === 'myratings') {
+      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (wouldReturnFilter !== 'all' ? 1 : 0) + (selectedListId ? 1 : 0);
+    }
+    if (mapMode === 'friends') {
+      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (selectedFriendIds.size > 0 ? 1 : 0);
+    }
+    if (mapMode === 'experts') {
+      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0);
+    }
+    if (mapMode === 'hotels') {
+      return (hotelStarFilter > 0 ? 1 : 0) + (hotelPriceFilter > 0 ? 1 : 0) + (hotelSortBy !== 'popularity' ? 1 : 0);
+    }
+    return 0;
+  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, wouldReturnFilter, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy]);
+
+  // Helper: filter and sort a CommunityRating array by the active rating-mode filters
+  const filterRatings = useCallback((ratings: CommunityRating[]): CommunityRating[] => {
+    let filtered = ratings;
+    // Score range
+    if (scoreRange[0] > 0 || scoreRange[1] < 10) {
+      filtered = filtered.filter((r) => { const s = Number(r.score) || 0; return s >= scoreRange[0] && s <= scoreRange[1]; });
+    }
+    // Price
+    if (ratingPrice) {
+      filtered = filtered.filter((r) => r.price === ratingPrice);
+    }
+    // Cuisine
+    if (ratingCuisines.length > 0) {
+      const cuisSet = new Set(ratingCuisines.map((c) => c.toLowerCase()));
+      filtered = filtered.filter((r) => r.cuisine && cuisSet.has(r.cuisine.toLowerCase()));
+    }
+    // City (myratings only)
+    if (ratingCities.length > 0) {
+      const citySet = new Set(ratingCities);
+      filtered = filtered.filter((r) => {
+        const city = extractCityState(r.address || '', r.address || '');
+        return citySet.has(city);
+      });
+    }
+    // Would return (myratings only)
+    if (wouldReturnFilter !== 'all') {
+      filtered = filtered.filter((r) => wouldReturnFilter === 'yes' ? r.would_return === true : r.would_return === false);
+    }
+    // Sort
+    const sorted = [...filtered];
+    switch (ratingSortBy) {
+      case 'highest': sorted.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)); break;
+      case 'lowest': sorted.sort((a, b) => (Number(a.score) || 0) - (Number(b.score) || 0)); break;
+      case 'visited': sorted.sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || '')); break;
+      case 'recent': default: sorted.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')); break;
+    }
+    return sorted;
+  }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, wouldReturnFilter, ratingSortBy]);
+
+  // Filtered ratings for each mode
+  const filteredMyRatings = useMemo(() => {
+    let base = myRatings;
+    if (selectedListId) { const list = myLists.find((l: any) => l.id === selectedListId); if (list) { const ids = new Set(list.restaurantIds); base = base.filter((r) => ids.has(r.restaurant_id)); } }
+    return filterRatings(base);
+  }, [myRatings, selectedListId, myLists, filterRatings]);
+
+  const filteredFriendRatings = useMemo(() => {
+    let base = friendRatings;
+    if (selectedFriendIds.size > 0) base = base.filter((r) => selectedFriendIds.has(r.user_id));
+    return filterRatings(base);
+  }, [friendRatings, selectedFriendIds, filterRatings]);
+
+  const filteredExpertRatings = useMemo(() => filterRatings(expertRatings), [expertRatings, filterRatings]);
+
+  const filteredHotelPlaces = useMemo(() => {
+    let filtered = hotelPlaces;
+    if (hotelStarFilter > 0) {
+      const minRating = hotelStarFilter === 3 ? 3.5 : hotelStarFilter === 4 ? 4.0 : 4.5;
+      filtered = filtered.filter((p) => p.rating >= minRating);
+    }
+    if (hotelPriceFilter > 0) filtered = filtered.filter((p) => p.priceLevel === hotelPriceFilter);
+    const sorted = [...filtered];
+    switch (hotelSortBy) {
+      case 'rating': sorted.sort((a, b) => b.rating - a.rating); break;
+      case 'price_low': sorted.sort((a, b) => a.priceLevel - b.priceLevel); break;
+      case 'popularity': default: sorted.sort((a, b) => b.userRatingCount - a.userRatingCount); break;
+    }
+    return sorted;
+  }, [hotelPlaces, hotelStarFilter, hotelPriceFilter, hotelSortBy]);
+
+  // Extract unique cuisines and cities from ratings for filter pills
+  const uniqueMyRatingCuisines = useMemo(() => [...new Set(myRatings.map((r) => r.cuisine).filter(Boolean))].sort(), [myRatings]);
+  const uniqueFriendCuisines = useMemo(() => [...new Set(friendRatings.map((r) => r.cuisine).filter(Boolean))].sort(), [friendRatings]);
+  const uniqueExpertCuisines = useMemo(() => [...new Set(expertRatings.map((r) => r.cuisine).filter(Boolean))].sort(), [expertRatings]);
+  const uniqueMyRatingCities = useMemo(() => [...new Set(myRatings.map((r) => extractCityState(r.address || '', r.address || '')).filter(Boolean))].sort(), [myRatings]);
 
   // Background geocode missing coordinates for the CURRENT USER's own ratings only.
   // Expert/friend ratings without coords are simply skipped (not geocoded) to avoid
@@ -1073,19 +1182,7 @@ export const Map: React.FC = () => {
     // Also close any open popups
     if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
 
-    let ratings = mapMode === 'myratings' ? myRatings : mapMode === 'friends' ? friendRatings : mapMode === 'experts' ? expertRatings : [];
-    // Apply friend filter
-    if (mapMode === 'friends' && selectedFriendIds.size > 0) {
-      ratings = ratings.filter((r) => selectedFriendIds.has(r.user_id));
-    }
-    // Apply list filter for my ratings
-    if (mapMode === 'myratings' && selectedListId) {
-      const list = myLists.find((l: any) => l.id === selectedListId);
-      if (list) {
-        const ids = new Set(list.restaurantIds);
-        ratings = ratings.filter((r) => ids.has(r.restaurant_id));
-      }
-    }
+    const ratings = mapMode === 'myratings' ? filteredMyRatings : mapMode === 'friends' ? filteredFriendRatings : mapMode === 'experts' ? filteredExpertRatings : [];
     if (ratings.length === 0) return;
 
     // Convert ratings to PlaceResult[] for the card/swipe system
@@ -1150,7 +1247,7 @@ export const Map: React.FC = () => {
     }
 
     if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
-  }, [mapMode, myRatings, friendRatings, expertRatings, friendProfiles, selectedFriendIds, selectedListId, myLists]);
+  }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles]);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
@@ -1339,152 +1436,301 @@ export const Map: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Panel Overlay */}
+      {/* Filter Sheet — context-aware per map mode */}
       <AnimatePresence>
-        {showFilters && (
+        {filterSheetOpen && (() => {
+          const thumbCls = "absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer";
+          const sectionLabel = "text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5";
+          const pillActive = "border-primary bg-primary/5 text-primary";
+          const pillInactive = "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20";
+          const pillCls = "px-3.5 py-2 rounded-full text-xs font-semibold transition-all border";
+
+          const handleReset = () => {
+            if (mapMode === 'discover') {
+              setSortBy('popularity'); setSelectedCuisines([]); setSelectedPrice(0); setDiscoverRadius(5);
+            } else if (mapMode === 'hotels') {
+              setHotelStarFilter(0); setHotelPriceFilter(0); setHotelSortBy('popularity');
+            } else {
+              setRatingSortBy('recent'); setScoreRange([0, 10]); setRatingCuisines([]); setRatingPrice(null); setRatingCities([]); setWouldReturnFilter('all');
+              if (mapMode === 'friends') setSelectedFriendIds(new Set());
+              if (mapMode === 'myratings') setSelectedListId(null);
+            }
+          };
+
+          const handleApply = () => {
+            setFilterSheetOpen(false);
+            if (mapMode === 'discover') fetchNearby(selectedCuisines);
+          };
+
+          // Score range slider JSX (reused across modes)
+          const scoreSlider = (
+            <div>
+              <p className={sectionLabel}>Score: {scoreRange[0]} &ndash; {scoreRange[1]}</p>
+              <div className="relative h-6 flex items-center">
+                <div className="absolute inset-x-0 h-1 bg-on-surface/10 rounded-full" />
+                <div className="absolute h-1 bg-primary rounded-full" style={{ left: `${scoreRange[0] * 10}%`, right: `${100 - scoreRange[1] * 10}%` }} />
+                <input type="range" min={0} max={10} step={0.5} value={scoreRange[0]} onChange={(e) => setScoreRange([Math.min(+e.target.value, scoreRange[1]), scoreRange[1]])} className={thumbCls} />
+                <input type="range" min={0} max={10} step={0.5} value={scoreRange[1]} onChange={(e) => setScoreRange([scoreRange[0], Math.max(+e.target.value, scoreRange[0])])} className={thumbCls} />
+              </div>
+              <div className="flex justify-between mt-1"><span className="text-[10px] text-on-surface/30">0</span><span className="text-[10px] text-on-surface/30">10</span></div>
+            </div>
+          );
+
+          // Price pills JSX (reused)
+          const pricePills = (target: string | null, setTarget: (v: string | null) => void) => (
+            <div>
+              <p className={sectionLabel}>Price</p>
+              <div className="flex gap-2">
+                {['$', '$$', '$$$', '$$$$'].map((p) => (
+                  <button key={p} onClick={() => setTarget(target === p ? null : p)}
+                    className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", target === p ? pillActive : pillInactive)}>{p}</button>
+                ))}
+              </div>
+            </div>
+          );
+
+          // Cuisine pills JSX
+          const cuisinePills = (cuisines: string[], selected: string[], setSelected: React.Dispatch<React.SetStateAction<string[]>>) => (
+            <div>
+              <p className={sectionLabel}>Cuisine</p>
+              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                {cuisines.map((c) => (
+                  <button key={c} onClick={() => setSelected((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])}
+                    className={cn(pillCls, selected.includes(c) ? pillActive : pillInactive)}>{c}</button>
+                ))}
+                {cuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines available</p>}
+              </div>
+            </div>
+          );
+
+          return (
           <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setFilterSheetOpen(false)} />
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/30 z-50"
-              onClick={() => setShowFilters(false)}
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="absolute bottom-0 left-0 right-0 z-50 bg-surface rounded-t-[2rem] shadow-2xl max-h-[85vh] overflow-y-auto"
+              drag={phoneMode ? 'y' : false} dragConstraints={{ top: 0 }} dragElastic={{ top: 0, bottom: 0.4 }}
+              onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) setFilterSheetOpen(false); }}
+              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden"
+              style={{ maxHeight: '85vh' }}
             >
+              {/* Drag handle */}
+              {phoneMode && (
+                <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing flex-shrink-0">
+                  <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+                </div>
+              )}
+
               {/* Header */}
-              <div className="sticky top-0 bg-surface z-10 px-6 pt-5 pb-4 border-b border-black/5">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-serif font-bold text-on-surface">Filters</h2>
-                  <button
-                    onClick={() => setShowFilters(false)}
-                    className="w-9 h-9 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
-                  >
-                    <X size={18} className="text-on-surface/60" />
-                  </button>
-                </div>
+              <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
+                <h3 className="font-serif font-bold text-lg">Filters</h3>
+                <button onClick={() => setFilterSheetOpen(false)} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors">
+                  <X size={16} className="text-on-surface/60" />
+                </button>
               </div>
 
-              <div className="px-6 py-5 space-y-6">
-                {/* Sort By */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <ArrowUpDown size={16} className="text-primary" />
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Sort By</h3>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {SORT_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        onClick={() => setSortBy(opt.value)}
-                        className={cn(
-                          "flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all",
-                          sortBy === opt.value
-                            ? "border-primary bg-primary/5 text-primary"
-                            : "border-on-surface/10 text-on-surface/60 hover:border-on-surface/20"
-                        )}
-                      >
-                        {sortBy === opt.value && <Check size={14} />}
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              {/* Scrollable content */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
 
-                {/* Price Range */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <DollarSign size={16} className="text-primary" />
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Price Range</h3>
-                  </div>
-                  <div className="flex gap-2">
-                    {PRICE_LEVELS.map((p) => (
-                      <button
-                        key={p.value}
-                        onClick={() => setSelectedPrice(p.value)}
-                        className={cn(
-                          "flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all",
-                          selectedPrice === p.value
-                            ? "border-primary bg-primary/5 text-primary"
-                            : "border-on-surface/10 text-on-surface/60 hover:border-on-surface/20"
-                        )}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {/* ─── DISCOVER MODE ─── */}
+                {mapMode === 'discover' && (
+                  <>
+                    <div>
+                      <p className={sectionLabel}>Sort by</p>
+                      <div className="flex flex-wrap gap-2">
+                        {SORT_OPTIONS.map((opt) => (
+                          <button key={opt.value} onClick={() => setSortBy(opt.value)}
+                            className={cn(pillCls, sortBy === opt.value ? pillActive : pillInactive)}>{opt.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className={sectionLabel}>Price Range</p>
+                      <div className="flex gap-2">
+                        {PRICE_LEVELS.map((p) => (
+                          <button key={p.value} onClick={() => setSelectedPrice(p.value)}
+                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", selectedPrice === p.value ? pillActive : pillInactive)}>{p.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className={sectionLabel}>Cuisine</p>
+                      <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                        {CUISINE_TYPES.map((c) => {
+                          const isAll = c.type === '';
+                          const isActive = isAll ? selectedCuisines.length === 0 : selectedCuisines.includes(c.type);
+                          return (
+                            <button key={c.type || 'all'} onClick={() => { if (isAll) setSelectedCuisines([]); else setSelectedCuisines((prev) => prev.includes(c.type) ? prev.filter((t) => t !== c.type) : [...prev, c.type]); }}
+                              className={cn(pillCls, isActive ? pillActive : pillInactive)}>
+                              {isActive && !isAll && <Check size={12} className="inline mr-1 -mt-0.5" />}{c.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <p className={sectionLabel}>Radius: {discoverRadius} km</p>
+                      <div className="relative h-6 flex items-center">
+                        <div className="absolute inset-x-0 h-1 bg-on-surface/10 rounded-full" />
+                        <div className="absolute h-1 bg-primary rounded-full" style={{ left: 0, right: `${100 - ((discoverRadius - 0.5) / 19.5) * 100}%` }} />
+                        <input type="range" min={0.5} max={20} step={0.5} value={discoverRadius} onChange={(e) => setDiscoverRadius(+e.target.value)}
+                          className={thumbCls} />
+                      </div>
+                      <div className="flex justify-between mt-1"><span className="text-[10px] text-on-surface/30">0.5 km</span><span className="text-[10px] text-on-surface/30">20 km</span></div>
+                    </div>
+                  </>
+                )}
 
-                {/* Cuisine */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <UtensilsCrossed size={16} className="text-primary" />
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Cuisine</h3>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {CUISINE_TYPES.map((c) => {
-                      const isAll = c.type === '';
-                      const isActive = isAll ? selectedCuisines.length === 0 : selectedCuisines.includes(c.type);
-                      return (
-                        <button
-                          key={c.type || 'all'}
-                          onClick={() => {
-                            if (isAll) {
-                              setSelectedCuisines([]);
-                            } else {
-                              setSelectedCuisines((prev) =>
-                                prev.includes(c.type)
-                                  ? prev.filter((t) => t !== c.type)
-                                  : [...prev, c.type]
-                              );
-                            }
-                          }}
-                          className={cn(
-                            "px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all",
-                            isActive
-                              ? "border-primary bg-primary/5 text-primary"
-                              : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
-                          )}
-                        >
-                          {isActive && !isAll && <Check size={12} className="inline mr-1 -mt-0.5" />}
-                          {c.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                {/* ─── MY RATINGS MODE ─── */}
+                {mapMode === 'myratings' && (
+                  <>
+                    <div>
+                      <p className={sectionLabel}>Sort by</p>
+                      <div className="flex flex-wrap gap-2">
+                        {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['visited', 'Date Visited']] as const).map(([key, label]) => (
+                          <button key={key} onClick={() => setRatingSortBy(key)}
+                            className={cn(pillCls, ratingSortBy === key ? pillActive : pillInactive)}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {scoreSlider}
+                    {pricePills(ratingPrice, setRatingPrice)}
+                    {cuisinePills(uniqueMyRatingCuisines, ratingCuisines, setRatingCuisines)}
+                    {uniqueMyRatingCities.length > 0 && (
+                      <div>
+                        <p className={sectionLabel}>City / Location</p>
+                        <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                          {uniqueMyRatingCities.map((c) => (
+                            <button key={c} onClick={() => setRatingCities((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])}
+                              className={cn(pillCls, ratingCities.includes(c) ? pillActive : pillInactive)}>{c}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <p className={sectionLabel}>Would Return</p>
+                      <div className="flex gap-2">
+                        {([['all', 'All'], ['yes', 'Yes'], ['no', 'No']] as const).map(([key, label]) => (
+                          <button key={key} onClick={() => setWouldReturnFilter(key)}
+                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", wouldReturnFilter === key ? pillActive : pillInactive)}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {myLists.filter((l: any) => l.restaurantIds?.length > 0).length > 0 && (
+                      <div>
+                        <p className={sectionLabel}>List</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button onClick={() => setSelectedListId(null)}
+                            className={cn(pillCls, !selectedListId ? pillActive : pillInactive)}>All Ratings</button>
+                          {myLists.filter((l: any) => l.restaurantIds?.length > 0).map((l: any) => (
+                            <button key={l.id} onClick={() => setSelectedListId(selectedListId === l.id ? null : l.id)}
+                              className={cn(pillCls, selectedListId === l.id ? pillActive : pillInactive)}>{l.emoji} {l.name}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* ─── FRIENDS MODE ─── */}
+                {mapMode === 'friends' && (
+                  <>
+                    {Object.keys(friendProfiles).length > 0 && (
+                      <div>
+                        <p className={sectionLabel}>Filter by Friend</p>
+                        <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                          <button onClick={() => setSelectedFriendIds(new Set())}
+                            className={cn(pillCls, selectedFriendIds.size === 0 ? pillActive : pillInactive)}>All Friends</button>
+                          {Object.values(friendProfiles).map((p) => {
+                            const sel = selectedFriendIds.has(p.user_id);
+                            return (
+                              <button key={p.user_id} onClick={() => setSelectedFriendIds((prev) => { const next = new Set(prev); sel ? next.delete(p.user_id) : next.add(p.user_id); return next; })}
+                                className={cn(pillCls, sel ? pillActive : pillInactive)}>
+                                {sel && <Check size={12} className="inline mr-1 -mt-0.5" />}
+                                {p.display_name || `@${p.username}`}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <p className={sectionLabel}>Sort by</p>
+                      <div className="flex flex-wrap gap-2">
+                        {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score']] as const).map(([key, label]) => (
+                          <button key={key} onClick={() => setRatingSortBy(key)}
+                            className={cn(pillCls, ratingSortBy === key ? pillActive : pillInactive)}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {scoreSlider}
+                    {cuisinePills(uniqueFriendCuisines, ratingCuisines, setRatingCuisines)}
+                  </>
+                )}
+
+                {/* ─── EXPERTS MODE ─── */}
+                {mapMode === 'experts' && (
+                  <>
+                    <div>
+                      <p className={sectionLabel}>Sort by</p>
+                      <div className="flex flex-wrap gap-2">
+                        {([['recent', 'Recent'], ['highest', 'Highest Score']] as const).map(([key, label]) => (
+                          <button key={key} onClick={() => setRatingSortBy(key)}
+                            className={cn(pillCls, ratingSortBy === key ? pillActive : pillInactive)}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {scoreSlider}
+                    {cuisinePills(uniqueExpertCuisines, ratingCuisines, setRatingCuisines)}
+                  </>
+                )}
+
+                {/* ─── HOTELS MODE ─── */}
+                {mapMode === 'hotels' && (
+                  <>
+                    <div>
+                      <p className={sectionLabel}>Hotel Star Rating</p>
+                      <div className="flex gap-2">
+                        {[{ v: 0, l: 'Any' }, { v: 3, l: '3\u2605+' }, { v: 4, l: '4\u2605+' }, { v: 5, l: '5\u2605' }].map(({ v, l }) => (
+                          <button key={v} onClick={() => setHotelStarFilter(v)}
+                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", hotelStarFilter === v ? "border-teal-600 bg-teal-50 text-teal-700" : pillInactive)}>{l}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className={sectionLabel}>Price Range</p>
+                      <div className="flex gap-2">
+                        {PRICE_LEVELS.map((p) => (
+                          <button key={p.value} onClick={() => setHotelPriceFilter(p.value)}
+                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", hotelPriceFilter === p.value ? "border-teal-600 bg-teal-50 text-teal-700" : pillInactive)}>{p.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className={sectionLabel}>Sort by</p>
+                      <div className="flex flex-wrap gap-2">
+                        {([['popularity', 'Most Popular'], ['rating', 'Highest Rated'], ['price_low', 'Price: Low to High']] as const).map(([key, label]) => (
+                          <button key={key} onClick={() => setHotelSortBy(key as any)}
+                            className={cn(pillCls, hotelSortBy === key ? "border-teal-600 bg-teal-50 text-teal-700" : pillInactive)}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
-              {/* Apply / Reset buttons */}
-              <div className="sticky bottom-0 bg-surface border-t border-black/5 px-6 py-4 flex gap-3">
-                <button
-                  onClick={() => {
-                    setSortBy('popularity');
-                    setSelectedCuisines([]);
-                    setSelectedPrice(0);
-                  }}
-                  className="flex-1 py-3.5 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors"
-                >
-                  Reset
-                </button>
-                <button
-                  onClick={() => {
-                    setShowFilters(false);
-                    fetchNearby(selectedCuisines);
-                  }}
-                  className="flex-[2] py-3.5 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-shadow"
-                >
-                  Apply Filters
-                </button>
+              {/* Reset + Apply footer */}
+              <div className="flex-shrink-0 border-t border-on-surface/6 px-5 py-4 flex gap-3">
+                <button onClick={handleReset}
+                  className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors">Reset</button>
+                <button onClick={handleApply}
+                  className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25">Apply</button>
               </div>
             </motion.div>
           </>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       {/* Selected Place Card — above bottom sheet, swipeable with arrows */}
@@ -2011,7 +2257,7 @@ export const Map: React.FC = () => {
                   <Search size={20} className="text-on-surface/70" />
                 </button>
                 <button
-                  onClick={() => setShowFilters(true)}
+                  onClick={() => setFilterSheetOpen(true)}
                   className={cn(
                     "relative w-12 h-12 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors",
                     activeFilterCount > 0
@@ -2044,44 +2290,24 @@ export const Map: React.FC = () => {
                   </button>
                 ))}
 
-                {/* Map mode toggle buttons (dropdowns rendered outside overflow container below) */}
-                <div ref={myRatingsButtonRef} className="flex-shrink-0">
-                  <button
-                    className={cn("flex items-center gap-2 py-3 pl-5 rounded-full border-2 whitespace-nowrap transition-colors",
-                      mapMode === 'myratings' ? "bg-primary/10 border-primary/30 text-primary pr-3" : "border-on-surface/10 hover:bg-muted pr-5")}
-                  >
-                    <span className="flex items-center gap-2"
-                      onClick={() => { setMapMode(mapMode === 'myratings' ? 'discover' : 'myratings'); setSelectedListId(null); setListFilterOpen(false); }}>
-                      <Star size={16} className={mapMode === 'myratings' ? "text-primary" : "text-on-surface/50"} />
-                      <span className="text-xs font-bold uppercase tracking-wider">My Ratings</span>
-                    </span>
-                    {mapMode === 'myratings' && (
-                      <span className="ml-1 pl-1 border-l border-primary/20 cursor-pointer"
-                        onClick={(e) => { e.stopPropagation(); setListFilterOpen(!listFilterOpen); setFriendFilterOpen(false); }}>
-                        <ChevronDown size={14} className={cn("transition-transform", listFilterOpen && "rotate-180")} />
-                      </span>
-                    )}
-                  </button>
-                </div>
+                {/* Map mode toggle buttons */}
+                <button
+                  onClick={() => { setMapMode(mapMode === 'myratings' ? 'discover' : 'myratings'); setSelectedListId(null); }}
+                  className={cn("flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
+                    mapMode === 'myratings' ? "bg-primary/10 border-primary/30 text-primary" : "border-on-surface/10 hover:bg-muted")}
+                >
+                  <Star size={16} className={mapMode === 'myratings' ? "text-primary" : "text-on-surface/50"} />
+                  <span className="text-xs font-bold uppercase tracking-wider">My Ratings</span>
+                </button>
 
-                <div ref={friendsButtonRef} className="flex-shrink-0">
-                  <button
-                    className={cn("flex items-center gap-2 py-3 pl-5 rounded-full border-2 whitespace-nowrap transition-colors",
-                      mapMode === 'friends' ? "bg-primary/10 border-primary/30 text-primary pr-3" : "border-on-surface/10 hover:bg-muted pr-5")}
-                  >
-                    <span className="flex items-center gap-2"
-                      onClick={() => { setMapMode(mapMode === 'friends' ? 'discover' : 'friends'); setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}>
-                      <Users size={16} className={mapMode === 'friends' ? "text-primary" : "text-on-surface/50"} />
-                      <span className="text-xs font-bold uppercase tracking-wider">Friends{selectedFriendIds.size > 0 ? ` (${selectedFriendIds.size})` : ''}</span>
-                    </span>
-                    {mapMode === 'friends' && (
-                      <span className="ml-1 pl-1 border-l border-primary/20 cursor-pointer"
-                        onClick={(e) => { e.stopPropagation(); setFriendFilterOpen(!friendFilterOpen); setListFilterOpen(false); }}>
-                        <ChevronDown size={14} className={cn("transition-transform", friendFilterOpen && "rotate-180")} />
-                      </span>
-                    )}
-                  </button>
-                </div>
+                <button
+                  onClick={() => { setMapMode(mapMode === 'friends' ? 'discover' : 'friends'); setSelectedFriendIds(new Set()); }}
+                  className={cn("flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
+                    mapMode === 'friends' ? "bg-primary/10 border-primary/30 text-primary" : "border-on-surface/10 hover:bg-muted")}
+                >
+                  <Users size={16} className={mapMode === 'friends' ? "text-primary" : "text-on-surface/50"} />
+                  <span className="text-xs font-bold uppercase tracking-wider">Friends{selectedFriendIds.size > 0 ? ` (${selectedFriendIds.size})` : ''}</span>
+                </button>
 
                 <button
                   onClick={() => setMapMode(mapMode === 'experts' ? 'discover' : 'experts')}
@@ -2108,67 +2334,17 @@ export const Map: React.FC = () => {
             )}
           </AnimatePresence>
 
-          {/* Dropdown panels — rendered outside overflow-x-auto container so they aren't clipped */}
-          {listFilterOpen && mapMode === 'myratings' && (
-            <>
-              <div className="absolute inset-0 z-30" onClick={() => setListFilterOpen(false)} />
-              <div className="relative z-[60]">
-                <div className="absolute top-0 bg-white rounded-xl shadow-xl border border-on-surface/10 min-w-[11rem] max-h-56 overflow-y-auto"
-                  style={{ left: myRatingsButtonRef.current && filterBarRef.current ? myRatingsButtonRef.current.getBoundingClientRect().left - filterBarRef.current.getBoundingClientRect().left : 12 }}>
-                  <button onClick={() => { setSelectedListId(null); setListFilterOpen(false); }}
-                    className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
-                      !selectedListId ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Ratings</button>
-                  {myLists.filter((l: any) => l.restaurantIds?.length > 0).map((l: any) => (
-                    <button key={l.id} onClick={() => { setSelectedListId(selectedListId === l.id ? null : l.id); setListFilterOpen(false); }}
-                      className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 flex items-center justify-between",
-                        selectedListId === l.id ? "text-primary bg-primary/5" : "text-on-surface/70")}>
-                      <span>{l.emoji} {l.name}</span>
-                      {selectedListId === l.id && <Check size={14} className="text-primary" />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-          {friendFilterOpen && mapMode === 'friends' && (
-            <>
-              <div className="absolute inset-0 z-30" onClick={() => setFriendFilterOpen(false)} />
-              <div className="relative z-[60]">
-                <div className="absolute top-0 bg-white rounded-xl shadow-xl border border-on-surface/10 min-w-[11rem] max-h-56 overflow-y-auto"
-                  style={{ left: friendsButtonRef.current && filterBarRef.current ? friendsButtonRef.current.getBoundingClientRect().left - filterBarRef.current.getBoundingClientRect().left : 12 }}>
-                  <button onClick={() => { setSelectedFriendIds(new Set()); setFriendFilterOpen(false); }}
-                    className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 border-b border-on-surface/5",
-                      selectedFriendIds.size === 0 ? "text-primary bg-primary/5" : "text-on-surface/70")}>All Friends</button>
-                  {Object.values(friendProfiles).map((p) => {
-                    const sel = selectedFriendIds.has(p.user_id);
-                    return (
-                      <button key={p.user_id} onClick={() => {
-                        setSelectedFriendIds((prev) => { const next = new Set(prev); sel ? next.delete(p.user_id) : next.add(p.user_id); return next; });
-                      }}
-                        className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 flex items-center justify-between",
-                          sel ? "text-primary bg-primary/5" : "text-on-surface/70")}>
-                        <span>{p.display_name || `@${p.username}`}</span>
-                        {sel && <Check size={14} className="text-primary" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          )}
+          {/* Friend/list dropdowns removed — all filtering now in filter sheet */}
         </div>
 
         {/* Results List */}
         <div className={cn("flex-1 overflow-y-auto no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
           {/* My Ratings tab content */}
-          {mapMode === 'myratings' && (() => {
-            let filtered = myRatings;
-            if (selectedListId) { const list = myLists.find((l: any) => l.id === selectedListId); if (list) { const ids = new Set(list.restaurantIds); filtered = filtered.filter((r) => ids.has(r.restaurant_id)); } }
-            return (
+          {mapMode === 'myratings' && (
             <div className="space-y-3">
-              {filtered.length === 0 ? (
-                <div className="text-center py-8"><p className="text-sm text-on-surface/40">{selectedListId ? 'No restaurants in this list' : 'No rated restaurants yet'}</p></div>
-              ) : filtered.map((r) => (
+              {filteredMyRatings.length === 0 ? (
+                <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No rated restaurants yet'}</p></div>
+              ) : filteredMyRatings.map((r) => (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                   className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
                   <div className="flex-1 min-w-0">
@@ -2182,17 +2358,14 @@ export const Map: React.FC = () => {
                 </div>
               ))}
             </div>
-          ); })()}
+          )}
 
           {/* Friends tab content */}
-          {mapMode === 'friends' && (() => {
-            let filtered = friendRatings;
-            if (selectedFriendIds.size > 0) filtered = filtered.filter((r) => selectedFriendIds.has(r.user_id));
-            return (
+          {mapMode === 'friends' && (
             <div className="space-y-3">
-              {filtered.length === 0 ? (
-                <div className="text-center py-8"><p className="text-sm text-on-surface/40">{selectedFriendIds.size > 0 ? 'No ratings from selected friends' : 'No friend ratings yet'}</p></div>
-              ) : filtered.map((r) => {
+              {filteredFriendRatings.length === 0 ? (
+                <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No friend ratings yet'}</p></div>
+              ) : filteredFriendRatings.map((r) => {
                 const prof = friendProfiles[r.user_id];
                 return (
                   <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
@@ -2209,14 +2382,14 @@ export const Map: React.FC = () => {
                 );
               })}
             </div>
-          ); })()}
+          )}
 
           {/* Experts tab content */}
           {mapMode === 'experts' && (
             <div className="space-y-3">
-              {expertRatings.length === 0 ? (
-                <div className="text-center py-8"><p className="text-sm text-on-surface/40">No expert ratings yet</p></div>
-              ) : expertRatings.map((r) => (
+              {filteredExpertRatings.length === 0 ? (
+                <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No expert ratings yet'}</p></div>
+              ) : filteredExpertRatings.map((r) => (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                   className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
                   <div className="flex-1 min-w-0">
@@ -2238,15 +2411,15 @@ export const Map: React.FC = () => {
               <Loader2 size={24} className="text-teal-600 animate-spin" />
               <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching hotels...</span>
             </div>
-          ) : hotelPlaces.length === 0 ? (
+          ) : filteredHotelPlaces.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Building2 size={32} className="text-on-surface/20 mb-3" />
-              <p className="text-sm text-on-surface/40 font-medium">No hotels found</p>
-              <p className="text-xs text-on-surface/30 mt-1">Try moving the map to a different area</p>
+              <p className="text-sm text-on-surface/40 font-medium">{activeFilterCount > 0 ? 'No hotels match your filters' : 'No hotels found'}</p>
+              <p className="text-xs text-on-surface/30 mt-1">{activeFilterCount > 0 ? 'Try adjusting your filters' : 'Try moving the map to a different area'}</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {hotelPlaces.map((place) => {
+              {filteredHotelPlaces.map((place) => {
                 const cityState = extractCityState(place.fullAddress, place.address);
                 return (
                   <div
