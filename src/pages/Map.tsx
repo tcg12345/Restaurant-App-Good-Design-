@@ -479,7 +479,7 @@ export const Map: React.FC = () => {
         transform: scale(0.4);
         transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
       ">
-        ${hasRating ? `<span style="font-size:${Math.round(size * 0.35)}px;font-weight:800;color:${dotColor};line-height:1;">${userScore.toFixed(0)}</span>` : `
+        ${hasRating ? `<span style="font-size:${Math.round(size * 0.30)}px;font-weight:800;color:${dotColor};line-height:1;">${userScore.toFixed(1)}</span>` : `
         <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
           <circle cx="12" cy="10" r="3"/>
@@ -1104,20 +1104,22 @@ export const Map: React.FC = () => {
       const iconSz = Math.round(markerSize * 0.42);
       const el = document.createElement('div');
 
-      // Friends: warm ring + users icon; Experts: gold ring + star icon; MyRatings: score-colored
+      // Friends: warm ring + friend initial; Experts: gold ring + star icon; MyRatings: score-colored with decimal
       let borderStyle = '2px solid transparent';
       let iconHtml = '';
       if (mapMode === 'friends') {
+        const profile = friendProfiles[r.user_id];
+        const initial = profile?.display_name?.charAt(0)?.toUpperCase() || '?';
         borderStyle = `2.5px solid ${strokeColor}`;
-        iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="none" stroke="${strokeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+        iconHtml = `<span style="font-size:${Math.round(markerSize * 0.38)}px;font-weight:800;color:${strokeColor};line-height:1;">${initial}</span>`;
       } else if (mapMode === 'experts') {
         borderStyle = `2.5px solid #d4a017`;
         iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#d4a017" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
       } else {
-        // myratings: score color
+        // myratings: score color with decimal
         const sc = score >= 8 ? '#16a34a' : score >= 5 ? '#d97706' : '#dc2626';
         borderStyle = `2.5px solid ${sc}`;
-        iconHtml = `<span style="font-size:${Math.round(markerSize * 0.35)}px;font-weight:800;color:${sc};line-height:1;">${score.toFixed(0)}</span>`;
+        iconHtml = `<span style="font-size:${Math.round(markerSize * 0.30)}px;font-weight:800;color:${sc};line-height:1;">${score.toFixed(1)}</span>`;
       }
 
       el.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;`;
@@ -1148,7 +1150,7 @@ export const Map: React.FC = () => {
     }
 
     if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
-  }, [mapMode, myRatings, friendRatings, expertRatings, selectedFriendIds, selectedListId, myLists]);
+  }, [mapMode, myRatings, friendRatings, expertRatings, friendProfiles, selectedFriendIds, selectedListId, myLists]);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
