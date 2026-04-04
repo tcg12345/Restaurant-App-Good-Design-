@@ -218,6 +218,7 @@ export const Map: React.FC = () => {
   const setFilterSheetOpen = useCallback((show: boolean) => {
     setFilterSheetOpenRaw(show);
     setHideBottomNav(show);
+    if (!show) { setFilterCuisineOpen(false); setFilterCuisineSearch(''); setFilterCityOpen(false); setFilterCitySearch(''); setFilterFriendOpen(false); setFilterFriendSearch(''); }
   }, [setHideBottomNav]);
 
   // Filter state — discover
@@ -238,6 +239,14 @@ export const Map: React.FC = () => {
   const [hotelStarFilter, setHotelStarFilter] = useState<number>(0); // 0=Any, 3/4/5
   const [hotelPriceFilter, setHotelPriceFilter] = useState(0);
   const [hotelSortBy, setHotelSortBy] = useState<'popularity' | 'rating' | 'price_low'>('popularity');
+
+  // Filter sheet dropdown search state
+  const [filterCuisineOpen, setFilterCuisineOpen] = useState(false);
+  const [filterCuisineSearch, setFilterCuisineSearch] = useState('');
+  const [filterCityOpen, setFilterCityOpen] = useState(false);
+  const [filterCitySearch, setFilterCitySearch] = useState('');
+  const [filterFriendOpen, setFilterFriendOpen] = useState(false);
+  const [filterFriendSearch, setFilterFriendSearch] = useState('');
 
   const [showSearchHere, setShowSearchHere] = useState(false);
 
@@ -1444,14 +1453,17 @@ export const Map: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Sheet — context-aware per map mode */}
+      {/* Filter Sheet — context-aware per map mode, matching Pantry FilterSheet design */}
       <AnimatePresence>
         {filterSheetOpen && (() => {
           const thumbCls = "absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer";
           const sectionLabel = "text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5";
-          const pillActive = "border-primary bg-primary/5 text-primary";
-          const pillInactive = "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20";
-          const pillCls = "px-3.5 py-2 rounded-full text-xs font-semibold transition-all border";
+          const sortActive = "bg-primary text-white";
+          const sortInactive = "bg-on-surface/5 text-on-surface/50 hover:bg-on-surface/10";
+          const sortCls = "px-3.5 py-2 rounded-full text-xs font-semibold transition-all";
+          const chipActive = "border-primary bg-primary/10 text-primary";
+          const chipInactive = "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20";
+          const chipCls = "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border";
 
           const handleReset = () => {
             if (mapMode === 'discover') {
@@ -1470,7 +1482,7 @@ export const Map: React.FC = () => {
             if (mapMode === 'discover') fetchNearby(selectedCuisines);
           };
 
-          // Score range slider JSX (reused across modes)
+          // Score range slider (reused)
           const scoreSlider = (
             <div>
               <p className={sectionLabel}>Score: {scoreRange[0]} &ndash; {scoreRange[1]}</p>
@@ -1484,32 +1496,168 @@ export const Map: React.FC = () => {
             </div>
           );
 
-          // Price pills JSX (reused)
-          const pricePills = (target: string | null, setTarget: (v: string | null) => void) => (
-            <div>
-              <p className={sectionLabel}>Price</p>
-              <div className="flex gap-2">
-                {['$', '$$', '$$$', '$$$$'].map((p) => (
-                  <button key={p} onClick={() => setTarget(target === p ? null : p)}
-                    className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", target === p ? pillActive : pillInactive)}>{p}</button>
-                ))}
+          // Collapsible cuisine dropdown with search (matching Pantry design)
+          const cuisineDropdown = (cuisines: string[], selected: string[], setSelected: React.Dispatch<React.SetStateAction<string[]>>) => {
+            const filtered = filterCuisineSearch.trim() ? cuisines.filter((c) => c.toLowerCase().includes(filterCuisineSearch.toLowerCase())) : cuisines;
+            return (
+              <div>
+                <button onClick={() => setFilterCuisineOpen(!filterCuisineOpen)} className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
+                    {selected.length > 0 && <span className="text-[10px] font-semibold text-primary">{selected.join(', ')}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selected.length > 0 && <button onClick={(e) => { e.stopPropagation(); setSelected([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", filterCuisineOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence>
+                  {filterCuisineOpen && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      <div className="relative mb-2">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                        <input type="text" value={filterCuisineSearch} onChange={(e) => setFilterCuisineSearch(e.target.value)} placeholder="Search cuisines..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filtered.map((c) => (
+                          <button key={c} onClick={() => setSelected((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])}
+                            className={cn(chipCls, selected.includes(c) ? chipActive : chipInactive)}>{c}</button>
+                        ))}
+                        {filtered.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-            </div>
-          );
+            );
+          };
 
-          // Cuisine pills JSX
-          const cuisinePills = (cuisines: string[], selected: string[], setSelected: React.Dispatch<React.SetStateAction<string[]>>) => (
-            <div>
-              <p className={sectionLabel}>Cuisine</p>
-              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-                {cuisines.map((c) => (
-                  <button key={c} onClick={() => setSelected((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])}
-                    className={cn(pillCls, selected.includes(c) ? pillActive : pillInactive)}>{c}</button>
-                ))}
-                {cuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines available</p>}
+          // Collapsible city dropdown with search (matching Pantry design)
+          const cityDropdown = (cities: string[], selected: string[], setSelected: React.Dispatch<React.SetStateAction<string[]>>) => {
+            const filtered = filterCitySearch.trim() ? cities.filter((c) => c.toLowerCase().includes(filterCitySearch.toLowerCase())) : cities;
+            return (
+              <div>
+                <button onClick={() => setFilterCityOpen(!filterCityOpen)} className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
+                    {selected.length > 0 && <span className="text-[10px] font-semibold text-primary">{selected.join(', ')}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selected.length > 0 && <button onClick={(e) => { e.stopPropagation(); setSelected([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", filterCityOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence>
+                  {filterCityOpen && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      <div className="relative mb-2">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                        <input type="text" value={filterCitySearch} onChange={(e) => setFilterCitySearch(e.target.value)} placeholder="Search locations..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filtered.map((c) => (
+                          <button key={c} onClick={() => setSelected((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])}
+                            className={cn(chipCls, selected.includes(c) ? chipActive : chipInactive)}>{c}</button>
+                        ))}
+                        {filtered.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-            </div>
-          );
+            );
+          };
+
+          // Discover cuisine dropdown (uses CUISINE_TYPES labels)
+          const discoverCuisineDropdown = (() => {
+            const allLabels = CUISINE_TYPES.filter((c) => c.type !== '').map((c) => c.label);
+            const filtered = filterCuisineSearch.trim() ? allLabels.filter((c) => c.toLowerCase().includes(filterCuisineSearch.toLowerCase())) : allLabels;
+            const labelToType = Object.fromEntries(CUISINE_TYPES.map((c) => [c.label, c.type]));
+            const typeToLabel = Object.fromEntries(CUISINE_TYPES.map((c) => [c.type, c.label]));
+            const selectedLabels = selectedCuisines.map((t) => typeToLabel[t] || t);
+            return (
+              <div>
+                <button onClick={() => setFilterCuisineOpen(!filterCuisineOpen)} className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
+                    {selectedCuisines.length > 0 && <span className="text-[10px] font-semibold text-primary">{selectedLabels.join(', ')}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedCuisines.length > 0 && <button onClick={(e) => { e.stopPropagation(); setSelectedCuisines([]); }} className="text-[10px] text-primary font-semibold">Clear</button>}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", filterCuisineOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence>
+                  {filterCuisineOpen && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      <div className="relative mb-2">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                        <input type="text" value={filterCuisineSearch} onChange={(e) => setFilterCuisineSearch(e.target.value)} placeholder="Search cuisines..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filtered.map((label) => {
+                          const type = labelToType[label] || '';
+                          const isActive = selectedCuisines.includes(type);
+                          return (
+                            <button key={label} onClick={() => setSelectedCuisines((prev) => prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type])}
+                              className={cn(chipCls, isActive ? chipActive : chipInactive)}>{label}</button>
+                          );
+                        })}
+                        {filtered.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })();
+
+          // Friend filter dropdown with search
+          const friendDropdown = (() => {
+            const allFriends = Object.values(friendProfiles);
+            const filtered = filterFriendSearch.trim() ? allFriends.filter((p) => (p.display_name || p.username).toLowerCase().includes(filterFriendSearch.toLowerCase())) : allFriends;
+            const selectedNames = allFriends.filter((p) => selectedFriendIds.has(p.user_id)).map((p) => p.display_name || `@${p.username}`);
+            return (
+              <div>
+                <button onClick={() => setFilterFriendOpen(!filterFriendOpen)} className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Filter by Friend</p>
+                    {selectedFriendIds.size > 0 && <span className="text-[10px] font-semibold text-primary">{selectedNames.join(', ')}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedFriendIds.size > 0 && <button onClick={(e) => { e.stopPropagation(); setSelectedFriendIds(new Set()); }} className="text-[10px] text-primary font-semibold">Clear</button>}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", filterFriendOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence>
+                  {filterFriendOpen && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                      {allFriends.length > 5 && (
+                        <div className="relative mb-2">
+                          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                          <input type="text" value={filterFriendSearch} onChange={(e) => setFilterFriendSearch(e.target.value)} placeholder="Search friends..."
+                            className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filtered.map((p) => {
+                          const sel = selectedFriendIds.has(p.user_id);
+                          return (
+                            <button key={p.user_id} onClick={() => setSelectedFriendIds((prev) => { const next = new Set(prev); sel ? next.delete(p.user_id) : next.add(p.user_id); return next; })}
+                              className={cn(chipCls, sel ? chipActive : chipInactive)}>{p.display_name || `@${p.username}`}</button>
+                          );
+                        })}
+                        {filtered.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No friends match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })();
 
           return (
           <>
@@ -1520,8 +1668,8 @@ export const Map: React.FC = () => {
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
               drag={phoneMode ? 'y' : false} dragConstraints={{ top: 0 }} dragElastic={{ top: 0, bottom: 0.4 }}
               onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) setFilterSheetOpen(false); }}
-              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden"
-              style={{ maxHeight: '85vh' }}
+              className={cn("fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+                phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
             >
               {/* Drag handle */}
               {phoneMode && (
@@ -1549,7 +1697,7 @@ export const Map: React.FC = () => {
                       <div className="flex flex-wrap gap-2">
                         {SORT_OPTIONS.map((opt) => (
                           <button key={opt.value} onClick={() => setSortBy(opt.value)}
-                            className={cn(pillCls, sortBy === opt.value ? pillActive : pillInactive)}>{opt.label}</button>
+                            className={cn(sortCls, sortBy === opt.value ? sortActive : sortInactive)}>{opt.label}</button>
                         ))}
                       </div>
                     </div>
@@ -1558,25 +1706,11 @@ export const Map: React.FC = () => {
                       <div className="flex gap-2">
                         {PRICE_LEVELS.map((p) => (
                           <button key={p.value} onClick={() => setSelectedPrice(p.value)}
-                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", selectedPrice === p.value ? pillActive : pillInactive)}>{p.label}</button>
+                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", selectedPrice === p.value ? "border-primary bg-primary/5 text-primary" : chipInactive)}>{p.label}</button>
                         ))}
                       </div>
                     </div>
-                    <div>
-                      <p className={sectionLabel}>Cuisine</p>
-                      <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-                        {CUISINE_TYPES.map((c) => {
-                          const isAll = c.type === '';
-                          const isActive = isAll ? selectedCuisines.length === 0 : selectedCuisines.includes(c.type);
-                          return (
-                            <button key={c.type || 'all'} onClick={() => { if (isAll) setSelectedCuisines([]); else setSelectedCuisines((prev) => prev.includes(c.type) ? prev.filter((t) => t !== c.type) : [...prev, c.type]); }}
-                              className={cn(pillCls, isActive ? pillActive : pillInactive)}>
-                              {isActive && !isAll && <Check size={12} className="inline mr-1 -mt-0.5" />}{c.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    {discoverCuisineDropdown}
                     <div>
                       <p className={sectionLabel}>Radius: {discoverRadius} km</p>
                       <div className="relative h-6 flex items-center">
@@ -1598,30 +1732,28 @@ export const Map: React.FC = () => {
                       <div className="flex flex-wrap gap-2">
                         {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['visited', 'Date Visited']] as const).map(([key, label]) => (
                           <button key={key} onClick={() => setRatingSortBy(key)}
-                            className={cn(pillCls, ratingSortBy === key ? pillActive : pillInactive)}>{label}</button>
+                            className={cn(sortCls, ratingSortBy === key ? sortActive : sortInactive)}>{label}</button>
                         ))}
                       </div>
                     </div>
                     {scoreSlider}
-                    {pricePills(ratingPrice, setRatingPrice)}
-                    {cuisinePills(uniqueMyRatingCuisines, ratingCuisines, setRatingCuisines)}
-                    {uniqueMyRatingCities.length > 0 && (
-                      <div>
-                        <p className={sectionLabel}>City / Location</p>
-                        <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
-                          {uniqueMyRatingCities.map((c) => (
-                            <button key={c} onClick={() => setRatingCities((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])}
-                              className={cn(pillCls, ratingCities.includes(c) ? pillActive : pillInactive)}>{c}</button>
-                          ))}
-                        </div>
+                    <div>
+                      <p className={sectionLabel}>Price</p>
+                      <div className="flex gap-2">
+                        {['$', '$$', '$$$', '$$$$'].map((p) => (
+                          <button key={p} onClick={() => setRatingPrice(ratingPrice === p ? null : p)}
+                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", ratingPrice === p ? "border-primary bg-primary/5 text-primary" : chipInactive)}>{p}</button>
+                        ))}
                       </div>
-                    )}
+                    </div>
+                    {cuisineDropdown(uniqueMyRatingCuisines, ratingCuisines, setRatingCuisines)}
+                    {uniqueMyRatingCities.length > 0 && cityDropdown(uniqueMyRatingCities, ratingCities, setRatingCities)}
                     <div>
                       <p className={sectionLabel}>Would Return</p>
                       <div className="flex gap-2">
                         {([['all', 'All'], ['yes', 'Yes'], ['no', 'No']] as const).map(([key, label]) => (
                           <button key={key} onClick={() => setWouldReturnFilter(key)}
-                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", wouldReturnFilter === key ? pillActive : pillInactive)}>{label}</button>
+                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", wouldReturnFilter === key ? "border-primary bg-primary/5 text-primary" : chipInactive)}>{label}</button>
                         ))}
                       </div>
                     </div>
@@ -1630,10 +1762,10 @@ export const Map: React.FC = () => {
                         <p className={sectionLabel}>List</p>
                         <div className="flex flex-wrap gap-1.5">
                           <button onClick={() => setSelectedListId(null)}
-                            className={cn(pillCls, !selectedListId ? pillActive : pillInactive)}>All Ratings</button>
+                            className={cn(chipCls, !selectedListId ? chipActive : chipInactive)}>All Ratings</button>
                           {myLists.filter((l: any) => l.restaurantIds?.length > 0).map((l: any) => (
                             <button key={l.id} onClick={() => setSelectedListId(selectedListId === l.id ? null : l.id)}
-                              className={cn(pillCls, selectedListId === l.id ? pillActive : pillInactive)}>{l.emoji} {l.name}</button>
+                              className={cn(chipCls, selectedListId === l.id ? chipActive : chipInactive)}>{l.emoji} {l.name}</button>
                           ))}
                         </div>
                       </div>
@@ -1644,36 +1776,18 @@ export const Map: React.FC = () => {
                 {/* ─── FRIENDS MODE ─── */}
                 {mapMode === 'friends' && (
                   <>
-                    {Object.keys(friendProfiles).length > 0 && (
-                      <div>
-                        <p className={sectionLabel}>Filter by Friend</p>
-                        <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-                          <button onClick={() => setSelectedFriendIds(new Set())}
-                            className={cn(pillCls, selectedFriendIds.size === 0 ? pillActive : pillInactive)}>All Friends</button>
-                          {Object.values(friendProfiles).map((p) => {
-                            const sel = selectedFriendIds.has(p.user_id);
-                            return (
-                              <button key={p.user_id} onClick={() => setSelectedFriendIds((prev) => { const next = new Set(prev); sel ? next.delete(p.user_id) : next.add(p.user_id); return next; })}
-                                className={cn(pillCls, sel ? pillActive : pillInactive)}>
-                                {sel && <Check size={12} className="inline mr-1 -mt-0.5" />}
-                                {p.display_name || `@${p.username}`}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
+                    {Object.keys(friendProfiles).length > 0 && friendDropdown}
                     <div>
                       <p className={sectionLabel}>Sort by</p>
                       <div className="flex flex-wrap gap-2">
                         {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score']] as const).map(([key, label]) => (
                           <button key={key} onClick={() => setRatingSortBy(key)}
-                            className={cn(pillCls, ratingSortBy === key ? pillActive : pillInactive)}>{label}</button>
+                            className={cn(sortCls, ratingSortBy === key ? sortActive : sortInactive)}>{label}</button>
                         ))}
                       </div>
                     </div>
                     {scoreSlider}
-                    {cuisinePills(uniqueFriendCuisines, ratingCuisines, setRatingCuisines)}
+                    {cuisineDropdown(uniqueFriendCuisines, ratingCuisines, setRatingCuisines)}
                   </>
                 )}
 
@@ -1685,12 +1799,12 @@ export const Map: React.FC = () => {
                       <div className="flex flex-wrap gap-2">
                         {([['recent', 'Recent'], ['highest', 'Highest Score']] as const).map(([key, label]) => (
                           <button key={key} onClick={() => setRatingSortBy(key)}
-                            className={cn(pillCls, ratingSortBy === key ? pillActive : pillInactive)}>{label}</button>
+                            className={cn(sortCls, ratingSortBy === key ? sortActive : sortInactive)}>{label}</button>
                         ))}
                       </div>
                     </div>
                     {scoreSlider}
-                    {cuisinePills(uniqueExpertCuisines, ratingCuisines, setRatingCuisines)}
+                    {cuisineDropdown(uniqueExpertCuisines, ratingCuisines, setRatingCuisines)}
                   </>
                 )}
 
@@ -1702,7 +1816,7 @@ export const Map: React.FC = () => {
                       <div className="flex gap-2">
                         {[{ v: 0, l: 'Any' }, { v: 3, l: '3\u2605+' }, { v: 4, l: '4\u2605+' }, { v: 5, l: '5\u2605' }].map(({ v, l }) => (
                           <button key={v} onClick={() => setHotelStarFilter(v)}
-                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", hotelStarFilter === v ? "border-teal-600 bg-teal-50 text-teal-700" : pillInactive)}>{l}</button>
+                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", hotelStarFilter === v ? "border-teal-600 bg-teal-50 text-teal-700" : chipInactive)}>{l}</button>
                         ))}
                       </div>
                     </div>
@@ -1711,7 +1825,7 @@ export const Map: React.FC = () => {
                       <div className="flex gap-2">
                         {PRICE_LEVELS.map((p) => (
                           <button key={p.value} onClick={() => setHotelPriceFilter(p.value)}
-                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", hotelPriceFilter === p.value ? "border-teal-600 bg-teal-50 text-teal-700" : pillInactive)}>{p.label}</button>
+                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", hotelPriceFilter === p.value ? "border-teal-600 bg-teal-50 text-teal-700" : chipInactive)}>{p.label}</button>
                         ))}
                       </div>
                     </div>
@@ -1720,7 +1834,7 @@ export const Map: React.FC = () => {
                       <div className="flex flex-wrap gap-2">
                         {([['popularity', 'Most Popular'], ['rating', 'Highest Rated'], ['price_low', 'Price: Low to High']] as const).map(([key, label]) => (
                           <button key={key} onClick={() => setHotelSortBy(key as any)}
-                            className={cn(pillCls, hotelSortBy === key ? "border-teal-600 bg-teal-50 text-teal-700" : pillInactive)}>{label}</button>
+                            className={cn(sortCls, hotelSortBy === key ? "bg-teal-600 text-white" : sortInactive)}>{label}</button>
                         ))}
                       </div>
                     </div>
@@ -1728,7 +1842,7 @@ export const Map: React.FC = () => {
                 )}
               </div>
 
-              {/* Reset + Apply footer */}
+              {/* Footer — Reset + Apply */}
               <div className="flex-shrink-0 border-t border-on-surface/6 px-5 py-4 flex gap-3">
                 <button onClick={handleReset}
                   className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors">Reset</button>
