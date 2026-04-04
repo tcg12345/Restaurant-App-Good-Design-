@@ -1733,36 +1733,32 @@ export const Map: React.FC = () => {
         })()}
       </AnimatePresence>
 
-      {/* Selected Place Card — above bottom sheet, swipeable with arrows */}
+      {/* Selected Place Card — above bottom sheet */}
       <AnimatePresence mode="wait">
         {selectedPlace && sheetState === 'peek' && (() => {
           const isRatingsMode = mapMode === 'myratings' || mapMode === 'friends' || mapMode === 'experts';
-
-          // For ratings modes: sort places by distance to the currently selected place
-          // so arrows go to the next closest restaurant
           const orderedPlaces = isRatingsMode && selectedPlace
-            ? (() => {
-                const ref = selectedPlace;
-                return [...places].sort((a, b) => {
-                  const da = Math.hypot(a.lat - ref.lat, a.lng - ref.lng);
-                  const db = Math.hypot(b.lat - ref.lat, b.lng - ref.lng);
-                  return da - db;
-                });
-              })()
+            ? (() => { const ref = selectedPlace; return [...places].sort((a, b) => Math.hypot(a.lat - ref.lat, a.lng - ref.lng) - Math.hypot(b.lat - ref.lat, b.lng - ref.lng)); })()
             : places;
-
           const currentIndex = orderedPlaces.findIndex((p) => p.id === selectedPlace.id);
           const hasPrev = currentIndex > 0;
           const hasNext = currentIndex >= 0 && currentIndex < orderedPlaces.length - 1;
           const goTo = (dir: number) => {
-            if (currentIndex < 0) return;
             const nextIndex = currentIndex + dir;
-            if (nextIndex >= 0 && nextIndex < orderedPlaces.length) {
-              const next = orderedPlaces[nextIndex];
-              setSelectedPlace(next);
-              setSelectedMarker(next.id);
-            }
+            if (nextIndex >= 0 && nextIndex < orderedPlaces.length) { const next = orderedPlaces[nextIndex]; setSelectedPlace(next); setSelectedMarker(next.id); }
           };
+
+          // Mode-specific data lookups
+          const myRating = mapMode === 'myratings' ? myRatings.find((r) => r.restaurant_id === selectedPlace.id) : null;
+          const friendRating = mapMode === 'friends' ? friendRatings.filter((r) => r.restaurant_id === selectedPlace.id) : [];
+          const expertRating = mapMode === 'experts' ? expertRatings.find((r) => r.restaurant_id === selectedPlace.id) : null;
+          const discoverScore = mapMode === 'discover' ? userRatingMap[selectedPlace.id] : undefined;
+          const cuisine = getCuisineLabel(selectedPlace.types);
+          const restData = { id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address };
+
+          // Score color helper
+          const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-amber-600' : 'text-red-500';
+
           return (
             <motion.div
               key={selectedPlace.id}
@@ -1770,84 +1766,123 @@ export const Map: React.FC = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className={cn("fixed z-40 flex items-center gap-2", phoneMode ? "left-2 right-2" : "left-1/2 -translate-x-1/2 w-full max-w-lg")}
-              style={{ bottom: PEEK_HEIGHT + (phoneMode ? 8 : 16) }}
+              className={cn("fixed z-40", phoneMode ? "left-3 right-3" : "left-1/2 -translate-x-1/2 w-full max-w-sm")}
+              style={{ bottom: PEEK_HEIGHT + 12 }}
             >
-              {/* Left arrow */}
-              <button
-                onClick={(e) => { e.stopPropagation(); goTo(-1); }}
-                disabled={!hasPrev}
-                className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg border border-white/30 transition-all",
-                  hasPrev ? "glass text-on-surface/60 hover:text-primary" : "bg-white/30 text-on-surface/15 cursor-default"
-                )}
+              <div className="relative bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl shadow-black/15 border border-white/40 overflow-hidden flex cursor-pointer"
+                style={{ height: phoneMode ? 88 : 96 }}
+                onClick={() => { setSelectedPlace(null); setSelectedMarker(null); navigate(`/restaurant/${selectedPlace.id}`); }}
               >
-                <ChevronLeft size={18} />
-              </button>
+                {/* Image — full-bleed left */}
+                <div className="w-28 flex-shrink-0 h-full">
+                  {selectedPlace.photoUrl ? (
+                    <img src={selectedPlace.photoUrl} alt={selectedPlace.name} className="w-full h-full object-cover pointer-events-none select-none" draggable={false} referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5">
+                      <MapPinned size={24} className="text-on-surface/15" />
+                    </div>
+                  )}
+                </div>
 
-              {/* Card */}
-              <motion.div
-                className="flex-1 min-w-0"
-                drag="x"
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={0.3}
-                dragMomentum={false}
-                onDragEnd={(_e, info) => {
-                  if (info.offset.x < -50 && hasNext) goTo(1);
-                  else if (info.offset.x > 50 && hasPrev) goTo(-1);
-                }}
-                style={{ touchAction: 'pan-y' }}
-              >
-                <div className="glass rounded-2xl shadow-2xl border border-white/30 overflow-hidden flex cursor-pointer"
-                  onClick={() => { setSelectedPlace(null); setSelectedMarker(null); navigate(`/restaurant/${selectedPlace.id}`); }}
-                >
-                  {/* Photo */}
-                  <div className="w-24 h-24 flex-shrink-0">
-                    {selectedPlace.photoUrl ? (
-                      <img src={selectedPlace.photoUrl} alt={selectedPlace.name} className="w-full h-full object-cover pointer-events-none select-none" draggable={false} referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-on-surface/5">
-                        <MapPinned size={24} className="text-on-surface/15" />
+                {/* Content column */}
+                <div className="flex-1 min-w-0 px-3 py-2.5 flex flex-col justify-between select-none">
+                  <div className="min-w-0">
+                    <h3 className="font-serif font-bold text-sm leading-tight truncate pr-6">{selectedPlace.name}</h3>
+                    <p className="text-[10px] text-primary font-bold uppercase tracking-wider mt-0.5">{cuisine}</p>
+                    {selectedPlace.rating > 0 && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Star size={10} className="fill-amber-400 text-amber-400" />
+                        <span className="text-[11px] font-bold text-on-surface/70">{selectedPlace.rating.toFixed(1)}</span>
+                        <span className="text-[10px] text-on-surface/30">({selectedPlace.userRatingCount})</span>
+                        {selectedPlace.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/30 ml-0.5">· {priceLevelToString(selectedPlace.priceLevel)}</span>}
+                      </div>
+                    )}
+
+                    {/* Mode-specific line 4 */}
+                    {mapMode === 'discover' && discoverScore !== undefined && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full">
+                          <Star size={8} className="fill-green-600 text-green-600" /> You rated: {discoverScore.toFixed(1)}
+                        </span>
+                      </div>
+                    )}
+                    {mapMode === 'myratings' && myRating && (
+                      <div className="mt-0.5">
+                        <span className={cn("font-serif font-bold text-sm", scoreColor(Number(myRating.score)))}>{Number(myRating.score).toFixed(1)}<span className="text-[10px] text-on-surface/30 font-normal"> / 10</span></span>
+                        {myRating.would_return !== null && myRating.would_return !== undefined && (
+                          <span className={cn("text-[10px] ml-1.5", myRating.would_return ? "text-green-600" : "text-red-500")}>
+                            {myRating.would_return ? '↩ Would return' : '✗ Wouldn\'t'}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {mapMode === 'friends' && friendRating.length > 0 && (() => {
+                      const first = friendRating[0];
+                      const prof = friendProfiles[first.user_id];
+                      const initial = prof?.display_name?.charAt(0)?.toUpperCase() || '?';
+                      return (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className={cn("font-serif font-bold text-sm", scoreColor(Number(first.score)))}>{Number(first.score).toFixed(1)}</span>
+                          <span className="w-4 h-4 rounded-full bg-primary/15 text-[8px] font-bold text-primary flex items-center justify-center flex-shrink-0">{initial}</span>
+                          <span className="text-[10px] text-on-surface/50 truncate">{friendRating.length > 1 ? `+${friendRating.length - 1} friends` : prof?.display_name || 'Friend'}</span>
+                        </div>
+                      );
+                    })()}
+                    {mapMode === 'experts' && expertRating && (
+                      <div className="mt-0.5">
+                        <span className={cn("font-serif font-bold text-sm", scoreColor(Number(expertRating.score)))}>{Number(expertRating.score).toFixed(1)}</span>
+                        <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full ml-1.5">Expert Pick</span>
+                      </div>
+                    )}
+                    {mapMode === 'hotels' && (
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[11px] text-amber-400 leading-none">
+                          {Array.from({ length: 5 }, (_, i) => selectedPlace.rating >= i + 0.75 ? '★' : '☆').join('')}
+                        </span>
+                        <span className="text-[9px] font-bold text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded-full">Hotel</span>
                       </div>
                     )}
                   </div>
-                  {/* Info */}
-                  <div className="flex-1 min-w-0 p-3 flex flex-col justify-between select-none">
-                    <div>
-                      <h3 className="font-serif font-bold text-sm leading-snug truncate">{selectedPlace.name}</h3>
-                      <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{getCuisineLabel(selectedPlace.types)}</p>
-                      {selectedPlace.rating > 0 && (
-                        <div className="flex items-center gap-1 mt-1">
-                          <Star size={11} className="fill-primary text-primary" />
-                          <span className="text-xs font-bold text-primary">{selectedPlace.rating.toFixed(1)}</span>
-                          <span className="text-[10px] text-on-surface/35 ml-0.5">({selectedPlace.userRatingCount})</span>
-                          {selectedPlace.priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-1">· {priceLevelToString(selectedPlace.priceLevel)}</span>}
-                        </div>
-                      )}
-                      <p className="text-[10px] text-on-surface/40 mt-0.5 truncate">{extractCityState(selectedPlace.fullAddress, selectedPlace.address)}</p>
-                    </div>
+
+                  {/* Bottom row: city + counter */}
+                  <div className="flex items-end justify-between">
+                    <p className="text-[10px] text-on-surface/35 truncate">{extractCityState(selectedPlace.fullAddress, selectedPlace.address)}</p>
                     {currentIndex >= 0 && orderedPlaces.length > 1 && (
-                      <p className="text-[9px] text-on-surface/25 font-semibold mt-1">{currentIndex + 1} / {orderedPlaces.length}</p>
+                      <span className="text-[9px] text-on-surface/25 font-semibold flex-shrink-0 ml-1">{currentIndex + 1} / {orderedPlaces.length}</span>
                     )}
                   </div>
-                  {/* Action buttons */}
-                  <div className="flex flex-col items-center justify-center gap-1.5 pr-3 flex-shrink-0">
-                    <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openAddRestaurantModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); const cuisine = getCuisineLabel(selectedPlace.types); openWishlistModal({ id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", isWishlisted(selectedPlace.id) ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={isWishlisted(selectedPlace.id) ? "fill-red-400" : ""} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); setSelectedPlace(null); setSelectedMarker(null); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/30 hover:text-on-surface/60 transition-colors"><X size={14} /></button>
-                  </div>
                 </div>
-              </motion.div>
 
-              {/* Right arrow */}
-              <button
-                onClick={(e) => { e.stopPropagation(); goTo(1); }}
-                disabled={!hasNext}
-                className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg border border-white/30 transition-all",
-                  hasNext ? "glass text-on-surface/60 hover:text-primary" : "bg-white/30 text-on-surface/15 cursor-default"
-                )}
-              >
-                <ChevronRight size={18} />
-              </button>
+                {/* Dismiss button — top right */}
+                <button onClick={(e) => { e.stopPropagation(); setSelectedPlace(null); setSelectedMarker(null); }}
+                  className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/10 flex items-center justify-center text-white/80 hover:bg-black/20 transition-colors z-10">
+                  <X size={12} />
+                </button>
+
+                {/* Action buttons — bottom right */}
+                <div className="absolute bottom-2 right-2 flex items-center gap-1 z-10">
+                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(restData); }}
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors">
+                    <Plus size={14} />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal(restData); }}
+                    className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", isWishlisted(selectedPlace.id) ? "text-red-400" : "text-on-surface/40 hover:text-red-400")}>
+                    <Heart size={13} className={isWishlisted(selectedPlace.id) ? "fill-red-400" : ""} />
+                  </button>
+                </div>
+
+                {/* Inline prev/next chevrons */}
+                <button onClick={(e) => { e.stopPropagation(); goTo(-1); }}
+                  className={cn("absolute left-1 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/10 backdrop-blur-sm flex items-center justify-center text-white/80 z-10 transition-opacity",
+                    hasPrev ? "opacity-100" : "opacity-0 pointer-events-none")}>
+                  <ChevronLeft size={16} />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); goTo(1); }}
+                  className={cn("absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/10 backdrop-blur-sm flex items-center justify-center text-white/80 z-10 transition-opacity",
+                    hasNext ? "opacity-100" : "opacity-0 pointer-events-none")}>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
             </motion.div>
           );
         })()}
