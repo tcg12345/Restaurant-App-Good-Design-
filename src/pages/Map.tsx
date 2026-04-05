@@ -2710,44 +2710,6 @@ export const Map: React.FC = () => {
                 </section>
               ) : null}
 
-              {/* Recent Views */}
-              {recentViews.length > 0 && (
-                <section className="mt-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Clock size={15} className="text-on-surface/35" />
-                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
-                  </div>
-                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
-                    {recentViews.slice(0, 8).map((place) => (
-                      <div key={place.id} className="flex-shrink-0 w-32 relative group">
-                        <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
-                          className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X size={10} className="text-white" />
-                        </button>
-                        <Link to={`/restaurant/${place.id}`}>
-                          <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                            {((place as any).photoUrl || (place as any).image) ? (
-                              <img src={(place as any).photoUrl || (place as any).image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
-                            )}
-                          </div>
-                          <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
-                          {place.rating > 0 && (
-                            <div className="flex items-center gap-0.5 mt-0.5">
-                              <Star size={10} className="fill-primary text-primary" />
-                              <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
-                            </div>
-                          )}
-                        </Link>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-
               {/* Social Feed */}
               <div className="mt-5">
                 <SocialFeed />
@@ -3216,44 +3178,6 @@ export const Map: React.FC = () => {
                       </div>
                     </section>
                   ) : null}
-
-                  {/* Recent Views */}
-                  {recentViews.length > 0 && (
-                    <section>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Clock size={13} className="text-on-surface/35" />
-                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
-                      </div>
-                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
-                        {recentViews.slice(0, 8).map((place) => (
-                          <div key={place.id} className="flex-shrink-0 w-28 relative group">
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
-                              className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X size={10} className="text-white" />
-                            </button>
-                            <Link to={`/restaurant/${place.id}`}>
-                              <div className="w-28 h-20 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                                {((place as any).photoUrl || (place as any).image) ? (
-                                  <img src={(place as any).photoUrl || (place as any).image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
-                                )}
-                              </div>
-                              <p className="text-[11px] font-semibold truncate leading-tight">{place.name}</p>
-                              {place.rating > 0 && (
-                                <div className="flex items-center gap-0.5 mt-0.5">
-                                  <Star size={10} className="fill-primary text-primary" />
-                                  <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
-                                </div>
-                              )}
-                            </Link>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  )}
 
                   {/* Social Feed */}
                   <SocialFeed />
