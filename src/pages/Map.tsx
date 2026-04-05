@@ -611,19 +611,13 @@ export const Map: React.FC = () => {
     return lookup;
   }, [myLocalRatings]);
 
-  // Create a marker element for a place — color/size by user rating
+  // Create a marker element for a place — plain pin on the discover map.
+  // We intentionally do NOT surface the user's own rating here; only expert
+  // rating markers (rendered via the expert overlay) should appear alongside
+  // discover results. User-rated markers live on the My Ratings map.
   const createMarkerElement = useCallback((place: PlaceResult) => {
-    const userScore = userRatingMap[place.id];
-    const hasRating = userScore !== undefined;
-    // Score color: green >= 8, amber >= 5, red < 5
-    let ringColor = 'transparent';
-    let dotColor = '';
-    let size = 36; // default
-    if (hasRating) {
-      if (userScore >= 8) { ringColor = '#16a34a'; dotColor = '#16a34a'; size = 42; }
-      else if (userScore >= 5) { ringColor = '#d97706'; dotColor = '#d97706'; size = 39; }
-      else { ringColor = '#dc2626'; dotColor = '#dc2626'; size = 36; }
-    }
+    const hasRating = false;
+    const size = 36;
     const iconSize = Math.round(size * 0.5);
 
     const el = document.createElement('div');
@@ -634,7 +628,7 @@ export const Map: React.FC = () => {
         height: ${size}px;
         border-radius: 50%;
         background: white;
-        border: ${hasRating ? `2.5px solid ${ringColor}` : '2px solid transparent'};
+        border: 2px solid transparent;
         box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         cursor: pointer;
         display: flex;
@@ -644,11 +638,10 @@ export const Map: React.FC = () => {
         transform: scale(0.4);
         transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
       ">
-        ${hasRating ? `<span style="font-size:${Math.round(size * 0.30)}px;font-weight:800;color:${dotColor};line-height:1;">${userScore.toFixed(1)}</span>` : `
         <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
           <circle cx="12" cy="10" r="3"/>
-        </svg>`}
+        </svg>
       </div>
     `;
 
@@ -662,7 +655,7 @@ export const Map: React.FC = () => {
     });
 
     return el;
-  }, [userRatingMap]);
+  }, []);
 
   // Show popup for a place
   // Use refs for callbacks so DOM event handlers always get the latest
@@ -968,22 +961,12 @@ export const Map: React.FC = () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
       if (!pin) return;
       const isSelected = id === selectedMarker;
-      const hasRating = id in userRatingMap;
       if (isSelected) {
         pin.style.background = 'var(--color-primary, #8B4513)';
         pin.style.color = 'white';
-        // Override score text color for selected state
-        const scoreSpan = pin.querySelector('span');
-        if (scoreSpan) scoreSpan.style.color = 'white';
       } else {
         pin.style.background = 'white';
         pin.style.color = 'currentColor';
-        // Restore score text color
-        if (hasRating) {
-          const score = userRatingMap[id];
-          const scoreSpan = pin.querySelector('span');
-          if (scoreSpan) scoreSpan.style.color = score >= 8 ? '#16a34a' : score >= 5 ? '#d97706' : '#dc2626';
-        }
       }
       const svg = pin.querySelector('svg');
       if (svg) {
@@ -991,7 +974,7 @@ export const Map: React.FC = () => {
         svg.setAttribute('fill', isSelected ? 'white' : 'none');
       }
     });
-  }, [selectedMarker, userRatingMap]);
+  }, [selectedMarker]);
 
   // Dismiss restaurant card when sheet leaves peek state
   useEffect(() => {
