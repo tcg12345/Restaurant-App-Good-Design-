@@ -1109,6 +1109,76 @@ export const Map: React.FC = () => {
     })();
   }, [mapMode, myRatings]);
 
+  // Background geocode missing coordinates for expert and friend ratings in PARALLEL
+  // so markers appear instantly when the Experts/Friends tab is opened. Results are
+  // persisted back to the database so subsequent loads are already populated.
+  useEffect(() => {
+    const kind = mapMode === 'experts' ? 'experts' : mapMode === 'friends' ? 'friends' : null;
+    if (!kind) return;
+    if (tabDataCache.coordsLookedUp[kind]) return;
+    const source = kind === 'experts' ? expertRatings : friendRatings;
+    if (source.length === 0) return;
+    tabDataCache.coordsLookedUp[kind] = true;
+
+    const missing = source.filter((r) => !r.lat || !r.lng || (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1));
+    if (missing.length === 0) return;
+
+    const setter = kind === 'experts' ? setExpertRatings : setFriendRatings;
+
+    (async () => {
+      const CONCURRENCY = 10;
+      let updatedSinceFlush = 0;
+      let flushTimer: ReturnType<typeof setTimeout> | null = null;
+      const scheduleFlush = () => {
+        if (flushTimer) return;
+        flushTimer = setTimeout(() => {
+          flushTimer = null;
+          updatedSinceFlush = 0;
+          setter((prev) => [...prev]);
+        }, 200);
+      };
+
+      const geocodeOne = async (r: CommunityRating) => {
+        try {
+          const query = `${r.restaurant_name} ${r.address || ''}`.trim();
+          const res = await fetch(
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`
+          );
+          const data = await res.json();
+          const feature = data.features?.[0];
+          if (feature?.center) {
+            const [lng, lat] = feature.center;
+            r.lat = lat;
+            r.lng = lng;
+            updatedSinceFlush++;
+            scheduleFlush();
+            // Persist so subsequent loads don't need to geocode again.
+            publishCommunityRating(r.user_id, r.restaurant_id, {
+              name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
+              price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
+              wouldReturn: r.would_return, friendIds: r.friend_ids || [],
+              photoUrl: r.photo_url || '', lat, lng,
+            });
+          }
+        } catch {}
+      };
+
+      // Run with bounded concurrency.
+      let idx = 0;
+      const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
+        while (idx < missing.length) {
+          const i = idx++;
+          await geocodeOne(missing[i]);
+        }
+      });
+      await Promise.all(workers);
+      if (flushTimer) clearTimeout(flushTimer);
+      if (kind === 'experts') tabDataCache.expertRatings = [...source];
+      else tabDataCache.friendRatings = [...source];
+      setter((prev) => [...prev]);
+    })();
+  }, [mapMode, expertRatings, friendRatings]);
+
   // Fetch hotels when entering hotels mode
   useEffect(() => {
     if (mapMode === 'hotels' && hotelPlaces.length === 0) fetchHotels();
