@@ -1,15 +1,34 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, UserCircle, ChefHat, UtensilsCrossed } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useLists } from '../contexts/ListsContext';
 import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments,
   getFriendsPublicHomeMeals,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
+
+// Palette used to tint user avatar initials deterministically per user.
+const AVATAR_PALETTE = [
+  { bg: 'bg-rose-100', text: 'text-rose-700' },
+  { bg: 'bg-amber-100', text: 'text-amber-700' },
+  { bg: 'bg-emerald-100', text: 'text-emerald-700' },
+  { bg: 'bg-sky-100', text: 'text-sky-700' },
+  { bg: 'bg-violet-100', text: 'text-violet-700' },
+  { bg: 'bg-teal-100', text: 'text-teal-700' },
+  { bg: 'bg-fuchsia-100', text: 'text-fuchsia-700' },
+  { bg: 'bg-indigo-100', text: 'text-indigo-700' },
+];
+const avatarColor = (uid: string) => {
+  let h = 0;
+  for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
+};
+const initialOf = (name: string) => (name || 'U').trim().charAt(0).toUpperCase() || 'U';
 
 type FeedItem =
   | { type: 'rating'; data: CommunityRating; sortTime: number }
@@ -18,6 +37,8 @@ type FeedItem =
 export const SocialFeed: React.FC = () => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const navigate = useNavigate();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
 
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
@@ -125,62 +146,134 @@ export const SocialFeed: React.FC = () => {
     const diff = Date.now() - new Date(date).getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m ago`;
+    if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs / 24)}d ago`;
+    if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+    const weeks = Math.floor(days / 7);
+    if (weeks < 5) return `${weeks} week${weeks === 1 ? '' : 's'} ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
+    const years = Math.floor(days / 365);
+    return `${years} year${years === 1 ? '' : 's'} ago`;
   };
 
-  if (loading) return <div className="text-center py-6"><div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>;
+  const SectionHeader: React.FC<{ count?: number }> = ({ count }) => (
+    <div className="flex items-center gap-3 mb-4">
+      <h2 className="text-lg font-serif font-bold">Friend Activity</h2>
+      <span className="relative flex h-2 w-2">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+      </span>
+      {typeof count === 'number' && count > 0 && (
+        <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 bg-on-surface/5 px-2 py-0.5 rounded-full">
+          {count}
+        </span>
+      )}
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <section className="mb-8">
+        <SectionHeader />
+        <div className="space-y-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden">
+              <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-on-surface/5 animate-pulse" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-2.5 w-24 rounded-full bg-on-surface/5 animate-pulse" />
+                  <div className="h-2 w-16 rounded-full bg-on-surface/5 animate-pulse" />
+                </div>
+              </div>
+              <div className="px-4 pb-4">
+                <div className="flex gap-3">
+                  <div className="w-20 h-20 rounded-xl bg-on-surface/5 animate-pulse flex-shrink-0" />
+                  <div className="flex-1 space-y-2 pt-1">
+                    <div className="h-3 w-3/4 rounded-full bg-on-surface/5 animate-pulse" />
+                    <div className="h-2.5 w-1/2 rounded-full bg-on-surface/5 animate-pulse" />
+                    <div className="h-2 w-full rounded-full bg-on-surface/5 animate-pulse" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
   if (feedItems.length === 0) return null;
 
   return (
     <section className="mb-8">
-      <h2 className="text-lg font-serif font-bold mb-4">Friend Activity</h2>
+      <SectionHeader count={feedItems.length} />
       <div className="space-y-3">
         {feedItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
             return (
-              <div key={`meal-${m.id}`} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
+              <div key={`meal-${m.id}`} className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden">
                 {/* User header */}
-                <div className="px-3.5 pt-3 pb-2 flex items-center gap-2.5">
+                <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
                   <Link to={`/user/${getUsername(m.userId)}`}>
-                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
-                      <ChefHat size={16} className="text-emerald-600" />
+                    <div className="w-9 h-9 rounded-full bg-emerald-100 ring-2 ring-emerald-200/50 flex items-center justify-center">
+                      <ChefHat size={17} className="text-emerald-600" />
                     </div>
                   </Link>
                   <div className="flex-1 min-w-0">
                     <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
-                    <p className="text-[10px] text-emerald-600 font-medium">cooked at home</p>
+                    <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">cooked at home</p>
                   </div>
-                  <span className="text-[10px] text-on-surface/30">{mealTimeAgo}</span>
+                  <span className="text-[10px] text-on-surface/35 font-medium">{mealTimeAgo}</span>
                 </div>
 
-                {/* Meal card */}
-                <div className="px-3.5 pb-2">
-                  <div className="bg-surface rounded-xl border border-on-surface/5 overflow-hidden">
-                    {/* Photo */}
-                    {m.photos.length > 0 && (
-                      <img src={m.photos[0].url} alt={m.name} className="w-full aspect-[16/9] object-cover" />
-                    )}
-                    <div className="p-3">
+                {/* Meal body */}
+                <div className="px-4 pb-3.5">
+                  <div className="flex gap-3">
+                    {/* Thumbnail */}
+                    <div className="w-20 h-20 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
+                      {m.photos.length > 0 ? (
+                        <img src={m.photos[0].url} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <ChefHat size={24} className="text-emerald-400" />
+                        </div>
+                      )}
+                    </div>
+                    {/* Details */}
+                    <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <h3 className="font-serif font-bold text-sm truncate">{m.name}</h3>
-                          <p className="text-[10px] text-on-surface/40">
-                            {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          <h3 className="font-serif font-bold text-sm truncate leading-tight">{m.name}</h3>
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full">
+                              {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </span>
                             {m.dishes.length > 0 && (
-                              <> · <UtensilsCrossed size={9} className="inline -mt-0.5" /> {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                                <UtensilsCrossed size={9} /> {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}
+                              </span>
                             )}
-                          </p>
+                          </div>
                         </div>
-                        <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(m.score))}>{m.score.toFixed(1)}</span>
+                        <div className={cn("flex-shrink-0 w-10 h-10 rounded-full bg-white ring-2 flex items-center justify-center", m.score >= 8 ? 'ring-green-500/30' : m.score >= 5 ? 'ring-yellow-500/30' : 'ring-red-500/30')}>
+                          <span className={cn("text-sm font-serif font-bold", scoreColor(m.score))}>{m.score.toFixed(1)}</span>
+                        </div>
                       </div>
-                      {m.description && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-2">&ldquo;{m.description}&rdquo;</p>}
+                      {m.description && (
+                        <div className="mt-2 pl-2.5 border-l-2 border-emerald-300/60">
+                          <p className="text-[11px] text-on-surface/55 italic line-clamp-2 leading-snug">{m.description}</p>
+                        </div>
+                      )}
                       {m.tags.length > 0 && (
-                        <div className="flex gap-1 mt-1">{m.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600">{t}</span>)}</div>
+                        <div className="flex gap-1 mt-2 flex-wrap">
+                          {m.tags.slice(0, 4).map((t) => (
+                            <span key={t} className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{t}</span>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -189,48 +282,120 @@ export const SocialFeed: React.FC = () => {
             );
           }
 
-          // Restaurant rating card (existing)
+          // Restaurant rating card
           const r = item.data as CommunityRating;
+          const color = avatarColor(r.user_id);
+          const initial = initialOf(getName(r.user_id));
+          const wishlisted = isWishlisted(r.restaurant_id);
+          const meta = {
+            id: r.restaurant_id,
+            name: r.restaurant_name,
+            image: r.photo_url || '',
+            cuisine: r.cuisine || '',
+            price: r.price || '',
+            address: r.address || '',
+          };
           return (
-          <div key={r.id} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
+          <div key={r.id} className="bg-white rounded-2xl border border-on-surface/8 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
             {/* User header */}
-            <div className="px-3.5 pt-3 pb-2 flex items-center gap-2.5">
+            <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
               <Link to={`/user/${getUsername(r.user_id)}`}>
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                  <UserCircle size={16} className="text-primary/50" />
+                <div className={cn("w-9 h-9 rounded-full flex items-center justify-center ring-2 ring-white shadow-sm", color.bg)}>
+                  <span className={cn("text-sm font-serif font-bold", color.text)}>{initial}</span>
                 </div>
               </Link>
               <div className="flex-1 min-w-0">
                 <Link to={`/user/${getUsername(r.user_id)}`} className="text-sm font-semibold hover:text-primary">{getName(r.user_id)}</Link>
-                <p className="text-[10px] text-on-surface/35">rated a restaurant</p>
+                <p className="text-[10px] text-on-surface/45 font-medium">rated a restaurant</p>
               </div>
-              <span className="text-[10px] text-on-surface/30">{timeAgo(r.created_at)}</span>
+              <span className="text-[10px] text-on-surface/35 font-medium">{timeAgo(r.created_at)}</span>
             </div>
 
-            {/* Restaurant card */}
-            <Link to={`/restaurant/${r.restaurant_id}`} className="block px-3.5 pb-2">
-              <div className="bg-surface rounded-xl p-3 border border-on-surface/5">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
-                    <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
-                  </div>
-                  <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
+            {/* Restaurant body — tappable */}
+            <button
+              type="button"
+              onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+              className="block w-full text-left px-4 pb-3"
+            >
+              <div className="flex gap-3">
+                {/* Thumbnail */}
+                <div className="w-20 h-20 rounded-xl overflow-hidden bg-on-surface/5 flex-shrink-0 ring-1 ring-on-surface/5">
+                  {r.photo_url ? (
+                    <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 font-serif text-2xl font-bold text-on-surface/20">
+                      {initialOf(r.restaurant_name)}
+                    </div>
+                  )}
                 </div>
-                {r.notes && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-2">&ldquo;{r.notes}&rdquo;</p>}
-                {r.tags && r.tags.length > 0 && (
-                  <div className="flex gap-1 mt-1">{r.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}</div>
-                )}
+                {/* Details */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-serif font-bold text-sm leading-tight line-clamp-1">{r.restaurant_name}</h3>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        {r.cuisine && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-on-surface/50 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>
+                        )}
+                        {r.price && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/8 px-1.5 py-0.5 rounded-full">{r.price}</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Score orb */}
+                    <div className={cn("flex-shrink-0 w-10 h-10 rounded-full bg-white ring-2 flex items-center justify-center", Number(r.score) >= 8 ? 'ring-green-500/30' : Number(r.score) >= 5 ? 'ring-yellow-500/30' : 'ring-red-500/30')}>
+                      <span className={cn("text-sm font-serif font-bold", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
+                    </div>
+                  </div>
+                  {r.notes && (
+                    <div className="mt-2 pl-2.5 border-l-2 border-primary/30">
+                      <p className="text-[11px] text-on-surface/55 italic line-clamp-2 leading-snug">{r.notes}</p>
+                    </div>
+                  )}
+                  {r.tags && r.tags.length > 0 && (
+                    <div className="flex gap-1 mt-2 flex-wrap">
+                      {r.tags.slice(0, 4).map((t) => (
+                        <span key={t} className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-primary/8 text-primary/70">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </Link>
+            </button>
+
+            {/* Action buttons */}
+            <div className="px-4 pb-2.5 flex items-center gap-2">
+              <button
+                onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-primary/8 text-primary hover:bg-primary/12 transition-colors text-[11px] font-bold"
+              >
+                <Plus size={12} /> Rate
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); openWishlistModal(meta); }}
+                className={cn(
+                  "inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors",
+                  wishlisted ? "bg-red-50 text-red-500 hover:bg-red-100" : "bg-on-surface/5 text-on-surface/40 hover:bg-on-surface/10"
+                )}
+                aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+              >
+                <Heart size={14} className={wishlisted ? 'fill-red-500' : ''} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate(`/restaurant/${r.restaurant_id}`); }}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-on-surface/5 text-on-surface/60 hover:bg-on-surface/10 transition-colors text-[11px] font-bold"
+              >
+                <Eye size={12} /> View
+              </button>
+            </div>
 
             {/* Like & Comment */}
-            <div className="px-3.5 pb-2 flex items-center gap-5">
-              <button onClick={() => handleLike(r.id)} className={cn("flex items-center gap-1.5 transition-colors", userLiked.has(r.id) ? "text-red-500" : "text-on-surface/35 hover:text-red-500")}>
+            <div className="px-4 pb-3 pt-1 border-t border-on-surface/6 flex items-center gap-5">
+              <button onClick={() => handleLike(r.id)} className={cn("flex items-center gap-1.5 transition-colors pt-2", userLiked.has(r.id) ? "text-red-500" : "text-on-surface/35 hover:text-red-500")}>
                 <Heart size={16} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
                 <span className="text-[11px] font-semibold">{likes[r.id] || 0}</span>
               </button>
-              <button onClick={() => handleOpenComments(r.id)} className={cn("flex items-center gap-1.5 transition-colors", openComments === r.id ? "text-primary" : "text-on-surface/35 hover:text-primary")}>
+              <button onClick={() => handleOpenComments(r.id)} className={cn("flex items-center gap-1.5 transition-colors pt-2", openComments === r.id ? "text-primary" : "text-on-surface/35 hover:text-primary")}>
                 <MessageSquare size={16} />
                 <span className="text-[11px] font-semibold">{commentCounts[r.id] || 0}</span>
               </button>
@@ -247,10 +412,13 @@ export const SocialFeed: React.FC = () => {
                       <p className="text-[11px] text-on-surface/30 py-1">No comments yet — be the first!</p>
                     ) : (
                       <div className="space-y-2 max-h-44 overflow-y-auto">
-                        {comments.map((c) => (
+                        {comments.map((c) => {
+                          const cColor = avatarColor(c.user_id);
+                          const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
+                          return (
                           <div key={c.id} className="flex gap-2">
-                            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <UserCircle size={11} className="text-primary/40" />
+                            <div className={cn("w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", cColor.bg)}>
+                              <span className={cn("text-[10px] font-serif font-bold", cColor.text)}>{cInitial}</span>
                             </div>
                             <div className="min-w-0">
                               <p className="text-[11px] leading-relaxed">
@@ -260,7 +428,8 @@ export const SocialFeed: React.FC = () => {
                               <p className="text-[9px] text-on-surface/25 mt-0.5">{timeAgo(c.created_at)}</p>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                     <div className="flex gap-2 pt-1">
