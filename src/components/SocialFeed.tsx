@@ -382,10 +382,10 @@ export const SocialFeed: React.FC = () => {
                 <Heart size={14} className={wishlisted ? 'fill-red-500' : ''} />
               </button>
               <button
-                onClick={(e) => { e.stopPropagation(); navigate(`/restaurant/${r.restaurant_id}`); }}
+                onClick={(e) => { e.stopPropagation(); navigate(`/review/${r.id}`); }}
                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-on-surface/5 text-on-surface/60 hover:bg-on-surface/10 transition-colors text-[11px] font-bold"
               >
-                <Eye size={12} /> View
+                <Eye size={12} /> See Review
               </button>
             </div>
 
