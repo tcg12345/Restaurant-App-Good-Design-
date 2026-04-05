@@ -215,6 +215,20 @@ export const Map: React.FC = () => {
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
   const [navDirection, setNavDirection] = useState<number>(0);
+  // Arrow-navigation history for the place card. Tracks ids of places visited
+  // via the ← / → arrows so we can loop through all loaded restaurants without
+  // re-visiting and provide a true "back" action.
+  const [navHistory, setNavHistory] = useState<string[]>([]);
+  const navClickRef = useRef(false);
+  // Reset nav history whenever a place is selected outside of the arrow
+  // navigation (marker click, direct tap, swipe). Arrow navigation sets
+  // navClickRef.current=true just before calling setSelectedPlace so we know
+  // to preserve history.
+  useEffect(() => {
+    if (!selectedPlace) { setNavHistory([]); return; }
+    if (navClickRef.current) { navClickRef.current = false; return; }
+    setNavHistory([selectedPlace.id]);
+  }, [selectedPlace]);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
@@ -1937,15 +1951,70 @@ export const Map: React.FC = () => {
       <AnimatePresence mode="wait">
         {selectedPlace && sheetState === 'peek' && (() => {
           const isRatingsMode = mapMode === 'myratings' || mapMode === 'friends' || mapMode === 'experts';
-          const orderedPlaces = isRatingsMode && selectedPlace
-            ? (() => { const ref = selectedPlace; return [...places].sort((a, b) => Math.hypot(a.lat - ref.lat, a.lng - ref.lng) - Math.hypot(b.lat - ref.lat, b.lng - ref.lng)); })()
-            : places;
-          const currentIndex = orderedPlaces.findIndex((p) => p.id === selectedPlace.id);
-          const hasPrev = currentIndex > 0;
-          const hasNext = currentIndex >= 0 && currentIndex < orderedPlaces.length - 1;
+          const historyIdx = navHistory.indexOf(selectedPlace.id);
+          // Arrows can always navigate as long as there's more than one place —
+          // history provides proper back-tracking, and forward loops through
+          // all loaded places before cycling.
+          const hasPrev = historyIdx > 0;
+          const hasNext = places.length > 1;
+          // Pseudo-index / total for the "1/99" counter.
+          const currentIndex = historyIdx >= 0 ? historyIdx : 0;
+          const orderedPlaces = places;
           const goTo = (dir: number) => {
-            const nextIndex = currentIndex + dir;
-            if (nextIndex >= 0 && nextIndex < orderedPlaces.length) { const next = orderedPlaces[nextIndex]; setNavDirection(dir); setSelectedPlace(next); setSelectedMarker(next.id); }
+            if (places.length < 2) return;
+            if (dir === -1) {
+              if (historyIdx <= 0) return;
+              const prev = places.find((p) => p.id === navHistory[historyIdx - 1]);
+              if (!prev) return;
+              navClickRef.current = true;
+              setNavDirection(-1);
+              setSelectedPlace(prev);
+              setSelectedMarker(prev.id);
+              return;
+            }
+            // Forward — if we've already gone back and there's forward history,
+            // replay it; otherwise pick the next closest unvisited place.
+            if (historyIdx >= 0 && historyIdx < navHistory.length - 1) {
+              const next = places.find((p) => p.id === navHistory[historyIdx + 1]);
+              if (!next) return;
+              navClickRef.current = true;
+              setNavDirection(1);
+              setSelectedPlace(next);
+              setSelectedMarker(next.id);
+              return;
+            }
+            const ref = selectedPlace;
+            const visited = new Set(navHistory);
+            let candidates = places.filter((p) => !visited.has(p.id));
+            let newHistory = navHistory;
+            if (candidates.length === 0) {
+              // All places visited — reset the loop, keeping current as anchor.
+              newHistory = [ref.id];
+              candidates = places.filter((p) => p.id !== ref.id);
+              if (candidates.length === 0) return;
+            }
+            if (isRatingsMode) {
+              candidates.sort(
+                (a, b) =>
+                  Math.hypot(a.lat - ref.lat, a.lng - ref.lng) -
+                  Math.hypot(b.lat - ref.lat, b.lng - ref.lng)
+              );
+            } else {
+              // Non-ratings modes: preserve list order by sorting candidates
+              // by their index in `places` starting after current.
+              const refIdx = places.findIndex((p) => p.id === ref.id);
+              candidates.sort((a, b) => {
+                const ai = (places.findIndex((p) => p.id === a.id) - refIdx + places.length) % places.length;
+                const bi = (places.findIndex((p) => p.id === b.id) - refIdx + places.length) % places.length;
+                return ai - bi;
+              });
+            }
+            const next = candidates[0];
+            navClickRef.current = true;
+            setNavDirection(1);
+            setNavHistory([...newHistory, next.id]);
+            setSelectedPlace(next);
+            setSelectedMarker(next.id);
           };
 
           // Mode-specific data lookups
