@@ -316,80 +316,78 @@ export const Map: React.FC = () => {
     });
   }, [userId]);
 
-  // Build preference profile from user's ratings
+  // Build preference profile from user's HIGH-rated restaurants (score >= 7).
+  // Recommendations are only curated based on what the user actually loved.
   const userPreferences = useMemo(() => {
-    const cuisineCounts: Record<string, number> = {};
+    const cuisineScores: Record<string, number> = {};
     const priceCounts: Record<number, number> = {};
-    const topCuisines: string[] = [];
-    myLocalRatings.forEach((r) => {
-      const weight = r.score >= 7 ? 2 : 1;
-      if (r.cuisine) cuisineCounts[r.cuisine] = (cuisineCounts[r.cuisine] || 0) + weight;
-      r.tags.forEach((t) => { cuisineCounts[t] = (cuisineCounts[t] || 0) + weight; });
+    const highRated = myLocalRatings.filter((r) => r.score >= 7);
+    highRated.forEach((r) => {
+      // Weight by how much above 7 the score is (7→1, 10→4)
+      const weight = Math.max(1, r.score - 6);
+      if (r.cuisine) cuisineScores[r.cuisine] = (cuisineScores[r.cuisine] || 0) + weight;
+      r.tags.forEach((t) => { cuisineScores[t] = (cuisineScores[t] || 0) + weight * 0.5; });
       const priceNum = r.price.length;
-      priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
+      if (priceNum > 0) priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
     });
-    Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).forEach(([c]) => topCuisines.push(c));
-    return { cuisineCounts, priceCounts, topCuisines };
+    const topCuisines = Object.entries(cuisineScores).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
+    // Most common city/state among high-rated restaurants, for location anchoring
+    const cityCounts: Record<string, number> = {};
+    highRated.forEach((r) => {
+      const city = extractCityState(r.address || '', r.address || '');
+      if (city) cityCounts[city] = (cityCounts[city] || 0) + 1;
+    });
+    const topCity = Object.entries(cityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    return { cuisineScores, priceCounts, topCuisines, topCity, highRatedCount: highRated.length };
   }, [myLocalRatings]);
 
-  // Score-based recommendations from recentViews
-  const recentRecommendations = useMemo(() => {
-    if (recentViews.length === 0) return [];
-    const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
-    const candidates = recentViews.filter((v) => !ratedIds.has(v.id));
-    const scored = candidates.map((place) => {
-      let score = 0;
-      (place.types || []).forEach((t: string) => {
-        const label = t.replace(/_/g, ' ').replace(/restaurant/g, '').trim();
-        Object.entries(userPreferences.cuisineCounts).forEach(([tag, count]) => {
-          if (tag.toLowerCase().includes(label) || label.includes(tag.toLowerCase())) score += count * 2;
-        });
-      });
-      if (userPreferences.priceCounts[place.priceLevel]) score += userPreferences.priceCounts[place.priceLevel];
-      score += (place.rating || 0) * 0.5;
-      score += Math.min((place.userRatingCount || 0) / 500, 2);
-      return { ...place, recScore: score };
-    });
-    scored.sort((a, b) => b.recScore - a.recScore);
-    return scored.slice(0, 8);
-  }, [recentViews, myLocalRatings, userPreferences]);
-
-  // API-based recommendations
+  // API-based curated recommendations (not derived from recently viewed).
   const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
   const [recsLoading, setRecsLoading] = useState(false);
   const recsFetchedRef = useRef(false);
 
-  const recommendations = useMemo(() => {
-    const combined = [...apiRecommendations, ...recentRecommendations];
-    const seen = new Set<string>();
-    return combined.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; }).slice(0, 8);
-  }, [apiRecommendations, recentRecommendations]);
+  const recommendations = apiRecommendations;
 
   // User's top rated restaurants
   const topRated = useMemo(() => {
     return [...myLocalRatings].filter((r) => r.score >= 7 && r.image).sort((a, b) => b.score - a.score).slice(0, 6);
   }, [myLocalRatings]);
 
-  // Fetch API-based recommendations
+  // Fetch curated API recommendations once high-rated restaurants are loaded.
   useEffect(() => {
-    if (recsFetchedRef.current || myLocalRatings.length === 0) return;
+    if (recsFetchedRef.current) return;
+    if (userPreferences.highRatedCount === 0 || userPreferences.topCuisines.length === 0) return;
     recsFetchedRef.current = true;
     const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
+    const wishlistedIds = new Set(myLists.flatMap((l) => l.wishlistIds || []));
     const recentIds = new Set(recentViews.map((v) => v.id));
-    const topCuisines = userPreferences.topCuisines;
-    if (topCuisines.length === 0) return;
+    // Anchor queries to the current map view so recs are near where the user is exploring
+    const center = mapRef.current?.getCenter();
+    const lat = center?.lat ?? 40.735;
+    const lng = center?.lng ?? -73.99;
     setRecsLoading(true);
-    const queries = topCuisines.slice(0, 2).map((cuisine) =>
-      searchPlacesByText(`best ${cuisine} restaurants`, 40.735, -73.99).catch(() => [] as PlaceResult[])
+    const queries = userPreferences.topCuisines.slice(0, 3).map((cuisine) =>
+      searchPlacesByText(`best ${cuisine} restaurants`, lat, lng).catch(() => [] as PlaceResult[])
     );
     Promise.all(queries).then((results) => {
-      const all = results.flat();
+      // Interleave results across cuisines for variety
+      const interleaved: PlaceResult[] = [];
+      const maxLen = Math.max(...results.map((r) => r.length));
+      for (let i = 0; i < maxLen; i++) {
+        for (const list of results) if (list[i]) interleaved.push(list[i]);
+      }
       const seen = new Set<string>();
-      const fresh = all.filter((p) => { if (seen.has(p.id) || ratedIds.has(p.id) || recentIds.has(p.id)) return false; seen.add(p.id); return true; });
+      const fresh = interleaved.filter((p) => {
+        if (seen.has(p.id) || ratedIds.has(p.id) || wishlistedIds.has(p.id) || recentIds.has(p.id)) return false;
+        // Only keep well-rated spots (≥4.0) with enough reviews
+        if ((p.rating || 0) < 4.0 || (p.userRatingCount || 0) < 30) return false;
+        seen.add(p.id);
+        return true;
+      });
       setApiRecommendations(fresh.slice(0, 8));
       setRecsLoading(false);
     });
-  }, [myLocalRatings, userPreferences.topCuisines, recentViews]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines, myLocalRatings, myLists, recentViews]);
 
   // Quick filter handler for discover search
   const handleQuickFilter = useCallback(async (filter: string) => {
