@@ -2028,7 +2028,13 @@ export const Map: React.FC = () => {
                         </button>
                       </div>
                       <p className="text-[10px] text-primary font-bold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                      {selectedPlace.rating > 0 && (
+                      {mapMode === 'myratings' ? (
+                        selectedPlace.priceLevel > 0 && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="text-[10px] font-semibold text-on-surface/30">{priceLevelToString(selectedPlace.priceLevel)}</span>
+                          </div>
+                        )
+                      ) : selectedPlace.rating > 0 && (
                         <div className="flex items-center gap-1 mt-0.5">
                           <Star size={10} className="fill-amber-400 text-amber-400" />
                           <span className="text-[11px] font-bold text-on-surface/70">{selectedPlace.rating.toFixed(1)}</span>
@@ -2046,11 +2052,6 @@ export const Map: React.FC = () => {
                       {mapMode === 'myratings' && myRating && (
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className={cn("font-serif font-bold text-sm", scoreColor(Number(myRating.score)))}>{Number(myRating.score).toFixed(1)}<span className="text-[10px] text-on-surface/30 font-normal"> / 10</span></span>
-                          {myRating.would_return !== null && myRating.would_return !== undefined && (
-                            <span className={cn("text-[10px]", myRating.would_return ? "text-green-600" : "text-red-500")}>
-                              {myRating.would_return ? '↩ Would return' : '✗ Wouldn\'t'}
-                            </span>
-                          )}
                         </div>
                       )}
                       {mapMode === 'friends' && friendRating.length > 0 && (() => {
