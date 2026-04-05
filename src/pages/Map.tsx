@@ -708,6 +708,26 @@ export const Map: React.FC = () => {
   const addExpertOverlayRef = useRef<() => void>(addExpertOverlayMarkers);
   addExpertOverlayRef.current = addExpertOverlayMarkers;
 
+  // Refresh the Discover expert overlay whenever expert ratings update (e.g.
+  // after background geocoding fills in coordinates) so newly-geocoded
+  // expert reviews show up as markers in the current view immediately.
+  useEffect(() => {
+    if (mapMode !== 'discover') return;
+    addExpertOverlayRef.current?.();
+  }, [mapMode, expertRatings]);
+
+  // Keep the expert overlay in sync as the user pans/zooms or as discover
+  // search results come in (so experts outside the initial viewport appear as
+  // soon as that area is visible and experts already covered by a discover
+  // marker are hidden).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || mapMode !== 'discover') return;
+    const handler = () => addExpertOverlayRef.current?.();
+    map.on('moveend', handler);
+    return () => { map.off('moveend', handler); };
+  }, [mapMode]);
+
   // Text search
   const handleSearch = useCallback(async (query: string) => {
     const map = mapRef.current;
@@ -1133,12 +1153,18 @@ export const Map: React.FC = () => {
   }, [mapMode, myRatings]);
 
   // Background geocode missing coordinates for expert and friend ratings in PARALLEL
-  // so markers appear instantly when the Experts/Friends tab is opened. Results are
-  // persisted back to the database so subsequent loads are already populated.
+  // so markers appear instantly when the Experts/Friends tab is opened and so the
+  // expert overlay on the Discover map is populated. Results are persisted back to
+  // the database so subsequent loads are already populated.
+  // Expert ratings are geocoded eagerly (discover overlay needs their coords).
+  // Friend ratings are geocoded only when the Friends tab is first opened.
   useEffect(() => {
-    const kind = mapMode === 'experts' ? 'experts' : mapMode === 'friends' ? 'friends' : null;
+    const kind = expertRatings.length > 0 && !tabDataCache.coordsLookedUp['experts']
+      ? 'experts'
+      : mapMode === 'friends' && friendRatings.length > 0 && !tabDataCache.coordsLookedUp['friends']
+      ? 'friends'
+      : null;
     if (!kind) return;
-    if (tabDataCache.coordsLookedUp[kind]) return;
     const source = kind === 'experts' ? expertRatings : friendRatings;
     if (source.length === 0) return;
     tabDataCache.coordsLookedUp[kind] = true;
@@ -1259,11 +1285,14 @@ export const Map: React.FC = () => {
     const map = mapRef.current;
     if (!map) return;
 
-    // Clear custom markers and expert overlay markers
+    // Clear custom markers. Clear expert overlay markers only when leaving
+    // discover mode — a dedicated effect manages the overlay in discover.
     customMarkersRef.current.forEach((m) => m.remove());
     customMarkersRef.current = [];
-    expertOverlayMarkersRef.current.forEach((m) => m.remove());
-    expertOverlayMarkersRef.current = [];
+    if (mapMode !== 'discover') {
+      expertOverlayMarkersRef.current.forEach((m) => m.remove());
+      expertOverlayMarkersRef.current = [];
+    }
 
     // Hide/show discover markers based on mode
     Object.values(markersRef.current).forEach((marker) => {
