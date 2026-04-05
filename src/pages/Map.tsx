@@ -130,10 +130,11 @@ const tabDataCache: {
   friendRatings: CommunityRating[];
   expertRatings: CommunityRating[];
   friendProfiles: Record<string, UserProfile>;
+  expertProfiles: Record<string, UserProfile>;
   coordsLookedUp: Record<string, boolean>;
   discoverPlaces: PlaceResult[];
   discoverTs: number;
-} = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverTs: 0 };
+} = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverTs: 0 };
 const TAB_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
 export const Map: React.FC = () => {
@@ -148,6 +149,7 @@ export const Map: React.FC = () => {
   const [myRatings, setMyRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.myRatings : []);
   const [friendRatings, setFriendRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.friendRatings : []);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>(cacheHit ? tabDataCache.friendProfiles : {});
+  const [expertProfiles, setExpertProfiles] = useState<Record<string, UserProfile>>(cacheHit ? tabDataCache.expertProfiles : {});
   const [expertRatings, setExpertRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.expertRatings : []);
   const [tabDataLoaded, setTabDataLoaded] = useState(!!cacheHit);
 
@@ -165,10 +167,16 @@ export const Map: React.FC = () => {
       setFriendRatings(friendR);
       setExpertRatings(expertR);
       let profs: Record<string, UserProfile> = {};
-      if (friendR.length > 0) {
-        const ids = [...new Set(friendR.map((r) => r.user_id))];
-        profs = await getProfilesByIds(ids);
+      let expProfs: Record<string, UserProfile> = {};
+      const friendIds = friendR.length > 0 ? [...new Set(friendR.map((r) => r.user_id))] : [];
+      const expertIds = expertR.length > 0 ? [...new Set(expertR.map((r) => r.user_id))] : [];
+      if (friendIds.length > 0 || expertIds.length > 0) {
+        const allIds = [...new Set([...friendIds, ...expertIds])];
+        const allProfs = await getProfilesByIds(allIds);
+        friendIds.forEach((id) => { if (allProfs[id]) profs[id] = allProfs[id]; });
+        expertIds.forEach((id) => { if (allProfs[id]) expProfs[id] = allProfs[id]; });
         setFriendProfiles(profs);
+        setExpertProfiles(expProfs);
       }
       // Update module-level cache
       tabDataCache.ts = Date.now();
@@ -177,6 +185,7 @@ export const Map: React.FC = () => {
       tabDataCache.friendRatings = friendR;
       tabDataCache.expertRatings = expertR;
       tabDataCache.friendProfiles = profs;
+      tabDataCache.expertProfiles = expProfs;
     })();
   }, [userId, tabDataLoaded]);
   const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts' | 'hotels'>(() => {
@@ -2056,12 +2065,17 @@ export const Map: React.FC = () => {
                           </div>
                         );
                       })()}
-                      {mapMode === 'experts' && expertRating && (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className={cn("font-serif font-bold text-sm", scoreColor(Number(expertRating.score)))}>{Number(expertRating.score).toFixed(1)}</span>
-                          <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">Expert Pick</span>
-                        </div>
-                      )}
+                      {mapMode === 'experts' && expertRating && (() => {
+                        const expProf = expertProfiles[expertRating.user_id];
+                        const expName = expProf?.display_name || 'Expert';
+                        return (
+                          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                            <span className={cn("font-serif font-bold text-sm", scoreColor(Number(expertRating.score)))}>{Number(expertRating.score).toFixed(1)}</span>
+                            <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">Expert Pick</span>
+                            <span className="text-[10px] text-on-surface/50 truncate">by {expName}</span>
+                          </div>
+                        );
+                      })()}
                       {mapMode === 'hotels' && (
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="text-[11px] text-amber-400 leading-none">
@@ -2647,19 +2661,23 @@ export const Map: React.FC = () => {
             <div className="space-y-3">
               {filteredExpertRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No expert ratings yet'}</p></div>
-              ) : filteredExpertRatings.map((r) => (
+              ) : filteredExpertRatings.map((r) => {
+                const expProf = expertProfiles[r.user_id];
+                const expName = expProf?.display_name || 'Expert';
+                return (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                   className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
                   <div className="flex-1 min-w-0">
                     <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
                     <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{r.cuisine}</p>
-                    <p className="text-[10px] text-on-surface/30 mt-0.5">Expert Pick</p>
+                    <p className="text-[10px] text-on-surface/30 mt-0.5 truncate">Expert Pick · {expName}</p>
                   </div>
                   <span className={cn("text-lg font-serif font-bold self-center", Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500')}>
                     {Number(r.score).toFixed(1)}
                   </span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
