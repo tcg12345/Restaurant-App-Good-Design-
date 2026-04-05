@@ -2104,7 +2104,14 @@ export const Map: React.FC = () => {
           // Mode-specific data lookups
           const myRating = mapMode === 'myratings' ? myRatings.find((r) => r.restaurant_id === selectedPlace.id) : null;
           const friendRating = mapMode === 'friends' ? friendRatings.filter((r) => r.restaurant_id === selectedPlace.id) : [];
-          const expertRating = mapMode === 'experts' ? expertRatings.find((r) => r.restaurant_id === selectedPlace.id) : null;
+          // Expert pick also surfaces through the Discover overlay — when an
+          // expert-rated place is selected on the Discover map, treat the card
+          // as an expert card so the user sees the expert's score + name.
+          const expertRating =
+            mapMode === 'experts' || mapMode === 'discover'
+              ? expertRatings.find((r) => r.restaurant_id === selectedPlace.id)
+              : null;
+          const isExpertCard = mapMode === 'experts' || (mapMode === 'discover' && !!expertRating);
           const discoverScore = mapMode === 'discover' ? userRatingMap[selectedPlace.id] : undefined;
           const cuisine = getCuisineLabel(selectedPlace.types);
           const restData = { id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address };
@@ -2181,7 +2188,7 @@ export const Map: React.FC = () => {
                         </button>
                       </div>
                       <p className="text-[10px] text-primary font-bold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                      {mapMode === 'myratings' ? (
+                      {mapMode === 'myratings' || isExpertCard ? (
                         selectedPlace.priceLevel > 0 && (
                           <div className="flex items-center gap-1 mt-0.5">
                             <span className="text-[10px] font-semibold text-on-surface/30">{priceLevelToString(selectedPlace.priceLevel)}</span>
@@ -2197,7 +2204,7 @@ export const Map: React.FC = () => {
                       )}
 
                       {/* Mode-specific line */}
-                      {mapMode === 'discover' && discoverScore !== undefined && (
+                      {mapMode === 'discover' && !isExpertCard && discoverScore !== undefined && (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full mt-0.5">
                           <Star size={8} className="fill-green-600 text-green-600" /> You rated: {discoverScore.toFixed(1)}
                         </span>
@@ -2219,7 +2226,7 @@ export const Map: React.FC = () => {
                           </div>
                         );
                       })()}
-                      {mapMode === 'experts' && expertRating && (() => {
+                      {isExpertCard && expertRating && (() => {
                         const expProf = expertProfiles[expertRating.user_id];
                         const expName = expProf?.display_name || 'Expert';
                         return (
