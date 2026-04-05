@@ -2423,7 +2423,10 @@ export const Map: React.FC = () => {
             if (el) { el.style.transform = ''; el.style.transition = ''; }
             if (sheetState === 'half') {
               if (delta > 60) setSheetState('peek');
-              else if (delta < -60) setSheetState('full');
+              else if (delta < -60) {
+                if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); }
+                setSheetState('full');
+              }
             } else {
               if (delta < -50) setSheetState('half');
             }
@@ -2451,7 +2454,10 @@ export const Map: React.FC = () => {
               if (el) { el.style.transform = ''; el.style.transition = ''; }
               if (sheetState === 'half') {
                 if (delta > 60) setSheetState('peek');
-                else if (delta < -60) setSheetState('full');
+                else if (delta < -60) {
+                  if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); }
+                  setSheetState('full');
+                }
               } else {
                 if (delta < -50) setSheetState('half');
               }
@@ -2464,7 +2470,7 @@ export const Map: React.FC = () => {
         >
           {sheetState === 'half' ? (
             <button
-              onClick={(e) => { e.stopPropagation(); setSheetState('full'); }}
+              onClick={(e) => { e.stopPropagation(); if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); } setSheetState('full'); }}
               className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
             >
               <ChevronsUp size={20} className="text-on-surface/50" />
@@ -2608,8 +2614,8 @@ export const Map: React.FC = () => {
                     ) : (
                       <div className="flex flex-col items-center justify-center py-16 text-center">
                         <Search size={32} className="text-on-surface/15 mb-3" />
-                        <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
-                        <p className="text-xs text-on-surface/30 mt-1">Search by name, cuisine, or use the filters above</p>
+                        <p className="text-sm font-medium text-on-surface/40">Search restaurants</p>
+                        <p className="text-xs text-on-surface/30 mt-1">Type a name, cuisine, or occasion</p>
                       </div>
                     )
                   ) : places.length === 0 ? (
