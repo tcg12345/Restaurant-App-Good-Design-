@@ -411,67 +411,42 @@ export const Map: React.FC = () => {
     return out;
   }, [myRatings]);
 
-  // Build a rich list of personalised queries combining cuisine, price, and
-  // the cities where the user eats most. Queries are interleaved across cities
-  // so the first batch pulls results from ALL of the user's cities, not just
-  // their top one.
+  // Build a list of personalised search queries from the user's preferences.
   const buildRecQueries = useCallback(() => {
     const { topCuisines, topPrices, topCities } = userPreferences;
     const priceSymbols = ['', '$', '$$', '$$$', '$$$$'];
     const seen = new Set<string>();
-    const queries: { query: string; city: string | null }[] = [];
-    const push = (q: string, city: string | null) => {
-      const key = `${q}|${city || ''}`;
-      if (!seen.has(key)) { seen.add(key); queries.push({ query: q, city }); }
-    };
-    // 1. Cuisine rotated across cities (interleaved city-major so the first
-    //    cuisine hits every city before moving on to the next cuisine).
+    const queries: string[] = [];
+    const push = (q: string) => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
+    for (const city of topCities) {
+      for (const cuisine of topCuisines) push(`best ${cuisine} restaurants in ${city}`);
+    }
     for (const cuisine of topCuisines) {
-      for (const city of topCities) push(`best ${cuisine} restaurants in ${city}`, city);
+      for (const price of topPrices) push(`best ${priceSymbols[price]} ${cuisine} restaurants`);
     }
-    // 2. City-only broad queries (one per city first, then more variants).
-    for (const city of topCities) push(`best restaurants in ${city}`, city);
-    for (const city of topCities) push(`trending restaurants ${city}`, city);
-    // 3. Cuisine × price within each city.
-    for (const price of topPrices) {
-      for (const cuisine of topCuisines) {
-        for (const city of topCities) push(`best ${priceSymbols[price]} ${cuisine} restaurants in ${city}`, city);
-      }
-    }
-    // 4. City × price broad.
-    for (const price of topPrices) {
-      for (const city of topCities) push(`best ${priceSymbols[price]} restaurants in ${city}`, city);
-    }
-    // 5. Broader cuisine-only queries (no city) — gives Google some
-    //    freedom to surface notable places across cities.
     for (const cuisine of topCuisines) {
-      push(`top rated ${cuisine} restaurants`, null);
-      push(`${cuisine} fine dining`, null);
-      push(`hidden gem ${cuisine} restaurants`, null);
-      push(`new ${cuisine} restaurants`, null);
+      push(`top rated ${cuisine} restaurants`);
+      push(`${cuisine} fine dining`);
+      push(`hidden gem ${cuisine} restaurants`);
     }
-    // 6. More city variants.
-    for (const city of topCities) push(`new restaurants in ${city}`, city);
+    for (const city of topCities) {
+      push(`best restaurants in ${city}`);
+      push(`trending restaurants ${city}`);
+    }
     return queries;
   }, [userPreferences]);
 
-  // Fetch a batch of recommendations. Each query uses the anchor lat/lng of
-  // the city it targets (falling back to any known city centroid, or NYC).
-  // This is what ensures results are diversified across the user's cities.
-  const fetchRecBatch = useCallback(async (batch: { query: string; city: string | null }[]) => {
-    if (batch.length === 0) return [] as PlaceResult[];
+  // Fetch a batch of recommendations using map center as location anchor.
+  const fetchRecBatch = useCallback(async (queryStrs: string[]) => {
+    if (queryStrs.length === 0) return [] as PlaceResult[];
     const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
     const wishlistedIds = new Set(myLists.flatMap((l: any) => l.wishlistIds || []));
     const recentIds = new Set(recentViews.map((v) => v.id));
-    const anyCityCoord = Object.values(cityCoordMap)[0] as { lat: number; lng: number } | undefined;
-    const fallbackLat = anyCityCoord?.lat ?? 40.735;
-    const fallbackLng = anyCityCoord?.lng ?? -73.99;
+    const center = mapRef.current?.getCenter();
+    const lat = center?.lat ?? 40.735;
+    const lng = center?.lng ?? -73.99;
     const results = await Promise.all(
-      batch.map(({ query, city }) => {
-        const coord = (city && cityCoordMap[city]) || { lat: fallbackLat, lng: fallbackLng };
-        // Restrict (not just bias) so results stay within the chosen city.
-        return searchPlacesByText(query, coord.lat, coord.lng, 30000, true).catch(() => [] as PlaceResult[]);
-      })
+      queryStrs.map((q) => searchPlacesByText(q, lat, lng, 50000).catch(() => [] as PlaceResult[]))
     );
     const interleaved: PlaceResult[] = [];
     const maxLen = Math.max(0, ...results.map((r) => r.length));
@@ -486,35 +461,29 @@ export const Map: React.FC = () => {
       return true;
     });
     return fresh;
-  }, [myLocalRatings, myLists, recentViews, cityCoordMap]);
+  }, [myLocalRatings, myLists, recentViews]);
 
-  // Initial recommendations fetch. Uses personalised queries when the user has
-  // enough rating data, otherwise falls back to generic nearby restaurants.
-  // A timer ensures recs load even when city-coord resolution never completes.
-  const recTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const doRecsFetch = useCallback((mode: 'personalized' | 'generic') => {
+  // Initial recommendations fetch — personalised if user has preferences, generic nearby otherwise.
+  useEffect(() => {
     if (recsFetchedRef.current) return;
     recsFetchedRef.current = true;
-    if (recTimerRef.current) { clearTimeout(recTimerRef.current); recTimerRef.current = null; }
     recsSeenIdsRef.current = new Set();
     recsQueryCursorRef.current = 0;
     recsExhaustedRef.current = false;
     setRecsLoading(true);
 
-    if (mode === 'personalized') {
+    if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
       const queries = buildRecQueries();
-      const knownCities = userPreferences.topCities.filter((c) => cityCoordMap[c]);
-      const initialSize = Math.max(3, Math.min(knownCities.length || 1, 5));
-      const initialBatch = queries.slice(0, initialSize);
+      const initialBatch = queries.slice(0, 3);
       recsQueryCursorRef.current = initialBatch.length;
       fetchRecBatch(initialBatch).then((fresh) => {
         setApiRecommendations(fresh);
         setRecsLoading(false);
       });
     } else {
-      const map = mapRef.current;
-      const lat = map ? map.getCenter().lat : 40.735;
-      const lng = map ? map.getCenter().lng : -73.99;
+      const center = mapRef.current?.getCenter();
+      const lat = center?.lat ?? 40.735;
+      const lng = center?.lng ?? -73.99;
       Promise.all([
         searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
         searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
@@ -526,32 +495,7 @@ export const Map: React.FC = () => {
         setRecsLoading(false);
       });
     }
-  }, [buildRecQueries, fetchRecBatch, userPreferences, cityCoordMap]);
-
-  useEffect(() => {
-    if (recsFetchedRef.current) return;
-    const hasPref = userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0;
-    const hasCities = userPreferences.topCities.length > 0;
-    const knownCities = userPreferences.topCities.filter((c) => cityCoordMap[c]);
-
-    if (hasPref && hasCities && knownCities.length > 0) {
-      doRecsFetch('personalized');
-      return;
-    }
-
-    if (!hasPref || !hasCities) {
-      // No preferences at all — go generic immediately
-      doRecsFetch('generic');
-      return;
-    }
-
-    // Has preferences + cities but coords not resolved yet — wait up to 3s then go generic
-    if (!recTimerRef.current) {
-      recTimerRef.current = setTimeout(() => {
-        if (!recsFetchedRef.current) doRecsFetch('generic');
-      }, 3000);
-    }
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, userPreferences.topCities.length, cityCoordMap, doRecsFetch]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch]);
 
   // Load more recommendations — called when the horizontal scroll nears the end.
   const loadMoreRecommendations = useCallback(async () => {
