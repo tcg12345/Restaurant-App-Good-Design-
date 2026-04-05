@@ -205,6 +205,7 @@ export const Map: React.FC = () => {
   const filterBarRef = useRef<HTMLDivElement>(null);
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
+  const [navDirection, setNavDirection] = useState<number>(0);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
@@ -1867,7 +1868,7 @@ export const Map: React.FC = () => {
           const hasNext = currentIndex >= 0 && currentIndex < orderedPlaces.length - 1;
           const goTo = (dir: number) => {
             const nextIndex = currentIndex + dir;
-            if (nextIndex >= 0 && nextIndex < orderedPlaces.length) { const next = orderedPlaces[nextIndex]; setSelectedPlace(next); setSelectedMarker(next.id); }
+            if (nextIndex >= 0 && nextIndex < orderedPlaces.length) { const next = orderedPlaces[nextIndex]; setNavDirection(dir); setSelectedPlace(next); setSelectedMarker(next.id); }
           };
 
           // Mode-specific data lookups
@@ -1883,7 +1884,6 @@ export const Map: React.FC = () => {
 
           return (
             <motion.div
-              key={selectedPlace.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
@@ -1901,9 +1901,21 @@ export const Map: React.FC = () => {
                 <ChevronLeft size={18} />
               </button>
 
-              {/* Card — drag-to-swipe wrapper */}
+              {/* Card — drag-to-swipe wrapper with horizontal slide transitions */}
+              <div className="flex-1 min-w-0 relative overflow-hidden">
+              <AnimatePresence mode="popLayout" custom={navDirection} initial={false}>
               <motion.div
-                className="flex-1 min-w-0"
+                key={selectedPlace.id}
+                custom={navDirection}
+                variants={{
+                  enter: (d: number) => ({ x: d === 0 ? 0 : d * 320, opacity: d === 0 ? 1 : 0 }),
+                  center: { x: 0, opacity: 1 },
+                  exit: (d: number) => ({ x: d * -320, opacity: 0 }),
+                }}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ type: 'spring', damping: 30, stiffness: 320 }}
                 drag="x"
                 dragConstraints={{ left: 0, right: 0 }}
                 dragElastic={0.3}
@@ -2014,6 +2026,8 @@ export const Map: React.FC = () => {
                   </div>
                 </div>
               </motion.div>
+              </AnimatePresence>
+              </div>
 
               {/* Right arrow — outside card */}
               <button
