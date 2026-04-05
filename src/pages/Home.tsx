@@ -268,22 +268,26 @@ export const Home: React.FC = () => {
   const [locationLoading, setLocationLoading] = useState(false);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch API-based recommendations using user's top cuisines
+  // Fetch API-based recommendations using user's top cuisines (or generic nearby if no ratings)
   useEffect(() => {
-    if (recsFetchedRef.current || ratings.length === 0) return;
+    if (recsFetchedRef.current) return;
     recsFetchedRef.current = true;
 
     const ratedIds = new Set(ratings.map((r) => r.restaurantId));
     const recentIds = new Set(recentViews.map((v) => v.id));
     const topCuisines = userPreferences.topCuisines;
-    if (topCuisines.length === 0) return;
 
     setRecsLoading(true);
 
-    const queries = topCuisines.slice(0, 2).map((cuisine) =>
-      searchPlacesByText(`best ${cuisine} restaurants`, userLat, userLng)
-        .catch(() => [] as PlaceResult[])
-    );
+    const queries = topCuisines.length > 0
+      ? topCuisines.slice(0, 2).map((cuisine) =>
+          searchPlacesByText(`best ${cuisine} restaurants`, userLat, userLng)
+            .catch(() => [] as PlaceResult[])
+        )
+      : [
+          searchNearbyRestaurants(userLat, userLng).catch(() => [] as PlaceResult[]),
+          searchPlacesByText('best restaurants', userLat, userLng).catch(() => [] as PlaceResult[]),
+        ];
 
     Promise.all(queries).then((results) => {
       const all = results.flat();

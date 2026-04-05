@@ -514,6 +514,32 @@ export const Map: React.FC = () => {
     });
   }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, userPreferences.topCities.length, cityCoordMap, buildRecQueries, fetchRecBatch]);
 
+  // Fallback: if user has no high-rated restaurants, fetch generic nearby recs
+  useEffect(() => {
+    if (recsFetchedRef.current) return;
+    // Only run this fallback after we know preferences won't trigger the primary fetch
+    if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0 && userPreferences.topCities.length > 0) return;
+    recsFetchedRef.current = true;
+    setRecsLoading(true);
+    const map = mapRef.current;
+    const lat = map ? map.getCenter().lat : 40.735;
+    const lng = map ? map.getCenter().lng : -73.99;
+    Promise.all([
+      searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
+      searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
+    ]).then(([nearby, best]) => {
+      const all = [...nearby, ...best];
+      const seen = new Set<string>();
+      const fresh = all.filter((p) => {
+        if (seen.has(p.id)) return false;
+        seen.add(p.id);
+        return true;
+      });
+      setApiRecommendations(fresh.slice(0, 12));
+      setRecsLoading(false);
+    });
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, userPreferences.topCities.length]);
+
   // Load more recommendations — called when the horizontal scroll nears the end.
   const loadMoreRecommendations = useCallback(async () => {
     if (recsLoadingMore || recsExhaustedRef.current) return;
