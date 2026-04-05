@@ -488,57 +488,70 @@ export const Map: React.FC = () => {
     return fresh;
   }, [myLocalRatings, myLists, recentViews, cityCoordMap]);
 
-  // Initial recommendations fetch. Waits until at least one top city has a
-  // resolved coordinate so the first batch is geographically diversified.
-  useEffect(() => {
+  // Initial recommendations fetch. Uses personalised queries when the user has
+  // enough rating data, otherwise falls back to generic nearby restaurants.
+  // A timer ensures recs load even when city-coord resolution never completes.
+  const recTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doRecsFetch = useCallback((mode: 'personalized' | 'generic') => {
     if (recsFetchedRef.current) return;
-    if (userPreferences.highRatedCount === 0 || userPreferences.topCuisines.length === 0) return;
-    if (userPreferences.topCities.length === 0) return;
-    // Require coords for at least half of the top cities so the first batch
-    // samples multiple cities rather than flooding with a single one.
-    const knownCities = userPreferences.topCities.filter((c) => cityCoordMap[c]);
-    if (knownCities.length === 0) return;
     recsFetchedRef.current = true;
+    if (recTimerRef.current) { clearTimeout(recTimerRef.current); recTimerRef.current = null; }
     recsSeenIdsRef.current = new Set();
     recsQueryCursorRef.current = 0;
     recsExhaustedRef.current = false;
-    const queries = buildRecQueries();
-    // First batch = one query per known city for immediate diversification.
-    const initialSize = Math.max(3, Math.min(knownCities.length, 5));
-    const initialBatch = queries.slice(0, initialSize);
-    recsQueryCursorRef.current = initialBatch.length;
     setRecsLoading(true);
-    fetchRecBatch(initialBatch).then((fresh) => {
-      setApiRecommendations(fresh);
-      setRecsLoading(false);
-    });
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, userPreferences.topCities.length, cityCoordMap, buildRecQueries, fetchRecBatch]);
 
-  // Fallback: if user has no high-rated restaurants, fetch generic nearby recs
+    if (mode === 'personalized') {
+      const queries = buildRecQueries();
+      const knownCities = userPreferences.topCities.filter((c) => cityCoordMap[c]);
+      const initialSize = Math.max(3, Math.min(knownCities.length || 1, 5));
+      const initialBatch = queries.slice(0, initialSize);
+      recsQueryCursorRef.current = initialBatch.length;
+      fetchRecBatch(initialBatch).then((fresh) => {
+        setApiRecommendations(fresh);
+        setRecsLoading(false);
+      });
+    } else {
+      const map = mapRef.current;
+      const lat = map ? map.getCenter().lat : 40.735;
+      const lng = map ? map.getCenter().lng : -73.99;
+      Promise.all([
+        searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
+        searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
+      ]).then(([nearby, best]) => {
+        const all = [...nearby, ...best];
+        const seen = new Set<string>();
+        const fresh = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+        setApiRecommendations(fresh.slice(0, 12));
+        setRecsLoading(false);
+      });
+    }
+  }, [buildRecQueries, fetchRecBatch, userPreferences, cityCoordMap]);
+
   useEffect(() => {
     if (recsFetchedRef.current) return;
-    // Only run this fallback after we know preferences won't trigger the primary fetch
-    if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0 && userPreferences.topCities.length > 0) return;
-    recsFetchedRef.current = true;
-    setRecsLoading(true);
-    const map = mapRef.current;
-    const lat = map ? map.getCenter().lat : 40.735;
-    const lng = map ? map.getCenter().lng : -73.99;
-    Promise.all([
-      searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
-      searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
-    ]).then(([nearby, best]) => {
-      const all = [...nearby, ...best];
-      const seen = new Set<string>();
-      const fresh = all.filter((p) => {
-        if (seen.has(p.id)) return false;
-        seen.add(p.id);
-        return true;
-      });
-      setApiRecommendations(fresh.slice(0, 12));
-      setRecsLoading(false);
-    });
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, userPreferences.topCities.length]);
+    const hasPref = userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0;
+    const hasCities = userPreferences.topCities.length > 0;
+    const knownCities = userPreferences.topCities.filter((c) => cityCoordMap[c]);
+
+    if (hasPref && hasCities && knownCities.length > 0) {
+      doRecsFetch('personalized');
+      return;
+    }
+
+    if (!hasPref || !hasCities) {
+      // No preferences at all — go generic immediately
+      doRecsFetch('generic');
+      return;
+    }
+
+    // Has preferences + cities but coords not resolved yet — wait up to 3s then go generic
+    if (!recTimerRef.current) {
+      recTimerRef.current = setTimeout(() => {
+        if (!recsFetchedRef.current) doRecsFetch('generic');
+      }, 3000);
+    }
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, userPreferences.topCities.length, cityCoordMap, doRecsFetch]);
 
   // Load more recommendations — called when the horizontal scroll nears the end.
   const loadMoreRecommendations = useCallback(async () => {
