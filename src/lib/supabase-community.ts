@@ -365,15 +365,22 @@ export async function getExpertRatings(limit = 50): Promise<CommunityRating[]> {
   } catch { return []; }
 }
 
-/** Get all ratings from user's friends (for friends map) */
+/** Get all ratings from user's friends (for friends map), excluding experts */
 export async function getAllFriendRatings(userId: string): Promise<CommunityRating[]> {
   if (!supabaseConfigured || !userId) return [];
   try {
     const friends = await getFriends(userId);
     if (friends.length === 0) return [];
     const friendIds = friends.map((f) => f.friend_id);
+
+    // Exclude expert users so their ratings only appear in the experts tab
+    const { data: experts } = await supabase.from('user_profiles').select('user_id').eq('is_expert', true);
+    const expertIds = new Set((experts || []).map((e: any) => e.user_id));
+    const nonExpertFriendIds = friendIds.filter((id) => !expertIds.has(id));
+    if (nonExpertFriendIds.length === 0) return [];
+
     const { data, error } = await supabase.from('community_ratings')
-      .select('*').in('user_id', friendIds).order('updated_at', { ascending: false });
+      .select('*').in('user_id', nonExpertFriendIds).order('updated_at', { ascending: false });
     if (error) return [];
     return (data || []) as CommunityRating[];
   } catch { return []; }
