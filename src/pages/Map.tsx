@@ -1138,7 +1138,7 @@ export const Map: React.FC = () => {
 
   const activeFilterCount = useMemo(() => {
     if (mapMode === 'discover') {
-      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0) + (discoverRadius !== 5 ? 1 : 0);
+      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
     }
     if (mapMode === 'myratings') {
       return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (wouldReturnFilter !== 'all' ? 1 : 0) + (selectedListId ? 1 : 0);
@@ -1984,16 +1984,6 @@ export const Map: React.FC = () => {
                       </div>
                     </div>
                     {discoverCuisineDropdown}
-                    <div>
-                      <p className={sectionLabel}>Radius: {discoverRadius} km</p>
-                      <div className="relative h-6 flex items-center">
-                        <div className="absolute inset-x-0 h-1 bg-on-surface/10 rounded-full" />
-                        <div className="absolute h-1 bg-primary rounded-full" style={{ left: 0, right: `${100 - ((discoverRadius - 0.5) / 19.5) * 100}%` }} />
-                        <input type="range" min={0.5} max={20} step={0.5} value={discoverRadius} onChange={(e) => setDiscoverRadius(+e.target.value)}
-                          className={thumbCls} />
-                      </div>
-                      <div className="flex justify-between mt-1"><span className="text-[10px] text-on-surface/30">0.5 km</span><span className="text-[10px] text-on-surface/30">20 km</span></div>
-                    </div>
                   </>
                 )}
 
