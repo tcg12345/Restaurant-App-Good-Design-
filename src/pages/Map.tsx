@@ -2568,11 +2568,50 @@ export const Map: React.FC = () => {
                       <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
                     </div>
                   ) : !searchQuery.trim() ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <Search size={32} className="text-on-surface/15 mb-3" />
-                      <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
-                      <p className="text-xs text-on-surface/30 mt-1">Search by name, cuisine, or use the filters above</p>
-                    </div>
+                    recentViews.length > 0 ? (
+                      <section className="pt-2">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Clock size={15} className="text-on-surface/35" />
+                          <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
+                        </div>
+                        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                          {recentViews.slice(0, 8).map((place) => (
+                            <div key={place.id} className="flex-shrink-0 w-32 relative group">
+                              <button
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
+                                className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X size={10} className="text-white" />
+                              </button>
+                              <Link to={`/restaurant/${place.id}`}>
+                                <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                                  {place.image ? (
+                                    <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  ) : (place as any).photoUrl ? (
+                                    <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
+                                  )}
+                                </div>
+                                <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
+                                {place.rating > 0 && (
+                                  <div className="flex items-center gap-0.5 mt-0.5">
+                                    <Star size={10} className="fill-primary text-primary" />
+                                    <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                                  </div>
+                                )}
+                              </Link>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <Search size={32} className="text-on-surface/15 mb-3" />
+                        <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
+                        <p className="text-xs text-on-surface/30 mt-1">Search by name, cuisine, or use the filters above</p>
+                      </div>
+                    )
                   ) : places.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                       <MapPinned size={32} className="text-on-surface/20 mb-3" />
