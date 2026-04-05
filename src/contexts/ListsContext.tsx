@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
-import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord } from '../lib/supabase-community';
+import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 
 /* ── Types ── */
@@ -378,9 +378,38 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const localLists = loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, []);
         const localWishlist = loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, []);
 
+        // If both cloud and local ratings are empty, try to recover from community_ratings
+        // (published ratings survive even if user_app_data.ratings got wiped).
+        let recoveredRatings: RestaurantRating[] = [];
+        if (cloud.ratings.length === 0 && localRatings.length === 0) {
+          try {
+            const communityRows = await getUserRatings(userId);
+            if (communityRows.length > 0) {
+              console.log('[Supabase] Recovering', communityRows.length, 'ratings from community_ratings');
+              recoveredRatings = communityRows.map((r) => ({
+                restaurantId: r.restaurant_id,
+                name: r.restaurant_name,
+                image: r.photo_url || '',
+                cuisine: r.cuisine || '',
+                price: r.price || '',
+                address: r.address || '',
+                score: Number(r.score) || 0,
+                notes: r.notes || '',
+                visitDate: r.visit_date || '',
+                wouldReturn: r.would_return ?? true,
+                tags: r.tags || [],
+                photos: [],
+                listIds: [],
+                friendIds: r.friend_ids || [],
+                createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+              }));
+            }
+          } catch (err) { console.warn('[Supabase] community_ratings recovery failed:', err); }
+        }
+
         // Use cloud data, but if cloud is empty and local has content, keep local
         const cloudRatings = migrateRatings(
-          cloud.ratings.length > 0 ? cloud.ratings : localRatings.length > 0 ? localRatings : []
+          cloud.ratings.length > 0 ? cloud.ratings : localRatings.length > 0 ? localRatings : recoveredRatings
         );
         const cloudLists = migrateLists(
           cloud.lists.length > 0 ? cloud.lists : localLists.length > 0 ? localLists : DEFAULT_LISTS
