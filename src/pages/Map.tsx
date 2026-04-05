@@ -353,21 +353,31 @@ export const Map: React.FC = () => {
       const priceNum = r.price.length;
       if (priceNum > 0) priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
     });
-    const topCuisines = Object.entries(cuisineScores).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
-    // Most common city/state among high-rated restaurants, for location anchoring
+    const topCuisines = Object.entries(cuisineScores).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
+    const topPrices = Object.entries(priceCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([p]) => Number(p))
+      .filter((p) => p >= 1 && p <= 4);
+    // Most common cities/states among high-rated restaurants, for location anchoring
     const cityCounts: Record<string, number> = {};
     highRated.forEach((r) => {
       const city = extractCityState(r.address || '', r.address || '');
       if (city) cityCounts[city] = (cityCounts[city] || 0) + 1;
     });
-    const topCity = Object.entries(cityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-    return { cuisineScores, priceCounts, topCuisines, topCity, highRatedCount: highRated.length };
+    const topCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
+    const topCity = topCities[0] || null;
+    return { cuisineScores, priceCounts, topCuisines, topPrices, topCities, topCity, highRatedCount: highRated.length };
   }, [myLocalRatings]);
 
   // API-based curated recommendations (not derived from recently viewed).
   const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
   const [recsLoading, setRecsLoading] = useState(false);
+  const [recsLoadingMore, setRecsLoadingMore] = useState(false);
   const recsFetchedRef = useRef(false);
+  const recsQueryCursorRef = useRef(0);
+  const recsExhaustedRef = useRef(false);
+  const recsSeenIdsRef = useRef<Set<string>>(new Set());
 
   const recommendations = apiRecommendations;
 
@@ -376,41 +386,105 @@ export const Map: React.FC = () => {
     return [...myLocalRatings].filter((r) => r.score >= 7 && r.image).sort((a, b) => b.score - a.score).slice(0, 6);
   }, [myLocalRatings]);
 
-  // Fetch curated API recommendations once high-rated restaurants are loaded.
+  // Build a rich list of personalised queries combining cuisine, price, and
+  // the cities where the user eats most. Higher-signal queries (city + cuisine)
+  // come first so the initial batch is the most relevant.
+  const buildRecQueries = useCallback(() => {
+    const { topCuisines, topPrices, topCities } = userPreferences;
+    const priceSymbols = ['', '$', '$$', '$$$', '$$$$'];
+    const seen = new Set<string>();
+    const queries: string[] = [];
+    const push = (q: string) => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
+    // 1. City × cuisine (most targeted)
+    for (const city of topCities) {
+      for (const cuisine of topCuisines) push(`best ${cuisine} restaurants in ${city}`);
+    }
+    // 2. Cuisine × price
+    for (const cuisine of topCuisines) {
+      for (const price of topPrices) push(`best ${priceSymbols[price]} ${cuisine} restaurants`);
+    }
+    // 3. City × price
+    for (const city of topCities) {
+      for (const price of topPrices) push(`best ${priceSymbols[price]} restaurants in ${city}`);
+    }
+    // 4. Broader cuisine-only queries for variety
+    for (const cuisine of topCuisines) {
+      push(`top rated ${cuisine} restaurants`);
+      push(`popular ${cuisine} food`);
+      push(`${cuisine} fine dining`);
+      push(`hidden gem ${cuisine} restaurants`);
+      push(`new ${cuisine} restaurants`);
+    }
+    // 5. City-only broad queries
+    for (const city of topCities) {
+      push(`best restaurants in ${city}`);
+      push(`trending restaurants ${city}`);
+      push(`new restaurants in ${city}`);
+    }
+    return queries;
+  }, [userPreferences]);
+
+  // Fetch a batch of recommendations starting from recsQueryCursorRef. Filters
+  // out anything already rated, wishlisted, viewed, or shown in earlier batches.
+  const fetchRecBatch = useCallback(async (queryStrs: string[]) => {
+    if (queryStrs.length === 0) return [] as PlaceResult[];
+    const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
+    const wishlistedIds = new Set(myLists.flatMap((l: any) => l.wishlistIds || []));
+    const recentIds = new Set(recentViews.map((v) => v.id));
+    const center = mapRef.current?.getCenter();
+    const lat = center?.lat ?? 40.735;
+    const lng = center?.lng ?? -73.99;
+    const results = await Promise.all(
+      queryStrs.map((q) => searchPlacesByText(q, lat, lng, 50000).catch(() => [] as PlaceResult[]))
+    );
+    const interleaved: PlaceResult[] = [];
+    const maxLen = Math.max(0, ...results.map((r) => r.length));
+    for (let i = 0; i < maxLen; i++) {
+      for (const list of results) if (list[i]) interleaved.push(list[i]);
+    }
+    const fresh = interleaved.filter((p) => {
+      if (recsSeenIdsRef.current.has(p.id)) return false;
+      if (ratedIds.has(p.id) || wishlistedIds.has(p.id) || recentIds.has(p.id)) return false;
+      if ((p.rating || 0) < 4.0 || (p.userRatingCount || 0) < 30) return false;
+      recsSeenIdsRef.current.add(p.id);
+      return true;
+    });
+    return fresh;
+  }, [myLocalRatings, myLists, recentViews]);
+
+  // Initial recommendations fetch.
   useEffect(() => {
     if (recsFetchedRef.current) return;
     if (userPreferences.highRatedCount === 0 || userPreferences.topCuisines.length === 0) return;
     recsFetchedRef.current = true;
-    const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
-    const wishlistedIds = new Set(myLists.flatMap((l) => l.wishlistIds || []));
-    const recentIds = new Set(recentViews.map((v) => v.id));
-    // Anchor queries to the current map view so recs are near where the user is exploring
-    const center = mapRef.current?.getCenter();
-    const lat = center?.lat ?? 40.735;
-    const lng = center?.lng ?? -73.99;
+    recsSeenIdsRef.current = new Set();
+    recsQueryCursorRef.current = 0;
+    recsExhaustedRef.current = false;
+    const queries = buildRecQueries();
+    const initialBatch = queries.slice(0, 3);
+    recsQueryCursorRef.current = initialBatch.length;
     setRecsLoading(true);
-    const queries = userPreferences.topCuisines.slice(0, 3).map((cuisine) =>
-      searchPlacesByText(`best ${cuisine} restaurants`, lat, lng).catch(() => [] as PlaceResult[])
-    );
-    Promise.all(queries).then((results) => {
-      // Interleave results across cuisines for variety
-      const interleaved: PlaceResult[] = [];
-      const maxLen = Math.max(...results.map((r) => r.length));
-      for (let i = 0; i < maxLen; i++) {
-        for (const list of results) if (list[i]) interleaved.push(list[i]);
-      }
-      const seen = new Set<string>();
-      const fresh = interleaved.filter((p) => {
-        if (seen.has(p.id) || ratedIds.has(p.id) || wishlistedIds.has(p.id) || recentIds.has(p.id)) return false;
-        // Only keep well-rated spots (≥4.0) with enough reviews
-        if ((p.rating || 0) < 4.0 || (p.userRatingCount || 0) < 30) return false;
-        seen.add(p.id);
-        return true;
-      });
-      setApiRecommendations(fresh.slice(0, 8));
+    fetchRecBatch(initialBatch).then((fresh) => {
+      setApiRecommendations(fresh);
       setRecsLoading(false);
     });
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines, myLocalRatings, myLists, recentViews]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch]);
+
+  // Load more recommendations — called when the horizontal scroll nears the end.
+  const loadMoreRecommendations = useCallback(async () => {
+    if (recsLoadingMore || recsExhaustedRef.current) return;
+    const queries = buildRecQueries();
+    if (recsQueryCursorRef.current >= queries.length) {
+      recsExhaustedRef.current = true;
+      return;
+    }
+    setRecsLoadingMore(true);
+    const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 3);
+    recsQueryCursorRef.current += batch.length;
+    const fresh = await fetchRecBatch(batch);
+    setApiRecommendations((prev) => [...prev, ...fresh]);
+    setRecsLoadingMore(false);
+  }, [recsLoadingMore, buildRecQueries, fetchRecBatch]);
 
   // Quick filter handler for discover search
   const handleQuickFilter = useCallback(async (filter: string) => {
@@ -2538,7 +2612,13 @@ export const Map: React.FC = () => {
                     <Sparkles size={15} className="text-primary/60" />
                     <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                   </div>
-                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                  <div
+                    className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1"
+                    onScroll={(e) => {
+                      const el = e.currentTarget;
+                      if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
+                    }}
+                  >
                     {recommendations.map((place) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
@@ -2565,6 +2645,11 @@ export const Map: React.FC = () => {
                         </div>
                       );
                     })}
+                    {recsLoadingMore && (
+                      <div className="flex-shrink-0 w-44 flex items-center justify-center">
+                        <Loader2 size={18} className="text-primary/40 animate-spin" />
+                      </div>
+                    )}
                   </div>
                 </section>
               ) : null}
@@ -3034,7 +3119,13 @@ export const Map: React.FC = () => {
                         <Sparkles size={13} className="text-primary/60" />
                         <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                       </div>
-                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                      <div
+                        className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1"
+                        onScroll={(e) => {
+                          const el = e.currentTarget;
+                          if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
+                        }}
+                      >
                         {recommendations.map((place) => {
                           const cuisine = getCuisineLabel((place as any).types || []);
                           const wishlisted = isWishlisted(place.id);
@@ -3061,6 +3152,11 @@ export const Map: React.FC = () => {
                             </div>
                           );
                         })}
+                        {recsLoadingMore && (
+                          <div className="flex-shrink-0 w-40 flex items-center justify-center">
+                            <Loader2 size={16} className="text-primary/40 animate-spin" />
+                          </div>
+                        )}
                       </div>
                     </section>
                   ) : null}
