@@ -386,56 +386,92 @@ export const Map: React.FC = () => {
     return [...myLocalRatings].filter((r) => r.score >= 7 && r.image).sort((a, b) => b.score - a.score).slice(0, 6);
   }, [myLocalRatings]);
 
+  // Map each city the user eats in to a representative lat/lng, computed as
+  // the centroid of that city's high-rated community ratings. Used so that
+  // per-city queries pull results from THAT city instead of wherever the
+  // Discover map happens to be centered.
+  const cityCoordMap = useMemo(() => {
+    const acc: Record<string, { lat: number; lng: number; count: number }> = {};
+    for (const r of myRatings) {
+      if (Number(r.score) < 7) continue;
+      if (r.lat == null || r.lng == null) continue;
+      if (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1) continue;
+      const city = extractCityState(r.address || '', r.address || '');
+      if (!city) continue;
+      const cur = acc[city];
+      if (!cur) acc[city] = { lat: r.lat, lng: r.lng, count: 1 };
+      else {
+        cur.lat = (cur.lat * cur.count + r.lat) / (cur.count + 1);
+        cur.lng = (cur.lng * cur.count + r.lng) / (cur.count + 1);
+        cur.count++;
+      }
+    }
+    const out: Record<string, { lat: number; lng: number }> = {};
+    for (const [k, v] of Object.entries(acc)) out[k] = { lat: v.lat, lng: v.lng };
+    return out;
+  }, [myRatings]);
+
   // Build a rich list of personalised queries combining cuisine, price, and
-  // the cities where the user eats most. Higher-signal queries (city + cuisine)
-  // come first so the initial batch is the most relevant.
+  // the cities where the user eats most. Queries are interleaved across cities
+  // so the first batch pulls results from ALL of the user's cities, not just
+  // their top one.
   const buildRecQueries = useCallback(() => {
     const { topCuisines, topPrices, topCities } = userPreferences;
     const priceSymbols = ['', '$', '$$', '$$$', '$$$$'];
     const seen = new Set<string>();
-    const queries: string[] = [];
-    const push = (q: string) => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
-    // 1. City × cuisine (most targeted)
-    for (const city of topCities) {
-      for (const cuisine of topCuisines) push(`best ${cuisine} restaurants in ${city}`);
-    }
-    // 2. Cuisine × price
+    const queries: { query: string; city: string | null }[] = [];
+    const push = (q: string, city: string | null) => {
+      const key = `${q}|${city || ''}`;
+      if (!seen.has(key)) { seen.add(key); queries.push({ query: q, city }); }
+    };
+    // 1. Cuisine rotated across cities (interleaved city-major so the first
+    //    cuisine hits every city before moving on to the next cuisine).
     for (const cuisine of topCuisines) {
-      for (const price of topPrices) push(`best ${priceSymbols[price]} ${cuisine} restaurants`);
+      for (const city of topCities) push(`best ${cuisine} restaurants in ${city}`, city);
     }
-    // 3. City × price
-    for (const city of topCities) {
-      for (const price of topPrices) push(`best ${priceSymbols[price]} restaurants in ${city}`);
+    // 2. City-only broad queries (one per city first, then more variants).
+    for (const city of topCities) push(`best restaurants in ${city}`, city);
+    for (const city of topCities) push(`trending restaurants ${city}`, city);
+    // 3. Cuisine × price within each city.
+    for (const price of topPrices) {
+      for (const cuisine of topCuisines) {
+        for (const city of topCities) push(`best ${priceSymbols[price]} ${cuisine} restaurants in ${city}`, city);
+      }
     }
-    // 4. Broader cuisine-only queries for variety
+    // 4. City × price broad.
+    for (const price of topPrices) {
+      for (const city of topCities) push(`best ${priceSymbols[price]} restaurants in ${city}`, city);
+    }
+    // 5. Broader cuisine-only queries (no city) — gives Google some
+    //    freedom to surface notable places across cities.
     for (const cuisine of topCuisines) {
-      push(`top rated ${cuisine} restaurants`);
-      push(`popular ${cuisine} food`);
-      push(`${cuisine} fine dining`);
-      push(`hidden gem ${cuisine} restaurants`);
-      push(`new ${cuisine} restaurants`);
+      push(`top rated ${cuisine} restaurants`, null);
+      push(`${cuisine} fine dining`, null);
+      push(`hidden gem ${cuisine} restaurants`, null);
+      push(`new ${cuisine} restaurants`, null);
     }
-    // 5. City-only broad queries
-    for (const city of topCities) {
-      push(`best restaurants in ${city}`);
-      push(`trending restaurants ${city}`);
-      push(`new restaurants in ${city}`);
-    }
+    // 6. More city variants.
+    for (const city of topCities) push(`new restaurants in ${city}`, city);
     return queries;
   }, [userPreferences]);
 
-  // Fetch a batch of recommendations starting from recsQueryCursorRef. Filters
-  // out anything already rated, wishlisted, viewed, or shown in earlier batches.
-  const fetchRecBatch = useCallback(async (queryStrs: string[]) => {
-    if (queryStrs.length === 0) return [] as PlaceResult[];
+  // Fetch a batch of recommendations. Each query uses the anchor lat/lng of
+  // the city it targets (falling back to any known city centroid, or NYC).
+  // This is what ensures results are diversified across the user's cities.
+  const fetchRecBatch = useCallback(async (batch: { query: string; city: string | null }[]) => {
+    if (batch.length === 0) return [] as PlaceResult[];
     const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
     const wishlistedIds = new Set(myLists.flatMap((l: any) => l.wishlistIds || []));
     const recentIds = new Set(recentViews.map((v) => v.id));
-    const center = mapRef.current?.getCenter();
-    const lat = center?.lat ?? 40.735;
-    const lng = center?.lng ?? -73.99;
+    const anyCityCoord = Object.values(cityCoordMap)[0] as { lat: number; lng: number } | undefined;
+    const fallbackLat = anyCityCoord?.lat ?? 40.735;
+    const fallbackLng = anyCityCoord?.lng ?? -73.99;
     const results = await Promise.all(
-      queryStrs.map((q) => searchPlacesByText(q, lat, lng, 50000).catch(() => [] as PlaceResult[]))
+      batch.map(({ query, city }) => {
+        const coord = (city && cityCoordMap[city]) || { lat: fallbackLat, lng: fallbackLng };
+        // Restrict (not just bias) so results stay within the chosen city.
+        return searchPlacesByText(query, coord.lat, coord.lng, 30000, true).catch(() => [] as PlaceResult[]);
+      })
     );
     const interleaved: PlaceResult[] = [];
     const maxLen = Math.max(0, ...results.map((r) => r.length));
@@ -450,25 +486,33 @@ export const Map: React.FC = () => {
       return true;
     });
     return fresh;
-  }, [myLocalRatings, myLists, recentViews]);
+  }, [myLocalRatings, myLists, recentViews, cityCoordMap]);
 
-  // Initial recommendations fetch.
+  // Initial recommendations fetch. Waits until at least one top city has a
+  // resolved coordinate so the first batch is geographically diversified.
   useEffect(() => {
     if (recsFetchedRef.current) return;
     if (userPreferences.highRatedCount === 0 || userPreferences.topCuisines.length === 0) return;
+    if (userPreferences.topCities.length === 0) return;
+    // Require coords for at least half of the top cities so the first batch
+    // samples multiple cities rather than flooding with a single one.
+    const knownCities = userPreferences.topCities.filter((c) => cityCoordMap[c]);
+    if (knownCities.length === 0) return;
     recsFetchedRef.current = true;
     recsSeenIdsRef.current = new Set();
     recsQueryCursorRef.current = 0;
     recsExhaustedRef.current = false;
     const queries = buildRecQueries();
-    const initialBatch = queries.slice(0, 3);
+    // First batch = one query per known city for immediate diversification.
+    const initialSize = Math.max(3, Math.min(knownCities.length, 5));
+    const initialBatch = queries.slice(0, initialSize);
     recsQueryCursorRef.current = initialBatch.length;
     setRecsLoading(true);
     fetchRecBatch(initialBatch).then((fresh) => {
       setApiRecommendations(fresh);
       setRecsLoading(false);
     });
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, userPreferences.topCities.length, cityCoordMap, buildRecQueries, fetchRecBatch]);
 
   // Load more recommendations — called when the horizontal scroll nears the end.
   const loadMoreRecommendations = useCallback(async () => {
