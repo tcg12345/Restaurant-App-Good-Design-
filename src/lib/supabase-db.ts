@@ -4,6 +4,7 @@
  */
 import { supabase, supabaseConfigured } from './supabase';
 import type { RestaurantRating, CustomList, WishlistItem, RestaurantMeta, Trip, HomeMeal } from '../contexts/ListsContext';
+import type { Conversation } from '../contexts/ChatContext';
 
 export interface UserAppData {
   ratings: RestaurantRating[];
@@ -13,6 +14,8 @@ export interface UserAppData {
   recentViews: unknown[];
   trips: Trip[];
   homeMeals: HomeMeal[];
+  chats?: Conversation[];
+  chatsRead?: Record<string, number>;
 }
 
 /**
@@ -54,6 +57,8 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
       recentViews: (data.recent_views as unknown[]) || [],
       trips: ((data as Record<string, unknown>).trips as Trip[]) || [],
       homeMeals: ((data as Record<string, unknown>).home_meals as HomeMeal[]) || [],
+      chats: ((data as Record<string, unknown>).chats as Conversation[]) || [],
+      chatsRead: ((data as Record<string, unknown>).chats_read as Record<string, number>) || {},
     };
   } catch (err) {
     console.error('[Supabase] loadUserData exception:', err);
@@ -81,11 +86,13 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
         recent_views: data.recentViews || [],
         trips: data.trips || [],
         home_meals: data.homeMeals || [],
+        chats: data.chats || [],
+        chats_read: data.chatsRead || {},
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
 
     if (error) {
-      // Retry without trips column
+      // Retry without newer columns
       const fallback = await supabase
         .from('user_app_data')
         .upsert({
@@ -236,4 +243,17 @@ export async function saveHomeMeals(userId: string, homeMeals: HomeMeal[]): Prom
     if (error) { console.warn('[Supabase] saveHomeMeals error (column may not exist yet):', error.message); return false; }
     return true;
   } catch (err) { console.warn('[Supabase] saveHomeMeals exception:', err); return false; }
+}
+
+export async function saveChats(userId: string, chats: Conversation[], chatsRead: Record<string, number>): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    await ensureRow(userId);
+    const { error } = await supabase
+      .from('user_app_data')
+      .update({ chats, chats_read: chatsRead, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+    if (error) { console.warn('[Supabase] saveChats error (column may not exist yet):', error.message); return false; }
+    return true;
+  } catch (err) { console.warn('[Supabase] saveChats exception:', err); return false; }
 }
