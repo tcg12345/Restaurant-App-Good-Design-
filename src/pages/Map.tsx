@@ -2538,22 +2538,6 @@ export const Map: React.FC = () => {
 
             {/* Full discover content — scrollable */}
             <div className={cn("flex-1 overflow-y-auto pb-32", phoneMode ? "px-3" : "px-6")}>
-              {/* Quick filters */}
-              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1 pt-4">
-                {QUICK_FILTERS.map((filter) => (
-                  <button
-                    key={filter}
-                    onClick={() => handleQuickFilter(filter)}
-                    className={cn("whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all",
-                      activeQuickFilter === filter
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-white/60 backdrop-blur-sm border-on-surface/10 hover:border-primary hover:text-primary'
-                    )}
-                  >
-                    {filter}
-                  </button>
-                ))}
-              </div>
 
               {/* Search results in full state */}
               {discoverSearchActive && (
