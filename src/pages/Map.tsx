@@ -2698,7 +2698,7 @@ export const Map: React.FC = () => {
 
             {/* Floating map button */}
             <button
-              onClick={() => setSheetState('half')}
+              onClick={() => setSheetState('peek')}
               className="absolute bottom-24 right-4 z-10 w-12 h-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors active:scale-95"
             >
               <MapIcon size={20} />
