@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
@@ -159,17 +159,83 @@ export const SocialFeed: React.FC = () => {
     return `${years} year${years === 1 ? '' : 's'} ago`;
   };
 
+  type FeedMode = 'friends' | 'experts' | 'recipes';
+  const FEED_OPTIONS: { value: FeedMode; label: string; icon: React.ReactNode }[] = [
+    { value: 'friends', label: 'Friend Activity', icon: <Heart size={12} /> },
+    { value: 'experts', label: 'Expert Picks', icon: <Star size={12} className="fill-amber-500 text-amber-500" /> },
+    { value: 'recipes', label: 'Recipes', icon: <BookOpen size={12} /> },
+  ];
+  const [feedMode, setFeedMode] = useState<FeedMode>('friends');
+  const [feedDropdownOpen, setFeedDropdownOpen] = useState(false);
+  const feedDropdownRef = React.useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!feedDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (feedDropdownRef.current && !feedDropdownRef.current.contains(e.target as Node)) setFeedDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [feedDropdownOpen]);
+
+  const currentOption = FEED_OPTIONS.find((o) => o.value === feedMode)!;
+
   const SectionHeader: React.FC<{ count?: number }> = ({ count }) => (
     <div className="flex items-center gap-3 mb-4">
-      <h2 className="text-lg font-serif font-bold">Friend Activity</h2>
-      <span className="relative flex h-2 w-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-      </span>
-      {typeof count === 'number' && count > 0 && (
-        <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 bg-on-surface/5 px-2 py-0.5 rounded-full">
-          {count}
-        </span>
+      <div className="relative" ref={feedDropdownRef}>
+        <button
+          onClick={() => setFeedDropdownOpen((p) => !p)}
+          className={cn(
+            "flex items-center gap-2 pl-3 pr-2.5 py-1.5 rounded-full border transition-all",
+            feedDropdownOpen
+              ? "bg-on-surface/5 border-on-surface/15"
+              : "bg-white border-on-surface/10 hover:border-on-surface/20"
+          )}
+        >
+          <span className="text-sm font-bold font-serif">{currentOption.label}</span>
+          <ChevronDown size={14} className={cn("text-on-surface/40 transition-transform", feedDropdownOpen && "rotate-180")} />
+        </button>
+        <AnimatePresence>
+          {feedDropdownOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -4, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.95 }}
+              transition={{ duration: 0.15 }}
+              className="absolute top-full left-0 mt-1.5 z-50 bg-white rounded-xl shadow-lg border border-on-surface/10 overflow-hidden min-w-[180px]"
+            >
+              {FEED_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => { setFeedMode(opt.value); setFeedDropdownOpen(false); }}
+                  className={cn(
+                    "w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left text-sm font-medium transition-colors",
+                    feedMode === opt.value
+                      ? "bg-primary/5 text-primary font-semibold"
+                      : "text-on-surface/70 hover:bg-on-surface/[0.03]"
+                  )}
+                >
+                  <span className="flex-shrink-0">{opt.icon}</span>
+                  {opt.label}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+      {feedMode === 'friends' && (
+        <>
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          </span>
+          {typeof count === 'number' && count > 0 && (
+            <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 bg-on-surface/5 px-2 py-0.5 rounded-full">
+              {count}
+            </span>
+          )}
+        </>
       )}
     </div>
   );
@@ -204,11 +270,20 @@ export const SocialFeed: React.FC = () => {
       </section>
     );
   }
-  if (feedItems.length === 0) return null;
+  if (feedItems.length === 0 && feedMode === 'friends') return null;
 
   return (
     <section className="mb-8">
       <SectionHeader count={feedItems.length} />
+      {feedMode !== 'friends' ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <div className="w-14 h-14 rounded-full bg-on-surface/5 flex items-center justify-center mb-3">
+            {feedMode === 'experts' ? <Star size={24} className="text-amber-400 fill-amber-400" /> : <BookOpen size={24} className="text-primary/40" />}
+          </div>
+          <p className="text-sm font-semibold text-on-surface/50">{feedMode === 'experts' ? 'Expert Picks' : 'Recipes'}</p>
+          <p className="text-xs text-on-surface/35 mt-1">Coming soon</p>
+        </div>
+      ) : (
       <div className="space-y-3">
         {feedItems.map((item) => {
           if (item.type === 'homeMeal') {
@@ -454,6 +529,7 @@ export const SocialFeed: React.FC = () => {
           );
         })}
       </div>
+      )}
     </section>
   );
 };
