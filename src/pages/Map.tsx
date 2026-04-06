@@ -970,7 +970,7 @@ export const Map: React.FC = () => {
   // Listen for "open-discover-sheet" events from BottomNav Explore button
   useEffect(() => {
     const handler = () => {
-      setSheetState('peek');
+      setSheetState('full');
       setMapMode('discover');
     };
     window.addEventListener('open-discover-sheet', handler);
@@ -981,7 +981,7 @@ export const Map: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('discover') === '1') {
-      setSheetState('peek');
+      setSheetState('full');
       setMapMode('discover');
       window.history.replaceState({}, '', '/');
     }
