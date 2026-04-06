@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
@@ -306,7 +306,11 @@ export const SocialFeed: React.FC = () => {
               </Link>
               <div className="flex-1 min-w-0">
                 <Link to={`/user/${getUsername(r.user_id)}`} className="text-sm font-semibold hover:text-primary">{getName(r.user_id)}</Link>
-                <p className="text-[10px] text-on-surface/45 font-medium">rated a restaurant</p>
+                <p className="text-[10px] text-on-surface/45 font-medium">
+                  {profiles[r.user_id]?.is_expert
+                    ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-semibold"><Star size={8} className="fill-amber-500 text-amber-500" />Expert Review</span>
+                    : 'rated a restaurant'}
+                </p>
               </div>
               <span className="text-[10px] text-on-surface/35 font-medium">{timeAgo(r.created_at)}</span>
             </div>
