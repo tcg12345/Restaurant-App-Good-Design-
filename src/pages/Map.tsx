@@ -3138,7 +3138,7 @@ export const Map: React.FC = () => {
                           const cuisine = getCuisineLabel(place.types);
                           const wishlisted = isWishlisted(place.id);
                           return (
-                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => navigate(`/restaurant/${place.id}`)}>
+                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => { setSelectedPlace(place); setSelectedMarker(place.id); setSheetState('peek'); mapRef.current?.easeTo({ center: [place.lng, place.lat], duration: 500 }); }}>
                               <div className="w-full h-28 overflow-hidden relative">
                                 {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={24} className="text-on-surface/15" /></div>}
                                 <div className="absolute top-1.5 right-1.5 flex gap-1">
