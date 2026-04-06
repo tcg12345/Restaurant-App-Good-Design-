@@ -2873,43 +2873,83 @@ export const Map: React.FC = () => {
         <div className={cn("flex-1 overflow-y-auto no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
           {/* My Ratings tab content */}
           {mapMode === 'myratings' && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {filteredMyRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No rated restaurants yet'}</p></div>
-              ) : filteredMyRatings.map((r) => (
+              ) : filteredMyRatings.map((r) => {
+                const s = Number(r.score);
+                const orbBg = s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+                const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
+                const city = extractCityState(r.address || '', r.address || '');
+                return (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
-                    <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{r.cuisine}</p>
-                    <p className="text-[11px] text-on-surface/40 mt-0.5">{r.address?.split(',').slice(-1)[0]?.trim()}</p>
+                  className="flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group">
+                  {/* Photo thumbnail */}
+                  <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
+                    {r.photo_url ? (
+                      <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center font-serif text-xl font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</div>
+                    )}
                   </div>
-                  <span className={cn("text-lg font-serif font-bold self-center", Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500')}>
-                    {Number(r.score).toFixed(1)}
-                  </span>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
+                    <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{r.restaurant_name}</h3>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {r.cuisine && <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>}
+                      {r.price && <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.price}</span>}
+                    </div>
+                    {city && <p className="text-[10px] text-on-surface/35 mt-1 truncate">{city}</p>}
+                  </div>
+                  {/* Score orb */}
+                  <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
+                    <span className={cn("text-sm font-bold font-serif", orbText)}>{s.toFixed(1)}</span>
+                  </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
           {/* Friends tab content */}
           {mapMode === 'friends' && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {filteredFriendRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No friend ratings yet'}</p></div>
               ) : filteredFriendRatings.map((r) => {
                 const prof = friendProfiles[r.user_id];
+                const s = Number(r.score);
+                const orbBg = s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+                const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
+                const friendName = prof?.display_name || 'Friend';
+                const friendInitial = friendName.charAt(0).toUpperCase();
                 return (
                   <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                    className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
-                      <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{r.cuisine}</p>
-                      <p className="text-[10px] text-on-surface/30 mt-0.5">{prof?.display_name || 'Friend'}</p>
+                    className="flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group">
+                    {/* Photo thumbnail */}
+                    <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
+                      {r.photo_url ? (
+                        <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center font-serif text-xl font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</div>
+                      )}
                     </div>
-                    <span className={cn("text-lg font-serif font-bold self-center", Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500')}>
-                      {Number(r.score).toFixed(1)}
-                    </span>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
+                      <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{r.restaurant_name}</h3>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        {r.cuisine && <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>}
+                        {r.price && <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.price}</span>}
+                      </div>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="w-4 h-4 rounded-full bg-primary/10 text-[8px] font-bold text-primary flex items-center justify-center flex-shrink-0">{friendInitial}</span>
+                        <span className="text-[10px] text-on-surface/40 truncate">{friendName}</span>
+                      </div>
+                    </div>
+                    {/* Score orb */}
+                    <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
+                      <span className={cn("text-sm font-bold font-serif", orbText)}>{s.toFixed(1)}</span>
+                    </div>
                   </div>
                 );
               })}
@@ -2918,23 +2958,42 @@ export const Map: React.FC = () => {
 
           {/* Experts tab content */}
           {mapMode === 'experts' && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {filteredExpertRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No expert ratings yet'}</p></div>
               ) : filteredExpertRatings.map((r) => {
                 const expProf = expertProfiles[r.user_id];
                 const expName = expProf?.display_name || 'Expert';
+                const s = Number(r.score);
+                const orbBg = s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+                const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
                 return (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
-                    <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{r.cuisine}</p>
-                    <p className="text-[10px] text-on-surface/30 mt-0.5 truncate">Expert Pick · {expName}</p>
+                  className="flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group">
+                  {/* Photo thumbnail */}
+                  <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
+                    {r.photo_url ? (
+                      <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center font-serif text-xl font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</div>
+                    )}
                   </div>
-                  <span className={cn("text-lg font-serif font-bold self-center", Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500')}>
-                    {Number(r.score).toFixed(1)}
-                  </span>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
+                    <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{r.restaurant_name}</h3>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {r.cuisine && <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>}
+                      {r.price && <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.price}</span>}
+                    </div>
+                    <div className="flex items-center gap-1 mt-1">
+                      <Star size={8} className="fill-amber-500 text-amber-500 flex-shrink-0" />
+                      <span className="text-[10px] font-semibold text-amber-600 truncate">{expName}</span>
+                    </div>
+                  </div>
+                  {/* Score orb */}
+                  <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
+                    <span className={cn("text-sm font-bold font-serif", orbText)}>{s.toFixed(1)}</span>
+                  </div>
                 </div>
                 );
               })}
