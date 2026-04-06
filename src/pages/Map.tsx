@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -2330,6 +2330,13 @@ export const Map: React.FC = () => {
                         )}
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
+                        {mapMode === 'friends' && friendRating.length > 0 && (
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/review/${friendRating[0].id}`); }}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors"
+                            title="See review">
+                            <Eye size={14} />
+                          </button>
+                        )}
                         <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(restData); }}
                           className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors">
                           <Plus size={14} />
