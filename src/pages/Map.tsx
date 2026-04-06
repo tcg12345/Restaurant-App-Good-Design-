@@ -1160,41 +1160,12 @@ export const Map: React.FC = () => {
     return sorted;
   }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, wouldReturnFilter, ratingSortBy]);
 
-  // IDs of restaurants that ONLY exist in specialty lists (hotel-breakfast,
-  // home-cooking) or only as wishlist items — these should not appear on the
-  // default My Ratings map view.
-  const specialtyOnlyIds = useMemo(() => {
-    const specialtyListIds = new Set(myLists.filter((l: any) => l.type === 'hotel-breakfast' || l.type === 'home-cooking').map((l: any) => l.id));
-    const normalListIds = new Set(myLists.filter((l: any) => !l.type || l.type === 'default').map((l: any) => l.id));
-    const onlySpecialty = new Set<string>();
-    for (const r of myLocalRatings) {
-      const inNormal = r.listIds.some((id) => normalListIds.has(id));
-      const inSpecialty = r.listIds.some((id) => specialtyListIds.has(id));
-      // If rating is ONLY in specialty lists (not in any normal list), exclude it
-      if (inSpecialty && !inNormal && r.listIds.length > 0) onlySpecialty.add(r.restaurantId);
-    }
-    // Also exclude wishlist-only items (restaurants in wishlistIds but not restaurantIds of any list)
-    const allRatedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
-    for (const list of myLists) {
-      for (const wid of (list as any).wishlistIds || []) {
-        if (!allRatedIds.has(wid)) onlySpecialty.add(wid);
-      }
-    }
-    return onlySpecialty;
-  }, [myLocalRatings, myLists]);
-
   // Filtered ratings for each mode
   const filteredMyRatings = useMemo(() => {
     let base = myRatings;
-    if (selectedListId) {
-      const list = myLists.find((l: any) => l.id === selectedListId);
-      if (list) { const ids = new Set(list.restaurantIds); base = base.filter((r) => ids.has(r.restaurant_id)); }
-    } else {
-      // Default view: exclude specialty-only ratings
-      base = base.filter((r) => !specialtyOnlyIds.has(r.restaurant_id));
-    }
+    if (selectedListId) { const list = myLists.find((l: any) => l.id === selectedListId); if (list) { const ids = new Set(list.restaurantIds); base = base.filter((r) => ids.has(r.restaurant_id)); } }
     return filterRatings(base);
-  }, [myRatings, selectedListId, myLists, filterRatings, specialtyOnlyIds]);
+  }, [myRatings, selectedListId, myLists, filterRatings]);
 
   const filteredFriendRatings = useMemo(() => {
     let base = friendRatings;
