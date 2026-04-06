@@ -2262,7 +2262,7 @@ export const Map: React.FC = () => {
                         </button>
                       </div>
                       <p className="text-[10px] text-primary font-bold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                      {mapMode === 'myratings' || isExpertCard ? (
+                      {mapMode === 'myratings' || mapMode === 'friends' || isExpertCard ? (
                         selectedPlace.priceLevel > 0 && (
                           <div className="flex items-center gap-1 mt-0.5">
                             <span className="text-[10px] font-semibold text-on-surface/30">{priceLevelToString(selectedPlace.priceLevel)}</span>
