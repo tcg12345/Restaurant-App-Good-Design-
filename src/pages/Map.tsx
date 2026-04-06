@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye, Map as MapIcon } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -300,7 +300,7 @@ export const Map: React.FC = () => {
   }, [sortBy, selectedCuisines, selectedPrice]);
 
   // Bottom sheet state — tri-state: peek (collapsed), half (partial), full (full-screen discover)
-  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>('peek');
+  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>('full');
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartYRef = useRef(0);
   const dragCurrentYRef = useRef(0);
@@ -2474,11 +2474,11 @@ export const Map: React.FC = () => {
         {/* ══════ FULL STATE — full-screen discover page ══════ */}
         {sheetState === 'full' && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Header with back button + search bar or active search input */}
+            {/* Header with search bar */}
             <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-1 pb-3" : "px-6 pt-2 pb-4")}>
-              <button
-                onClick={() => {
-                  if (discoverSearchActive) {
+              {discoverSearchActive && (
+                <button
+                  onClick={() => {
                     setDiscoverSearchActive(false);
                     setShowSearchInput(false);
                     setSearchQuery('');
@@ -2486,14 +2486,12 @@ export const Map: React.FC = () => {
                       setPlaces(preSearchPlacesRef.current);
                       syncMarkersRef.current?.(preSearchPlacesRef.current);
                     }
-                  } else {
-                    setSheetState('half');
-                  }
-                }}
-                className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"
-              >
-                <ArrowLeft size={20} className="text-on-surface/60" />
-              </button>
+                  }}
+                  className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"
+                >
+                  <ArrowLeft size={20} className="text-on-surface/60" />
+                </button>
+              )}
               {discoverSearchActive ? (
                 <form
                   className="flex-1 relative"
@@ -2697,6 +2695,14 @@ export const Map: React.FC = () => {
               </>
               )}
             </div>
+
+            {/* Floating map button */}
+            <button
+              onClick={() => setSheetState('half')}
+              className="absolute bottom-24 right-4 z-10 w-12 h-12 rounded-full bg-primary text-white shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors active:scale-95"
+            >
+              <MapIcon size={20} />
+            </button>
           </div>
         )}
 
