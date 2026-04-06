@@ -268,22 +268,26 @@ export const Home: React.FC = () => {
   const [locationLoading, setLocationLoading] = useState(false);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch API-based recommendations using user's top cuisines
+  // Fetch API-based recommendations using user's top cuisines (or generic nearby if no ratings)
   useEffect(() => {
-    if (recsFetchedRef.current || ratings.length === 0) return;
+    if (recsFetchedRef.current) return;
     recsFetchedRef.current = true;
 
     const ratedIds = new Set(ratings.map((r) => r.restaurantId));
     const recentIds = new Set(recentViews.map((v) => v.id));
     const topCuisines = userPreferences.topCuisines;
-    if (topCuisines.length === 0) return;
 
     setRecsLoading(true);
 
-    const queries = topCuisines.slice(0, 2).map((cuisine) =>
-      searchPlacesByText(`best ${cuisine} restaurants`, userLat, userLng)
-        .catch(() => [] as PlaceResult[])
-    );
+    const queries = topCuisines.length > 0
+      ? topCuisines.slice(0, 2).map((cuisine) =>
+          searchPlacesByText(`best ${cuisine} restaurants`, userLat, userLng)
+            .catch(() => [] as PlaceResult[])
+        )
+      : [
+          searchNearbyRestaurants(userLat, userLng).catch(() => [] as PlaceResult[]),
+          searchPlacesByText('best restaurants', userLat, userLng).catch(() => [] as PlaceResult[]),
+        ];
 
     Promise.all(queries).then((results) => {
       const all = results.flat();
@@ -767,46 +771,6 @@ export const Home: React.FC = () => {
                     </div>
                   ) : places.length === 0 ? (
                     <div className="space-y-8">
-                      {/* Recent Searches */}
-                      {recentViews.length > 0 && (
-                        <section>
-                          <div className="flex items-center gap-2 mb-3">
-                            <Clock size={15} className="text-on-surface/35" />
-                            <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
-                          </div>
-                          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
-                            {recentViews.slice(0, 8).map((place) => (
-                              <div key={place.id} className="flex-shrink-0 w-32 relative group">
-                                <button
-                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
-                                  className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                  <X size={10} className="text-white" />
-                                </button>
-                                <Link to={`/restaurant/${place.id}`}>
-                                  <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                                    {place.image ? (
-                                      <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                                    ) : (place as any).photoUrl ? (
-                                      <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                                    ) : (
-                                      <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
-                                    )}
-                                  </div>
-                                  <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
-                                  {place.rating > 0 && (
-                                    <div className="flex items-center gap-0.5 mt-0.5">
-                                      <Star size={10} className="fill-primary text-primary" />
-                                      <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
-                                    </div>
-                                  )}
-                                </Link>
-                              </div>
-                            ))}
-                          </div>
-                        </section>
-                      )}
-
                       {/* Recommendations */}
                       {recsLoading ? (
                         <section>
@@ -876,7 +840,7 @@ export const Home: React.FC = () => {
                       )}
 
                       {/* Empty state — only if nothing at all to show */}
-                      {recentViews.length === 0 && recommendations.length === 0 && topRated.length === 0 && !recsLoading && (
+                      {recommendations.length === 0 && topRated.length === 0 && !recsLoading && (
                         <div className="text-center py-16">
                           <Search size={32} className="mx-auto text-on-surface/15 mb-3" />
                           <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>

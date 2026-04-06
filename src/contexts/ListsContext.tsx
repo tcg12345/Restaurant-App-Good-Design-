@@ -427,8 +427,21 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
         const cloudHomeMeals = cloud.homeMeals || [];
 
+        // Reconcile: ensure every rating's listIds are reflected in
+        // list.restaurantIds (fixes data drift where ratings exist but
+        // lists lost their restaurantIds references).
+        const reconciledLists = cloudLists.map((l) => {
+          const missing = cloudRatings
+            .filter((r) => r.listIds.includes(l.id) && !l.restaurantIds.includes(r.restaurantId))
+            .map((r) => r.restaurantId);
+          return missing.length > 0
+            ? { ...l, restaurantIds: [...l.restaurantIds, ...missing] }
+            : l;
+        });
+        const listsChanged = reconciledLists.some((l, i) => l !== cloudLists[i]);
+
         setRatings(cloudRatings);
-        setLists(cloudLists);
+        setLists(listsChanged ? reconciledLists : cloudLists);
         setWishlist(cloudWishlist);
         setRestaurantMeta(cloudMeta);
         setTrips(cloudTrips as Trip[]);
@@ -437,7 +450,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         // Also update localStorage as cache
         saveToStorage(STORAGE_KEY_RATINGS, cloudRatings);
-        saveToStorage(STORAGE_KEY_LISTS, cloudLists);
+        saveToStorage(STORAGE_KEY_LISTS, listsChanged ? reconciledLists : cloudLists);
         saveToStorage(STORAGE_KEY_WISHLIST, cloudWishlist);
         saveToStorage(STORAGE_KEY_META, cloudMeta);
         saveToStorage(STORAGE_KEY_TRIPS, cloudTrips);
@@ -449,10 +462,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         console.log('[Supabase] Loaded user data:', cloudRatings.length, 'ratings,', cloudLists.length, 'lists,', cloudWishlist.length, 'wishlist,', cloudRecentViews.length, 'recent views');
 
-        // If we used local fallback data (cloud was empty but local had content), save back to cloud
-        if (cloud.ratings.length === 0 && cloudRatings.length > 0) {
-          console.log('[Supabase] Cloud was empty but local had data — syncing local data to cloud');
-          await saveUserData(userId, { ratings: cloudRatings, lists: cloudLists, wishlist: cloudWishlist, restaurantMeta: cloudMeta, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
+        // If we used local fallback data (cloud was empty but local had content), or lists were reconciled, save back to cloud
+        const finalLists = listsChanged ? reconciledLists : cloudLists;
+        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged) {
+          console.log('[Supabase] Syncing data to cloud' + (listsChanged ? ' (lists reconciled)' : ' (local fallback)'));
+          await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMeta, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
         }
 
         // Sync all ratings to community_ratings (ensures they're visible on user profiles)

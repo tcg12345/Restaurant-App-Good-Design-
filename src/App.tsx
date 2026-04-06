@@ -32,12 +32,13 @@ import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
 import { Messages } from './pages/Messages';
+import { FriendReviewDetail } from './pages/FriendReviewDetail';
 import { ChatProvider } from './contexts/ChatContext';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/';
-  const showBottomNav = !['/onboarding', '/messages'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/');
+  const showBottomNav = !['/onboarding', '/messages'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
 
@@ -121,6 +122,7 @@ const AppContent: React.FC = () => {
               <Route path="/recipe/:id" element={<RecipeDetail />} />
               <Route path="/user/:username" element={<UserProfile />} />
               <Route path="/messages" element={<Messages />} />
+              <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
             </Routes>
           </AnimatePresence>
         </div>

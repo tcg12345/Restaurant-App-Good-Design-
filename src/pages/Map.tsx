@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye, Map as MapIcon } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -130,10 +130,11 @@ const tabDataCache: {
   friendRatings: CommunityRating[];
   expertRatings: CommunityRating[];
   friendProfiles: Record<string, UserProfile>;
+  expertProfiles: Record<string, UserProfile>;
   coordsLookedUp: Record<string, boolean>;
   discoverPlaces: PlaceResult[];
   discoverTs: number;
-} = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverTs: 0 };
+} = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverTs: 0 };
 const TAB_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
 export const Map: React.FC = () => {
@@ -148,6 +149,7 @@ export const Map: React.FC = () => {
   const [myRatings, setMyRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.myRatings : []);
   const [friendRatings, setFriendRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.friendRatings : []);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>(cacheHit ? tabDataCache.friendProfiles : {});
+  const [expertProfiles, setExpertProfiles] = useState<Record<string, UserProfile>>(cacheHit ? tabDataCache.expertProfiles : {});
   const [expertRatings, setExpertRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.expertRatings : []);
   const [tabDataLoaded, setTabDataLoaded] = useState(!!cacheHit);
 
@@ -165,10 +167,16 @@ export const Map: React.FC = () => {
       setFriendRatings(friendR);
       setExpertRatings(expertR);
       let profs: Record<string, UserProfile> = {};
-      if (friendR.length > 0) {
-        const ids = [...new Set(friendR.map((r) => r.user_id))];
-        profs = await getProfilesByIds(ids);
+      let expProfs: Record<string, UserProfile> = {};
+      const friendIds = friendR.length > 0 ? [...new Set(friendR.map((r) => r.user_id))] : [];
+      const expertIds = expertR.length > 0 ? [...new Set(expertR.map((r) => r.user_id))] : [];
+      if (friendIds.length > 0 || expertIds.length > 0) {
+        const allIds = [...new Set([...friendIds, ...expertIds])];
+        const allProfs = await getProfilesByIds(allIds);
+        friendIds.forEach((id) => { if (allProfs[id]) profs[id] = allProfs[id]; });
+        expertIds.forEach((id) => { if (allProfs[id]) expProfs[id] = allProfs[id]; });
         setFriendProfiles(profs);
+        setExpertProfiles(expProfs);
       }
       // Update module-level cache
       tabDataCache.ts = Date.now();
@@ -177,6 +185,7 @@ export const Map: React.FC = () => {
       tabDataCache.friendRatings = friendR;
       tabDataCache.expertRatings = expertR;
       tabDataCache.friendProfiles = profs;
+      tabDataCache.expertProfiles = expProfs;
     })();
   }, [userId, tabDataLoaded]);
   const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts' | 'hotels'>(() => {
@@ -206,6 +215,20 @@ export const Map: React.FC = () => {
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
   const [navDirection, setNavDirection] = useState<number>(0);
+  // Arrow-navigation history for the place card. Tracks ids of places visited
+  // via the ← / → arrows so we can loop through all loaded restaurants without
+  // re-visiting and provide a true "back" action.
+  const [navHistory, setNavHistory] = useState<string[]>([]);
+  const navClickRef = useRef(false);
+  // Reset nav history whenever a place is selected outside of the arrow
+  // navigation (marker click, direct tap, swipe). Arrow navigation sets
+  // navClickRef.current=true just before calling setSelectedPlace so we know
+  // to preserve history.
+  useEffect(() => {
+    if (!selectedPlace) { setNavHistory([]); return; }
+    if (navClickRef.current) { navClickRef.current = false; return; }
+    setNavHistory([selectedPlace.id]);
+  }, [selectedPlace]);
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
@@ -277,7 +300,7 @@ export const Map: React.FC = () => {
   }, [sortBy, selectedCuisines, selectedPrice]);
 
   // Bottom sheet state — tri-state: peek (collapsed), half (partial), full (full-screen discover)
-  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>('peek');
+  const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>('full');
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartYRef = useRef(0);
   const dragCurrentYRef = useRef(0);
@@ -330,21 +353,31 @@ export const Map: React.FC = () => {
       const priceNum = r.price.length;
       if (priceNum > 0) priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
     });
-    const topCuisines = Object.entries(cuisineScores).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
-    // Most common city/state among high-rated restaurants, for location anchoring
+    const topCuisines = Object.entries(cuisineScores).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
+    const topPrices = Object.entries(priceCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([p]) => Number(p))
+      .filter((p) => p >= 1 && p <= 4);
+    // Most common cities/states among high-rated restaurants, for location anchoring
     const cityCounts: Record<string, number> = {};
     highRated.forEach((r) => {
       const city = extractCityState(r.address || '', r.address || '');
       if (city) cityCounts[city] = (cityCounts[city] || 0) + 1;
     });
-    const topCity = Object.entries(cityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-    return { cuisineScores, priceCounts, topCuisines, topCity, highRatedCount: highRated.length };
+    const topCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
+    const topCity = topCities[0] || null;
+    return { cuisineScores, priceCounts, topCuisines, topPrices, topCities, topCity, highRatedCount: highRated.length };
   }, [myLocalRatings]);
 
   // API-based curated recommendations (not derived from recently viewed).
   const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
   const [recsLoading, setRecsLoading] = useState(false);
+  const [recsLoadingMore, setRecsLoadingMore] = useState(false);
   const recsFetchedRef = useRef(false);
+  const recsQueryCursorRef = useRef(0);
+  const recsExhaustedRef = useRef(false);
+  const recsSeenIdsRef = useRef<Set<string>>(new Set());
 
   const recommendations = apiRecommendations;
 
@@ -353,41 +386,132 @@ export const Map: React.FC = () => {
     return [...myLocalRatings].filter((r) => r.score >= 7 && r.image).sort((a, b) => b.score - a.score).slice(0, 6);
   }, [myLocalRatings]);
 
-  // Fetch curated API recommendations once high-rated restaurants are loaded.
-  useEffect(() => {
-    if (recsFetchedRef.current) return;
-    if (userPreferences.highRatedCount === 0 || userPreferences.topCuisines.length === 0) return;
-    recsFetchedRef.current = true;
+  // Map each city the user eats in to a representative lat/lng, computed as
+  // the centroid of that city's high-rated community ratings. Used so that
+  // per-city queries pull results from THAT city instead of wherever the
+  // Discover map happens to be centered.
+  const cityCoordMap = useMemo(() => {
+    const acc: Record<string, { lat: number; lng: number; count: number }> = {};
+    for (const r of myRatings) {
+      if (Number(r.score) < 7) continue;
+      if (r.lat == null || r.lng == null) continue;
+      if (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1) continue;
+      const city = extractCityState(r.address || '', r.address || '');
+      if (!city) continue;
+      const cur = acc[city];
+      if (!cur) acc[city] = { lat: r.lat, lng: r.lng, count: 1 };
+      else {
+        cur.lat = (cur.lat * cur.count + r.lat) / (cur.count + 1);
+        cur.lng = (cur.lng * cur.count + r.lng) / (cur.count + 1);
+        cur.count++;
+      }
+    }
+    const out: Record<string, { lat: number; lng: number }> = {};
+    for (const [k, v] of Object.entries(acc)) out[k] = { lat: v.lat, lng: v.lng };
+    return out;
+  }, [myRatings]);
+
+  // Build a list of personalised search queries from the user's preferences.
+  const buildRecQueries = useCallback(() => {
+    const { topCuisines, topPrices, topCities } = userPreferences;
+    const priceSymbols = ['', '$', '$$', '$$$', '$$$$'];
+    const seen = new Set<string>();
+    const queries: string[] = [];
+    const push = (q: string) => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
+    for (const city of topCities) {
+      for (const cuisine of topCuisines) push(`best ${cuisine} restaurants in ${city}`);
+    }
+    for (const cuisine of topCuisines) {
+      for (const price of topPrices) push(`best ${priceSymbols[price]} ${cuisine} restaurants`);
+    }
+    for (const cuisine of topCuisines) {
+      push(`top rated ${cuisine} restaurants`);
+      push(`${cuisine} fine dining`);
+      push(`hidden gem ${cuisine} restaurants`);
+    }
+    for (const city of topCities) {
+      push(`best restaurants in ${city}`);
+      push(`trending restaurants ${city}`);
+    }
+    return queries;
+  }, [userPreferences]);
+
+  // Fetch a batch of recommendations using map center as location anchor.
+  const fetchRecBatch = useCallback(async (queryStrs: string[]) => {
+    if (queryStrs.length === 0) return [] as PlaceResult[];
     const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
-    const wishlistedIds = new Set(myLists.flatMap((l) => l.wishlistIds || []));
+    const wishlistedIds = new Set(myLists.flatMap((l: any) => l.wishlistIds || []));
     const recentIds = new Set(recentViews.map((v) => v.id));
-    // Anchor queries to the current map view so recs are near where the user is exploring
     const center = mapRef.current?.getCenter();
     const lat = center?.lat ?? 40.735;
     const lng = center?.lng ?? -73.99;
-    setRecsLoading(true);
-    const queries = userPreferences.topCuisines.slice(0, 3).map((cuisine) =>
-      searchPlacesByText(`best ${cuisine} restaurants`, lat, lng).catch(() => [] as PlaceResult[])
+    const results = await Promise.all(
+      queryStrs.map((q) => searchPlacesByText(q, lat, lng, 50000).catch(() => [] as PlaceResult[]))
     );
-    Promise.all(queries).then((results) => {
-      // Interleave results across cuisines for variety
-      const interleaved: PlaceResult[] = [];
-      const maxLen = Math.max(...results.map((r) => r.length));
-      for (let i = 0; i < maxLen; i++) {
-        for (const list of results) if (list[i]) interleaved.push(list[i]);
-      }
-      const seen = new Set<string>();
-      const fresh = interleaved.filter((p) => {
-        if (seen.has(p.id) || ratedIds.has(p.id) || wishlistedIds.has(p.id) || recentIds.has(p.id)) return false;
-        // Only keep well-rated spots (≥4.0) with enough reviews
-        if ((p.rating || 0) < 4.0 || (p.userRatingCount || 0) < 30) return false;
-        seen.add(p.id);
-        return true;
-      });
-      setApiRecommendations(fresh.slice(0, 8));
-      setRecsLoading(false);
+    const interleaved: PlaceResult[] = [];
+    const maxLen = Math.max(0, ...results.map((r) => r.length));
+    for (let i = 0; i < maxLen; i++) {
+      for (const list of results) if (list[i]) interleaved.push(list[i]);
+    }
+    const fresh = interleaved.filter((p) => {
+      if (recsSeenIdsRef.current.has(p.id)) return false;
+      if (ratedIds.has(p.id) || wishlistedIds.has(p.id) || recentIds.has(p.id)) return false;
+      if ((p.rating || 0) < 4.0 || (p.userRatingCount || 0) < 30) return false;
+      recsSeenIdsRef.current.add(p.id);
+      return true;
     });
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines, myLocalRatings, myLists, recentViews]);
+    return fresh;
+  }, [myLocalRatings, myLists, recentViews]);
+
+  // Initial recommendations fetch — personalised if user has preferences, generic nearby otherwise.
+  useEffect(() => {
+    if (recsFetchedRef.current) return;
+    recsFetchedRef.current = true;
+    recsSeenIdsRef.current = new Set();
+    recsQueryCursorRef.current = 0;
+    recsExhaustedRef.current = false;
+    setRecsLoading(true);
+
+    if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
+      const queries = buildRecQueries();
+      const initialBatch = queries.slice(0, 3);
+      recsQueryCursorRef.current = initialBatch.length;
+      fetchRecBatch(initialBatch).then((fresh) => {
+        setApiRecommendations(fresh);
+        setRecsLoading(false);
+      });
+    } else {
+      const center = mapRef.current?.getCenter();
+      const lat = center?.lat ?? 40.735;
+      const lng = center?.lng ?? -73.99;
+      Promise.all([
+        searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
+        searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
+      ]).then(([nearby, best]) => {
+        const all = [...nearby, ...best];
+        const seen = new Set<string>();
+        const fresh = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+        setApiRecommendations(fresh.slice(0, 12));
+        setRecsLoading(false);
+      });
+    }
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch]);
+
+  // Load more recommendations — called when the horizontal scroll nears the end.
+  const loadMoreRecommendations = useCallback(async () => {
+    if (recsLoadingMore || recsExhaustedRef.current) return;
+    const queries = buildRecQueries();
+    if (recsQueryCursorRef.current >= queries.length) {
+      recsExhaustedRef.current = true;
+      return;
+    }
+    setRecsLoadingMore(true);
+    const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 3);
+    recsQueryCursorRef.current += batch.length;
+    const fresh = await fetchRecBatch(batch);
+    setApiRecommendations((prev) => [...prev, ...fresh]);
+    setRecsLoadingMore(false);
+  }, [recsLoadingMore, buildRecQueries, fetchRecBatch]);
 
   // Quick filter handler for discover search
   const handleQuickFilter = useCallback(async (filter: string) => {
@@ -470,19 +594,13 @@ export const Map: React.FC = () => {
     return lookup;
   }, [myLocalRatings]);
 
-  // Create a marker element for a place — color/size by user rating
+  // Create a marker element for a place — plain pin on the discover map.
+  // We intentionally do NOT surface the user's own rating here; only expert
+  // rating markers (rendered via the expert overlay) should appear alongside
+  // discover results. User-rated markers live on the My Ratings map.
   const createMarkerElement = useCallback((place: PlaceResult) => {
-    const userScore = userRatingMap[place.id];
-    const hasRating = userScore !== undefined;
-    // Score color: green >= 8, amber >= 5, red < 5
-    let ringColor = 'transparent';
-    let dotColor = '';
-    let size = 36; // default
-    if (hasRating) {
-      if (userScore >= 8) { ringColor = '#16a34a'; dotColor = '#16a34a'; size = 42; }
-      else if (userScore >= 5) { ringColor = '#d97706'; dotColor = '#d97706'; size = 39; }
-      else { ringColor = '#dc2626'; dotColor = '#dc2626'; size = 36; }
-    }
+    const hasRating = false;
+    const size = 36;
     const iconSize = Math.round(size * 0.5);
 
     const el = document.createElement('div');
@@ -493,7 +611,7 @@ export const Map: React.FC = () => {
         height: ${size}px;
         border-radius: 50%;
         background: white;
-        border: ${hasRating ? `2.5px solid ${ringColor}` : '2px solid transparent'};
+        border: 2px solid transparent;
         box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         cursor: pointer;
         display: flex;
@@ -503,11 +621,10 @@ export const Map: React.FC = () => {
         transform: scale(0.4);
         transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
       ">
-        ${hasRating ? `<span style="font-size:${Math.round(size * 0.30)}px;font-weight:800;color:${dotColor};line-height:1;">${userScore.toFixed(1)}</span>` : `
         <svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
           <circle cx="12" cy="10" r="3"/>
-        </svg>`}
+        </svg>
       </div>
     `;
 
@@ -521,7 +638,7 @@ export const Map: React.FC = () => {
     });
 
     return el;
-  }, [userRatingMap]);
+  }, []);
 
   // Show popup for a place
   // Use refs for callbacks so DOM event handlers always get the latest
@@ -685,6 +802,26 @@ export const Map: React.FC = () => {
   const addExpertOverlayRef = useRef<() => void>(addExpertOverlayMarkers);
   addExpertOverlayRef.current = addExpertOverlayMarkers;
 
+  // Refresh the Discover expert overlay whenever expert ratings update (e.g.
+  // after background geocoding fills in coordinates) so newly-geocoded
+  // expert reviews show up as markers in the current view immediately.
+  useEffect(() => {
+    if (mapMode !== 'discover') return;
+    addExpertOverlayRef.current?.();
+  }, [mapMode, expertRatings]);
+
+  // Keep the expert overlay in sync as the user pans/zooms or as discover
+  // search results come in (so experts outside the initial viewport appear as
+  // soon as that area is visible and experts already covered by a discover
+  // marker are hidden).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || mapMode !== 'discover') return;
+    const handler = () => addExpertOverlayRef.current?.();
+    map.on('moveend', handler);
+    return () => { map.off('moveend', handler); };
+  }, [mapMode]);
+
   // Text search
   const handleSearch = useCallback(async (query: string) => {
     const map = mapRef.current;
@@ -807,22 +944,12 @@ export const Map: React.FC = () => {
       const pin = el.querySelector('.marker-pin') as HTMLElement;
       if (!pin) return;
       const isSelected = id === selectedMarker;
-      const hasRating = id in userRatingMap;
       if (isSelected) {
         pin.style.background = 'var(--color-primary, #8B4513)';
         pin.style.color = 'white';
-        // Override score text color for selected state
-        const scoreSpan = pin.querySelector('span');
-        if (scoreSpan) scoreSpan.style.color = 'white';
       } else {
         pin.style.background = 'white';
         pin.style.color = 'currentColor';
-        // Restore score text color
-        if (hasRating) {
-          const score = userRatingMap[id];
-          const scoreSpan = pin.querySelector('span');
-          if (scoreSpan) scoreSpan.style.color = score >= 8 ? '#16a34a' : score >= 5 ? '#d97706' : '#dc2626';
-        }
       }
       const svg = pin.querySelector('svg');
       if (svg) {
@@ -830,7 +957,7 @@ export const Map: React.FC = () => {
         svg.setAttribute('fill', isSelected ? 'white' : 'none');
       }
     });
-  }, [selectedMarker, userRatingMap]);
+  }, [selectedMarker]);
 
   // Dismiss restaurant card when sheet leaves peek state
   useEffect(() => {
@@ -843,7 +970,7 @@ export const Map: React.FC = () => {
   // Listen for "open-discover-sheet" events from BottomNav Explore button
   useEffect(() => {
     const handler = () => {
-      setSheetState('peek');
+      setSheetState('full');
       setMapMode('discover');
     };
     window.addEventListener('open-discover-sheet', handler);
@@ -854,7 +981,7 @@ export const Map: React.FC = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('discover') === '1') {
-      setSheetState('peek');
+      setSheetState('full');
       setMapMode('discover');
       window.history.replaceState({}, '', '/');
     }
@@ -977,7 +1104,7 @@ export const Map: React.FC = () => {
 
   const activeFilterCount = useMemo(() => {
     if (mapMode === 'discover') {
-      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0) + (discoverRadius !== 5 ? 1 : 0);
+      return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
     }
     if (mapMode === 'myratings') {
       return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (wouldReturnFilter !== 'all' ? 1 : 0) + (selectedListId ? 1 : 0);
@@ -1109,6 +1236,82 @@ export const Map: React.FC = () => {
     })();
   }, [mapMode, myRatings]);
 
+  // Background geocode missing coordinates for expert and friend ratings in PARALLEL
+  // so markers appear instantly when the Experts/Friends tab is opened and so the
+  // expert overlay on the Discover map is populated. Results are persisted back to
+  // the database so subsequent loads are already populated.
+  // Expert ratings are geocoded eagerly (discover overlay needs their coords).
+  // Friend ratings are geocoded only when the Friends tab is first opened.
+  useEffect(() => {
+    const kind = expertRatings.length > 0 && !tabDataCache.coordsLookedUp['experts']
+      ? 'experts'
+      : mapMode === 'friends' && friendRatings.length > 0 && !tabDataCache.coordsLookedUp['friends']
+      ? 'friends'
+      : null;
+    if (!kind) return;
+    const source = kind === 'experts' ? expertRatings : friendRatings;
+    if (source.length === 0) return;
+    tabDataCache.coordsLookedUp[kind] = true;
+
+    const missing = source.filter((r) => !r.lat || !r.lng || (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1));
+    if (missing.length === 0) return;
+
+    const setter = kind === 'experts' ? setExpertRatings : setFriendRatings;
+
+    (async () => {
+      const CONCURRENCY = 10;
+      let updatedSinceFlush = 0;
+      let flushTimer: ReturnType<typeof setTimeout> | null = null;
+      const scheduleFlush = () => {
+        if (flushTimer) return;
+        flushTimer = setTimeout(() => {
+          flushTimer = null;
+          updatedSinceFlush = 0;
+          setter((prev) => [...prev]);
+        }, 200);
+      };
+
+      const geocodeOne = async (r: CommunityRating) => {
+        try {
+          const query = `${r.restaurant_name} ${r.address || ''}`.trim();
+          const res = await fetch(
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`
+          );
+          const data = await res.json();
+          const feature = data.features?.[0];
+          if (feature?.center) {
+            const [lng, lat] = feature.center;
+            r.lat = lat;
+            r.lng = lng;
+            updatedSinceFlush++;
+            scheduleFlush();
+            // Persist so subsequent loads don't need to geocode again.
+            publishCommunityRating(r.user_id, r.restaurant_id, {
+              name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
+              price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
+              wouldReturn: r.would_return, friendIds: r.friend_ids || [],
+              photoUrl: r.photo_url || '', lat, lng,
+            });
+          }
+        } catch {}
+      };
+
+      // Run with bounded concurrency.
+      let idx = 0;
+      const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
+        while (idx < missing.length) {
+          const i = idx++;
+          await geocodeOne(missing[i]);
+        }
+      });
+      await Promise.all(workers);
+      if (flushTimer) clearTimeout(flushTimer);
+      if (kind === 'experts') tabDataCache.expertRatings = [...source];
+      else tabDataCache.friendRatings = [...source];
+      setter((prev) => [...prev]);
+    })();
+  }, [mapMode, expertRatings, friendRatings]);
+
   // Fetch hotels when entering hotels mode
   useEffect(() => {
     if (mapMode === 'hotels' && hotelPlaces.length === 0) fetchHotels();
@@ -1166,11 +1369,14 @@ export const Map: React.FC = () => {
     const map = mapRef.current;
     if (!map) return;
 
-    // Clear custom markers and expert overlay markers
+    // Clear custom markers. Clear expert overlay markers only when leaving
+    // discover mode — a dedicated effect manages the overlay in discover.
     customMarkersRef.current.forEach((m) => m.remove());
     customMarkersRef.current = [];
-    expertOverlayMarkersRef.current.forEach((m) => m.remove());
-    expertOverlayMarkersRef.current = [];
+    if (mapMode !== 'discover') {
+      expertOverlayMarkersRef.current.forEach((m) => m.remove());
+      expertOverlayMarkersRef.current = [];
+    }
 
     // Hide/show discover markers based on mode
     Object.values(markersRef.current).forEach((marker) => {
@@ -1661,14 +1867,22 @@ export const Map: React.FC = () => {
           return (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setFilterSheetOpen(false)} />
+              className="fixed inset-0 bg-black/50 backdrop-blur-md z-50" onClick={() => setFilterSheetOpen(false)} />
             <motion.div
-              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 12 }}
+              animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+              exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 8 }}
+              transition={phoneMode
+                ? { type: 'spring', damping: 28, stiffness: 300 }
+                : { type: 'spring', damping: 26, stiffness: 320 }}
               drag={phoneMode ? 'y' : false} dragConstraints={{ top: 0 }} dragElastic={{ top: 0, bottom: 0.4 }}
               onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) setFilterSheetOpen(false); }}
-              className={cn("fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-                phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
+              className={cn(
+                "fixed z-50 bg-surface flex flex-col overflow-hidden",
+                phoneMode
+                  ? "bottom-0 left-0 right-0 rounded-t-3xl h-[92vh]"
+                  : "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-3xl w-[min(560px,92vw)] max-h-[86vh] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.35)] ring-1 ring-black/5"
+              )}
             >
               {/* Drag handle */}
               {phoneMode && (
@@ -1678,15 +1892,41 @@ export const Map: React.FC = () => {
               )}
 
               {/* Header */}
-              <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
-                <h3 className="font-serif font-bold text-lg">Filters</h3>
-                <button onClick={() => setFilterSheetOpen(false)} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors">
-                  <X size={16} className="text-on-surface/60" />
+              <div
+                className={cn(
+                  "flex items-center justify-between flex-shrink-0",
+                  phoneMode
+                    ? "px-5 pt-3 pb-3 border-b border-on-surface/6"
+                    : "px-7 pt-6 pb-5"
+                )}
+              >
+                <div className="min-w-0">
+                  <h3 className={cn("font-serif font-bold", phoneMode ? "text-lg" : "text-[22px] leading-tight tracking-tight")}>Filters</h3>
+                  {!phoneMode && (
+                    <p className="text-[11px] text-on-surface/40 mt-1">Refine your results</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setFilterSheetOpen(false)}
+                  className={cn(
+                    "rounded-full flex items-center justify-center transition-all",
+                    phoneMode
+                      ? "w-8 h-8 bg-on-surface/5 hover:bg-on-surface/10"
+                      : "w-9 h-9 bg-on-surface/5 hover:bg-on-surface/10 hover:rotate-90"
+                  )}
+                  aria-label="Close"
+                >
+                  <X size={phoneMode ? 16 : 18} className="text-on-surface/60" />
                 </button>
               </div>
 
               {/* Scrollable content */}
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              <div
+                className={cn(
+                  "flex-1 overflow-y-auto",
+                  phoneMode ? "px-5 py-4 space-y-5" : "px-7 py-2 pb-6 space-y-6"
+                )}
+              >
 
                 {/* ─── DISCOVER MODE ─── */}
                 {mapMode === 'discover' && (
@@ -1710,16 +1950,6 @@ export const Map: React.FC = () => {
                       </div>
                     </div>
                     {discoverCuisineDropdown}
-                    <div>
-                      <p className={sectionLabel}>Radius: {discoverRadius} km</p>
-                      <div className="relative h-6 flex items-center">
-                        <div className="absolute inset-x-0 h-1 bg-on-surface/10 rounded-full" />
-                        <div className="absolute h-1 bg-primary rounded-full" style={{ left: 0, right: `${100 - ((discoverRadius - 0.5) / 19.5) * 100}%` }} />
-                        <input type="range" min={0.5} max={20} step={0.5} value={discoverRadius} onChange={(e) => setDiscoverRadius(+e.target.value)}
-                          className={thumbCls} />
-                      </div>
-                      <div className="flex justify-between mt-1"><span className="text-[10px] text-on-surface/30">0.5 km</span><span className="text-[10px] text-on-surface/30">20 km</span></div>
-                    </div>
                   </>
                 )}
 
@@ -1842,11 +2072,32 @@ export const Map: React.FC = () => {
               </div>
 
               {/* Footer — Reset + Apply */}
-              <div className="flex-shrink-0 border-t border-on-surface/6 px-5 py-4 flex gap-3">
-                <button onClick={handleReset}
-                  className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors">Reset</button>
-                <button onClick={handleApply}
-                  className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25">Apply</button>
+              <div
+                className={cn(
+                  "flex-shrink-0 flex gap-3",
+                  phoneMode
+                    ? "border-t border-on-surface/6 px-5 py-4"
+                    : "border-t border-on-surface/6 px-7 py-5 bg-surface"
+                )}
+              >
+                <button
+                  onClick={handleReset}
+                  className={cn(
+                    "flex-1 rounded-2xl border border-on-surface/12 font-semibold text-on-surface/60 hover:bg-on-surface/5 hover:border-on-surface/20 transition-all",
+                    phoneMode ? "py-3 text-sm" : "py-3 text-[13px]"
+                  )}
+                >
+                  Reset
+                </button>
+                <button
+                  onClick={handleApply}
+                  className={cn(
+                    "flex-[2] rounded-2xl bg-primary text-white font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 hover:brightness-110 transition-all",
+                    phoneMode ? "py-3 text-sm" : "py-3 text-[13px]"
+                  )}
+                >
+                  Apply
+                </button>
               </div>
             </motion.div>
           </>
@@ -1858,21 +2109,83 @@ export const Map: React.FC = () => {
       <AnimatePresence mode="wait">
         {selectedPlace && sheetState === 'peek' && (() => {
           const isRatingsMode = mapMode === 'myratings' || mapMode === 'friends' || mapMode === 'experts';
-          const orderedPlaces = isRatingsMode && selectedPlace
-            ? (() => { const ref = selectedPlace; return [...places].sort((a, b) => Math.hypot(a.lat - ref.lat, a.lng - ref.lng) - Math.hypot(b.lat - ref.lat, b.lng - ref.lng)); })()
-            : places;
-          const currentIndex = orderedPlaces.findIndex((p) => p.id === selectedPlace.id);
-          const hasPrev = currentIndex > 0;
-          const hasNext = currentIndex >= 0 && currentIndex < orderedPlaces.length - 1;
+          const historyIdx = navHistory.indexOf(selectedPlace.id);
+          // Arrows can always navigate as long as there's more than one place —
+          // history provides proper back-tracking, and forward loops through
+          // all loaded places before cycling.
+          const hasPrev = historyIdx > 0;
+          const hasNext = places.length > 1;
+          // Pseudo-index / total for the "1/99" counter.
+          const currentIndex = historyIdx >= 0 ? historyIdx : 0;
+          const orderedPlaces = places;
           const goTo = (dir: number) => {
-            const nextIndex = currentIndex + dir;
-            if (nextIndex >= 0 && nextIndex < orderedPlaces.length) { const next = orderedPlaces[nextIndex]; setNavDirection(dir); setSelectedPlace(next); setSelectedMarker(next.id); }
+            if (places.length < 2) return;
+            if (dir === -1) {
+              if (historyIdx <= 0) return;
+              const prev = places.find((p) => p.id === navHistory[historyIdx - 1]);
+              if (!prev) return;
+              navClickRef.current = true;
+              setNavDirection(-1);
+              setSelectedPlace(prev);
+              setSelectedMarker(prev.id);
+              return;
+            }
+            // Forward — if we've already gone back and there's forward history,
+            // replay it; otherwise pick the next closest unvisited place.
+            if (historyIdx >= 0 && historyIdx < navHistory.length - 1) {
+              const next = places.find((p) => p.id === navHistory[historyIdx + 1]);
+              if (!next) return;
+              navClickRef.current = true;
+              setNavDirection(1);
+              setSelectedPlace(next);
+              setSelectedMarker(next.id);
+              return;
+            }
+            const ref = selectedPlace;
+            const visited = new Set(navHistory);
+            let candidates = places.filter((p) => !visited.has(p.id));
+            let newHistory = navHistory;
+            if (candidates.length === 0) {
+              // All places visited — reset the loop, keeping current as anchor.
+              newHistory = [ref.id];
+              candidates = places.filter((p) => p.id !== ref.id);
+              if (candidates.length === 0) return;
+            }
+            if (isRatingsMode) {
+              candidates.sort(
+                (a, b) =>
+                  Math.hypot(a.lat - ref.lat, a.lng - ref.lng) -
+                  Math.hypot(b.lat - ref.lat, b.lng - ref.lng)
+              );
+            } else {
+              // Non-ratings modes: preserve list order by sorting candidates
+              // by their index in `places` starting after current.
+              const refIdx = places.findIndex((p) => p.id === ref.id);
+              candidates.sort((a, b) => {
+                const ai = (places.findIndex((p) => p.id === a.id) - refIdx + places.length) % places.length;
+                const bi = (places.findIndex((p) => p.id === b.id) - refIdx + places.length) % places.length;
+                return ai - bi;
+              });
+            }
+            const next = candidates[0];
+            navClickRef.current = true;
+            setNavDirection(1);
+            setNavHistory([...newHistory, next.id]);
+            setSelectedPlace(next);
+            setSelectedMarker(next.id);
           };
 
           // Mode-specific data lookups
           const myRating = mapMode === 'myratings' ? myRatings.find((r) => r.restaurant_id === selectedPlace.id) : null;
           const friendRating = mapMode === 'friends' ? friendRatings.filter((r) => r.restaurant_id === selectedPlace.id) : [];
-          const expertRating = mapMode === 'experts' ? expertRatings.find((r) => r.restaurant_id === selectedPlace.id) : null;
+          // Expert pick also surfaces through the Discover overlay — when an
+          // expert-rated place is selected on the Discover map, treat the card
+          // as an expert card so the user sees the expert's score + name.
+          const expertRating =
+            mapMode === 'experts' || mapMode === 'discover'
+              ? expertRatings.find((r) => r.restaurant_id === selectedPlace.id)
+              : null;
+          const isExpertCard = mapMode === 'experts' || (mapMode === 'discover' && !!expertRating);
           const discoverScore = mapMode === 'discover' ? userRatingMap[selectedPlace.id] : undefined;
           const cuisine = getCuisineLabel(selectedPlace.types);
           const restData = { id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address };
@@ -1949,7 +2262,13 @@ export const Map: React.FC = () => {
                         </button>
                       </div>
                       <p className="text-[10px] text-primary font-bold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                      {selectedPlace.rating > 0 && (
+                      {mapMode === 'myratings' || mapMode === 'friends' || isExpertCard ? (
+                        selectedPlace.priceLevel > 0 && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="text-[10px] font-semibold text-on-surface/30">{priceLevelToString(selectedPlace.priceLevel)}</span>
+                          </div>
+                        )
+                      ) : selectedPlace.rating > 0 && (
                         <div className="flex items-center gap-1 mt-0.5">
                           <Star size={10} className="fill-amber-400 text-amber-400" />
                           <span className="text-[11px] font-bold text-on-surface/70">{selectedPlace.rating.toFixed(1)}</span>
@@ -1959,7 +2278,7 @@ export const Map: React.FC = () => {
                       )}
 
                       {/* Mode-specific line */}
-                      {mapMode === 'discover' && discoverScore !== undefined && (
+                      {mapMode === 'discover' && !isExpertCard && discoverScore !== undefined && (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700 bg-green-50 px-1.5 py-0.5 rounded-full mt-0.5">
                           <Star size={8} className="fill-green-600 text-green-600" /> You rated: {discoverScore.toFixed(1)}
                         </span>
@@ -1967,11 +2286,6 @@ export const Map: React.FC = () => {
                       {mapMode === 'myratings' && myRating && (
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className={cn("font-serif font-bold text-sm", scoreColor(Number(myRating.score)))}>{Number(myRating.score).toFixed(1)}<span className="text-[10px] text-on-surface/30 font-normal"> / 10</span></span>
-                          {myRating.would_return !== null && myRating.would_return !== undefined && (
-                            <span className={cn("text-[10px]", myRating.would_return ? "text-green-600" : "text-red-500")}>
-                              {myRating.would_return ? '↩ Would return' : '✗ Wouldn\'t'}
-                            </span>
-                          )}
                         </div>
                       )}
                       {mapMode === 'friends' && friendRating.length > 0 && (() => {
@@ -1986,12 +2300,17 @@ export const Map: React.FC = () => {
                           </div>
                         );
                       })()}
-                      {mapMode === 'experts' && expertRating && (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className={cn("font-serif font-bold text-sm", scoreColor(Number(expertRating.score)))}>{Number(expertRating.score).toFixed(1)}</span>
-                          <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">Expert Pick</span>
-                        </div>
-                      )}
+                      {isExpertCard && expertRating && (() => {
+                        const expProf = expertProfiles[expertRating.user_id];
+                        const expName = expProf?.display_name || 'Expert';
+                        return (
+                          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                            <span className={cn("font-serif font-bold text-sm", scoreColor(Number(expertRating.score)))}>{Number(expertRating.score).toFixed(1)}</span>
+                            <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">Expert Pick</span>
+                            <span className="text-[10px] text-on-surface/50 truncate">by {expName}</span>
+                          </div>
+                        );
+                      })()}
                       {mapMode === 'hotels' && (
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className="text-[11px] text-amber-400 leading-none">
@@ -2011,6 +2330,13 @@ export const Map: React.FC = () => {
                         )}
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
+                        {mapMode === 'friends' && friendRating.length > 0 && (
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/review/${friendRating[0].id}`); }}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors"
+                            title="See review">
+                            <Eye size={14} />
+                          </button>
+                        )}
                         <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(restData); }}
                           className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors">
                           <Plus size={14} />
@@ -2087,7 +2413,10 @@ export const Map: React.FC = () => {
             if (el) { el.style.transform = ''; el.style.transition = ''; }
             if (sheetState === 'half') {
               if (delta > 60) setSheetState('peek');
-              else if (delta < -60) setSheetState('full');
+              else if (delta < -60) {
+                if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); }
+                setSheetState('full');
+              }
             } else {
               if (delta < -50) setSheetState('half');
             }
@@ -2115,7 +2444,10 @@ export const Map: React.FC = () => {
               if (el) { el.style.transform = ''; el.style.transition = ''; }
               if (sheetState === 'half') {
                 if (delta > 60) setSheetState('peek');
-                else if (delta < -60) setSheetState('full');
+                else if (delta < -60) {
+                  if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); }
+                  setSheetState('full');
+                }
               } else {
                 if (delta < -50) setSheetState('half');
               }
@@ -2128,7 +2460,7 @@ export const Map: React.FC = () => {
         >
           {sheetState === 'half' ? (
             <button
-              onClick={(e) => { e.stopPropagation(); setSheetState('full'); }}
+              onClick={(e) => { e.stopPropagation(); if (!searchQuery.trim()) { setDiscoverSearchActive(false); setShowSearchInput(false); } setSheetState('full'); }}
               className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
             >
               <ChevronsUp size={20} className="text-on-surface/50" />
@@ -2142,11 +2474,11 @@ export const Map: React.FC = () => {
         {/* ══════ FULL STATE — full-screen discover page ══════ */}
         {sheetState === 'full' && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Header with back button + search bar or active search input */}
+            {/* Header with search bar */}
             <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-1 pb-3" : "px-6 pt-2 pb-4")}>
-              <button
-                onClick={() => {
-                  if (discoverSearchActive) {
+              {discoverSearchActive && (
+                <button
+                  onClick={() => {
                     setDiscoverSearchActive(false);
                     setShowSearchInput(false);
                     setSearchQuery('');
@@ -2154,14 +2486,12 @@ export const Map: React.FC = () => {
                       setPlaces(preSearchPlacesRef.current);
                       syncMarkersRef.current?.(preSearchPlacesRef.current);
                     }
-                  } else {
-                    setSheetState('half');
-                  }
-                }}
-                className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"
-              >
-                <ArrowLeft size={20} className="text-on-surface/60" />
-              </button>
+                  }}
+                  className="w-10 h-10 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"
+                >
+                  <ArrowLeft size={20} className="text-on-surface/60" />
+                </button>
+              )}
               {discoverSearchActive ? (
                 <form
                   className="flex-1 relative"
@@ -2206,22 +2536,6 @@ export const Map: React.FC = () => {
 
             {/* Full discover content — scrollable */}
             <div className={cn("flex-1 overflow-y-auto pb-32", phoneMode ? "px-3" : "px-6")}>
-              {/* Quick filters */}
-              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1 pt-4">
-                {QUICK_FILTERS.map((filter) => (
-                  <button
-                    key={filter}
-                    onClick={() => handleQuickFilter(filter)}
-                    className={cn("whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all",
-                      activeQuickFilter === filter
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-white/60 backdrop-blur-sm border-on-surface/10 hover:border-primary hover:text-primary'
-                    )}
-                  >
-                    {filter}
-                  </button>
-                ))}
-              </div>
 
               {/* Search results in full state */}
               {discoverSearchActive && (
@@ -2232,11 +2546,50 @@ export const Map: React.FC = () => {
                       <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
                     </div>
                   ) : !searchQuery.trim() ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <Search size={32} className="text-on-surface/15 mb-3" />
-                      <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
-                      <p className="text-xs text-on-surface/30 mt-1">Search by name, cuisine, or use the filters above</p>
-                    </div>
+                    recentViews.length > 0 ? (
+                      <section className="pt-2">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Clock size={15} className="text-on-surface/35" />
+                          <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
+                        </div>
+                        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                          {recentViews.slice(0, 8).map((place) => (
+                            <div key={place.id} className="flex-shrink-0 w-32 relative group">
+                              <button
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
+                                className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X size={10} className="text-white" />
+                              </button>
+                              <Link to={`/restaurant/${place.id}`}>
+                                <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                                  {place.image ? (
+                                    <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  ) : (place as any).photoUrl ? (
+                                    <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
+                                  )}
+                                </div>
+                                <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
+                                {place.rating > 0 && (
+                                  <div className="flex items-center gap-0.5 mt-0.5">
+                                    <Star size={10} className="fill-primary text-primary" />
+                                    <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
+                                  </div>
+                                )}
+                              </Link>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <Search size={32} className="text-on-surface/15 mb-3" />
+                        <p className="text-sm font-medium text-on-surface/40">Search restaurants</p>
+                        <p className="text-xs text-on-surface/30 mt-1">Type a name, cuisine, or occasion</p>
+                      </div>
+                    )
                   ) : places.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
                       <MapPinned size={32} className="text-on-surface/20 mb-3" />
@@ -2293,7 +2646,13 @@ export const Map: React.FC = () => {
                     <Sparkles size={15} className="text-primary/60" />
                     <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                   </div>
-                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                  <div
+                    className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1"
+                    onScroll={(e) => {
+                      const el = e.currentTarget;
+                      if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
+                    }}
+                  >
                     {recommendations.map((place) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
@@ -2320,47 +2679,14 @@ export const Map: React.FC = () => {
                         </div>
                       );
                     })}
+                    {recsLoadingMore && (
+                      <div className="flex-shrink-0 w-44 flex items-center justify-center">
+                        <Loader2 size={18} className="text-primary/40 animate-spin" />
+                      </div>
+                    )}
                   </div>
                 </section>
               ) : null}
-
-              {/* Recent Views */}
-              {recentViews.length > 0 && (
-                <section className="mt-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Clock size={15} className="text-on-surface/35" />
-                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
-                  </div>
-                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
-                    {recentViews.slice(0, 8).map((place) => (
-                      <div key={place.id} className="flex-shrink-0 w-32 relative group">
-                        <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
-                          className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X size={10} className="text-white" />
-                        </button>
-                        <Link to={`/restaurant/${place.id}`}>
-                          <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                            {((place as any).photoUrl || (place as any).image) ? (
-                              <img src={(place as any).photoUrl || (place as any).image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
-                            )}
-                          </div>
-                          <p className="text-xs font-semibold truncate leading-tight">{place.name}</p>
-                          {place.rating > 0 && (
-                            <div className="flex items-center gap-0.5 mt-0.5">
-                              <Star size={10} className="fill-primary text-primary" />
-                              <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
-                            </div>
-                          )}
-                        </Link>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
 
               {/* Social Feed */}
               <div className="mt-5">
@@ -2369,6 +2695,14 @@ export const Map: React.FC = () => {
               </>
               )}
             </div>
+
+            {/* Floating map button */}
+            <button
+              onClick={() => setSheetState('peek')}
+              className="absolute bottom-6 right-4 z-10 w-14 h-14 rounded-full bg-primary text-white shadow-xl shadow-primary/30 flex items-center justify-center hover:bg-primary/90 transition-all active:scale-95 ring-4 ring-white"
+            >
+              <MapIcon size={22} />
+            </button>
           </div>
         )}
 
@@ -2529,43 +2863,83 @@ export const Map: React.FC = () => {
         <div className={cn("flex-1 overflow-y-auto no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
           {/* My Ratings tab content */}
           {mapMode === 'myratings' && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {filteredMyRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No rated restaurants yet'}</p></div>
-              ) : filteredMyRatings.map((r) => (
+              ) : filteredMyRatings.map((r) => {
+                const s = Number(r.score);
+                const orbBg = s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+                const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
+                const city = extractCityState(r.address || '', r.address || '');
+                return (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
-                    <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{r.cuisine}</p>
-                    <p className="text-[11px] text-on-surface/40 mt-0.5">{r.address?.split(',').slice(-1)[0]?.trim()}</p>
+                  className="flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group">
+                  {/* Photo thumbnail */}
+                  <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
+                    {r.photo_url ? (
+                      <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center font-serif text-xl font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</div>
+                    )}
                   </div>
-                  <span className={cn("text-lg font-serif font-bold self-center", Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500')}>
-                    {Number(r.score).toFixed(1)}
-                  </span>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
+                    <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{r.restaurant_name}</h3>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {r.cuisine && <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>}
+                      {r.price && <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.price}</span>}
+                    </div>
+                    {city && <p className="text-[10px] text-on-surface/35 mt-1 truncate">{city}</p>}
+                  </div>
+                  {/* Score orb */}
+                  <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
+                    <span className={cn("text-sm font-bold font-serif", orbText)}>{s.toFixed(1)}</span>
+                  </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
           {/* Friends tab content */}
           {mapMode === 'friends' && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {filteredFriendRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No friend ratings yet'}</p></div>
               ) : filteredFriendRatings.map((r) => {
                 const prof = friendProfiles[r.user_id];
+                const s = Number(r.score);
+                const orbBg = s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+                const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
+                const friendName = prof?.display_name || 'Friend';
+                const friendInitial = friendName.charAt(0).toUpperCase();
                 return (
                   <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                    className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
-                      <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{r.cuisine}</p>
-                      <p className="text-[10px] text-on-surface/30 mt-0.5">{prof?.display_name || 'Friend'}</p>
+                    className="flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group">
+                    {/* Photo thumbnail */}
+                    <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
+                      {r.photo_url ? (
+                        <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center font-serif text-xl font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</div>
+                      )}
                     </div>
-                    <span className={cn("text-lg font-serif font-bold self-center", Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500')}>
-                      {Number(r.score).toFixed(1)}
-                    </span>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
+                      <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{r.restaurant_name}</h3>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        {r.cuisine && <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>}
+                        {r.price && <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.price}</span>}
+                      </div>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="w-4 h-4 rounded-full bg-primary/10 text-[8px] font-bold text-primary flex items-center justify-center flex-shrink-0">{friendInitial}</span>
+                        <span className="text-[10px] text-on-surface/40 truncate">{friendName}</span>
+                      </div>
+                    </div>
+                    {/* Score orb */}
+                    <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
+                      <span className={cn("text-sm font-bold font-serif", orbText)}>{s.toFixed(1)}</span>
+                    </div>
                   </div>
                 );
               })}
@@ -2574,22 +2948,45 @@ export const Map: React.FC = () => {
 
           {/* Experts tab content */}
           {mapMode === 'experts' && (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {filteredExpertRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No expert ratings yet'}</p></div>
-              ) : filteredExpertRatings.map((r) => (
+              ) : filteredExpertRatings.map((r) => {
+                const expProf = expertProfiles[r.user_id];
+                const expName = expProf?.display_name || 'Expert';
+                const s = Number(r.score);
+                const orbBg = s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+                const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
+                return (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="flex gap-3 cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 hover:shadow-md transition-all">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
-                    <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{r.cuisine}</p>
-                    <p className="text-[10px] text-on-surface/30 mt-0.5">Expert Pick</p>
+                  className="flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group">
+                  {/* Photo thumbnail */}
+                  <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
+                    {r.photo_url ? (
+                      <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center font-serif text-xl font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</div>
+                    )}
                   </div>
-                  <span className={cn("text-lg font-serif font-bold self-center", Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500')}>
-                    {Number(r.score).toFixed(1)}
-                  </span>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
+                    <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{r.restaurant_name}</h3>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {r.cuisine && <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>}
+                      {r.price && <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.price}</span>}
+                    </div>
+                    <div className="flex items-center gap-1 mt-1">
+                      <Star size={8} className="fill-amber-500 text-amber-500 flex-shrink-0" />
+                      <span className="text-[10px] font-semibold text-amber-600 truncate">{expName}</span>
+                    </div>
+                  </div>
+                  {/* Score orb */}
+                  <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
+                    <span className={cn("text-sm font-bold font-serif", orbText)}>{s.toFixed(1)}</span>
+                  </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -2741,7 +3138,7 @@ export const Map: React.FC = () => {
                           const cuisine = getCuisineLabel(place.types);
                           const wishlisted = isWishlisted(place.id);
                           return (
-                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => navigate(`/restaurant/${place.id}`)}>
+                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => { setSelectedPlace(place); setSelectedMarker(place.id); setSheetState('peek'); mapRef.current?.easeTo({ center: [place.lng, place.lat], duration: 500 }); }}>
                               <div className="w-full h-28 overflow-hidden relative">
                                 {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={24} className="text-on-surface/15" /></div>}
                                 <div className="absolute top-1.5 right-1.5 flex gap-1">
@@ -2785,7 +3182,13 @@ export const Map: React.FC = () => {
                         <Sparkles size={13} className="text-primary/60" />
                         <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                       </div>
-                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                      <div
+                        className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1"
+                        onScroll={(e) => {
+                          const el = e.currentTarget;
+                          if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
+                        }}
+                      >
                         {recommendations.map((place) => {
                           const cuisine = getCuisineLabel((place as any).types || []);
                           const wishlisted = isWishlisted(place.id);
@@ -2812,47 +3215,14 @@ export const Map: React.FC = () => {
                             </div>
                           );
                         })}
+                        {recsLoadingMore && (
+                          <div className="flex-shrink-0 w-40 flex items-center justify-center">
+                            <Loader2 size={16} className="text-primary/40 animate-spin" />
+                          </div>
+                        )}
                       </div>
                     </section>
                   ) : null}
-
-                  {/* Recent Views */}
-                  {recentViews.length > 0 && (
-                    <section>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Clock size={13} className="text-on-surface/35" />
-                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
-                      </div>
-                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
-                        {recentViews.slice(0, 8).map((place) => (
-                          <div key={place.id} className="flex-shrink-0 w-28 relative group">
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
-                              className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X size={10} className="text-white" />
-                            </button>
-                            <Link to={`/restaurant/${place.id}`}>
-                              <div className="w-28 h-20 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                                {((place as any).photoUrl || (place as any).image) ? (
-                                  <img src={(place as any).photoUrl || (place as any).image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
-                                )}
-                              </div>
-                              <p className="text-[11px] font-semibold truncate leading-tight">{place.name}</p>
-                              {place.rating > 0 && (
-                                <div className="flex items-center gap-0.5 mt-0.5">
-                                  <Star size={10} className="fill-primary text-primary" />
-                                  <span className="text-[10px] font-bold text-primary">{place.rating.toFixed(1)}</span>
-                                </div>
-                              )}
-                            </Link>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  )}
 
                   {/* Social Feed */}
                   <SocialFeed />
