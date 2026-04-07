@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { TopBar } from '../components/TopBar';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Smartphone, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, List, ChefHat, ExternalLink, Users, Map, Crown, Sparkles, TrendingUp, Search, LayoutGrid,   Globe, EyeOff,
+  Star, MapPin, Heart, List as ListIcon, ChefHat, ExternalLink, Users, Map, Crown, Sparkles, TrendingUp, Search, LayoutGrid, Globe, EyeOff,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -56,8 +56,14 @@ function listRestaurantIds(list: { restaurantIds?: string[] }): string[] {
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
-  const { ratings, lists, wishlist, trips, homeMeals } = useLists();
-  const { myRecipes } = useRecipes();
+  const listsCtx = useLists();
+  const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
+  const lists = Array.isArray(listsCtx.lists) ? listsCtx.lists : [];
+  const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
+  const trips = Array.isArray(listsCtx.trips) ? listsCtx.trips : [];
+  const homeMeals = Array.isArray(listsCtx.homeMeals) ? listsCtx.homeMeals : [];
+  const { myRecipes: rawMyRecipes } = useRecipes();
+  const myRecipes = Array.isArray(rawMyRecipes) ? rawMyRecipes : [];
   const { phoneMode, togglePhoneMode } = useSettings();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -626,7 +632,7 @@ export const Profile: React.FC = () => {
               <section>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <List size={16} className="text-primary" />
+                    <ListIcon size={16} className="text-primary" />
                     <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/45">Your lists</h3>
                   </div>
                   <button type="button" onClick={() => setActiveTab('lists')} className="text-[11px] font-semibold text-primary">
