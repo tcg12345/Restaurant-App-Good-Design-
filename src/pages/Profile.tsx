@@ -19,11 +19,38 @@ type ProfileTab = 'overview' | 'ratings' | 'lists' | 'wishlist' | 'cooking';
 
 const scoreColor = (s: number) => (s >= 8 ? 'text-emerald-600' : s >= 5 ? 'text-amber-600' : 'text-rose-500');
 
+function formatScore(s: unknown): string {
+  const n = typeof s === 'number' ? s : Number(s);
+  return Number.isFinite(n) ? n.toFixed(1) : '—';
+}
+
+function numericScore(s: unknown): number {
+  const n = typeof s === 'number' ? s : Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function cityFromAddress(address: string): string | null {
   if (!address) return null;
   const parts = address.split(',').map((p) => p.trim());
   if (parts.length >= 2) return parts[parts.length - 1];
   return parts[0] || null;
+}
+
+/** ISO string for sorting by recency; never throws (missing/invalid → empty). */
+function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string {
+  if (r.visitDate) {
+    const d = new Date(r.visitDate);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  if (typeof r.createdAt === 'number' && Number.isFinite(r.createdAt)) {
+    const d = new Date(r.createdAt);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  return '';
+}
+
+function listRestaurantIds(list: { restaurantIds?: string[] }): string[] {
+  return Array.isArray(list.restaurantIds) ? list.restaurantIds : [];
 }
 
 export const Profile: React.FC = () => {
@@ -152,7 +179,9 @@ export const Profile: React.FC = () => {
 
   const avgScore = useMemo(() => {
     if (!ratings.length) return null;
-    return ratings.reduce((a, r) => a + r.score, 0) / ratings.length;
+    const nums = ratings.map((r) => r.score).filter((s): s is number => typeof s === 'number' && Number.isFinite(s));
+    if (!nums.length) return null;
+    return nums.reduce((a, s) => a + s, 0) / nums.length;
   }, [ratings]);
 
   const wouldReturnPct = useMemo(() => {
@@ -182,15 +211,11 @@ export const Profile: React.FC = () => {
   }, [ratings]);
 
   const topRated = useMemo(() => {
-    return [...ratings].sort((a, b) => b.score - a.score).slice(0, 8);
+    return [...ratings].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)).slice(0, 8);
   }, [ratings]);
 
   const recentRatings = useMemo(() => {
-    return [...ratings].sort((a, b) => {
-      const da = a.visitDate || new Date(a.createdAt).toISOString().slice(0, 10);
-      const db = b.visitDate || new Date(b.createdAt).toISOString().slice(0, 10);
-      return db.localeCompare(da);
-    }).slice(0, 10);
+    return [...ratings].sort((a, b) => ratingRecencyIso(b).localeCompare(ratingRecencyIso(a))).slice(0, 10);
   }, [ratings]);
 
   const filteredSortedRatings = useMemo(() => {
@@ -199,24 +224,20 @@ export const Profile: React.FC = () => {
     if (q) {
       r = r.filter(
         (x) =>
-          x.name.toLowerCase().includes(q) ||
-          x.cuisine.toLowerCase().includes(q) ||
+          (x.name || '').toLowerCase().includes(q) ||
+          (x.cuisine || '').toLowerCase().includes(q) ||
           (x.address || '').toLowerCase().includes(q),
       );
     }
-    if (ratingSort === 'high') r.sort((a, b) => b.score - a.score);
-    else if (ratingSort === 'low') r.sort((a, b) => a.score - b.score);
+    if (ratingSort === 'high') r.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+    else if (ratingSort === 'low') r.sort((a, b) => (Number(a.score) || 0) - (Number(b.score) || 0));
     else {
-      r.sort((a, b) => {
-        const da = a.visitDate || new Date(a.createdAt).toISOString();
-        const db = b.visitDate || new Date(b.createdAt).toISOString();
-        return db.localeCompare(da);
-      });
+      r.sort((a, b) => ratingRecencyIso(b).localeCompare(ratingRecencyIso(a)));
     }
     return r;
   }, [ratings, ratingSearch, ratingSort]);
 
-  const publicHomeMeals = useMemo(() => homeMeals.filter((m) => m.isPublic), [homeMeals]);
+  const publicHomeMeals = useMemo(() => (Array.isArray(homeMeals) ? homeMeals : []).filter((m) => m.isPublic), [homeMeals]);
   const memberSince = user?.created_at
     ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     : null;
@@ -521,10 +542,10 @@ export const Profile: React.FC = () => {
                         <span
                           className={cn(
                             'absolute top-2 right-2 text-[11px] font-serif font-bold px-2 py-0.5 rounded-full bg-white/95 shadow-sm',
-                            scoreColor(r.score),
+                            scoreColor(numericScore(r.score)),
                           )}
                         >
-                          {r.score.toFixed(1)}
+                          {formatScore(r.score)}
                         </span>
                       </div>
                       <div className="p-2.5">
@@ -568,7 +589,7 @@ export const Profile: React.FC = () => {
                           {r.cuisine && ` · ${r.cuisine}`}
                         </p>
                       </div>
-                      <span className={cn('text-lg font-serif font-bold flex-shrink-0', scoreColor(r.score))}>{r.score.toFixed(1)}</span>
+                      <span className={cn('text-lg font-serif font-bold flex-shrink-0', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
                     </Link>
                   ))}
                 </div>
@@ -601,7 +622,7 @@ export const Profile: React.FC = () => {
               </section>
             )}
 
-            {lists.filter((l) => l.restaurantIds.length > 0).length > 0 && (
+            {lists.filter((l) => listRestaurantIds(l).length > 0).length > 0 && (
               <section>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -614,9 +635,11 @@ export const Profile: React.FC = () => {
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {lists
-                    .filter((l) => l.restaurantIds.length > 0)
+                    .filter((l) => listRestaurantIds(l).length > 0)
                     .slice(0, 4)
-                    .map((list) => (
+                    .map((list) => {
+                      const rids = listRestaurantIds(list);
+                      return (
                       <div
                         key={list.id}
                         className="rounded-2xl border border-on-surface/8 bg-white p-3"
@@ -625,11 +648,11 @@ export const Profile: React.FC = () => {
                           <span className="text-lg">{list.emoji}</span>
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-serif font-bold truncate">{list.name}</p>
-                            <p className="text-[10px] text-on-surface/40">{list.restaurantIds.length} places</p>
+                            <p className="text-[10px] text-on-surface/40">{rids.length} places</p>
                           </div>
                         </div>
                         <div className="flex gap-1 overflow-x-auto scrollbar-hide">
-                          {list.restaurantIds.slice(0, 4).map((id) => {
+                          {rids.slice(0, 4).map((id) => {
                             const r = ratings.find((x) => x.restaurantId === id);
                             return (
                               <Link
@@ -649,7 +672,8 @@ export const Profile: React.FC = () => {
                           })}
                         </div>
                       </div>
-                    ))}
+                    );
+                    })}
                 </div>
               </section>
             )}
@@ -729,7 +753,7 @@ export const Profile: React.FC = () => {
                         {r.notes && <p className="text-[11px] text-on-surface/45 line-clamp-1 mt-1 italic">&ldquo;{r.notes}&rdquo;</p>}
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className={cn('text-xl font-serif font-bold', scoreColor(r.score))}>{r.score.toFixed(1)}</p>
+                        <p className={cn('text-xl font-serif font-bold', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</p>
                         {r.wouldReturn && <p className="text-[9px] text-emerald-600 font-semibold">Return</p>}
                       </div>
                     </Link>
@@ -745,23 +769,25 @@ export const Profile: React.FC = () => {
             {lists.length === 0 ? (
               <p className="text-sm text-on-surface/40 text-center py-10">You have not created any lists yet.</p>
             ) : (
-              lists.map((list) => (
+              lists.map((list) => {
+                const rids = listRestaurantIds(list);
+                return (
                 <div key={list.id} className="rounded-2xl border border-on-surface/8 bg-white overflow-hidden">
                   <div className="px-4 py-3 border-b border-on-surface/6 flex items-center gap-2">
                     <span className="text-xl">{list.emoji}</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-serif font-bold">{list.name}</p>
                       <p className="text-[10px] text-on-surface/40">
-                        {list.restaurantIds.length} rated
+                        {rids.length} rated
                         {list.wishlistIds?.length ? ` · ${list.wishlistIds.length} wishlist` : ''}
                       </p>
                     </div>
                   </div>
                   <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
-                    {list.restaurantIds.length === 0 ? (
+                    {rids.length === 0 ? (
                       <p className="text-xs text-on-surface/35 px-1 py-2">No restaurants in this list yet.</p>
                     ) : (
-                      list.restaurantIds.map((id) => {
+                      rids.map((id) => {
                         const r = ratings.find((x) => x.restaurantId === id);
                         return (
                           <Link
@@ -776,14 +802,15 @@ export const Profile: React.FC = () => {
                               <p className="text-xs font-semibold truncate">{r?.name || 'Restaurant'}</p>
                               <p className="text-[10px] text-on-surface/35">{r?.cuisine}</p>
                             </div>
-                            {r && <span className={cn('text-sm font-serif font-bold', scoreColor(r.score))}>{r.score.toFixed(1)}</span>}
+                            {r && <span className={cn('text-sm font-serif font-bold', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>}
                           </Link>
                         );
                       })
                     )}
                   </div>
                 </div>
-              ))
+              );
+              })
             )}
           </section>
         )}
@@ -834,11 +861,18 @@ export const Profile: React.FC = () => {
                 <p className="text-sm text-on-surface/45">Log home-cooked meals from the map or pantry flow.</p>
               </div>
             ) : (
-              homeMeals.map((meal) => (
+              homeMeals.map((meal) => {
+                const mealPhotos = Array.isArray(meal.photos) ? meal.photos : [];
+                const mealDishes = Array.isArray(meal.dishes) ? meal.dishes : [];
+                const mealDate = meal.date ? new Date(meal.date) : null;
+                const dateLabel = mealDate && !Number.isNaN(mealDate.getTime())
+                  ? mealDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                  : '—';
+                return (
                 <div key={meal.id} className="rounded-2xl border border-on-surface/8 bg-white overflow-hidden">
-                  {meal.photos[0]?.url && (
+                  {mealPhotos[0]?.url && (
                     <div className="aspect-[16/9] bg-on-surface/5">
-                      <img src={meal.photos[0].url} alt="" className="w-full h-full object-cover" />
+                      <img src={mealPhotos[0].url} alt="" className="w-full h-full object-cover" />
                     </div>
                   )}
                   <div className="p-4">
@@ -846,11 +880,11 @@ export const Profile: React.FC = () => {
                       <div>
                         <p className="text-sm font-serif font-bold">{meal.name}</p>
                         <p className="text-[10px] text-on-surface/40 mt-0.5">
-                          {new Date(meal.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          {meal.dishes.length > 0 && ` · ${meal.dishes.length} dish${meal.dishes.length !== 1 ? 'es' : ''}`}
+                          {dateLabel}
+                          {mealDishes.length > 0 && ` · ${mealDishes.length} dish${mealDishes.length !== 1 ? 'es' : ''}`}
                         </p>
                       </div>
-                      <span className={cn('text-lg font-serif font-bold', scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
+                      <span className={cn('text-lg font-serif font-bold', scoreColor(numericScore(meal.score)))}>{formatScore(meal.score)}</span>
                     </div>
                     {meal.description && (
                       <p className="text-xs text-on-surface/50 mt-2 leading-relaxed line-clamp-3">&ldquo;{meal.description}&rdquo;</p>
@@ -870,7 +904,8 @@ export const Profile: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              ))
+              );
+              })
             )}
             {publicHomeMeals.length > 0 && (
               <p className="text-[11px] text-center text-on-surface/35 pb-2">
