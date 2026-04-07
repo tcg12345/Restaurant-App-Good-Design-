@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { TopBar } from '../components/TopBar';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Smartphone, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, List as ListIcon, ChefHat, ExternalLink, Users, Map, Crown, Sparkles, TrendingUp, Search, LayoutGrid, Globe, EyeOff,
+  Star, MapPin, Heart, List as ListIcon, ChefHat, ExternalLink, Users, Map as MapIcon, Crown, Sparkles, TrendingUp, Search, LayoutGrid, Globe, EyeOff,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -370,7 +370,7 @@ export const Profile: React.FC = () => {
                 onClick={() => navigate('/')}
                 className="flex flex-col items-center gap-1 py-2.5 rounded-xl bg-white/70 border border-on-surface/8 hover:bg-white transition-colors"
               >
-                <Map size={18} className="text-primary" />
+                <MapIcon size={18} className="text-primary" />
                 <span className="text-[9px] font-bold uppercase tracking-wide text-on-surface/45">Map</span>
               </button>
               <button

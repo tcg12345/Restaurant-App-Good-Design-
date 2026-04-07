@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { Map } from './pages/Map';
 import { Experts } from './pages/Experts';
 import { Profile } from './pages/Profile';
@@ -111,6 +111,7 @@ const AppContent: React.FC = () => {
         <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
           <Routes location={location}>
             <Route path="/" element={<Map />} />
+            <Route path="/auth" element={<Navigate to="/" replace />} />
             <Route path="/circle" element={<Circle />} />
             <Route path="/experts" element={<Experts />} />
             <Route path="/profile" element={<Profile />} />
