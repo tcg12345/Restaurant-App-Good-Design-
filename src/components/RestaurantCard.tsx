@@ -1,0 +1,124 @@
+import React from 'react';
+import { Star, Heart, Users, Award, Plus, Building2 } from 'lucide-react';
+import { motion } from 'motion/react';
+import { Link } from 'react-router-dom';
+import { cn } from '../lib/utils';
+
+interface RestaurantCardProps {
+  id: string;
+  name: string;
+  image: string;
+  rating: number;
+  price: string;
+  cuisine: string;
+  distance?: string;
+  friendReviews?: number;
+  expertReviews?: number;
+  onAdd?: () => void;
+  onHeart?: () => void;
+  isWishlisted?: boolean;
+  isHotel?: boolean;
+
+  className?: string;
+}
+
+export const RestaurantCard: React.FC<RestaurantCardProps> = ({
+  id,
+  name,
+  image,
+  rating,
+  price,
+  cuisine,
+  friendReviews = 0,
+  expertReviews = 0,
+  onAdd,
+  onHeart,
+  isWishlisted = false,
+  isHotel = false,
+
+  className,
+}) => {
+  return (
+    <Link to={`/restaurant/${id}`}>
+      <motion.div
+        whileHover={{ y: -5 }}
+        className={cn(
+          "group relative overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-500 hover:shadow-xl",
+          isHotel && "ring-1 ring-teal-200",
+          className
+        )}
+      >
+        <div className="relative aspect-[3/4] sm:aspect-[4/3] lg:aspect-[3/2] overflow-hidden">
+          <img
+            src={image}
+            alt={name}
+            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+            referrerPolicy="no-referrer"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onHeart?.();
+            }}
+            className={cn(
+              "absolute top-2.5 right-2.5 sm:top-2 sm:right-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full transition-colors z-10",
+              isWishlisted ? "text-red-400" : "text-on-surface/60 hover:text-red-400"
+            )}
+          >
+            <Heart size={18} className={cn("sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5", isWishlisted && "fill-red-400")} />
+          </button>
+
+          {onAdd && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onAdd();
+              }}
+              className="absolute top-2.5 left-2.5 sm:top-2 sm:left-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full text-on-surface/60 hover:text-primary transition-colors z-10"
+            >
+              <Plus size={18} className="sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5" />
+            </button>
+          )}
+
+          {isHotel && (
+            <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-teal-600/90 backdrop-blur-sm z-10">
+              <Building2 size={10} className="text-white" />
+              <span className="text-[9px] font-bold text-white uppercase tracking-wider">Hotel</span>
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 sm:p-3">
+          <div className="flex items-start justify-between gap-1.5 mb-0.5">
+            <h3 className="font-serif text-sm sm:text-base lg:text-sm font-bold leading-tight line-clamp-3 sm:line-clamp-2 min-h-[3rem] sm:min-h-[2.25rem] lg:min-h-[2.5rem]">{name}</h3>
+            <div className={cn("flex items-center gap-0.5 flex-shrink-0", isHotel ? "text-teal-600" : "text-primary")}>
+              <Star size={13} className={cn("sm:w-3.5 sm:h-3.5 lg:w-3 lg:h-3", isHotel ? "fill-teal-600" : "fill-primary")} />
+              <span className="text-xs sm:text-sm lg:text-xs font-bold">{rating}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[11px] sm:text-xs lg:text-[10px] text-on-surface/60 font-semibold uppercase tracking-wider truncate">
+            <span className="truncate">{cuisine}</span>
+            <span>•</span>
+            <span>{price}</span>
+          </div>
+
+          <div className="mt-1.5 flex items-center gap-2.5 text-[10px] sm:text-[11px] lg:text-[10px] text-on-surface/40 font-medium">
+            <span className="flex items-center gap-0.5">
+              <Users size={10} className="sm:w-2.5 sm:h-2.5" />
+              {friendReviews} friends
+            </span>
+            <span className="flex items-center gap-0.5">
+              <Award size={10} className="sm:w-2.5 sm:h-2.5" />
+              {expertReviews} experts
+            </span>
+          </div>
+        </div>
+      </motion.div>
+    </Link>
+  );
+};
