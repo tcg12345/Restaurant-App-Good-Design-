@@ -6,6 +6,10 @@ import { supabase, supabaseConfigured } from './supabase';
 import type { RestaurantRating, CustomList, WishlistItem, RestaurantMeta, Trip, HomeMeal } from '../contexts/ListsContext';
 import type { Conversation } from '../contexts/ChatContext';
 
+function asArray<T>(v: unknown, fallback: T[]): T[] {
+  return Array.isArray(v) ? (v as T[]) : fallback;
+}
+
 export interface UserAppData {
   ratings: RestaurantRating[];
   lists: CustomList[];
@@ -50,15 +54,19 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
     }
 
     return {
-      ratings: (data.ratings as RestaurantRating[]) || [],
-      lists: (data.lists as CustomList[]) || [],
-      wishlist: (data.wishlist as WishlistItem[]) || [],
-      restaurantMeta: (data.restaurant_meta as Record<string, RestaurantMeta>) || {},
-      recentViews: (data.recent_views as unknown[]) || [],
-      trips: ((data as Record<string, unknown>).trips as Trip[]) || [],
-      homeMeals: ((data as Record<string, unknown>).home_meals as HomeMeal[]) || [],
-      chats: ((data as Record<string, unknown>).chats as Conversation[]) || [],
-      chatsRead: ((data as Record<string, unknown>).chats_read as Record<string, number>) || {},
+      ratings: asArray<RestaurantRating>(data.ratings, []),
+      lists: asArray<CustomList>(data.lists, []),
+      wishlist: asArray<WishlistItem>(data.wishlist, []),
+      restaurantMeta: (data.restaurant_meta && typeof data.restaurant_meta === 'object' && !Array.isArray(data.restaurant_meta)
+        ? data.restaurant_meta
+        : {}) as Record<string, RestaurantMeta>,
+      recentViews: asArray<unknown>(data.recent_views, []),
+      trips: asArray<Trip>((data as Record<string, unknown>).trips, []),
+      homeMeals: asArray<HomeMeal>((data as Record<string, unknown>).home_meals, []),
+      chats: asArray<Conversation>((data as Record<string, unknown>).chats, []),
+      chatsRead: ((data as Record<string, unknown>).chats_read && typeof (data as Record<string, unknown>).chats_read === 'object' && !Array.isArray((data as Record<string, unknown>).chats_read)
+        ? (data as Record<string, unknown>).chats_read
+        : {}) as Record<string, number>,
     };
   } catch (err) {
     console.error('[Supabase] loadUserData exception:', err);
