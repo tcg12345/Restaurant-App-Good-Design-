@@ -153,6 +153,14 @@ export interface HomeMeal {
   dishes: HomeMealDish[];
   isPublic: boolean;
   createdAt: number;
+  coverPhoto?: string;
+  prepTime?: number;
+  cookTime?: number;
+  servings?: number;
+  difficulty?: 'Easy' | 'Medium' | 'Hard';
+  cuisine?: string;
+  ingredients?: RecipeIngredient[];
+  steps?: string[];
 }
 
 interface ListsContextValue {
@@ -286,6 +294,7 @@ const DEFAULT_LISTS: CustomList[] = [
 
 // Migration: add wishlistIds to lists that don't have it
 function migrateLists(lists: CustomList[]): CustomList[] {
+  if (!Array.isArray(lists)) return DEFAULT_LISTS;
   return lists.map((l) => ({
     ...l,
     wishlistIds: l.wishlistIds ?? [],
@@ -294,6 +303,7 @@ function migrateLists(lists: CustomList[]): CustomList[] {
 
 // Migration: add listIds, photos to ratings that don't have them
 function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
+  if (!Array.isArray(ratings)) return [];
   return ratings.map((r) => ({
     ...r,
     listIds: r.listIds ?? [],
@@ -306,6 +316,7 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
 
 // Migration: add notes, listIds to wishlist items that don't have them
 function migrateWishlist(items: WishlistItem[]): WishlistItem[] {
+  if (!Array.isArray(items)) return [];
   return items.map((w) => ({
     ...w,
     notes: w.notes ?? '',

@@ -3419,7 +3419,7 @@ export const Pantry: React.FC = () => {
   const regularRatingsCount = useMemo(() => ratings.filter((r) => r.cuisine !== 'Hotel Breakfast').length, [ratings]);
   const regularWishlist = useMemo(() => wishlist.filter((w) => w.cuisine !== 'Hotel Breakfast'), [wishlist]);
 
-  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' ? 1 : 0);
+  const activeFilterCount = (cityFilter.length > 0 ? 1 : 0) + (cuisineFilter.length > 0 ? 1 : 0) + (priceFilter ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (sortBy !== 'recent' && sortBy !== 'custom' && sortBy !== 'highest' ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
 
   // Seed custom order from current sort if empty when switching to custom
@@ -3433,7 +3433,7 @@ export const Pantry: React.FC = () => {
 
   const handleResetFilters = () => {
     setCityFilter([]); setCuisineFilter([]); setPriceFilter(null);
-    setScoreRange([0, 10]); setSortBy('recent');
+    setScoreRange([0, 10]); setSortBy('highest');
   };
 
   const toggleCityFilter = (city: string) => setCityFilter((prev) => prev.includes(city) ? prev.filter((c) => c !== city) : [...prev, city]);
@@ -3653,11 +3653,11 @@ export const Pantry: React.FC = () => {
               <button
                 onClick={() => setSortDropdownOpen(true)}
                 className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  sortBy !== 'recent' ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+                  sortBy !== 'highest' && sortBy !== 'recent' ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
               >
                 <ArrowUpDown size={11} />
-                <span>{sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}</span>
-                {sortBy !== 'recent' ? <span onClick={(e) => { e.stopPropagation(); setSortBy('recent'); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
+                <span>{sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}</span>
+                {sortBy !== 'highest' && sortBy !== 'recent' ? <span onClick={(e) => { e.stopPropagation(); setSortBy('highest'); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
               </button>
 
               {/* Clear all */}
