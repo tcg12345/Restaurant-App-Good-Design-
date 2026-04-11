@@ -23,6 +23,30 @@ export const formatDuration = (minutes: number): string => {
   return `${hours} hr ${remMinutes} min`;
 };
 
+/** Compact duration for tight stat cells ("2h 45m" / "45m" / "1h"). */
+export const formatDurationCompact = (minutes: number): string => {
+  if (!Number.isFinite(minutes) || minutes <= 0) return '';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (remMinutes === 0) return `${hours}h`;
+  return `${hours}h ${remMinutes}m`;
+};
+
+/**
+ * Canonical cover photo URL for a home meal. Always prefer the explicit
+ * coverPhoto, fall back to the first uploaded photo, then empty string.
+ * Used by every card / hero / page header so we don't accidentally show a
+ * different image in different places for the same recipe.
+ */
+export const getMealCoverUrl = (
+  meal: { coverPhoto?: string; photos?: { url: string }[] } | null | undefined,
+): string => {
+  if (!meal) return '';
+  if (meal.coverPhoto) return meal.coverPhoto;
+  return meal.photos?.[0]?.url || '';
+};
+
 /**
  * Parses an ingredient amount string ("2", "1/2", "1 1/2", "0.5") into a
  * number. Returns null when the string isn't a recognisable quantity (e.g.

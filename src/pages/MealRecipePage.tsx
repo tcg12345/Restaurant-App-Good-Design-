@@ -26,6 +26,8 @@ import {
 } from '../lib/supabase-home-meal-reviews';
 import {
   formatDuration,
+  formatDurationCompact,
+  getMealCoverUrl,
   scaleQuantity,
   extractStepMinutes,
   StepTimer,
@@ -184,10 +186,9 @@ export const MealRecipePage: React.FC = () => {
   const hasIngredients = (meal.ingredients?.length ?? 0) > 0;
   const hasSteps = (meal.steps?.length ?? 0) > 0;
   const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
-  const hasMeta = totalTime > 0 || (meal.servings ?? 0) > 0 || !!meal.difficulty;
 
   // Desktop cover image derives from coverPhoto → first photo.
-  const desktopCoverUrl = meal.coverPhoto || meal.photos[0]?.url || null;
+  const coverUrl = getMealCoverUrl(meal);
 
   // Servings scaling.
   const baseServings = meal.servings && meal.servings > 0 ? meal.servings : 4;
@@ -257,53 +258,41 @@ export const MealRecipePage: React.FC = () => {
     </header>
   );
 
-  const statCardsBlock = hasMeta ? (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-px bg-on-surface/8 rounded-2xl overflow-hidden border border-on-surface/8">
-      {(meal.prepTime ?? 0) > 0 && (
-        <div className="bg-white px-4 py-3">
+  // Stat cards. On phone we stack as a 2-col grid with a compact duration
+  // format ("2h 45m") and nowrap values so nothing ever wraps to a new line
+  // or overflows a cell. Desktop keeps the wider 5-col grid.
+  const durationLabel = (m: number) => phoneMode ? formatDurationCompact(m) : formatDuration(m);
+  const statCells: { key: string; icon: React.ReactNode; label: string; value: string }[] = [];
+  if ((meal.prepTime ?? 0) > 0) {
+    statCells.push({ key: 'prep', icon: <Clock size={12} className="text-on-surface/40" />, label: 'Prep', value: durationLabel(meal.prepTime ?? 0) });
+  }
+  if ((meal.cookTime ?? 0) > 0) {
+    statCells.push({ key: 'cook', icon: <Flame size={12} className="text-on-surface/40" />, label: 'Cook', value: durationLabel(meal.cookTime ?? 0) });
+  }
+  if (totalTime > 0 && (meal.prepTime ?? 0) > 0 && (meal.cookTime ?? 0) > 0) {
+    statCells.push({ key: 'total', icon: <Clock size={12} className="text-on-surface/40" />, label: 'Total', value: durationLabel(totalTime) });
+  }
+  if ((meal.servings ?? 0) > 0) {
+    statCells.push({ key: 'serves', icon: <Users size={12} className="text-on-surface/40" />, label: 'Serves', value: String(meal.servings) });
+  }
+  if (meal.difficulty) {
+    statCells.push({ key: 'difficulty', icon: <Star size={12} className="text-amber-500 fill-amber-500" />, label: 'Difficulty', value: meal.difficulty });
+  }
+
+  const statCardsBlock = statCells.length > 0 ? (
+    <div className={cn(
+      "grid gap-px bg-on-surface/8 rounded-2xl overflow-hidden border border-on-surface/8",
+      phoneMode ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5",
+    )}>
+      {statCells.map((c) => (
+        <div key={c.key} className="bg-white px-4 py-3 min-w-0">
           <div className="flex items-center gap-1.5 mb-1">
-            <Clock size={12} className="text-on-surface/40" />
-            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Prep</p>
+            {c.icon}
+            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium truncate">{c.label}</p>
           </div>
-          <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(meal.prepTime ?? 0)}</p>
+          <p className="font-serif font-bold text-lg text-on-surface leading-tight whitespace-nowrap truncate">{c.value}</p>
         </div>
-      )}
-      {(meal.cookTime ?? 0) > 0 && (
-        <div className="bg-white px-4 py-3">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Flame size={12} className="text-on-surface/40" />
-            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Cook</p>
-          </div>
-          <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(meal.cookTime ?? 0)}</p>
-        </div>
-      )}
-      {totalTime > 0 && (meal.prepTime ?? 0) > 0 && (meal.cookTime ?? 0) > 0 && (
-        <div className="bg-white px-4 py-3">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Clock size={12} className="text-on-surface/40" />
-            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Total</p>
-          </div>
-          <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(totalTime)}</p>
-        </div>
-      )}
-      {(meal.servings ?? 0) > 0 && (
-        <div className="bg-white px-4 py-3">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Users size={12} className="text-on-surface/40" />
-            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Serves</p>
-          </div>
-          <p className="font-serif font-bold text-lg text-on-surface leading-tight">{meal.servings}</p>
-        </div>
-      )}
-      {meal.difficulty && (
-        <div className="bg-white px-4 py-3">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Star size={12} className="text-amber-500 fill-amber-500" />
-            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Difficulty</p>
-          </div>
-          <p className="font-serif font-bold text-lg text-on-surface leading-tight">{meal.difficulty}</p>
-        </div>
-      )}
+      ))}
     </div>
   ) : null;
 
@@ -578,14 +567,14 @@ export const MealRecipePage: React.FC = () => {
         </div>
 
         {/* Full-width hero photo */}
-        {desktopCoverUrl && (
+        {coverUrl && (
           <button
             type="button"
             onClick={() => setLightboxPhotoIdx(0)}
             className="block w-full overflow-hidden relative mt-2 mb-5"
             aria-label="Open photo gallery"
           >
-            <img src={desktopCoverUrl} alt={meal.name} className="w-full aspect-[4/3] object-cover" />
+            <img src={coverUrl} alt={meal.name} className="w-full aspect-[4/3] object-cover" />
           </button>
         )}
 
@@ -627,14 +616,14 @@ export const MealRecipePage: React.FC = () => {
       {/* Hero row: heading on left, cover image on right */}
       <div className="grid md:grid-cols-[minmax(0,1fr)_240px] gap-6 items-stretch mb-8">
         {titleBlock}
-        {desktopCoverUrl && (
+        {coverUrl && (
           <button
             type="button"
             onClick={() => setLightboxPhotoIdx(0)}
             className="hidden md:block relative rounded-2xl overflow-hidden border border-on-surface/8 group"
             aria-label="Open photo gallery"
           >
-            <img src={desktopCoverUrl} alt={meal.name} className="w-full h-full object-cover" />
+            <img src={coverUrl} alt={meal.name} className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
           </button>
         )}

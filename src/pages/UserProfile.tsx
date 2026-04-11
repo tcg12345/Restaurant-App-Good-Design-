@@ -12,6 +12,7 @@ import {
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
 import type { HomeMeal } from '../contexts/ListsContext';
+import { getMealCoverUrl } from '../lib/recipe-display';
 import mapboxgl from 'mapbox-gl';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { searchPlacesByText, type PlaceResult } from '../lib/places';
@@ -664,10 +665,12 @@ export const UserProfile: React.FC = () => {
                   <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Home Cooking ({publicHomeMeals.length})</h3>
                 </div>
                 <div className="space-y-2">
-                  {publicHomeMeals.map((meal) => (
+                  {publicHomeMeals.map((meal) => {
+                    const coverUrl = getMealCoverUrl(meal);
+                    return (
                     <div key={meal.id} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
-                      {meal.photos.length > 0 && (
-                        <img src={meal.photos[0].url} alt={meal.name} className="w-full aspect-[16/9] object-cover" />
+                      {coverUrl && (
+                        <img src={coverUrl} alt={meal.name} className="w-full aspect-[16/9] object-cover" />
                       )}
                       <div className="px-3 py-2.5">
                         <div className="flex items-start justify-between gap-2">
@@ -688,7 +691,8 @@ export const UserProfile: React.FC = () => {
                         )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             )}

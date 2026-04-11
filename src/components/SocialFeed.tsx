@@ -11,6 +11,7 @@ import {
   getFriendsPublicHomeMeals,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
+import { getMealCoverUrl } from '../lib/recipe-display';
 
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
@@ -329,10 +330,10 @@ export const SocialFeed: React.FC = () => {
                   {/* Meal body */}
                   <div className="px-4 pb-3.5">
                     <div className="flex gap-3">
-                      {/* Thumbnail */}
+                      {/* Thumbnail — canonical cover photo so it matches the detail page hero. */}
                       <div className="w-20 h-20 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
-                        {m.photos.length > 0 ? (
-                          <img src={m.photos[0].url} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        {getMealCoverUrl(m) ? (
+                          <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
                             <ChefHat size={24} className="text-emerald-400" />

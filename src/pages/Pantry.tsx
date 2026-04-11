@@ -3,7 +3,7 @@ import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { formatDuration, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
+import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
@@ -2968,19 +2968,20 @@ const HomeCookingTab: React.FC<{
 
   // ── Meal detail view (diary / blog entry style) ──
   if (selectedMeal) {
-    // On desktop the hero photo renders far too large, so skip it there and
-    // fall through to the "no hero" title + grid layout below.
-    const heroPhoto = phoneMode && selectedMeal.photos.length > 0 ? selectedMeal.photos[0] : null;
+    // Canonical cover image used everywhere (card thumbnails, phone hero,
+    // desktop hero-image column) so every surface shows the same photo for
+    // the same recipe.
+    const coverUrl = getMealCoverUrl(selectedMeal);
     const allPhotos = [
       ...(selectedMeal.coverPhoto ? [{ url: selectedMeal.coverPhoto, caption: '' }] : []),
       ...selectedMeal.photos.map((p) => ({ url: p.url, caption: p.caption })),
     ];
-    // Lightbox index for hero photo: accounts for coverPhoto being index 0.
-    const heroLightboxIdx = selectedMeal.coverPhoto ? 1 : 0;
+    // coverUrl is always allPhotos[0] (either the explicit coverPhoto at
+    // index 0, or the first photo when no coverPhoto was set).
+    const coverLightboxIdx = 0;
     const hasIngredients = (selectedMeal.ingredients?.length ?? 0) > 0;
     const hasSteps = (selectedMeal.steps?.length ?? 0) > 0;
     const totalTime = (selectedMeal.prepTime ?? 0) + (selectedMeal.cookTime ?? 0);
-    const hasMeta = totalTime > 0 || (selectedMeal.servings ?? 0) > 0 || !!selectedMeal.difficulty;
 
     // Servings scaling: `baseServings` is the author's original, `displayServings`
     // is what the ratio button is currently set to. Ratio is derived from that.
@@ -3003,7 +3004,6 @@ const HomeCookingTab: React.FC<{
       ...(selectedMeal.photos.length > 0 ? [{ id: 'photos', label: 'Photos' }] : []),
     ];
 
-    const desktopCoverUrl = selectedMeal.coverPhoto || selectedMeal.photos[0]?.url || null;
 
     // ── Reusable section blocks, identical content for phone and desktop ──
 
@@ -3071,53 +3071,40 @@ const HomeCookingTab: React.FC<{
       </header>
     );
 
-    const statCardsBlock = hasMeta ? (
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-px bg-on-surface/8 rounded-2xl overflow-hidden border border-on-surface/8">
-        {(selectedMeal.prepTime ?? 0) > 0 && (
-          <div className="bg-white px-4 py-3">
+    // Stat cards — on phone use compact durations ("2h 45m") in a 2-col grid
+    // so nothing wraps or gets clipped; desktop keeps the wider 5-col layout.
+    const durationLabel = (m: number) => phoneMode ? formatDurationCompact(m) : formatDuration(m);
+    const statCells: { key: string; icon: React.ReactNode; label: string; value: string }[] = [];
+    if ((selectedMeal.prepTime ?? 0) > 0) {
+      statCells.push({ key: 'prep', icon: <Clock size={12} className="text-on-surface/40" />, label: 'Prep', value: durationLabel(selectedMeal.prepTime ?? 0) });
+    }
+    if ((selectedMeal.cookTime ?? 0) > 0) {
+      statCells.push({ key: 'cook', icon: <Flame size={12} className="text-on-surface/40" />, label: 'Cook', value: durationLabel(selectedMeal.cookTime ?? 0) });
+    }
+    if (totalTime > 0 && (selectedMeal.prepTime ?? 0) > 0 && (selectedMeal.cookTime ?? 0) > 0) {
+      statCells.push({ key: 'total', icon: <Clock size={12} className="text-on-surface/40" />, label: 'Total', value: durationLabel(totalTime) });
+    }
+    if ((selectedMeal.servings ?? 0) > 0) {
+      statCells.push({ key: 'serves', icon: <Users size={12} className="text-on-surface/40" />, label: 'Serves', value: String(selectedMeal.servings) });
+    }
+    if (selectedMeal.difficulty) {
+      statCells.push({ key: 'difficulty', icon: <Star size={12} className="text-amber-500 fill-amber-500" />, label: 'Difficulty', value: selectedMeal.difficulty });
+    }
+
+    const statCardsBlock = statCells.length > 0 ? (
+      <div className={cn(
+        "grid gap-px bg-on-surface/8 rounded-2xl overflow-hidden border border-on-surface/8",
+        phoneMode ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5",
+      )}>
+        {statCells.map((c) => (
+          <div key={c.key} className="bg-white px-4 py-3 min-w-0">
             <div className="flex items-center gap-1.5 mb-1">
-              <Clock size={12} className="text-on-surface/40" />
-              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Prep</p>
+              {c.icon}
+              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium truncate">{c.label}</p>
             </div>
-            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(selectedMeal.prepTime ?? 0)}</p>
+            <p className="font-serif font-bold text-lg text-on-surface leading-tight whitespace-nowrap truncate">{c.value}</p>
           </div>
-        )}
-        {(selectedMeal.cookTime ?? 0) > 0 && (
-          <div className="bg-white px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Flame size={12} className="text-on-surface/40" />
-              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Cook</p>
-            </div>
-            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(selectedMeal.cookTime ?? 0)}</p>
-          </div>
-        )}
-        {totalTime > 0 && (selectedMeal.prepTime ?? 0) > 0 && (selectedMeal.cookTime ?? 0) > 0 && (
-          <div className="bg-white px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Clock size={12} className="text-on-surface/40" />
-              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Total</p>
-            </div>
-            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(totalTime)}</p>
-          </div>
-        )}
-        {(selectedMeal.servings ?? 0) > 0 && (
-          <div className="bg-white px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Users size={12} className="text-on-surface/40" />
-              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Serves</p>
-            </div>
-            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{selectedMeal.servings}</p>
-          </div>
-        )}
-        {selectedMeal.difficulty && (
-          <div className="bg-white px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Star size={12} className="text-amber-500 fill-amber-500" />
-              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Difficulty</p>
-            </div>
-            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{selectedMeal.difficulty}</p>
-          </div>
-        )}
+        ))}
       </div>
     ) : null;
 
@@ -3271,8 +3258,10 @@ const HomeCookingTab: React.FC<{
       </section>
     ) : null;
 
-    // When a hero photo is rendered on phone, the photos grid skips index 0.
-    const photosSliceStart = heroPhoto ? 1 : 0;
+    // The header cover photo is either selectedMeal.coverPhoto (lives outside
+    // selectedMeal.photos) or selectedMeal.photos[0]. In the second case we
+    // skip photos[0] from the grid so it isn't shown twice.
+    const photosSliceStart = selectedMeal.coverPhoto ? 0 : 1;
     const photosVisible = selectedMeal.photos.length > photosSliceStart;
     const photosBlock = photosVisible ? (
       <section id="photos">
@@ -3339,13 +3328,9 @@ const HomeCookingTab: React.FC<{
         <div className="-mx-3 pb-20">
           <div className="px-4 pt-2 pb-1">{actionsHeader}</div>
 
-          {heroPhoto ? (
-            <button onClick={() => setLightboxPhotoIdx(heroLightboxIdx)} className="block w-full text-left mt-2 mb-5">
-              <img src={heroPhoto.url} alt={selectedMeal.name} className="w-full aspect-[4/3] object-cover" />
-            </button>
-          ) : desktopCoverUrl ? (
-            <button onClick={() => setLightboxPhotoIdx(0)} className="block w-full text-left mt-2 mb-5">
-              <img src={desktopCoverUrl} alt={selectedMeal.name} className="w-full aspect-[4/3] object-cover" />
+          {coverUrl ? (
+            <button onClick={() => setLightboxPhotoIdx(coverLightboxIdx)} className="block w-full text-left mt-2 mb-5">
+              <img src={coverUrl} alt={selectedMeal.name} className="w-full aspect-[4/3] object-cover" />
             </button>
           ) : (
             <div className="mt-2" />
@@ -3376,14 +3361,14 @@ const HomeCookingTab: React.FC<{
         {/* Hero row: title block on left, cover photo on right */}
         <div className="grid md:grid-cols-[minmax(0,1fr)_240px] gap-6 items-stretch mb-8">
           {titleBlock}
-          {desktopCoverUrl && (
+          {coverUrl && (
             <button
               type="button"
-              onClick={() => setLightboxPhotoIdx(0)}
+              onClick={() => setLightboxPhotoIdx(coverLightboxIdx)}
               className="hidden md:block relative rounded-2xl overflow-hidden border border-on-surface/8 group"
               aria-label="Open photo gallery"
             >
-              <img src={desktopCoverUrl} alt={selectedMeal.name} className="w-full h-full object-cover" />
+              <img src={coverUrl} alt={selectedMeal.name} className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
             </button>
           )}
@@ -3506,7 +3491,7 @@ const HomeCookingTab: React.FC<{
       ) : (
         <div className="space-y-3">
           {filteredMeals.map((meal) => {
-            const coverPhoto = meal.coverPhoto || meal.photos[0]?.url;
+            const coverPhoto = getMealCoverUrl(meal);
             const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
             const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
             return (
