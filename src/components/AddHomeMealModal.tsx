@@ -869,53 +869,28 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Rating — tighter score circle + slider */}
-                    <div className="flex flex-col items-center pt-1 mb-2.5">
+                    {/* Rating — the focal point of the modal */}
+                    <div className="flex flex-col items-center pt-2 pb-4">
                       <div className={cn(
-                        "relative w-24 h-24 rounded-full flex items-center justify-center mb-2 bg-gradient-to-b ring-[3px]",
+                        "relative w-36 h-36 sm:w-40 sm:h-40 rounded-full flex items-center justify-center mb-4 bg-gradient-to-b ring-4",
                         scoreBg,
                         scoreRing,
                       )}>
                         <div className="text-center">
-                          <div className={cn("text-4xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
-                          <div className="text-[8px] uppercase tracking-[0.12em] text-on-surface/35 font-medium -mt-0.5">out of 10</div>
+                          <div className={cn("text-6xl sm:text-7xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
+                          <div className="text-[10px] uppercase tracking-[0.14em] text-on-surface/35 font-medium mt-0.5">out of 10</div>
                         </div>
                       </div>
-                      <div className="w-full max-w-[260px]">
+                      <div className="w-full max-w-[320px]">
                         <input
                           type="range" min="1" max="10" step="0.1"
                           value={score}
                           onChange={(e) => setScore(parseFloat(e.target.value))}
-                          className="w-full h-2 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary"
+                          className="w-full h-2.5 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary"
                         />
-                        <p className="text-[11px] font-medium text-on-surface/45 text-center mt-1">
+                        <p className="text-sm font-semibold text-on-surface/55 text-center mt-2">
                           {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
                         </p>
-                      </div>
-                    </div>
-
-                    {/* Would make again — compact single row */}
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium flex-shrink-0">Make again?</span>
-                      <div className="flex gap-1 flex-1">
-                        <button
-                          onClick={() => setWouldMakeAgain(true)}
-                          className={cn(
-                            "flex-1 py-1.5 rounded-full text-[11px] font-semibold border transition-all",
-                            wouldMakeAgain
-                              ? "bg-green-50 border-green-200 text-green-700"
-                              : "bg-on-surface/[0.02] border-on-surface/10 text-on-surface/45",
-                          )}
-                        >Yes!</button>
-                        <button
-                          onClick={() => setWouldMakeAgain(false)}
-                          className={cn(
-                            "flex-1 py-1.5 rounded-full text-[11px] font-semibold border transition-all",
-                            !wouldMakeAgain
-                              ? "bg-red-50 border-red-200 text-red-600"
-                              : "bg-on-surface/[0.02] border-on-surface/10 text-on-surface/45",
-                          )}
-                        >Nah</button>
                       </div>
                     </div>
 
