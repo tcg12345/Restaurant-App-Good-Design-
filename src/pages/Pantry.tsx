@@ -3239,49 +3239,75 @@ const HomeCookingTab: React.FC<{
           </button>
         )}
 
-        <header className="mb-6 sm:mb-8">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-2">
-            {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-          </p>
-          <h1 className="font-serif font-bold text-3xl sm:text-5xl text-on-surface leading-[1.1] mb-4">
-            {selectedMeal.name}
-          </h1>
+        {/* Desktop layout puts the cover photo next to the heading; on phone
+            the existing heroPhoto block above handles the image. */}
+        {(() => {
+          const desktopCoverUrl = selectedMeal.coverPhoto || selectedMeal.photos[0]?.url || null;
+          return (
+            <div className="grid md:grid-cols-[minmax(0,1fr)_240px] gap-5 md:gap-6 items-stretch mb-6 sm:mb-8">
+              <header>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-2">
+                  {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                </p>
+                <h1 className="font-serif font-bold text-3xl sm:text-5xl text-on-surface leading-[1.1] mb-4">
+                  {selectedMeal.name}
+                </h1>
 
-          {/* Rating + would-make-again editorial callout */}
-          <div className="flex items-center gap-4 mb-4">
-            <div className="flex items-baseline">
-              <span className={cn("text-5xl font-serif font-bold tabular-nums", scoreColor(selectedMeal.score))}>
-                {selectedMeal.score.toFixed(1)}
-              </span>
-              <span className="text-sm text-on-surface/35 font-medium ml-1">/ 10</span>
-            </div>
-            {'wouldMakeAgain' in selectedMeal && (
-              <span className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold",
-                selectedMeal.wouldMakeAgain
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-red-50 text-red-600",
-              )}>
-                <span className={cn(
-                  "w-1.5 h-1.5 rounded-full",
-                  selectedMeal.wouldMakeAgain ? "bg-emerald-500" : "bg-red-500",
-                )} />
-                {selectedMeal.wouldMakeAgain ? 'Would make again' : "Wouldn't repeat"}
-              </span>
-            )}
-          </div>
+                {/* Rating + would-make-again editorial callout */}
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="flex items-baseline">
+                    <span className={cn("text-5xl font-serif font-bold tabular-nums", scoreColor(selectedMeal.score))}>
+                      {selectedMeal.score.toFixed(1)}
+                    </span>
+                    <span className="text-sm text-on-surface/35 font-medium ml-1">/ 10</span>
+                  </div>
+                  {'wouldMakeAgain' in selectedMeal && (
+                    <span className={cn(
+                      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold",
+                      selectedMeal.wouldMakeAgain
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-red-50 text-red-600",
+                    )}>
+                      <span className={cn(
+                        "w-1.5 h-1.5 rounded-full",
+                        selectedMeal.wouldMakeAgain ? "bg-emerald-500" : "bg-red-500",
+                      )} />
+                      {selectedMeal.wouldMakeAgain ? 'Would make again' : "Wouldn't repeat"}
+                    </span>
+                  )}
+                </div>
 
-          {/* Tag pills — filled, editorial */}
-          {selectedMeal.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {selectedMeal.tags.map((tag) => (
-                <span key={tag} className="inline-flex items-center px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[11px] font-semibold tracking-wide">
-                  {tag}
-                </span>
-              ))}
+                {/* Tag pills — filled, editorial */}
+                {selectedMeal.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedMeal.tags.map((tag) => (
+                      <span key={tag} className="inline-flex items-center px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[11px] font-semibold tracking-wide">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </header>
+
+              {/* Desktop-only cover image — fills the heading row, opens the lightbox. */}
+              {desktopCoverUrl && (
+                <button
+                  type="button"
+                  onClick={() => setLightboxPhotoIdx(0)}
+                  className="hidden md:block relative rounded-2xl overflow-hidden border border-on-surface/8 group"
+                  aria-label="Open photo gallery"
+                >
+                  <img
+                    src={desktopCoverUrl}
+                    alt={selectedMeal.name}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
+                </button>
+              )}
             </div>
-          )}
-        </header>
+          );
+        })()}
 
         {/* ═══════════ STAT CARDS ═══════════ */}
         {hasMeta && (
