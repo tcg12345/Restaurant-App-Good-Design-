@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen, Clock, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
@@ -11,6 +11,7 @@ import {
   getFriendsPublicHomeMeals,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
+import { FriendRecipeModal } from './FriendRecipeModal';
 
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
@@ -53,6 +54,7 @@ export const SocialFeed: React.FC = () => {
   const [commentProfiles, setCommentProfiles] = useState<Record<string, UserProfile>>({});
   const [newComment, setNewComment] = useState('');
   const [commentsLoading, setCommentsLoading] = useState(false);
+  const [activeFriendRecipe, setActiveFriendRecipe] = useState<FriendHomeMeal | null>(null);
 
   const loadFeed = useCallback(async () => {
     if (!userId) { setLoading(false); return; }
@@ -272,17 +274,104 @@ export const SocialFeed: React.FC = () => {
   }
   if (feedItems.length === 0 && feedMode === 'friends') return null;
 
+  // Recipes-only mode uses its own list rendered from homeMeals.
+  const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
+  const formatTotalTime = (minutes: number): string => {
+    if (!Number.isFinite(minutes) || minutes <= 0) return '';
+    if (minutes < 60) return `${minutes} min`;
+    const h = Math.floor(minutes / 60);
+    const rem = minutes % 60;
+    if (rem === 0) return `${h} hr`;
+    return `${h} hr ${rem} min`;
+  };
+
   return (
     <section className="mb-8">
-      <SectionHeader count={feedItems.length} />
-      {feedMode !== 'friends' ? (
+      <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
+      {feedMode === 'experts' ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <div className="w-14 h-14 rounded-full bg-on-surface/5 flex items-center justify-center mb-3">
-            {feedMode === 'experts' ? <Star size={24} className="text-amber-400 fill-amber-400" /> : <BookOpen size={24} className="text-primary/40" />}
+            <Star size={24} className="text-amber-400 fill-amber-400" />
           </div>
-          <p className="text-sm font-semibold text-on-surface/50">{feedMode === 'experts' ? 'Expert Picks' : 'Recipes'}</p>
+          <p className="text-sm font-semibold text-on-surface/50">Expert Picks</p>
           <p className="text-xs text-on-surface/35 mt-1">Coming soon</p>
         </div>
+      ) : feedMode === 'recipes' ? (
+        recipesSorted.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center mb-3">
+              <ChefHat size={24} className="text-emerald-400" />
+            </div>
+            <p className="text-sm font-semibold text-on-surface/50">No recipes yet</p>
+            <p className="text-xs text-on-surface/35 mt-1 max-w-[240px]">
+              When your friends publish a recipe, it will show up here so you can try it and leave a rating.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recipesSorted.map((m) => {
+              const authorName = getName(m.userId);
+              const authorInitial = initialOf(authorName);
+              const color = avatarColor(m.userId);
+              const cover = m.coverPhoto || m.photos?.[0]?.url || '';
+              const totalLabel = formatTotalTime((m.prepTime ?? 0) + (m.cookTime ?? 0));
+              const ingredientCount = m.ingredients?.length ?? 0;
+              const stepCount = m.steps?.length ?? 0;
+              return (
+                <button
+                  key={`recipe-${m.userId}-${m.id}`}
+                  onClick={() => setActiveFriendRecipe(m)}
+                  className="w-full bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden text-left hover:shadow-md transition-shadow"
+                >
+                  <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
+                    <div className={cn("w-9 h-9 rounded-full ring-2 ring-emerald-200/50 flex items-center justify-center font-bold text-sm", color.bg, color.text)}>
+                      {authorInitial}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{authorName}</p>
+                      <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">published a recipe</p>
+                    </div>
+                    <span className="text-[10px] text-on-surface/35 font-medium">{timeAgo(new Date(m.createdAt).toISOString())}</span>
+                  </div>
+                  <div className="px-4 pb-4 flex gap-3 items-stretch">
+                    <div className="w-24 h-24 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
+                      {cover ? (
+                        <img src={cover} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <ChefHat size={26} className="text-emerald-300" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                      <h3 className="font-serif font-bold text-base text-on-surface leading-tight truncate">{m.name}</h3>
+                      {m.description && (
+                        <p className="text-xs text-on-surface/55 mt-1 leading-snug line-clamp-2">{m.description}</p>
+                      )}
+                      <div className="flex items-center flex-wrap gap-1.5 mt-2">
+                        {totalLabel && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700/80 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                            <Clock size={10} /> {totalLabel}
+                          </span>
+                        )}
+                        {m.difficulty && (
+                          <span className="text-[10px] font-semibold text-on-surface/50 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{m.difficulty}</span>
+                        )}
+                        {ingredientCount > 0 && (
+                          <span className="text-[10px] text-on-surface/40">{ingredientCount} ingredient{ingredientCount !== 1 ? 's' : ''}</span>
+                        )}
+                        {stepCount > 0 && (
+                          <span className="text-[10px] text-on-surface/40">· {stepCount} step{stepCount !== 1 ? 's' : ''}</span>
+                        )}
+                      </div>
+                    </div>
+                    <ChevronRight size={16} className="text-on-surface/25 self-center flex-shrink-0" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )
       ) : (
       <div className="space-y-3">
         {feedItems.map((item) => {
@@ -530,6 +619,13 @@ export const SocialFeed: React.FC = () => {
         })}
       </div>
       )}
+
+      <FriendRecipeModal
+        meal={activeFriendRecipe}
+        authorProfile={activeFriendRecipe ? profiles[activeFriendRecipe.userId] ?? null : null}
+        currentUserId={userId}
+        onClose={() => setActiveFriendRecipe(null)}
+      />
     </section>
   );
 };
