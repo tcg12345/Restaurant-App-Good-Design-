@@ -33,6 +33,7 @@ import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
 import { Messages } from './pages/Messages';
 import { FriendReviewDetail } from './pages/FriendReviewDetail';
+import { MealRecipePage } from './pages/MealRecipePage';
 import { ChatProvider } from './contexts/ChatContext';
 
 const AppContent: React.FC = () => {
@@ -120,6 +121,7 @@ const AppContent: React.FC = () => {
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/import" element={<ImportRestaurants />} />
             <Route path="/recipe/:id" element={<RecipeDetail />} />
+            <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
             <Route path="/user/:username" element={<UserProfile />} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/review/:ratingId" element={<FriendReviewDetail />} />

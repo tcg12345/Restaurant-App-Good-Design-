@@ -650,6 +650,34 @@ export async function getFriendsPublicHomeMeals(friendIds: string[]): Promise<Fr
   } catch (err) { console.error('[Friends] getPublicHomeMeals exception:', err); return []; }
 }
 
+/** Fetch a single user's public home meal by id, honoring both the dedicated
+ *  home_meals column and the restaurant_meta.__home_meals__ fallback. Returns
+ *  null when the meal is missing or not marked public. */
+export async function getPublicHomeMealById(userId: string, mealId: string): Promise<FriendHomeMeal | null> {
+  if (!supabaseConfigured || !userId || !mealId) return null;
+  try {
+    let { data, error } = await supabase.from('user_app_data')
+      .select('home_meals, restaurant_meta')
+      .eq('user_id', userId)
+      .single();
+    if (error || !data) {
+      const fallback = await supabase.from('user_app_data')
+        .select('restaurant_meta')
+        .eq('user_id', userId)
+        .single();
+      data = fallback.data as typeof data;
+      error = fallback.error;
+    }
+    if (error || !data) return null;
+    const meals = mergeHomeMealSources(data as Record<string, unknown>);
+    const match = meals.find((m) => m.id === mealId && m.isPublic);
+    return match ? { ...match, userId } : null;
+  } catch (err) {
+    console.warn('[Community] getPublicHomeMealById exception:', err);
+    return null;
+  }
+}
+
 /** Fetch public home meals for a single user (for profile view). */
 export async function getUserPublicHomeMeals(userId: string): Promise<HomeMeal[]> {
   if (!supabaseConfigured || !userId) return [];

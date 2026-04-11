@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useSettings } from '../contexts/SettingsContext';
 import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments,
@@ -40,6 +41,7 @@ export const SocialFeed: React.FC = () => {
   const userId = user?.id ?? null;
   const navigate = useNavigate();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
+  const { phoneMode } = useSettings();
 
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
@@ -55,6 +57,15 @@ export const SocialFeed: React.FC = () => {
   const [newComment, setNewComment] = useState('');
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [activeFriendRecipe, setActiveFriendRecipe] = useState<FriendHomeMeal | null>(null);
+
+  // Desktop opens the full recipe page; phone keeps the bottom-sheet modal.
+  const openFriendRecipe = useCallback((m: FriendHomeMeal) => {
+    if (phoneMode) {
+      setActiveFriendRecipe(m);
+    } else {
+      navigate(`/meal/${m.userId}/${m.id}`);
+    }
+  }, [phoneMode, navigate]);
 
   const loadFeed = useCallback(async () => {
     if (!userId) { setLoading(false); return; }
@@ -306,7 +317,7 @@ export const SocialFeed: React.FC = () => {
               return (
                 <div
                   key={`recipe-${m.userId}-${m.id}`}
-                  onClick={() => setActiveFriendRecipe(m)}
+                  onClick={() => openFriendRecipe(m)}
                   className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
                 >
                   {/* User header */}
@@ -387,7 +398,7 @@ export const SocialFeed: React.FC = () => {
             return (
               <div
                 key={`meal-${m.id}`}
-                onClick={() => setActiveFriendRecipe(m)}
+                onClick={() => openFriendRecipe(m)}
                 className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
               >
                 {/* User header */}

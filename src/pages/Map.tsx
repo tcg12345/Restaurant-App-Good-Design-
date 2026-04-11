@@ -3124,7 +3124,10 @@ export const Map: React.FC = () => {
                   return (
                     <button
                       key={`${meal.userId}-${meal.id}`}
-                      onClick={() => setActiveFriendRecipe(meal)}
+                      onClick={() => {
+                        if (phoneMode) setActiveFriendRecipe(meal);
+                        else navigate(`/meal/${meal.userId}/${meal.id}`);
+                      }}
                       className="w-full flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group text-left"
                     >
                       <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-emerald-50 self-center">
