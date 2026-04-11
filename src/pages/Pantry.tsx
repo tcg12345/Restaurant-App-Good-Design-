@@ -3320,8 +3320,8 @@ const HomeCookingTab: React.FC<{
           </div>
         )}
 
-        {/* Additional photos gallery (excluding hero) */}
-        {selectedMeal.photos.length > 1 && (
+        {/* Additional photos gallery (excluding hero) — only when a hero is rendered. */}
+        {heroPhoto && selectedMeal.photos.length > 1 && (
           <div className="mb-5">
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
             <div className="grid grid-cols-3 gap-2">
