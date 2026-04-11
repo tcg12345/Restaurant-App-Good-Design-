@@ -3196,7 +3196,9 @@ const HomeCookingTab: React.FC<{
 
   // ── Meal detail view (diary / blog entry style) ──
   if (selectedMeal) {
-    const heroPhoto = selectedMeal.photos.length > 0 ? selectedMeal.photos[0] : null;
+    // On desktop the hero photo renders far too large, so skip it there and
+    // fall through to the "no hero" title + grid layout below.
+    const heroPhoto = phoneMode && selectedMeal.photos.length > 0 ? selectedMeal.photos[0] : null;
     const allPhotos = [
       ...(selectedMeal.coverPhoto ? [{ url: selectedMeal.coverPhoto, caption: '' }] : []),
       ...selectedMeal.photos.map((p) => ({ url: p.url, caption: p.caption })),
