@@ -929,7 +929,23 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncListsToCloud(next);
       return next;
     });
-  }, [syncListsToCloud]);
+    // Keep the rating's listIds in sync so the load-time reconciliation
+    // doesn't fight against local changes.
+    setRatings((prev) => {
+      let changed = false;
+      const next = prev.map((r) => {
+        if (r.restaurantId === restaurantId && !r.listIds.includes(listId)) {
+          changed = true;
+          return { ...r, listIds: [...r.listIds, listId] };
+        }
+        return r;
+      });
+      if (!changed) return prev;
+      saveToStorage(STORAGE_KEY_RATINGS, next);
+      syncRatingsToCloud(next);
+      return next;
+    });
+  }, [syncListsToCloud, syncRatingsToCloud]);
 
   const removeFromList = useCallback((listId: string, restaurantId: string) => {
     setLists((prev) => {
@@ -940,7 +956,23 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncListsToCloud(next);
       return next;
     });
-  }, [syncListsToCloud]);
+    // Also strip the listId from the rating so it doesn't get re-added by
+    // the load-time reconciliation in loadFromSupabase.
+    setRatings((prev) => {
+      let changed = false;
+      const next = prev.map((r) => {
+        if (r.restaurantId === restaurantId && r.listIds.includes(listId)) {
+          changed = true;
+          return { ...r, listIds: r.listIds.filter((id) => id !== listId) };
+        }
+        return r;
+      });
+      if (!changed) return prev;
+      saveToStorage(STORAGE_KEY_RATINGS, next);
+      syncRatingsToCloud(next);
+      return next;
+    });
+  }, [syncListsToCloud, syncRatingsToCloud]);
 
   const addToWishlistInList = useCallback((listId: string, restaurantId: string) => {
     setLists((prev) => {
@@ -951,7 +983,21 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncListsToCloud(next);
       return next;
     });
-  }, [syncListsToCloud]);
+    setWishlist((prev) => {
+      let changed = false;
+      const next = prev.map((w) => {
+        if (w.restaurantId === restaurantId && !w.listIds.includes(listId)) {
+          changed = true;
+          return { ...w, listIds: [...w.listIds, listId] };
+        }
+        return w;
+      });
+      if (!changed) return prev;
+      saveToStorage(STORAGE_KEY_WISHLIST, next);
+      syncWishlistToCloud(next);
+      return next;
+    });
+  }, [syncListsToCloud, syncWishlistToCloud]);
 
   const removeFromWishlistInList = useCallback((listId: string, restaurantId: string) => {
     setLists((prev) => {
@@ -962,7 +1008,21 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       syncListsToCloud(next);
       return next;
     });
-  }, [syncListsToCloud]);
+    setWishlist((prev) => {
+      let changed = false;
+      const next = prev.map((w) => {
+        if (w.restaurantId === restaurantId && w.listIds.includes(listId)) {
+          changed = true;
+          return { ...w, listIds: w.listIds.filter((id) => id !== listId) };
+        }
+        return w;
+      });
+      if (!changed) return prev;
+      saveToStorage(STORAGE_KEY_WISHLIST, next);
+      syncWishlistToCloud(next);
+      return next;
+    });
+  }, [syncListsToCloud, syncWishlistToCloud]);
 
   const getListsForRestaurant = useCallback((restaurantId: string) => lists.filter((l) => l.restaurantIds.includes(restaurantId)), [lists]);
 
