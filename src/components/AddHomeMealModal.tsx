@@ -242,7 +242,7 @@ export const AddHomeMealModal: React.FC = () => {
   const existing = homeMealModalData;
 
   const [mealName, setMealName] = useState('');
-  const [score, setScore] = useState(7);
+  const [score, setScore] = useState(0);
   const [notes, setNotes] = useState('');
   const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
   const [wouldMakeAgain, setWouldMakeAgain] = useState(true);
@@ -298,7 +298,7 @@ export const AddHomeMealModal: React.FC = () => {
   useEffect(() => {
     if (homeMealModalOpen) {
       setMealName(existing?.name ?? '');
-      setScore(existing?.score ?? 7);
+      setScore(existing?.score ?? 0);
       setNotes(existing?.description ?? '');
       setVisitDate(existing?.date ?? new Date().toISOString().slice(0, 10));
       setWouldMakeAgain(existing?.wouldMakeAgain ?? true);
@@ -652,10 +652,6 @@ export const AddHomeMealModal: React.FC = () => {
     closeHomeMealModal();
   };
 
-  const scoreColor = score >= 8 ? 'text-green-400' : score >= 5 ? 'text-yellow-400' : 'text-red-400';
-  const scoreBg = score >= 8 ? 'from-green-500/20 to-green-600/5' : score >= 5 ? 'from-yellow-500/20 to-yellow-600/5' : 'from-red-500/20 to-red-600/5';
-  const scoreRing = score >= 8 ? 'ring-green-400/30' : score >= 5 ? 'ring-yellow-400/30' : 'ring-red-400/30';
-
   const hasDishes = dishes.length > 0;
   const hasTags = selectedTags.length > 0;
   const hasPhotos = photos.length > 0;
@@ -866,31 +862,6 @@ export const AddHomeMealModal: React.FC = () => {
                             {d}
                           </button>
                         ))}
-                      </div>
-                    </div>
-
-                    {/* Rating — matches the Rate Restaurant modal's sizing. */}
-                    <div className="flex flex-col items-center pt-1 mb-3">
-                      <div className={cn(
-                        "relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4",
-                        scoreBg,
-                        scoreRing,
-                      )}>
-                        <div className="text-center">
-                          <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
-                          <div className="text-[9px] uppercase tracking-[0.14em] text-on-surface/35 font-medium mt-0.5">out of 10</div>
-                        </div>
-                      </div>
-                      <div className="w-full max-w-[260px]">
-                        <input
-                          type="range" min="1" max="10" step="0.1"
-                          value={score}
-                          onChange={(e) => setScore(parseFloat(e.target.value))}
-                          className="w-full h-2.5 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary"
-                        />
-                        <p className="text-xs font-medium text-on-surface/45 text-center mt-1.5">
-                          {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
-                        </p>
                       </div>
                     </div>
 
