@@ -5,14 +5,12 @@ import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
-import { useSettings } from '../contexts/SettingsContext';
 import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments,
   getFriendsPublicHomeMeals,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
-import { FriendRecipeModal } from './FriendRecipeModal';
 
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
@@ -41,7 +39,6 @@ export const SocialFeed: React.FC = () => {
   const userId = user?.id ?? null;
   const navigate = useNavigate();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
-  const { phoneMode } = useSettings();
 
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
@@ -56,16 +53,11 @@ export const SocialFeed: React.FC = () => {
   const [commentProfiles, setCommentProfiles] = useState<Record<string, UserProfile>>({});
   const [newComment, setNewComment] = useState('');
   const [commentsLoading, setCommentsLoading] = useState(false);
-  const [activeFriendRecipe, setActiveFriendRecipe] = useState<FriendHomeMeal | null>(null);
-
-  // Desktop opens the full recipe page; phone keeps the bottom-sheet modal.
+  // Always navigate to the full recipe page — the phone-optimized layout
+  // handles the narrow viewport, so we no longer need the bottom-sheet modal.
   const openFriendRecipe = useCallback((m: FriendHomeMeal) => {
-    if (phoneMode) {
-      setActiveFriendRecipe(m);
-    } else {
-      navigate(`/meal/${m.userId}/${m.id}`);
-    }
-  }, [phoneMode, navigate]);
+    navigate(`/meal/${m.userId}/${m.id}`);
+  }, [navigate]);
 
   const loadFeed = useCallback(async () => {
     if (!userId) { setLoading(false); return; }
@@ -641,12 +633,6 @@ export const SocialFeed: React.FC = () => {
       </div>
       )}
 
-      <FriendRecipeModal
-        meal={activeFriendRecipe}
-        authorProfile={activeFriendRecipe ? profiles[activeFriendRecipe.userId] ?? null : null}
-        currentUserId={userId}
-        onClose={() => setActiveFriendRecipe(null)}
-      />
     </section>
   );
 };

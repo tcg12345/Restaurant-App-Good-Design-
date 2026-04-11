@@ -3003,158 +3003,396 @@ const HomeCookingTab: React.FC<{
       ...(selectedMeal.photos.length > 0 ? [{ id: 'photos', label: 'Photos' }] : []),
     ];
 
-    return (
-      <div className="max-w-[880px] mx-auto -mx-3 px-3 sm:mx-auto sm:px-0">
-        {/* Back + actions header */}
-        <div className="flex items-center gap-3 mb-5 sm:mb-6">
-          <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-            <ArrowLeft size={20} />
-          </button>
-          <div className="flex-1" />
-          <button onClick={() => onOpenModal(selectedMeal)}
-            className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
-            <Edit3 size={18} />
-          </button>
-          <button onClick={() => setConfirmDeleteId(selectedMeal.id)}
-            className="p-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
-            <Trash2 size={18} />
-          </button>
+    const desktopCoverUrl = selectedMeal.coverPhoto || selectedMeal.photos[0]?.url || null;
+
+    // ── Reusable section blocks, identical content for phone and desktop ──
+
+    const actionsHeader = (
+      <div className="flex items-center gap-3">
+        <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+          <ArrowLeft size={20} />
+        </button>
+        <div className="flex-1" />
+        <button onClick={() => onOpenModal(selectedMeal)}
+          className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
+          <Edit3 size={18} />
+        </button>
+        <button onClick={() => setConfirmDeleteId(selectedMeal.id)}
+          className="p-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
+          <Trash2 size={18} />
+        </button>
+      </div>
+    );
+
+    const titleBlock = (
+      <header>
+        <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-2">
+          {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+        </p>
+        <h1 className="font-serif font-bold text-[28px] leading-[1.1] sm:text-5xl text-on-surface mb-4">
+          {selectedMeal.name}
+        </h1>
+
+        {/* Rating + would-make-again editorial callout */}
+        <div className="flex items-center gap-4 mb-4">
+          {selectedMeal.score > 0 && (
+            <div className="flex items-baseline">
+              <span className={cn("text-5xl font-serif font-bold tabular-nums", scoreColor(selectedMeal.score))}>
+                {selectedMeal.score.toFixed(1)}
+              </span>
+              <span className="text-sm text-on-surface/35 font-medium ml-1">/ 10</span>
+            </div>
+          )}
+          {'wouldMakeAgain' in selectedMeal && (
+            <span className={cn(
+              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold",
+              selectedMeal.wouldMakeAgain
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-red-50 text-red-600",
+            )}>
+              <span className={cn(
+                "w-1.5 h-1.5 rounded-full",
+                selectedMeal.wouldMakeAgain ? "bg-emerald-500" : "bg-red-500",
+              )} />
+              {selectedMeal.wouldMakeAgain ? 'Would make again' : "Wouldn't repeat"}
+            </span>
+          )}
         </div>
 
-        {/* ═══════════ HERO ═══════════ */}
-        {heroPhoto && (
-          <button onClick={() => setLightboxPhotoIdx(heroLightboxIdx)} className="block w-full text-left">
-            <div className="relative -mx-3 mb-6 rounded-2xl overflow-hidden sm:mx-0">
-              <img src={heroPhoto.url} alt={selectedMeal.name} className="w-full aspect-[16/9] object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
-            </div>
-          </button>
-        )}
-
-        {/* Desktop layout puts the cover photo next to the heading; on phone
-            the existing heroPhoto block above handles the image. */}
-        {(() => {
-          const desktopCoverUrl = selectedMeal.coverPhoto || selectedMeal.photos[0]?.url || null;
-          return (
-            <div className="grid md:grid-cols-[minmax(0,1fr)_240px] gap-5 md:gap-6 items-stretch mb-6 sm:mb-8">
-              <header>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-2">
-                  {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                </p>
-                <h1 className="font-serif font-bold text-3xl sm:text-5xl text-on-surface leading-[1.1] mb-4">
-                  {selectedMeal.name}
-                </h1>
-
-                {/* Rating + would-make-again editorial callout */}
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="flex items-baseline">
-                    <span className={cn("text-5xl font-serif font-bold tabular-nums", scoreColor(selectedMeal.score))}>
-                      {selectedMeal.score.toFixed(1)}
-                    </span>
-                    <span className="text-sm text-on-surface/35 font-medium ml-1">/ 10</span>
-                  </div>
-                  {'wouldMakeAgain' in selectedMeal && (
-                    <span className={cn(
-                      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold",
-                      selectedMeal.wouldMakeAgain
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-red-50 text-red-600",
-                    )}>
-                      <span className={cn(
-                        "w-1.5 h-1.5 rounded-full",
-                        selectedMeal.wouldMakeAgain ? "bg-emerald-500" : "bg-red-500",
-                      )} />
-                      {selectedMeal.wouldMakeAgain ? 'Would make again' : "Wouldn't repeat"}
-                    </span>
-                  )}
-                </div>
-
-                {/* Tag pills — filled, editorial */}
-                {selectedMeal.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedMeal.tags.map((tag) => (
-                      <span key={tag} className="inline-flex items-center px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[11px] font-semibold tracking-wide">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </header>
-
-              {/* Desktop-only cover image — fills the heading row, opens the lightbox. */}
-              {desktopCoverUrl && (
-                <button
-                  type="button"
-                  onClick={() => setLightboxPhotoIdx(0)}
-                  className="hidden md:block relative rounded-2xl overflow-hidden border border-on-surface/8 group"
-                  aria-label="Open photo gallery"
-                >
-                  <img
-                    src={desktopCoverUrl}
-                    alt={selectedMeal.name}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
-                </button>
-              )}
-            </div>
-          );
-        })()}
-
-        {/* ═══════════ STAT CARDS ═══════════ */}
-        {hasMeta && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-px bg-on-surface/8 rounded-2xl overflow-hidden border border-on-surface/8 mb-6 sm:mb-8">
-            {(selectedMeal.prepTime ?? 0) > 0 && (
-              <div className="bg-white px-4 py-3">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Clock size={12} className="text-on-surface/40" />
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Prep</p>
-                </div>
-                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(selectedMeal.prepTime ?? 0)}</p>
-              </div>
-            )}
-            {(selectedMeal.cookTime ?? 0) > 0 && (
-              <div className="bg-white px-4 py-3">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Flame size={12} className="text-on-surface/40" />
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Cook</p>
-                </div>
-                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(selectedMeal.cookTime ?? 0)}</p>
-              </div>
-            )}
-            {totalTime > 0 && (selectedMeal.prepTime ?? 0) > 0 && (selectedMeal.cookTime ?? 0) > 0 && (
-              <div className="bg-white px-4 py-3">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Clock size={12} className="text-on-surface/40" />
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Total</p>
-                </div>
-                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(totalTime)}</p>
-              </div>
-            )}
-            {(selectedMeal.servings ?? 0) > 0 && (
-              <div className="bg-white px-4 py-3">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Users size={12} className="text-on-surface/40" />
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Serves</p>
-                </div>
-                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{selectedMeal.servings}</p>
-              </div>
-            )}
-            {selectedMeal.difficulty && (
-              <div className="bg-white px-4 py-3">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Star size={12} className="text-amber-500 fill-amber-500" />
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Difficulty</p>
-                </div>
-                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{selectedMeal.difficulty}</p>
-              </div>
-            )}
+        {selectedMeal.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {selectedMeal.tags.map((tag) => (
+              <span key={tag} className="inline-flex items-center px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[11px] font-semibold tracking-wide">
+                {tag}
+              </span>
+            ))}
           </div>
         )}
+      </header>
+    );
 
-        {/* ═══════════ JUMP NAV ═══════════ */}
+    const statCardsBlock = hasMeta ? (
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-px bg-on-surface/8 rounded-2xl overflow-hidden border border-on-surface/8">
+        {(selectedMeal.prepTime ?? 0) > 0 && (
+          <div className="bg-white px-4 py-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Clock size={12} className="text-on-surface/40" />
+              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Prep</p>
+            </div>
+            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(selectedMeal.prepTime ?? 0)}</p>
+          </div>
+        )}
+        {(selectedMeal.cookTime ?? 0) > 0 && (
+          <div className="bg-white px-4 py-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Flame size={12} className="text-on-surface/40" />
+              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Cook</p>
+            </div>
+            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(selectedMeal.cookTime ?? 0)}</p>
+          </div>
+        )}
+        {totalTime > 0 && (selectedMeal.prepTime ?? 0) > 0 && (selectedMeal.cookTime ?? 0) > 0 && (
+          <div className="bg-white px-4 py-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Clock size={12} className="text-on-surface/40" />
+              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Total</p>
+            </div>
+            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(totalTime)}</p>
+          </div>
+        )}
+        {(selectedMeal.servings ?? 0) > 0 && (
+          <div className="bg-white px-4 py-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Users size={12} className="text-on-surface/40" />
+              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Serves</p>
+            </div>
+            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{selectedMeal.servings}</p>
+          </div>
+        )}
+        {selectedMeal.difficulty && (
+          <div className="bg-white px-4 py-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Star size={12} className="text-amber-500 fill-amber-500" />
+              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Difficulty</p>
+            </div>
+            <p className="font-serif font-bold text-lg text-on-surface leading-tight">{selectedMeal.difficulty}</p>
+          </div>
+        )}
+      </div>
+    ) : null;
+
+    const ingredientsBlock = hasIngredients ? (
+      <section id="ingredients">
+        <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
+          <div className="flex items-baseline justify-between gap-3 mb-4">
+            <h2 className="font-serif font-bold text-2xl text-on-surface">Ingredients</h2>
+            <span className="text-[11px] text-on-surface/40 font-medium">
+              {selectedMeal.ingredients!.length} item{selectedMeal.ingredients!.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-on-surface/6">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mb-0.5">Scale for</p>
+              <p className="text-sm font-semibold text-on-surface tabular-nums">
+                {displayServings} serving{displayServings !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 bg-on-surface/[0.04] border border-on-surface/10 rounded-full">
+              <button
+                type="button"
+                onClick={() => setServingsScale(Math.max(0.25, (displayServings - 1) / baseServings))}
+                disabled={displayServings <= 1}
+                className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface disabled:opacity-30 transition-colors text-lg"
+                aria-label="Decrease servings"
+              >−</button>
+              <div className="w-9 text-center text-sm font-semibold tabular-nums">{displayServings}</div>
+              <button
+                type="button"
+                onClick={() => setServingsScale((displayServings + 1) / baseServings)}
+                className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface transition-colors text-lg"
+                aria-label="Increase servings"
+              >+</button>
+            </div>
+          </div>
+
+          <ul className="space-y-0.5">
+            {selectedMeal.ingredients!.map((ing, i) => {
+              const isChecked = checkedIngredients.has(i);
+              const scaledAmount = ing.amount ? scaleQuantity(ing.amount, servingsScale) : '';
+              return (
+                <li key={i}>
+                  <label className={cn(
+                    "flex items-baseline gap-3 py-2.5 cursor-pointer group transition-colors",
+                    isChecked && "opacity-40",
+                  )}>
+                    <span className="flex items-center flex-shrink-0 translate-y-[2px]">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleCheckedIngredient(i)}
+                        className="sr-only peer"
+                      />
+                      <span className={cn(
+                        "w-[20px] h-[20px] rounded border-2 flex items-center justify-center transition-all",
+                        isChecked
+                          ? "bg-emerald-500 border-emerald-500 text-white"
+                          : "border-on-surface/20 group-hover:border-on-surface/40",
+                      )}>
+                        {isChecked && <Check size={13} strokeWidth={3} />}
+                      </span>
+                    </span>
+                    <span className={cn(
+                      "flex-1 text-[15px] leading-[1.6] text-on-surface/80",
+                      isChecked && "line-through",
+                    )}>
+                      {(scaledAmount || ing.unit) && (
+                        <span className="font-semibold text-on-surface tabular-nums">
+                          {scaledAmount}{ing.unit ? ` ${ing.unit}` : ''}
+                          {ing.name ? ' ' : ''}
+                        </span>
+                      )}
+                      <span className="text-on-surface/70">{ing.name}</span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </section>
+    ) : null;
+
+    const directionsBlock = hasSteps ? (
+      <section id="directions">
+        <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
+          <h2 className="font-serif font-bold text-2xl text-on-surface mb-5">Directions</h2>
+          <ol className="space-y-6">
+            {selectedMeal.steps!.map((step, i) => {
+              const timerMinutes = extractStepMinutes(step);
+              return (
+                <li key={i} className="flex gap-4 sm:gap-5">
+                  <div className="flex-shrink-0">
+                    <span className="block font-serif font-bold text-4xl sm:text-5xl text-emerald-600/80 leading-none tabular-nums">
+                      {i + 1}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0 pt-1">
+                    <p className="text-[16px] leading-[1.7] text-on-surface/85 whitespace-pre-wrap">
+                      {step}
+                    </p>
+                    {timerMinutes !== null && (
+                      <div className="mt-2">
+                        <StepTimer minutes={timerMinutes} />
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </section>
+    ) : null;
+
+    const notesBlock = selectedMeal.description ? (
+      <section id="notes">
+        <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Notes</h2>
+        <blockquote className="relative bg-amber-50/60 border-l-4 border-amber-400 rounded-r-xl px-5 py-4 sm:px-6 sm:py-5">
+          <p className="italic font-serif text-on-surface/75 leading-[1.7] text-[15px] sm:text-[16px] whitespace-pre-wrap">
+            {selectedMeal.description}
+          </p>
+        </blockquote>
+      </section>
+    ) : null;
+
+    const dishesBlock = selectedMeal.dishes.length > 0 ? (
+      <section>
+        <h2 className="font-serif font-bold text-xl text-on-surface mb-3">
+          Dishes <span className="text-sm text-on-surface/35 font-medium">({selectedMeal.dishes.length})</span>
+        </h2>
+        <div className="grid sm:grid-cols-2 gap-4">
+          {selectedMeal.dishes.map((dish) => (
+            <div key={dish.id} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
+              {dish.photo && (
+                <img src={dish.photo} alt={dish.name} className="w-full aspect-[3/2] object-cover" />
+              )}
+              <div className="p-4">
+                <p className="font-serif font-bold text-base text-on-surface">{dish.name}</p>
+                {dish.description && <p className="text-sm text-on-surface/60 mt-1 leading-relaxed">{dish.description}</p>}
+                {dish.recipeLink && (
+                  <a href={dish.recipeLink} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-primary font-semibold mt-3 inline-block hover:underline">View Recipe →</a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    ) : null;
+
+    // When a hero photo is rendered on phone, the photos grid skips index 0.
+    const photosSliceStart = heroPhoto ? 1 : 0;
+    const photosVisible = selectedMeal.photos.length > photosSliceStart;
+    const photosBlock = photosVisible ? (
+      <section id="photos">
+        <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Photos</h2>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          {selectedMeal.photos.slice(photosSliceStart).map((photo, i) => {
+            const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + photosSliceStart + i;
+            return (
+              <button
+                key={i}
+                onClick={() => setLightboxPhotoIdx(lightboxIdx)}
+                className="aspect-square rounded-lg overflow-hidden hover:opacity-90 transition-opacity"
+              >
+                <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    ) : null;
+
+    const publicBadge = selectedMeal.isPublic ? (
+      <p className="text-[11px] text-on-surface/30 flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Shared on social feed
+      </p>
+    ) : null;
+
+    const deleteConfirmOverlay = (
+      <AnimatePresence>
+        {confirmDeleteId && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 z-50" onClick={() => setConfirmDeleteId(null)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 bg-white rounded-2xl p-5 z-50 shadow-xl text-center"
+            >
+              <p className="font-semibold text-on-surface mb-2">Delete this meal?</p>
+              <p className="text-sm text-on-surface/50 mb-4">This cannot be undone.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setConfirmDeleteId(null)}
+                  className="flex-1 py-2 rounded-xl bg-on-surface/5 text-on-surface/60 text-sm font-semibold">Cancel</button>
+                <button onClick={() => { onDeleteMeal(confirmDeleteId); setConfirmDeleteId(null); onSelectMeal(null); }}
+                  className="flex-1 py-2 rounded-xl bg-red-500 text-white text-sm font-semibold">Delete</button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    );
+
+    const lightbox = (
+      <PhotoLightbox
+        photos={allPhotos}
+        index={lightboxPhotoIdx}
+        onClose={() => setLightboxPhotoIdx(null)}
+        onChange={setLightboxPhotoIdx}
+      />
+    );
+
+    // ── Phone layout: full-width hero + fully stacked sections ──
+    if (phoneMode) {
+      return (
+        <div className="-mx-3 pb-20">
+          <div className="px-4 pt-2 pb-1">{actionsHeader}</div>
+
+          {heroPhoto ? (
+            <button onClick={() => setLightboxPhotoIdx(heroLightboxIdx)} className="block w-full text-left mt-2 mb-5">
+              <img src={heroPhoto.url} alt={selectedMeal.name} className="w-full aspect-[4/3] object-cover" />
+            </button>
+          ) : desktopCoverUrl ? (
+            <button onClick={() => setLightboxPhotoIdx(0)} className="block w-full text-left mt-2 mb-5">
+              <img src={desktopCoverUrl} alt={selectedMeal.name} className="w-full aspect-[4/3] object-cover" />
+            </button>
+          ) : (
+            <div className="mt-2" />
+          )}
+
+          <div className="px-5 space-y-8">
+            {titleBlock}
+            {statCardsBlock}
+            {ingredientsBlock}
+            {directionsBlock}
+            {notesBlock}
+            {dishesBlock}
+            {photosBlock}
+            {publicBadge}
+          </div>
+
+          {deleteConfirmOverlay}
+          {lightbox}
+        </div>
+      );
+    }
+
+    // ── Desktop layout: editorial with two-column ingredients + directions ──
+    return (
+      <div className="max-w-[880px] mx-auto px-3">
+        <div className="mb-6">{actionsHeader}</div>
+
+        {/* Hero row: title block on left, cover photo on right */}
+        <div className="grid md:grid-cols-[minmax(0,1fr)_240px] gap-6 items-stretch mb-8">
+          {titleBlock}
+          {desktopCoverUrl && (
+            <button
+              type="button"
+              onClick={() => setLightboxPhotoIdx(0)}
+              className="hidden md:block relative rounded-2xl overflow-hidden border border-on-surface/8 group"
+              aria-label="Open photo gallery"
+            >
+              <img src={desktopCoverUrl} alt={selectedMeal.name} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
+            </button>
+          )}
+        </div>
+
+        {statCardsBlock && <div className="mb-8">{statCardsBlock}</div>}
+
         {jumpTargets.length > 1 && (
-          <nav className="sticky top-0 z-20 -mx-3 px-3 sm:mx-0 sm:px-0 bg-surface/85 backdrop-blur-md border-b border-on-surface/8 mb-6">
+          <nav className="sticky top-0 z-20 bg-surface/85 backdrop-blur-md border-b border-on-surface/8 mb-6">
             <div className="flex gap-1 py-2.5 overflow-x-auto scrollbar-hide">
               {jumpTargets.map((t) => (
                 <a
@@ -3174,225 +3412,20 @@ const HomeCookingTab: React.FC<{
           </nav>
         )}
 
-        {/* ═══════════ INGREDIENTS + DIRECTIONS (two-column on desktop) ═══════════ */}
-        <div className="grid md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-6 md:gap-10 mb-8">
-          {/* Ingredients */}
-          {hasIngredients && (
-            <section id="ingredients" className="md:sticky md:top-16 md:self-start">
-              <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
-                <div className="flex items-baseline justify-between gap-3 mb-4">
-                  <h2 className="font-serif font-bold text-2xl text-on-surface">Ingredients</h2>
-                  <span className="text-[11px] text-on-surface/40 font-medium">
-                    {selectedMeal.ingredients!.length} item{selectedMeal.ingredients!.length !== 1 ? 's' : ''}
-                  </span>
-                </div>
-
-                {/* Servings adjuster */}
-                <div className="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-on-surface/6">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mb-0.5">Scale for</p>
-                    <p className="text-sm font-semibold text-on-surface tabular-nums">
-                      {displayServings} serving{displayServings !== 1 ? 's' : ''}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 bg-on-surface/[0.04] border border-on-surface/10 rounded-full">
-                    <button
-                      type="button"
-                      onClick={() => setServingsScale(Math.max(0.25, (displayServings - 1) / baseServings))}
-                      disabled={displayServings <= 1}
-                      className="w-8 h-8 flex items-center justify-center text-on-surface/60 hover:text-on-surface disabled:opacity-30 transition-colors"
-                      aria-label="Decrease servings"
-                    >
-                      −
-                    </button>
-                    <div className="w-9 text-center text-sm font-semibold tabular-nums">{displayServings}</div>
-                    <button
-                      type="button"
-                      onClick={() => setServingsScale((displayServings + 1) / baseServings)}
-                      className="w-8 h-8 flex items-center justify-center text-on-surface/60 hover:text-on-surface transition-colors"
-                      aria-label="Increase servings"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                <ul className="space-y-0.5">
-                  {selectedMeal.ingredients!.map((ing, i) => {
-                    const isChecked = checkedIngredients.has(i);
-                    const scaledAmount = ing.amount ? scaleQuantity(ing.amount, servingsScale) : '';
-                    return (
-                      <li key={i}>
-                        <label className={cn(
-                          "flex items-baseline gap-3 py-2 cursor-pointer group transition-colors",
-                          isChecked && "opacity-40",
-                        )}>
-                          <span className="flex items-center flex-shrink-0 translate-y-[2px]">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => toggleCheckedIngredient(i)}
-                              className="sr-only peer"
-                            />
-                            <span className={cn(
-                              "w-[18px] h-[18px] rounded border-2 flex items-center justify-center transition-all",
-                              isChecked
-                                ? "bg-emerald-500 border-emerald-500 text-white"
-                                : "border-on-surface/20 group-hover:border-on-surface/40",
-                            )}>
-                              {isChecked && <Check size={12} strokeWidth={3} />}
-                            </span>
-                          </span>
-                          <span className={cn(
-                            "flex-1 text-[15px] leading-[1.6] text-on-surface/80",
-                            isChecked && "line-through",
-                          )}>
-                            {(scaledAmount || ing.unit) && (
-                              <span className="font-semibold text-on-surface tabular-nums">
-                                {scaledAmount}{ing.unit ? ` ${ing.unit}` : ''}
-                                {ing.name ? ' ' : ''}
-                              </span>
-                            )}
-                            <span className="text-on-surface/70">{ing.name}</span>
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            </section>
-          )}
-
-          {/* Directions */}
-          {hasSteps && (
-            <section id="directions">
-              <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
-                <h2 className="font-serif font-bold text-2xl text-on-surface mb-5">Directions</h2>
-                <ol className="space-y-6">
-                  {selectedMeal.steps!.map((step, i) => {
-                    const timerMinutes = extractStepMinutes(step);
-                    return (
-                      <li key={i} className="flex gap-4 sm:gap-5">
-                        <div className="flex-shrink-0">
-                          <span className="block font-serif font-bold text-4xl sm:text-5xl text-emerald-600/80 leading-none tabular-nums">
-                            {i + 1}
-                          </span>
-                        </div>
-                        <div className="flex-1 min-w-0 pt-1">
-                          <p className="text-[15px] sm:text-[16px] leading-[1.7] text-on-surface/85 whitespace-pre-wrap">
-                            {step}
-                          </p>
-                          {timerMinutes !== null && (
-                            <div className="mt-2">
-                              <StepTimer minutes={timerMinutes} />
-                            </div>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </div>
-            </section>
-          )}
+        <div className="grid md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-10 mb-10">
+          <div className="md:sticky md:top-16 md:self-start">{ingredientsBlock}</div>
+          {directionsBlock}
         </div>
 
-        {/* ═══════════ NOTES (editorial aside) ═══════════ */}
-        {selectedMeal.description && (
-          <section id="notes" className="mb-8">
-            <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Notes</h2>
-            <blockquote className="relative bg-amber-50/60 border-l-4 border-amber-400 rounded-r-xl px-5 py-4 sm:px-6 sm:py-5">
-              <p className="italic font-serif text-on-surface/75 leading-[1.7] text-[15px] sm:text-[16px] whitespace-pre-wrap">
-                {selectedMeal.description}
-              </p>
-            </blockquote>
-          </section>
-        )}
+        <div className="space-y-8 mb-12">
+          {notesBlock}
+          {dishesBlock}
+          {photosBlock}
+          {publicBadge}
+        </div>
 
-        {/* Dishes (unchanged content, lightly restyled to match) */}
-        {selectedMeal.dishes.length > 0 && (
-          <section className="mb-8">
-            <h2 className="font-serif font-bold text-xl text-on-surface mb-3">
-              Dishes <span className="text-sm text-on-surface/35 font-medium">({selectedMeal.dishes.length})</span>
-            </h2>
-            <div className="grid sm:grid-cols-2 gap-4">
-              {selectedMeal.dishes.map((dish) => (
-                <div key={dish.id} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
-                  {dish.photo && (
-                    <img src={dish.photo} alt={dish.name} className="w-full aspect-[3/2] object-cover" />
-                  )}
-                  <div className="p-4">
-                    <p className="font-serif font-bold text-base text-on-surface">{dish.name}</p>
-                    {dish.description && <p className="text-sm text-on-surface/60 mt-1 leading-relaxed">{dish.description}</p>}
-                    {dish.recipeLink && (
-                      <a href={dish.recipeLink} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-primary font-semibold mt-3 inline-block hover:underline">View Recipe →</a>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* ═══════════ PHOTOS (responsive grid) ═══════════ */}
-        {selectedMeal.photos.length > (heroPhoto ? 1 : 0) && (
-          <section id="photos" className="mb-8">
-            <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Photos</h2>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
-              {(heroPhoto ? selectedMeal.photos.slice(1) : selectedMeal.photos).map((photo, i) => {
-                const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + (heroPhoto ? i + 1 : i);
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setLightboxPhotoIdx(lightboxIdx)}
-                    className="aspect-square rounded-lg overflow-hidden hover:opacity-90 transition-opacity"
-                  >
-                    <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {selectedMeal.isPublic && (
-          <p className="text-[11px] text-on-surface/30 mb-6 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Shared on social feed
-          </p>
-        )}
-
-        {/* Delete confirm */}
-        <AnimatePresence>
-          {confirmDeleteId && (
-            <>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/40 z-50" onClick={() => setConfirmDeleteId(null)} />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 bg-white rounded-2xl p-5 z-50 shadow-xl text-center"
-              >
-                <p className="font-semibold text-on-surface mb-2">Delete this meal?</p>
-                <p className="text-sm text-on-surface/50 mb-4">This cannot be undone.</p>
-                <div className="flex gap-3">
-                  <button onClick={() => setConfirmDeleteId(null)}
-                    className="flex-1 py-2 rounded-xl bg-on-surface/5 text-on-surface/60 text-sm font-semibold">Cancel</button>
-                  <button onClick={() => { onDeleteMeal(confirmDeleteId); setConfirmDeleteId(null); onSelectMeal(null); }}
-                    className="flex-1 py-2 rounded-xl bg-red-500 text-white text-sm font-semibold">Delete</button>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
-
-        {/* Photo lightbox */}
-        <PhotoLightbox
-          photos={allPhotos}
-          index={lightboxPhotoIdx}
-          onClose={() => setLightboxPhotoIdx(null)}
-          onChange={setLightboxPhotoIdx}
-        />
+        {deleteConfirmOverlay}
+        {lightbox}
       </div>
     );
   }

@@ -10,7 +10,6 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
-import { FriendRecipeModal } from '../components/FriendRecipeModal';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
@@ -210,7 +209,6 @@ export const Map: React.FC = () => {
   const [friendRecipes, setFriendRecipes] = useState<FriendHomeMeal[]>([]);
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
   const [recipeAuthorProfiles, setRecipeAuthorProfiles] = useState<Record<string, UserProfile>>({});
-  const [activeFriendRecipe, setActiveFriendRecipe] = useState<FriendHomeMeal | null>(null);
   const hotelMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
@@ -3124,10 +3122,7 @@ export const Map: React.FC = () => {
                   return (
                     <button
                       key={`${meal.userId}-${meal.id}`}
-                      onClick={() => {
-                        if (phoneMode) setActiveFriendRecipe(meal);
-                        else navigate(`/meal/${meal.userId}/${meal.id}`);
-                      }}
+                      onClick={() => navigate(`/meal/${meal.userId}/${meal.id}`)}
                       className="w-full flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group text-left"
                     >
                       <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-emerald-50 self-center">
@@ -3359,13 +3354,6 @@ export const Map: React.FC = () => {
         )}
       </motion.div>
 
-      {/* Friend's recipe — full-screen detail modal with rating form */}
-      <FriendRecipeModal
-        meal={activeFriendRecipe}
-        authorProfile={activeFriendRecipe ? recipeAuthorProfiles[activeFriendRecipe.userId] ?? null : null}
-        currentUserId={userId}
-        onClose={() => setActiveFriendRecipe(null)}
-      />
     </div>
   );
 };
