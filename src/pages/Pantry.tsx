@@ -2926,6 +2926,129 @@ const formatDuration = (minutes: number): string => {
   return `${hours} hr ${remMinutes} min`;
 };
 
+// Parses an ingredient amount string ("2", "1/2", "1 1/2", "0.5") into a
+// number. Returns null when the string isn't a recognisable quantity (e.g.
+// "a pinch"); callers fall back to leaving the original string alone.
+const parseQuantity = (str: string): number | null => {
+  const trimmed = str.trim();
+  if (!trimmed) return null;
+  const mixed = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (mixed) {
+    const d = parseInt(mixed[3], 10);
+    return d ? parseInt(mixed[1], 10) + parseInt(mixed[2], 10) / d : null;
+  }
+  const frac = trimmed.match(/^(\d+)\/(\d+)$/);
+  if (frac) {
+    const d = parseInt(frac[2], 10);
+    return d ? parseInt(frac[1], 10) / d : null;
+  }
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) return parseFloat(trimmed);
+  return null;
+};
+
+// Converts a decimal back to a cooking-friendly fraction ("1/2", "1 1/2").
+const formatQuantity = (value: number): string => {
+  if (!Number.isFinite(value) || value < 0) return '';
+  if (value === 0) return '0';
+  const whole = Math.floor(value);
+  const frac = value - whole;
+  if (frac < 0.02) return String(whole);
+  const candidates: [number, string][] = [
+    [1 / 8, '1/8'], [1 / 6, '1/6'], [1 / 5, '1/5'], [1 / 4, '1/4'], [1 / 3, '1/3'],
+    [3 / 8, '3/8'], [2 / 5, '2/5'], [1 / 2, '1/2'], [3 / 5, '3/5'], [5 / 8, '5/8'],
+    [2 / 3, '2/3'], [3 / 4, '3/4'], [4 / 5, '4/5'], [5 / 6, '5/6'], [7 / 8, '7/8'],
+  ];
+  let best = candidates[0];
+  let bestDiff = Math.abs(frac - best[0]);
+  for (const c of candidates) {
+    const d = Math.abs(frac - c[0]);
+    if (d < bestDiff) { best = c; bestDiff = d; }
+  }
+  if (Math.abs(1 - frac) < bestDiff) return String(whole + 1);
+  if (whole === 0) return best[1];
+  return `${whole} ${best[1]}`;
+};
+
+// Scales an ingredient amount string by a ratio. Non-numeric amounts are
+// passed through unchanged so values like "pinch" survive.
+const scaleQuantity = (raw: string, ratio: number): string => {
+  const parsed = parseQuantity(raw);
+  if (parsed === null) return raw;
+  return formatQuantity(parsed * ratio);
+};
+
+// Finds the first time reference in a direction step ("bake for 45 minutes",
+// "simmer 10 min", "30 seconds") and returns the total minutes. Useful for
+// surfacing an inline timer button next to that step.
+const extractStepMinutes = (text: string): number | null => {
+  const hourMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b/i);
+  const minMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|m)\b/i);
+  const secMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b/i);
+  let total = 0;
+  let matched = false;
+  if (hourMatch) { total += parseFloat(hourMatch[1]) * 60; matched = true; }
+  if (minMatch) { total += parseFloat(minMatch[1]); matched = true; }
+  if (secMatch) { total += parseFloat(secMatch[1]) / 60; matched = true; }
+  if (!matched) return null;
+  const minutes = Math.max(1, Math.round(total));
+  return minutes > 0 ? minutes : null;
+};
+
+// Inline timer shown next to a direction step. Click to start → counts down
+// and flashes when it hits zero. Click again to reset.
+const StepTimer: React.FC<{ minutes: number }> = ({ minutes }) => {
+  const totalSeconds = minutes * 60;
+  const [remaining, setRemaining] = useState(totalSeconds);
+  const [running, setRunning] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    if (!running) return;
+    if (remaining <= 0) {
+      setRunning(false);
+      setDone(true);
+      return;
+    }
+    const id = window.setTimeout(() => setRemaining((s) => s - 1), 1000);
+    return () => window.clearTimeout(id);
+  }, [running, remaining]);
+
+  const mm = Math.floor(Math.max(0, remaining) / 60);
+  const ss = Math.max(0, remaining) % 60;
+
+  const onClick = () => {
+    if (done) { setRemaining(totalSeconds); setDone(false); return; }
+    if (running) { setRunning(false); return; }
+    if (remaining <= 0) setRemaining(totalSeconds);
+    setRunning(true);
+  };
+
+  const label = done
+    ? 'Done!'
+    : running || remaining !== totalSeconds
+      ? `${mm}:${String(ss).padStart(2, '0')}`
+      : formatDuration(minutes);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors flex-shrink-0",
+        done
+          ? "bg-amber-100 text-amber-700 animate-pulse"
+          : running
+            ? "bg-emerald-100 text-emerald-700"
+            : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+      )}
+      aria-label={running ? 'Pause timer' : done ? 'Reset timer' : 'Start timer'}
+    >
+      <Clock size={11} />
+      {label}
+    </button>
+  );
+};
+
 // Simple swipeable photo lightbox for home meal views.
 const PhotoLightbox: React.FC<{
   photos: { url: string; caption: string }[];
@@ -3016,8 +3139,17 @@ const HomeCookingTab: React.FC<{
   const [sortBy, setSortBy] = useState<'recent' | 'highest'>('recent');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [lightboxPhotoIdx, setLightboxPhotoIdx] = useState<number | null>(null);
+  // Transient recipe-page UI state (not persisted — pure display aids).
+  const [servingsScale, setServingsScale] = useState(1);
+  const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
 
   const selectedMeal = meals.find((m) => m.id === selectedMealId) || null;
+
+  // Reset the transient display state whenever the user opens a different meal.
+  useEffect(() => {
+    setServingsScale(1);
+    setCheckedIngredients(new Set());
+  }, [selectedMealId]);
 
   const filteredMeals = useMemo(() => {
     let result = [...meals];
@@ -3058,10 +3190,31 @@ const HomeCookingTab: React.FC<{
     const totalTime = (selectedMeal.prepTime ?? 0) + (selectedMeal.cookTime ?? 0);
     const hasMeta = totalTime > 0 || (selectedMeal.servings ?? 0) > 0 || !!selectedMeal.difficulty;
 
+    // Servings scaling: `baseServings` is the author's original, `displayServings`
+    // is what the ratio button is currently set to. Ratio is derived from that.
+    const baseServings = selectedMeal.servings && selectedMeal.servings > 0 ? selectedMeal.servings : 4;
+    const displayServings = Math.max(1, Math.round(baseServings * servingsScale));
+
+    const toggleCheckedIngredient = (idx: number) => {
+      setCheckedIngredients((prev) => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx);
+        else next.add(idx);
+        return next;
+      });
+    };
+
+    const jumpTargets: { id: string; label: string }[] = [
+      ...(hasIngredients ? [{ id: 'ingredients', label: 'Ingredients' }] : []),
+      ...(hasSteps ? [{ id: 'directions', label: 'Directions' }] : []),
+      ...(selectedMeal.description ? [{ id: 'notes', label: 'Notes' }] : []),
+      ...(selectedMeal.photos.length > 0 ? [{ id: 'photos', label: 'Photos' }] : []),
+    ];
+
     return (
-      <div>
+      <div className="max-w-[880px] mx-auto -mx-3 px-3 sm:mx-auto sm:px-0">
         {/* Back + actions header */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-5 sm:mb-6">
           <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
             <ArrowLeft size={20} />
           </button>
@@ -3076,218 +3229,319 @@ const HomeCookingTab: React.FC<{
           </button>
         </div>
 
-        {/* Hero photo */}
+        {/* ═══════════ HERO ═══════════ */}
         {heroPhoto && (
           <button onClick={() => setLightboxPhotoIdx(heroLightboxIdx)} className="block w-full text-left">
-            <div className="relative -mx-3 mb-5 rounded-2xl overflow-hidden">
+            <div className="relative -mx-3 mb-6 rounded-2xl overflow-hidden sm:mx-0">
               <img src={heroPhoto.url} alt={selectedMeal.name} className="w-full aspect-[16/9] object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-              <div className="absolute bottom-3 left-4 right-4">
-                <h2 className="font-serif font-bold text-xl text-white drop-shadow-lg">{selectedMeal.name}</h2>
-                <p className="text-xs text-white/70 mt-0.5">
-                  {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                </p>
-              </div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
             </div>
           </button>
         )}
 
-        {/* Title (no hero) */}
-        {!heroPhoto && (
-          <div className="mb-4">
-            <h2 className="font-serif font-bold text-xl">{selectedMeal.name}</h2>
-            <p className="text-xs text-on-surface/40 mt-0.5">
-              {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-            </p>
-          </div>
-        )}
+        <header className="mb-6 sm:mb-8">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-2">
+            {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          </p>
+          <h1 className="font-serif font-bold text-3xl sm:text-5xl text-on-surface leading-[1.1] mb-4">
+            {selectedMeal.name}
+          </h1>
 
-        {/* Score + would make again + tags */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className={cn("text-2xl font-bold", scoreColor(selectedMeal.score))}>{selectedMeal.score.toFixed(1)}</div>
-          <span className="text-[10px] text-on-surface/30 font-medium">/ 10</span>
-          {'wouldMakeAgain' in selectedMeal && (
-            <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium",
-              selectedMeal.wouldMakeAgain ? "bg-green-50 text-green-600" : "bg-red-50 text-red-500"
-            )}>
-              {selectedMeal.wouldMakeAgain ? 'Would make again' : 'Wouldn\'t repeat'}
-            </span>
+          {/* Rating + would-make-again editorial callout */}
+          <div className="flex items-center gap-4 mb-4">
+            <div className="flex items-baseline">
+              <span className={cn("text-5xl font-serif font-bold tabular-nums", scoreColor(selectedMeal.score))}>
+                {selectedMeal.score.toFixed(1)}
+              </span>
+              <span className="text-sm text-on-surface/35 font-medium ml-1">/ 10</span>
+            </div>
+            {'wouldMakeAgain' in selectedMeal && (
+              <span className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold",
+                selectedMeal.wouldMakeAgain
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-red-50 text-red-600",
+              )}>
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full",
+                  selectedMeal.wouldMakeAgain ? "bg-emerald-500" : "bg-red-500",
+                )} />
+                {selectedMeal.wouldMakeAgain ? 'Would make again' : "Wouldn't repeat"}
+              </span>
+            )}
+          </div>
+
+          {/* Tag pills — filled, editorial */}
+          {selectedMeal.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {selectedMeal.tags.map((tag) => (
+                <span key={tag} className="inline-flex items-center px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[11px] font-semibold tracking-wide">
+                  {tag}
+                </span>
+              ))}
+            </div>
           )}
-        </div>
-        {selectedMeal.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-5">
-            {selectedMeal.tags.map((tag) => (
-              <span key={tag} className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[11px] font-semibold">{tag}</span>
-            ))}
-          </div>
-        )}
+        </header>
 
-        {/* Meta row: prep / cook / total / servings / difficulty */}
+        {/* ═══════════ STAT CARDS ═══════════ */}
         {hasMeta && (
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs mb-5 bg-white rounded-2xl border border-on-surface/6 px-4 py-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-px bg-on-surface/8 rounded-2xl overflow-hidden border border-on-surface/8 mb-6 sm:mb-8">
             {(selectedMeal.prepTime ?? 0) > 0 && (
-              <div className="flex items-center gap-1.5">
-                <Clock size={13} className="text-on-surface/40" />
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Prep</p>
-                  <p className="font-semibold text-on-surface/75">{formatDuration(selectedMeal.prepTime ?? 0)}</p>
+              <div className="bg-white px-4 py-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Clock size={12} className="text-on-surface/40" />
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Prep</p>
                 </div>
+                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(selectedMeal.prepTime ?? 0)}</p>
               </div>
             )}
             {(selectedMeal.cookTime ?? 0) > 0 && (
-              <div className="flex items-center gap-1.5">
-                <Flame size={13} className="text-on-surface/40" />
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Cook</p>
-                  <p className="font-semibold text-on-surface/75">{formatDuration(selectedMeal.cookTime ?? 0)}</p>
+              <div className="bg-white px-4 py-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Flame size={12} className="text-on-surface/40" />
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Cook</p>
                 </div>
+                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(selectedMeal.cookTime ?? 0)}</p>
               </div>
             )}
             {totalTime > 0 && (selectedMeal.prepTime ?? 0) > 0 && (selectedMeal.cookTime ?? 0) > 0 && (
-              <div className="flex items-center gap-1.5">
-                <Clock size={13} className="text-on-surface/40" />
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Total</p>
-                  <p className="font-semibold text-on-surface/75">{formatDuration(totalTime)}</p>
+              <div className="bg-white px-4 py-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Clock size={12} className="text-on-surface/40" />
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Total</p>
                 </div>
+                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{formatDuration(totalTime)}</p>
               </div>
             )}
             {(selectedMeal.servings ?? 0) > 0 && (
-              <div className="flex items-center gap-1.5">
-                <Users size={13} className="text-on-surface/40" />
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Servings</p>
-                  <p className="font-semibold text-on-surface/75">{selectedMeal.servings}</p>
+              <div className="bg-white px-4 py-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Users size={12} className="text-on-surface/40" />
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Serves</p>
                 </div>
+                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{selectedMeal.servings}</p>
               </div>
             )}
             {selectedMeal.difficulty && (
-              <div className="flex items-center gap-1.5">
-                <span className="w-[13px] h-[13px] rounded-full bg-yellow-100 flex items-center justify-center text-[9px]">⚡</span>
-                <div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Difficulty</p>
-                  <p className="font-semibold text-on-surface/75">{selectedMeal.difficulty}</p>
+              <div className="bg-white px-4 py-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Star size={12} className="text-amber-500 fill-amber-500" />
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium">Difficulty</p>
                 </div>
+                <p className="font-serif font-bold text-lg text-on-surface leading-tight">{selectedMeal.difficulty}</p>
               </div>
             )}
           </div>
         )}
 
-        {/* Notes */}
+        {/* ═══════════ JUMP NAV ═══════════ */}
+        {jumpTargets.length > 1 && (
+          <nav className="sticky top-0 z-20 -mx-3 px-3 sm:mx-0 sm:px-0 bg-surface/85 backdrop-blur-md border-b border-on-surface/8 mb-6">
+            <div className="flex gap-1 py-2.5 overflow-x-auto scrollbar-hide">
+              {jumpTargets.map((t) => (
+                <a
+                  key={t.id}
+                  href={`#${t.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const el = document.getElementById(t.id);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold text-on-surface/60 hover:bg-on-surface/5 hover:text-on-surface transition-colors whitespace-nowrap"
+                >
+                  {t.label}
+                </a>
+              ))}
+            </div>
+          </nav>
+        )}
+
+        {/* ═══════════ INGREDIENTS + DIRECTIONS (two-column on desktop) ═══════════ */}
+        <div className="grid md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-6 md:gap-10 mb-8">
+          {/* Ingredients */}
+          {hasIngredients && (
+            <section id="ingredients" className="md:sticky md:top-16 md:self-start">
+              <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
+                <div className="flex items-baseline justify-between gap-3 mb-4">
+                  <h2 className="font-serif font-bold text-2xl text-on-surface">Ingredients</h2>
+                  <span className="text-[11px] text-on-surface/40 font-medium">
+                    {selectedMeal.ingredients!.length} item{selectedMeal.ingredients!.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                {/* Servings adjuster */}
+                <div className="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-on-surface/6">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mb-0.5">Scale for</p>
+                    <p className="text-sm font-semibold text-on-surface tabular-nums">
+                      {displayServings} serving{displayServings !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 bg-on-surface/[0.04] border border-on-surface/10 rounded-full">
+                    <button
+                      type="button"
+                      onClick={() => setServingsScale(Math.max(0.25, (displayServings - 1) / baseServings))}
+                      disabled={displayServings <= 1}
+                      className="w-8 h-8 flex items-center justify-center text-on-surface/60 hover:text-on-surface disabled:opacity-30 transition-colors"
+                      aria-label="Decrease servings"
+                    >
+                      −
+                    </button>
+                    <div className="w-9 text-center text-sm font-semibold tabular-nums">{displayServings}</div>
+                    <button
+                      type="button"
+                      onClick={() => setServingsScale((displayServings + 1) / baseServings)}
+                      className="w-8 h-8 flex items-center justify-center text-on-surface/60 hover:text-on-surface transition-colors"
+                      aria-label="Increase servings"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <ul className="space-y-0.5">
+                  {selectedMeal.ingredients!.map((ing, i) => {
+                    const isChecked = checkedIngredients.has(i);
+                    const scaledAmount = ing.amount ? scaleQuantity(ing.amount, servingsScale) : '';
+                    return (
+                      <li key={i}>
+                        <label className={cn(
+                          "flex items-baseline gap-3 py-2 cursor-pointer group transition-colors",
+                          isChecked && "opacity-40",
+                        )}>
+                          <span className="flex items-center flex-shrink-0 translate-y-[2px]">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleCheckedIngredient(i)}
+                              className="sr-only peer"
+                            />
+                            <span className={cn(
+                              "w-[18px] h-[18px] rounded border-2 flex items-center justify-center transition-all",
+                              isChecked
+                                ? "bg-emerald-500 border-emerald-500 text-white"
+                                : "border-on-surface/20 group-hover:border-on-surface/40",
+                            )}>
+                              {isChecked && <Check size={12} strokeWidth={3} />}
+                            </span>
+                          </span>
+                          <span className={cn(
+                            "flex-1 text-[15px] leading-[1.6] text-on-surface/80",
+                            isChecked && "line-through",
+                          )}>
+                            {(scaledAmount || ing.unit) && (
+                              <span className="font-semibold text-on-surface tabular-nums">
+                                {scaledAmount}{ing.unit ? ` ${ing.unit}` : ''}
+                                {ing.name ? ' ' : ''}
+                              </span>
+                            )}
+                            <span className="text-on-surface/70">{ing.name}</span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </section>
+          )}
+
+          {/* Directions */}
+          {hasSteps && (
+            <section id="directions">
+              <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
+                <h2 className="font-serif font-bold text-2xl text-on-surface mb-5">Directions</h2>
+                <ol className="space-y-6">
+                  {selectedMeal.steps!.map((step, i) => {
+                    const timerMinutes = extractStepMinutes(step);
+                    return (
+                      <li key={i} className="flex gap-4 sm:gap-5">
+                        <div className="flex-shrink-0">
+                          <span className="block font-serif font-bold text-4xl sm:text-5xl text-emerald-600/80 leading-none tabular-nums">
+                            {i + 1}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0 pt-1">
+                          <p className="text-[15px] sm:text-[16px] leading-[1.7] text-on-surface/85 whitespace-pre-wrap">
+                            {step}
+                          </p>
+                          {timerMinutes !== null && (
+                            <div className="mt-2">
+                              <StepTimer minutes={timerMinutes} />
+                            </div>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* ═══════════ NOTES (editorial aside) ═══════════ */}
         {selectedMeal.description && (
-          <div className="mb-5 bg-white rounded-2xl border border-on-surface/6 p-4">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2">Notes</h3>
-            <p className="text-sm text-on-surface/70 leading-relaxed whitespace-pre-wrap">{selectedMeal.description}</p>
-          </div>
+          <section id="notes" className="mb-8">
+            <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Notes</h2>
+            <blockquote className="relative bg-amber-50/60 border-l-4 border-amber-400 rounded-r-xl px-5 py-4 sm:px-6 sm:py-5">
+              <p className="italic font-serif text-on-surface/75 leading-[1.7] text-[15px] sm:text-[16px] whitespace-pre-wrap">
+                {selectedMeal.description}
+              </p>
+            </blockquote>
+          </section>
         )}
 
-        {/* Ingredients (inline recipe — no more separate page) */}
-        {hasIngredients && (
-          <div className="mb-5 bg-white rounded-2xl border border-on-surface/6 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Hash size={16} className="text-emerald-600" />
-              <h3 className="font-serif font-bold text-base">Ingredients</h3>
-              <span className="text-[11px] text-on-surface/35">({selectedMeal.ingredients!.length})</span>
-            </div>
-            <ul className="space-y-2.5">
-              {selectedMeal.ingredients!.map((ing, i) => (
-                <li key={i} className="flex items-baseline gap-3 text-sm">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0 mt-1.5" />
-                  <span className="flex-1 text-on-surface/80">
-                    {(ing.amount || ing.unit) && (
-                      <span className="font-semibold text-on-surface tabular-nums">{ing.amount}{ing.unit ? ` ${ing.unit}` : ''} </span>
-                    )}
-                    <span className="text-on-surface/70">{ing.name}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Directions */}
-        {hasSteps && (
-          <div className="mb-5 bg-white rounded-2xl border border-on-surface/6 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <FileText size={16} className="text-emerald-600" />
-              <h3 className="font-serif font-bold text-base">Directions</h3>
-            </div>
-            <ol className="space-y-4">
-              {selectedMeal.steps!.map((step, i) => (
-                <li key={i} className="flex gap-3">
-                  <span className="flex-shrink-0 w-7 h-7 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold flex items-center justify-center mt-0.5">
-                    {i + 1}
-                  </span>
-                  <p className="flex-1 text-sm text-on-surface/80 leading-relaxed pt-0.5">{step}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-
-        {/* Dishes */}
+        {/* Dishes (unchanged content, lightly restyled to match) */}
         {selectedMeal.dishes.length > 0 && (
-          <div className="mb-5">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Dishes ({selectedMeal.dishes.length})</h3>
-            <div className="space-y-3">
+          <section className="mb-8">
+            <h2 className="font-serif font-bold text-xl text-on-surface mb-3">
+              Dishes <span className="text-sm text-on-surface/35 font-medium">({selectedMeal.dishes.length})</span>
+            </h2>
+            <div className="grid sm:grid-cols-2 gap-4">
               {selectedMeal.dishes.map((dish) => (
-                <div key={dish.id} className="bg-white rounded-2xl border border-on-surface/6 overflow-hidden">
+                <div key={dish.id} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
                   {dish.photo && (
                     <img src={dish.photo} alt={dish.name} className="w-full aspect-[3/2] object-cover" />
                   )}
-                  <div className="p-3">
-                    <p className="text-sm font-semibold text-on-surface">{dish.name}</p>
-                    {dish.description && <p className="text-xs text-on-surface/50 mt-1 leading-relaxed">{dish.description}</p>}
+                  <div className="p-4">
+                    <p className="font-serif font-bold text-base text-on-surface">{dish.name}</p>
+                    {dish.description && <p className="text-sm text-on-surface/60 mt-1 leading-relaxed">{dish.description}</p>}
                     {dish.recipeLink && (
                       <a href={dish.recipeLink} target="_blank" rel="noopener noreferrer"
-                        className="text-[11px] text-primary font-medium mt-2 inline-block hover:underline">View Recipe →</a>
+                        className="text-xs text-primary font-semibold mt-3 inline-block hover:underline">View Recipe →</a>
                     )}
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* Additional photos thumbnails (excluding hero) — only when a hero is rendered. */}
-        {heroPhoto && selectedMeal.photos.length > 1 && (
-          <div className="mb-5">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
-            <div className="flex flex-wrap gap-2">
-              {selectedMeal.photos.slice(1).map((photo, i) => {
-                const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + i + 1;
+        {/* ═══════════ PHOTOS (responsive grid) ═══════════ */}
+        {selectedMeal.photos.length > (heroPhoto ? 1 : 0) && (
+          <section id="photos" className="mb-8">
+            <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Photos</h2>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+              {(heroPhoto ? selectedMeal.photos.slice(1) : selectedMeal.photos).map((photo, i) => {
+                const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + (heroPhoto ? i + 1 : i);
                 return (
-                  <button key={i} onClick={() => setLightboxPhotoIdx(lightboxIdx)}
-                    className="w-20 h-20 rounded-lg overflow-hidden hover:opacity-90 transition-opacity flex-shrink-0">
-                    <img src={photo.url} alt={photo.caption || `Photo ${i + 2}`} className="w-full h-full object-cover" />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Photos thumbnails (no hero — show all) */}
-        {!heroPhoto && selectedMeal.photos.length > 0 && (
-          <div className="mb-5">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
-            <div className="flex flex-wrap gap-2">
-              {selectedMeal.photos.map((photo, i) => {
-                const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + i;
-                return (
-                  <button key={i} onClick={() => setLightboxPhotoIdx(lightboxIdx)}
-                    className="w-20 h-20 rounded-lg overflow-hidden hover:opacity-90 transition-opacity flex-shrink-0">
+                  <button
+                    key={i}
+                    onClick={() => setLightboxPhotoIdx(lightboxIdx)}
+                    className="aspect-square rounded-lg overflow-hidden hover:opacity-90 transition-opacity"
+                  >
                     <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
                   </button>
                 );
               })}
             </div>
-          </div>
+          </section>
         )}
 
         {selectedMeal.isPublic && (
-          <p className="text-[11px] text-on-surface/30 mt-4 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Shared on social feed
+          <p className="text-[11px] text-on-surface/30 mb-6 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Shared on social feed
           </p>
         )}
 
