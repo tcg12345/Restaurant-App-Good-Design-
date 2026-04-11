@@ -14,6 +14,7 @@ import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelTo
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { SocialFeed } from '../components/SocialFeed';
+import { TopBar } from '../components/TopBar';
 
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
@@ -2474,8 +2475,9 @@ export const Map: React.FC = () => {
         {/* ══════ FULL STATE — full-screen discover page ══════ */}
         {sheetState === 'full' && (
           <div className="flex-1 flex flex-col overflow-hidden">
+            <TopBar title="Explore" />
             {/* Header with search bar */}
-            <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-1 pb-3" : "px-6 pt-2 pb-4")}>
+            <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-3 pb-3" : "px-6 pt-3 pb-4")}>
               {discoverSearchActive && (
                 <button
                   onClick={() => {
