@@ -869,26 +869,26 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Rating — the focal point of the modal */}
-                    <div className="flex flex-col items-center pt-2 pb-4">
+                    {/* Rating — matches the Rate Restaurant modal's sizing. */}
+                    <div className="flex flex-col items-center pt-1 mb-3">
                       <div className={cn(
-                        "relative w-36 h-36 sm:w-40 sm:h-40 rounded-full flex items-center justify-center mb-4 bg-gradient-to-b ring-4",
+                        "relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4",
                         scoreBg,
                         scoreRing,
                       )}>
                         <div className="text-center">
-                          <div className={cn("text-6xl sm:text-7xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
-                          <div className="text-[10px] uppercase tracking-[0.14em] text-on-surface/35 font-medium mt-0.5">out of 10</div>
+                          <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
+                          <div className="text-[9px] uppercase tracking-[0.14em] text-on-surface/35 font-medium mt-0.5">out of 10</div>
                         </div>
                       </div>
-                      <div className="w-full max-w-[320px]">
+                      <div className="w-full max-w-[260px]">
                         <input
                           type="range" min="1" max="10" step="0.1"
                           value={score}
                           onChange={(e) => setScore(parseFloat(e.target.value))}
                           className="w-full h-2.5 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary"
                         />
-                        <p className="text-sm font-semibold text-on-surface/55 text-center mt-2">
+                        <p className="text-xs font-medium text-on-surface/45 text-center mt-1.5">
                           {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
                         </p>
                       </div>
