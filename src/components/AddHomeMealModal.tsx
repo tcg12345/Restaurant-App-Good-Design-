@@ -253,11 +253,14 @@ export const AddHomeMealModal: React.FC = () => {
 
   // Recipe-like fields
   const [coverPhoto, setCoverPhoto] = useState('');
-  const [prepTime, setPrepTime] = useState(0);
-  const [cookTime, setCookTime] = useState(0);
-  const [servings, setServings] = useState(4);
+  // Prep / cook time is edited as separate hours + minutes strings so the
+  // fields can be empty (placeholder "0") until the user actually types.
+  const [prepHoursStr, setPrepHoursStr] = useState('');
+  const [prepMinutesStr, setPrepMinutesStr] = useState('');
+  const [cookHoursStr, setCookHoursStr] = useState('');
+  const [cookMinutesStr, setCookMinutesStr] = useState('');
+  const [servingsStr, setServingsStr] = useState('');
   const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>('Medium');
-  const [cuisine, setCuisine] = useState('');
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
   const [steps, setSteps] = useState<string[]>([]);
 
@@ -304,11 +307,20 @@ export const AddHomeMealModal: React.FC = () => {
       setDishes(existing?.dishes ?? []);
       setIsPublic(existing?.isPublic ?? false);
       setCoverPhoto(existing?.coverPhoto ?? '');
-      setPrepTime(existing?.prepTime ?? 0);
-      setCookTime(existing?.cookTime ?? 0);
-      setServings(existing?.servings ?? 4);
+      // Split stored minute totals into hours + minutes strings. Empty
+      // strings render as placeholder "0".
+      const prepMins = existing?.prepTime ?? 0;
+      const cookMins = existing?.cookTime ?? 0;
+      const ph = Math.floor(prepMins / 60);
+      const pm = prepMins % 60;
+      const ch = Math.floor(cookMins / 60);
+      const cm = cookMins % 60;
+      setPrepHoursStr(ph > 0 ? String(ph) : '');
+      setPrepMinutesStr(pm > 0 ? String(pm) : '');
+      setCookHoursStr(ch > 0 ? String(ch) : '');
+      setCookMinutesStr(cm > 0 ? String(cm) : '');
+      setServingsStr(existing?.servings != null ? String(existing.servings) : '');
       setDifficulty(existing?.difficulty ?? 'Medium');
-      setCuisine(existing?.cuisine ?? '');
       setIngredients(existing?.ingredients ? [...existing.ingredients] : []);
       setSteps(existing?.steps ? [...existing.steps] : []);
       setNewIngredientName('');
@@ -599,6 +611,11 @@ export const AddHomeMealModal: React.FC = () => {
     setPage('main');
   };
 
+  // Convert the hours/minutes strings into a single minute total for storage.
+  const prepTotalMinutes = (parseInt(prepHoursStr, 10) || 0) * 60 + (parseInt(prepMinutesStr, 10) || 0);
+  const cookTotalMinutes = (parseInt(cookHoursStr, 10) || 0) * 60 + (parseInt(cookMinutesStr, 10) || 0);
+  const servingsValue = parseInt(servingsStr, 10);
+
   const handleSave = () => {
     if (!mealName.trim()) return;
     const mealData = {
@@ -612,11 +629,10 @@ export const AddHomeMealModal: React.FC = () => {
       dishes,
       isPublic,
       coverPhoto,
-      prepTime,
-      cookTime,
-      servings,
+      prepTime: prepTotalMinutes,
+      cookTime: cookTotalMinutes,
+      servings: Number.isFinite(servingsValue) && servingsValue > 0 ? servingsValue : 4,
       difficulty,
-      cuisine: cuisine.trim(),
       ingredients,
       steps,
     };
@@ -729,41 +745,108 @@ export const AddHomeMealModal: React.FC = () => {
                     {/* Quick info */}
                     <div className="border-t border-on-surface/6 pt-4 mb-4">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-3">Quick Info</p>
-                      <div className="grid grid-cols-3 gap-3 mb-4">
-                        <div>
-                          <div className="flex items-center gap-1 mb-1.5">
-                            <Clock size={12} className="text-on-surface/35" />
-                            <span className="text-[10px] font-semibold text-on-surface/45">Prep</span>
+                      <div className="space-y-2.5 mb-4">
+                        {/* Prep */}
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1.5 w-20 flex-shrink-0">
+                            <Clock size={13} className="text-on-surface/35" />
+                            <span className="text-xs font-semibold text-on-surface/55">Prep</span>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <input type="number" value={prepTime} onChange={(e) => setPrepTime(Math.max(0, parseInt(e.target.value) || 0))}
-                              className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-3 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                            <span className="text-[10px] text-on-surface/35 flex-shrink-0">min</span>
+                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={prepHoursStr}
+                              onChange={(e) => setPrepHoursStr(e.target.value.replace(/\D/g, ''))}
+                              placeholder="0"
+                              className="w-12 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              aria-label="Prep hours"
+                            />
+                            <span className="text-[11px] text-on-surface/45 font-medium">hr</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={prepMinutesStr}
+                              onChange={(e) => setPrepMinutesStr(e.target.value.replace(/\D/g, ''))}
+                              onBlur={() => {
+                                // Auto-carry minutes >= 60 into hours.
+                                const m = parseInt(prepMinutesStr, 10) || 0;
+                                if (m >= 60) {
+                                  const extraH = Math.floor(m / 60);
+                                  const remMin = m % 60;
+                                  const h = parseInt(prepHoursStr, 10) || 0;
+                                  setPrepHoursStr(String(h + extraH));
+                                  setPrepMinutesStr(remMin > 0 ? String(remMin) : '');
+                                }
+                              }}
+                              placeholder="0"
+                              className="w-14 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              aria-label="Prep minutes"
+                            />
+                            <span className="text-[11px] text-on-surface/45 font-medium">min</span>
                           </div>
                         </div>
-                        <div>
-                          <div className="flex items-center gap-1 mb-1.5">
-                            <Flame size={12} className="text-on-surface/35" />
-                            <span className="text-[10px] font-semibold text-on-surface/45">Cook</span>
+
+                        {/* Cook */}
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1.5 w-20 flex-shrink-0">
+                            <Flame size={13} className="text-on-surface/35" />
+                            <span className="text-xs font-semibold text-on-surface/55">Cook</span>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <input type="number" value={cookTime} onChange={(e) => setCookTime(Math.max(0, parseInt(e.target.value) || 0))}
-                              className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-3 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                            <span className="text-[10px] text-on-surface/35 flex-shrink-0">min</span>
+                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={cookHoursStr}
+                              onChange={(e) => setCookHoursStr(e.target.value.replace(/\D/g, ''))}
+                              placeholder="0"
+                              className="w-12 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              aria-label="Cook hours"
+                            />
+                            <span className="text-[11px] text-on-surface/45 font-medium">hr</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={cookMinutesStr}
+                              onChange={(e) => setCookMinutesStr(e.target.value.replace(/\D/g, ''))}
+                              onBlur={() => {
+                                const m = parseInt(cookMinutesStr, 10) || 0;
+                                if (m >= 60) {
+                                  const extraH = Math.floor(m / 60);
+                                  const remMin = m % 60;
+                                  const h = parseInt(cookHoursStr, 10) || 0;
+                                  setCookHoursStr(String(h + extraH));
+                                  setCookMinutesStr(remMin > 0 ? String(remMin) : '');
+                                }
+                              }}
+                              placeholder="0"
+                              className="w-14 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              aria-label="Cook minutes"
+                            />
+                            <span className="text-[11px] text-on-surface/45 font-medium">min</span>
                           </div>
                         </div>
-                        <div>
-                          <div className="flex items-center gap-1 mb-1.5">
-                            <Users size={12} className="text-on-surface/35" />
-                            <span className="text-[10px] font-semibold text-on-surface/45">Servings</span>
+
+                        {/* Servings */}
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1.5 w-20 flex-shrink-0">
+                            <Users size={13} className="text-on-surface/35" />
+                            <span className="text-xs font-semibold text-on-surface/55">Servings</span>
                           </div>
-                          <input type="number" value={servings} onChange={(e) => setServings(Math.max(1, parseInt(e.target.value) || 1))}
-                            className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-3 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={servingsStr}
+                            onChange={(e) => setServingsStr(e.target.value.replace(/\D/g, ''))}
+                            placeholder="4"
+                            className="w-16 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            aria-label="Servings"
+                          />
                         </div>
                       </div>
 
                       {/* Difficulty */}
-                      <div className="mb-4">
+                      <div>
                         <span className="text-[10px] font-semibold text-on-surface/45 mb-1.5 block">Difficulty</span>
                         <div className="flex gap-2">
                           {(['Easy', 'Medium', 'Hard'] as const).map((d) => (
@@ -773,14 +856,6 @@ export const AddHomeMealModal: React.FC = () => {
                               )}>{d}</button>
                           ))}
                         </div>
-                      </div>
-
-                      {/* Cuisine */}
-                      <div>
-                        <span className="text-[10px] font-semibold text-on-surface/45 mb-1.5 block">Cuisine</span>
-                        <input type="text" value={cuisine} onChange={(e) => setCuisine(e.target.value)}
-                          placeholder="e.g. Italian, Mexican, Thai..."
-                          className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                       </div>
                     </div>
 
