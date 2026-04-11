@@ -3249,16 +3249,16 @@ const HomeCookingTab: React.FC<{
           </div>
         )}
 
-        {/* Additional photos gallery (excluding hero) — only when a hero is rendered. */}
+        {/* Additional photos thumbnails (excluding hero) — only when a hero is rendered. */}
         {heroPhoto && selectedMeal.photos.length > 1 && (
           <div className="mb-5">
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="flex flex-wrap gap-2">
               {selectedMeal.photos.slice(1).map((photo, i) => {
                 const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + i + 1;
                 return (
                   <button key={i} onClick={() => setLightboxPhotoIdx(lightboxIdx)}
-                    className="aspect-square rounded-xl overflow-hidden hover:opacity-90 transition-opacity">
+                    className="w-20 h-20 rounded-lg overflow-hidden hover:opacity-90 transition-opacity flex-shrink-0">
                     <img src={photo.url} alt={photo.caption || `Photo ${i + 2}`} className="w-full h-full object-cover" />
                   </button>
                 );
@@ -3267,16 +3267,16 @@ const HomeCookingTab: React.FC<{
           </div>
         )}
 
-        {/* Photos gallery (no hero — show all) */}
+        {/* Photos thumbnails (no hero — show all) */}
         {!heroPhoto && selectedMeal.photos.length > 0 && (
           <div className="mb-5">
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="flex flex-wrap gap-2">
               {selectedMeal.photos.map((photo, i) => {
                 const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + i;
                 return (
                   <button key={i} onClick={() => setLightboxPhotoIdx(lightboxIdx)}
-                    className="aspect-square rounded-xl overflow-hidden hover:opacity-90 transition-opacity">
+                    className="w-20 h-20 rounded-lg overflow-hidden hover:opacity-90 transition-opacity flex-shrink-0">
                     <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
                   </button>
                 );
