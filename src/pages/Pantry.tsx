@@ -2914,6 +2914,18 @@ const CreateTripSheet: React.FC<{
 /* ── Home Cooking Tab ── */
 const HOME_MEAL_TAGS = ['Comfort Food', 'Healthy', 'Quick & Easy', 'Baking', 'Date Night', 'Meal Prep', 'Grill', 'Pasta', 'Asian', 'Mexican', 'Italian', 'Dessert', 'Breakfast', 'Soup', 'Salad', 'Seafood', 'Vegetarian', 'New Recipe'];
 
+// Formats a minute total as a short "X hr Y min" string. Handles the edge
+// cases you'd want on a recipe card: exact hours omit the minutes, values
+// under an hour just show minutes, zero returns an empty string.
+const formatDuration = (minutes: number): string => {
+  if (!Number.isFinite(minutes) || minutes <= 0) return '';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (remMinutes === 0) return `${hours} hr`;
+  return `${hours} hr ${remMinutes} min`;
+};
+
 // Simple swipeable photo lightbox for home meal views.
 const PhotoLightbox: React.FC<{
   photos: { url: string; caption: string }[];
@@ -3079,7 +3091,7 @@ const HomeCookingTab: React.FC<{
                 <Clock size={13} className="text-on-surface/40" />
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Prep</p>
-                  <p className="font-semibold text-on-surface/75">{selectedMeal.prepTime} min</p>
+                  <p className="font-semibold text-on-surface/75">{formatDuration(selectedMeal.prepTime ?? 0)}</p>
                 </div>
               </div>
             )}
@@ -3088,7 +3100,7 @@ const HomeCookingTab: React.FC<{
                 <Flame size={13} className="text-on-surface/40" />
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Cook</p>
-                  <p className="font-semibold text-on-surface/75">{selectedMeal.cookTime} min</p>
+                  <p className="font-semibold text-on-surface/75">{formatDuration(selectedMeal.cookTime ?? 0)}</p>
                 </div>
               </div>
             )}
@@ -3097,7 +3109,7 @@ const HomeCookingTab: React.FC<{
                 <Clock size={13} className="text-on-surface/40" />
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Total</p>
-                  <p className="font-semibold text-on-surface/75">{totalTime} min</p>
+                  <p className="font-semibold text-on-surface/75">{formatDuration(totalTime)}</p>
                 </div>
               </div>
             )}
@@ -3501,7 +3513,7 @@ const HomeCookingTab: React.FC<{
                   {totalTime > 0 && (
                     <div className="flex items-center gap-1 mt-1 text-[11px] text-on-surface/50">
                       <Clock size={11} />
-                      <span>{totalTime} min</span>
+                      <span>{formatDuration(totalTime)}</span>
                       {meal.difficulty && <span className="text-on-surface/30">· {meal.difficulty}</span>}
                     </div>
                   )}
