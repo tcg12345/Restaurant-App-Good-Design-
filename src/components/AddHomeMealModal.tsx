@@ -616,6 +616,14 @@ export const AddHomeMealModal: React.FC = () => {
   const cookTotalMinutes = (parseInt(cookHoursStr, 10) || 0) * 60 + (parseInt(cookMinutesStr, 10) || 0);
   const servingsValue = parseInt(servingsStr, 10);
 
+  // Servings stepper helper — defaults to 4 when the field is empty.
+  const adjustServings = (delta: number) => {
+    const current = parseInt(servingsStr, 10);
+    const base = Number.isFinite(current) && current > 0 ? current : 4;
+    const next = Math.max(1, base + delta);
+    setServingsStr(String(next));
+  };
+
   const handleSave = () => {
     if (!mealName.trim()) return;
     const mealData = {
@@ -698,289 +706,319 @@ export const AddHomeMealModal: React.FC = () => {
                     <button onClick={closeHomeMealModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
 
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
-                    {/* Cover photo */}
-                    <button onClick={() => coverInputRef.current?.click()}
-                      className="w-full h-36 rounded-2xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-2 mb-5 overflow-hidden hover:border-primary/30 transition-colors relative">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3">
+                    {/* Cover photo — compact dropzone */}
+                    <button
+                      onClick={() => coverInputRef.current?.click()}
+                      className="w-full h-20 rounded-2xl border border-dashed border-on-surface/20 bg-on-surface/[0.02] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] flex items-center justify-center gap-2 mb-3 overflow-hidden hover:border-primary/30 transition-colors relative"
+                    >
                       {coverPhoto ? (
                         <>
                           <img src={coverPhoto} alt="Cover" className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                            <Camera size={24} className="text-white" />
+                            <Camera size={18} className="text-white" />
                           </div>
                         </>
                       ) : (
                         <>
-                          <Camera size={24} className="text-on-surface/25" />
-                          <span className="text-xs text-on-surface/35 font-medium">Add cover photo</span>
+                          <Camera size={16} className="text-on-surface/30" />
+                          <span className="text-xs text-on-surface/40 font-medium">Add cover photo</span>
                         </>
                       )}
                     </button>
 
-                    {/* Meal name input */}
-                    <div className="mb-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Meal Name</p>
-                      <input
-                        type="text"
-                        value={mealName}
-                        onChange={(e) => setMealName(e.target.value)}
-                        placeholder="e.g. Sunday Pasta Night"
-                        autoFocus
-                        className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
+                    {/* Meal name */}
+                    <input
+                      type="text"
+                      value={mealName}
+                      onChange={(e) => setMealName(e.target.value)}
+                      placeholder="Meal name"
+                      autoFocus
+                      className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl px-4 py-2.5 text-sm font-semibold placeholder:font-medium placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5"
+                    />
 
-                    {/* Description */}
-                    <div className="mb-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Description</p>
-                      <textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="A brief description of this recipe..."
-                        rows={3}
-                        className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                      />
-                    </div>
+                    {/* Description (max-height w/ internal scroll) */}
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="A brief description..."
+                      rows={2}
+                      className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-4 text-sm font-medium placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none max-h-24 overflow-y-auto mb-3"
+                    />
 
-                    {/* Quick info */}
-                    <div className="border-t border-on-surface/6 pt-4 mb-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-3">Quick Info</p>
-                      <div className="space-y-2.5 mb-4">
-                        {/* Prep */}
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-1.5 w-20 flex-shrink-0">
-                            <Clock size={13} className="text-on-surface/35" />
-                            <span className="text-xs font-semibold text-on-surface/55">Prep</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              value={prepHoursStr}
-                              onChange={(e) => setPrepHoursStr(e.target.value.replace(/\D/g, ''))}
-                              placeholder="0"
-                              className="w-12 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
-                              aria-label="Prep hours"
-                            />
-                            <span className="text-[11px] text-on-surface/45 font-medium">hr</span>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              value={prepMinutesStr}
-                              onChange={(e) => setPrepMinutesStr(e.target.value.replace(/\D/g, ''))}
-                              onBlur={() => {
-                                // Auto-carry minutes >= 60 into hours.
-                                const m = parseInt(prepMinutesStr, 10) || 0;
-                                if (m >= 60) {
-                                  const extraH = Math.floor(m / 60);
-                                  const remMin = m % 60;
-                                  const h = parseInt(prepHoursStr, 10) || 0;
-                                  setPrepHoursStr(String(h + extraH));
-                                  setPrepMinutesStr(remMin > 0 ? String(remMin) : '');
-                                }
-                              }}
-                              placeholder="0"
-                              className="w-14 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
-                              aria-label="Prep minutes"
-                            />
-                            <span className="text-[11px] text-on-surface/45 font-medium">min</span>
-                          </div>
-                        </div>
+                    {/* Quick Info */}
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Quick Info</p>
 
-                        {/* Cook */}
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-1.5 w-20 flex-shrink-0">
-                            <Flame size={13} className="text-on-surface/35" />
-                            <span className="text-xs font-semibold text-on-surface/55">Cook</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              value={cookHoursStr}
-                              onChange={(e) => setCookHoursStr(e.target.value.replace(/\D/g, ''))}
-                              placeholder="0"
-                              className="w-12 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
-                              aria-label="Cook hours"
-                            />
-                            <span className="text-[11px] text-on-surface/45 font-medium">hr</span>
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              value={cookMinutesStr}
-                              onChange={(e) => setCookMinutesStr(e.target.value.replace(/\D/g, ''))}
-                              onBlur={() => {
-                                const m = parseInt(cookMinutesStr, 10) || 0;
-                                if (m >= 60) {
-                                  const extraH = Math.floor(m / 60);
-                                  const remMin = m % 60;
-                                  const h = parseInt(cookHoursStr, 10) || 0;
-                                  setCookHoursStr(String(h + extraH));
-                                  setCookMinutesStr(remMin > 0 ? String(remMin) : '');
-                                }
-                              }}
-                              placeholder="0"
-                              className="w-14 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
-                              aria-label="Cook minutes"
-                            />
-                            <span className="text-[11px] text-on-surface/45 font-medium">min</span>
-                          </div>
-                        </div>
-
-                        {/* Servings */}
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-1.5 w-20 flex-shrink-0">
-                            <Users size={13} className="text-on-surface/35" />
-                            <span className="text-xs font-semibold text-on-surface/55">Servings</span>
-                          </div>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={servingsStr}
-                            onChange={(e) => setServingsStr(e.target.value.replace(/\D/g, ''))}
-                            placeholder="4"
-                            className="w-16 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            aria-label="Servings"
-                          />
-                        </div>
+                    {/* Prep | Cook — side-by-side w/ divider */}
+                    <div className="flex items-stretch bg-on-surface/[0.04] border border-on-surface/10 rounded-xl mb-2">
+                      <div className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2">
+                        <Clock size={12} className="text-on-surface/40 flex-shrink-0" />
+                        <span className="text-[10px] font-semibold text-on-surface/50 mr-0.5">Prep</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={prepHoursStr}
+                          onChange={(e) => setPrepHoursStr(e.target.value.replace(/\D/g, ''))}
+                          placeholder="0"
+                          className="w-6 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Prep hours"
+                        />
+                        <span className="text-[10px] text-on-surface/45">h</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={prepMinutesStr}
+                          onChange={(e) => setPrepMinutesStr(e.target.value.replace(/\D/g, ''))}
+                          onBlur={() => {
+                            const m = parseInt(prepMinutesStr, 10) || 0;
+                            if (m >= 60) {
+                              const extraH = Math.floor(m / 60);
+                              const remMin = m % 60;
+                              const h = parseInt(prepHoursStr, 10) || 0;
+                              setPrepHoursStr(String(h + extraH));
+                              setPrepMinutesStr(remMin > 0 ? String(remMin) : '');
+                            }
+                          }}
+                          placeholder="0"
+                          className="w-7 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Prep minutes"
+                        />
+                        <span className="text-[10px] text-on-surface/45">m</span>
                       </div>
-
-                      {/* Difficulty */}
-                      <div>
-                        <span className="text-[10px] font-semibold text-on-surface/45 mb-1.5 block">Difficulty</span>
-                        <div className="flex gap-2">
-                          {(['Easy', 'Medium', 'Hard'] as const).map((d) => (
-                            <button key={d} onClick={() => setDifficulty(d)}
-                              className={cn("flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all",
-                                difficulty === d ? "border-yellow-300 bg-yellow-50 text-yellow-700" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
-                              )}>{d}</button>
-                          ))}
-                        </div>
+                      <div className="w-px bg-on-surface/10 my-2" />
+                      <div className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2">
+                        <Flame size={12} className="text-on-surface/40 flex-shrink-0" />
+                        <span className="text-[10px] font-semibold text-on-surface/50 mr-0.5">Cook</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={cookHoursStr}
+                          onChange={(e) => setCookHoursStr(e.target.value.replace(/\D/g, ''))}
+                          placeholder="0"
+                          className="w-6 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Cook hours"
+                        />
+                        <span className="text-[10px] text-on-surface/45">h</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={cookMinutesStr}
+                          onChange={(e) => setCookMinutesStr(e.target.value.replace(/\D/g, ''))}
+                          onBlur={() => {
+                            const m = parseInt(cookMinutesStr, 10) || 0;
+                            if (m >= 60) {
+                              const extraH = Math.floor(m / 60);
+                              const remMin = m % 60;
+                              const h = parseInt(cookHoursStr, 10) || 0;
+                              setCookHoursStr(String(h + extraH));
+                              setCookMinutesStr(remMin > 0 ? String(remMin) : '');
+                            }
+                          }}
+                          placeholder="0"
+                          className="w-7 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Cook minutes"
+                        />
+                        <span className="text-[10px] text-on-surface/45">m</span>
                       </div>
                     </div>
 
-                    {/* Score circle + slider */}
-                    <div className="flex flex-col items-center pt-1 sm:pt-3">
-                      <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
+                    {/* Servings stepper + Difficulty pills */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="flex items-center bg-on-surface/[0.04] border border-on-surface/10 rounded-xl flex-shrink-0">
+                        <div className="pl-2.5 pr-0.5 py-1.5 flex items-center gap-1">
+                          <Users size={12} className="text-on-surface/40" />
+                          <span className="text-[10px] font-semibold text-on-surface/50">Serves</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => adjustServings(-1)}
+                          className="w-6 h-8 text-on-surface/55 hover:text-on-surface transition-colors text-base leading-none"
+                          aria-label="Decrease servings"
+                        >−</button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={servingsStr}
+                          onChange={(e) => setServingsStr(e.target.value.replace(/\D/g, ''))}
+                          placeholder="4"
+                          className="w-7 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Servings"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => adjustServings(1)}
+                          className="w-6 h-8 text-on-surface/55 hover:text-on-surface transition-colors text-base leading-none pr-1"
+                          aria-label="Increase servings"
+                        >+</button>
+                      </div>
+                      <div className="flex gap-1 flex-1 min-w-0">
+                        {(['Easy', 'Medium', 'Hard'] as const).map((d) => (
+                          <button
+                            key={d}
+                            onClick={() => setDifficulty(d)}
+                            className={cn(
+                              "flex-1 py-1.5 rounded-full text-[11px] font-semibold border transition-all",
+                              difficulty === d
+                                ? "border-yellow-300 bg-yellow-50 text-yellow-700"
+                                : "border-on-surface/10 bg-on-surface/[0.02] text-on-surface/50 hover:border-on-surface/20",
+                            )}
+                          >
+                            {d}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Rating — tighter score circle + slider */}
+                    <div className="flex flex-col items-center pt-1 mb-2.5">
+                      <div className={cn(
+                        "relative w-24 h-24 rounded-full flex items-center justify-center mb-2 bg-gradient-to-b ring-[3px]",
+                        scoreBg,
+                        scoreRing,
+                      )}>
                         <div className="text-center">
-                          <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
-                          <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
+                          <div className={cn("text-4xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
+                          <div className="text-[8px] uppercase tracking-[0.12em] text-on-surface/35 font-medium -mt-0.5">out of 10</div>
                         </div>
                       </div>
-                      <div className="w-full max-w-[260px] mb-1.5">
-                        <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
-                          className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
-                        <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
-                          <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
-                        </div>
-                      </div>
-                      <p className="text-xs font-medium text-on-surface/40 mb-4">
-                        {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
-                      </p>
-
-                      {/* Would make again toggle */}
-                      <div className="w-full max-w-[260px] mb-5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 text-center mb-2">Would you make it again?</p>
-                        <div className="flex gap-2">
-                          <button onClick={() => setWouldMakeAgain(true)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", wouldMakeAgain ? "bg-green-50 border-green-200 text-green-700" : "bg-white border-on-surface/10 text-on-surface/40")}>Yes!</button>
-                          <button onClick={() => setWouldMakeAgain(false)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", !wouldMakeAgain ? "bg-red-50 border-red-200 text-red-600" : "bg-white border-on-surface/10 text-on-surface/40")}>Nah</button>
-                        </div>
+                      <div className="w-full max-w-[260px]">
+                        <input
+                          type="range" min="1" max="10" step="0.1"
+                          value={score}
+                          onChange={(e) => setScore(parseFloat(e.target.value))}
+                          className="w-full h-2 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary"
+                        />
+                        <p className="text-[11px] font-medium text-on-surface/45 text-center mt-1">
+                          {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
+                        </p>
                       </div>
                     </div>
 
-                    {/* Dishes section */}
-                    <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <div className="flex items-center justify-between mb-2.5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35">Dishes</p>
+                    {/* Would make again — compact single row */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium flex-shrink-0">Make again?</span>
+                      <div className="flex gap-1 flex-1">
+                        <button
+                          onClick={() => setWouldMakeAgain(true)}
+                          className={cn(
+                            "flex-1 py-1.5 rounded-full text-[11px] font-semibold border transition-all",
+                            wouldMakeAgain
+                              ? "bg-green-50 border-green-200 text-green-700"
+                              : "bg-on-surface/[0.02] border-on-surface/10 text-on-surface/45",
+                          )}
+                        >Yes!</button>
+                        <button
+                          onClick={() => setWouldMakeAgain(false)}
+                          className={cn(
+                            "flex-1 py-1.5 rounded-full text-[11px] font-semibold border transition-all",
+                            !wouldMakeAgain
+                              ? "bg-red-50 border-red-200 text-red-600"
+                              : "bg-on-surface/[0.02] border-on-surface/10 text-on-surface/45",
+                          )}
+                        >Nah</button>
+                      </div>
+                    </div>
+
+                    {/* Dishes — compact */}
+                    <div className="border-t border-on-surface/8 pt-2.5 mb-2">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium">Dishes</p>
                         <button
                           onClick={() => openDishPage()}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
                         >
-                          <Plus size={14} />
-                          Add Dish
+                          <Plus size={12} />Add Dish
                         </button>
                       </div>
                       {hasDishes ? (
-                        <div className="space-y-1.5">
-                          {dishes.map((dish) => (
-                            <button key={dish.id} onClick={() => openDishPage(dish)}
-                              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-on-surface/8 bg-white hover:border-on-surface/15 transition-all text-left">
+                        <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
+                          {dishes.map((dish, i) => (
+                            <button
+                              key={dish.id}
+                              onClick={() => openDishPage(dish)}
+                              className={cn(
+                                "w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-on-surface/[0.03] transition-colors",
+                                i !== dishes.length - 1 && "border-b border-on-surface/6",
+                              )}
+                            >
                               {dish.photo ? (
-                                <img src={dish.photo} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                                <img src={dish.photo} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
                               ) : (
-                                <div className="w-10 h-10 rounded-lg bg-on-surface/5 flex items-center justify-center flex-shrink-0">
-                                  <UtensilsCrossed size={16} className="text-on-surface/20" />
+                                <div className="w-8 h-8 rounded-lg bg-on-surface/5 flex items-center justify-center flex-shrink-0">
+                                  <UtensilsCrossed size={13} className="text-on-surface/25" />
                                 </div>
                               )}
-                              <span className="text-sm font-medium text-on-surface/70 flex-1 truncate">{dish.name}</span>
-                              <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
+                              <span className="text-[13px] font-medium text-on-surface/75 flex-1 truncate">{dish.name}</span>
+                              <ChevronRight size={13} className="text-on-surface/25 flex-shrink-0" />
                             </button>
                           ))}
                         </div>
                       ) : (
-                        <div className="flex items-center gap-3 px-3.5 py-4 rounded-xl border border-dashed border-on-surface/10 bg-on-surface/2">
-                          <UtensilsCrossed size={18} className="text-on-surface/20" />
-                          <p className="text-xs text-on-surface/30">No dishes added</p>
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-on-surface/12 bg-on-surface/[0.02]">
+                          <UtensilsCrossed size={14} className="text-on-surface/25" />
+                          <p className="text-[11px] text-on-surface/35">No dishes added</p>
                         </div>
                       )}
                     </div>
 
-                    {/* Recipe details */}
-                    <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Recipe Details</p>
-                      <div className="space-y-2">
-                        <DetailBtn icon={<Hash size={17} />} label="Ingredients" active={hasIngredients} sub={hasIngredients ? `${ingredients.length} items` : undefined} onClick={() => setPage('ingredients')} />
-                        <DetailBtn icon={<FileText size={17} />} label="Steps" active={hasSteps} sub={hasSteps ? `${steps.length} steps` : undefined} onClick={() => setPage('steps')} />
-                        <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
-                        <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
+                    {/* Recipe Details — compact menu list */}
+                    <div className="border-t border-on-surface/8 pt-2.5 mb-2">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Recipe Details</p>
+                      <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
+                        <DetailRow icon={<Hash size={14} />} label="Ingredients" active={hasIngredients} sub={hasIngredients ? `${ingredients.length} items` : undefined} onClick={() => setPage('ingredients')} />
+                        <DetailRow icon={<FileText size={14} />} label="Steps" active={hasSteps} sub={hasSteps ? `${steps.length} steps` : undefined} onClick={() => setPage('steps')} />
+                        <DetailRow icon={<Image size={14} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
+                        <DetailRow icon={<Tag size={14} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} isLast />
                       </div>
                     </div>
 
-                    {/* Public/Private toggle */}
-                    <div className="border-t border-on-surface/6 pt-3 pb-1">
-                      <button
-                        onClick={() => setIsPublic(!isPublic)}
-                        className={cn("w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left",
-                          isPublic ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
-                        )}
-                      >
-                        <span className={cn("flex-shrink-0", isPublic ? "text-primary" : "text-on-surface/30")}>
-                          {isPublic ? <Globe size={17} /> : <Lock size={17} />}
-                        </span>
-                        <span className={cn("text-xs font-semibold flex-1", isPublic ? "text-primary" : "text-on-surface/50")}>
-                          {isPublic ? 'Public' : 'Private'}
-                        </span>
-                        <span className="text-[11px] text-on-surface/30">
-                          {isPublic ? 'Visible to friends' : 'Only you can see this'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Footer */}
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
+                    {/* Privacy — compact */}
                     <button
-                      onClick={handleSave}
-                      disabled={!mealName.trim()}
-                      className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40"
+                      onClick={() => setIsPublic(!isPublic)}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all text-left",
+                        isPublic ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15",
+                      )}
                     >
-                      {existing ? 'Update Meal' : 'Save Meal'}
+                      <span className={cn("flex-shrink-0", isPublic ? "text-primary" : "text-on-surface/35")}>
+                        {isPublic ? <Globe size={14} /> : <Lock size={14} />}
+                      </span>
+                      <span className={cn("text-[12px] font-semibold flex-1", isPublic ? "text-primary" : "text-on-surface/55")}>
+                        {isPublic ? 'Public' : 'Private'}
+                      </span>
+                      <span className="text-[10px] text-on-surface/30">
+                        {isPublic ? 'Visible to friends' : 'Only you can see this'}
+                      </span>
                     </button>
+
                     {existing && !confirmDelete && (
-                      <button onClick={() => setConfirmDelete(true)}
-                        className="w-full py-2.5 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors">
+                      <button
+                        onClick={() => setConfirmDelete(true)}
+                        className="w-full mt-3 py-2 text-red-400 text-[11px] font-semibold hover:text-red-500 transition-colors"
+                      >
                         Delete Meal
                       </button>
                     )}
                     {existing && confirmDelete && (
-                      <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
-                        <p className="text-xs text-red-600 font-medium">Delete this meal?</p>
+                      <div className="mt-3 flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                        <p className="text-[11px] text-red-600 font-medium">Delete this meal?</p>
                         <div className="flex gap-2">
-                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
-                          <button onClick={() => { if (existing) { deleteHomeMeal(existing.id); } closeHomeMealModal(); }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+                          <button onClick={() => setConfirmDelete(false)} className="px-2.5 py-1 text-[11px] font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
+                          <button onClick={() => { if (existing) { deleteHomeMeal(existing.id); } closeHomeMealModal(); }} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  {/* Sticky save footer — pill button w/ drop shadow */}
+                  <div className="px-5 pt-2.5 pb-4 flex-shrink-0 border-t border-on-surface/8 bg-surface">
+                    <button
+                      onClick={handleSave}
+                      disabled={!mealName.trim()}
+                      className="w-full py-3 bg-primary text-white rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_rgba(188,108,97,0.55)] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:shadow-none"
+                    >
+                      {existing ? 'Update Meal' : 'Save Meal'}
+                    </button>
                   </div>
                 </motion.div>
               )}
@@ -1500,17 +1538,27 @@ export const AddHomeMealModal: React.FC = () => {
 
 /* ── Shared sub-components ── */
 
-const DetailBtn: React.FC<{
-  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
-}> = ({ icon, label, active, sub, onClick }) => (
-  <button onClick={onClick}
-    className={cn("w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left",
-      active ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
+// Compact ~44px-tall row used inside a bordered container on the main page.
+// Relies on a shared parent for the outer border/background.
+const DetailRow: React.FC<{
+  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void; isLast?: boolean;
+}> = ({ icon, label, active, sub, onClick, isLast }) => (
+  <button
+    onClick={onClick}
+    className={cn(
+      "w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors",
+      !isLast && "border-b border-on-surface/6",
+    )}
+  >
+    <span className={cn(
+      "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
+      active ? "bg-primary/10 text-primary" : "bg-on-surface/[0.05] text-on-surface/45",
     )}>
-    <span className={cn("flex-shrink-0", active ? "text-primary" : "text-on-surface/30")}>{icon}</span>
-    <span className={cn("text-xs font-semibold flex-1", active ? "text-primary" : "text-on-surface/50")}>{label}</span>
-    {sub && <span className="text-[11px] text-primary/60 flex-shrink-0">{sub}</span>}
-    <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
+      {icon}
+    </span>
+    <span className={cn("text-[13px] font-medium flex-1", active ? "text-on-surface" : "text-on-surface/65")}>{label}</span>
+    {sub && <span className="text-[11px] text-primary/70 flex-shrink-0">{sub}</span>}
+    <ChevronRight size={13} className="text-on-surface/25 flex-shrink-0" />
   </button>
 );
 
