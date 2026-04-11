@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen, Clock, ChevronRight } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
@@ -276,14 +276,6 @@ export const SocialFeed: React.FC = () => {
 
   // Recipes-only mode uses its own list rendered from homeMeals.
   const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
-  const formatTotalTime = (minutes: number): string => {
-    if (!Number.isFinite(minutes) || minutes <= 0) return '';
-    if (minutes < 60) return `${minutes} min`;
-    const h = Math.floor(minutes / 60);
-    const rem = minutes % 60;
-    if (rem === 0) return `${h} hr`;
-    return `${h} hr ${rem} min`;
-  };
 
   return (
     <section className="mb-8">
@@ -310,64 +302,78 @@ export const SocialFeed: React.FC = () => {
         ) : (
           <div className="space-y-3">
             {recipesSorted.map((m) => {
-              const authorName = getName(m.userId);
-              const authorInitial = initialOf(authorName);
-              const color = avatarColor(m.userId);
-              const cover = m.coverPhoto || m.photos?.[0]?.url || '';
-              const totalLabel = formatTotalTime((m.prepTime ?? 0) + (m.cookTime ?? 0));
-              const ingredientCount = m.ingredients?.length ?? 0;
-              const stepCount = m.steps?.length ?? 0;
+              const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               return (
-                <button
+                <div
                   key={`recipe-${m.userId}-${m.id}`}
                   onClick={() => setActiveFriendRecipe(m)}
-                  className="w-full bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden text-left hover:shadow-md transition-shadow"
+                  className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
                 >
+                  {/* User header */}
                   <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
-                    <div className={cn("w-9 h-9 rounded-full ring-2 ring-emerald-200/50 flex items-center justify-center font-bold text-sm", color.bg, color.text)}>
-                      {authorInitial}
-                    </div>
+                    <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()}>
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 ring-2 ring-emerald-200/50 flex items-center justify-center">
+                        <ChefHat size={17} className="text-emerald-600" />
+                      </div>
+                    </Link>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{authorName}</p>
-                      <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">published a recipe</p>
+                      <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
+                      <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">cooked at home</p>
                     </div>
-                    <span className="text-[10px] text-on-surface/35 font-medium">{timeAgo(new Date(m.createdAt).toISOString())}</span>
+                    <span className="text-[10px] text-on-surface/35 font-medium">{mealTimeAgo}</span>
                   </div>
-                  <div className="px-4 pb-4 flex gap-3 items-stretch">
-                    <div className="w-24 h-24 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
-                      {cover ? (
-                        <img src={cover} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <ChefHat size={26} className="text-emerald-300" />
+
+                  {/* Meal body */}
+                  <div className="px-4 pb-3.5">
+                    <div className="flex gap-3">
+                      {/* Thumbnail */}
+                      <div className="w-20 h-20 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
+                        {m.photos.length > 0 ? (
+                          <img src={m.photos[0].url} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <ChefHat size={24} className="text-emerald-400" />
+                          </div>
+                        )}
+                      </div>
+                      {/* Details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-serif font-bold text-sm truncate leading-tight">{m.name}</h3>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full">
+                                {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                              {m.dishes.length > 0 && (
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                                  <UtensilsCrossed size={9} /> {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {m.score > 0 && (
+                            <div className={cn("flex-shrink-0 w-10 h-10 rounded-full bg-white ring-2 flex items-center justify-center", m.score >= 8 ? 'ring-green-500/30' : m.score >= 5 ? 'ring-yellow-500/30' : 'ring-red-500/30')}>
+                              <span className={cn("text-sm font-serif font-bold", scoreColor(m.score))}>{m.score.toFixed(1)}</span>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 flex flex-col justify-center">
-                      <h3 className="font-serif font-bold text-base text-on-surface leading-tight truncate">{m.name}</h3>
-                      {m.description && (
-                        <p className="text-xs text-on-surface/55 mt-1 leading-snug line-clamp-2">{m.description}</p>
-                      )}
-                      <div className="flex items-center flex-wrap gap-1.5 mt-2">
-                        {totalLabel && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700/80 bg-emerald-50 px-1.5 py-0.5 rounded-full">
-                            <Clock size={10} /> {totalLabel}
-                          </span>
+                        {m.description && (
+                          <div className="mt-2 pl-2.5 border-l-2 border-emerald-300/60">
+                            <p className="text-[11px] text-on-surface/55 italic line-clamp-2 leading-snug">{m.description}</p>
+                          </div>
                         )}
-                        {m.difficulty && (
-                          <span className="text-[10px] font-semibold text-on-surface/50 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{m.difficulty}</span>
-                        )}
-                        {ingredientCount > 0 && (
-                          <span className="text-[10px] text-on-surface/40">{ingredientCount} ingredient{ingredientCount !== 1 ? 's' : ''}</span>
-                        )}
-                        {stepCount > 0 && (
-                          <span className="text-[10px] text-on-surface/40">· {stepCount} step{stepCount !== 1 ? 's' : ''}</span>
+                        {m.tags.length > 0 && (
+                          <div className="flex gap-1 mt-2 flex-wrap">
+                            {m.tags.slice(0, 4).map((t) => (
+                              <span key={t} className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{t}</span>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>
-                    <ChevronRight size={16} className="text-on-surface/25 self-center flex-shrink-0" />
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -379,16 +385,20 @@ export const SocialFeed: React.FC = () => {
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
             return (
-              <div key={`meal-${m.id}`} className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden">
+              <div
+                key={`meal-${m.id}`}
+                onClick={() => setActiveFriendRecipe(m)}
+                className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+              >
                 {/* User header */}
                 <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
-                  <Link to={`/user/${getUsername(m.userId)}`}>
+                  <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()}>
                     <div className="w-9 h-9 rounded-full bg-emerald-100 ring-2 ring-emerald-200/50 flex items-center justify-center">
                       <ChefHat size={17} className="text-emerald-600" />
                     </div>
                   </Link>
                   <div className="flex-1 min-w-0">
-                    <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
+                    <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
                     <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">cooked at home</p>
                   </div>
                   <span className="text-[10px] text-on-surface/35 font-medium">{mealTimeAgo}</span>
