@@ -1120,38 +1120,33 @@ export const AddHomeMealModal: React.FC = () => {
                             placeholder="Amount"
                             inputMode="decimal"
                             className="flex-1 min-w-0 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                          {/* Unit dropdown */}
-                          <div className="flex-1 min-w-0 relative">
-                            <button type="button" onClick={() => { setUnitDropdownOpen(!unitDropdownOpen); setUnitSearch(''); }}
-                              className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 flex items-center justify-between gap-1 text-left">
-                              <span className={cn("truncate", newIngredientUnit ? "text-on-surface" : "text-on-surface/35")}>
-                                {newIngredientUnit || 'Unit'}
-                              </span>
-                              <ChevronDown size={14} className="text-on-surface/30 flex-shrink-0" />
-                            </button>
+                          {/* Unit combobox — the field itself becomes the search bar while open. */}
+                          <div className={cn("flex-1 min-w-0 relative", unitDropdownOpen && "z-20")}>
+                            <input
+                              type="text"
+                              value={unitDropdownOpen ? unitSearch : newIngredientUnit}
+                              onFocus={() => { setUnitDropdownOpen(true); setUnitSearch(''); }}
+                              onChange={(e) => { setUnitDropdownOpen(true); setUnitSearch(e.target.value); }}
+                              placeholder="Unit"
+                              className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 pl-4 pr-8 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            />
+                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
                             <AnimatePresence>
                               {unitDropdownOpen && (
                                 <>
-                                  <div className="fixed inset-0 z-10" onClick={() => setUnitDropdownOpen(false)} />
+                                  <div className="fixed inset-0 z-10" onClick={() => { setUnitDropdownOpen(false); setUnitSearch(''); }} />
                                   <motion.div
                                     initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
                                     transition={{ duration: 0.15 }}
                                     className="absolute left-0 right-0 top-full mt-1 bg-white border border-on-surface/10 rounded-xl shadow-lg z-20 overflow-hidden"
                                   >
-                                    <div className="p-2 border-b border-on-surface/6">
-                                      <div className="relative">
-                                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                                        <input type="text" value={unitSearch} onChange={(e) => setUnitSearch(e.target.value)}
-                                          placeholder="Search units..." autoFocus
-                                          className="w-full bg-on-surface/[0.04] rounded-lg pl-7 pr-2 py-1.5 text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                                      </div>
-                                    </div>
                                     <div className="max-h-52 overflow-y-auto" onTouchMove={(e) => e.stopPropagation()}>
                                       {filteredUnits.length === 0 ? (
                                         <p className="px-3 py-4 text-center text-[11px] text-on-surface/30">No matches</p>
                                       ) : (
                                         filteredUnits.map((u) => (
                                           <button key={u || '_none'} type="button"
+                                            onMouseDown={(e) => e.preventDefault()}
                                             onClick={() => { setNewIngredientUnit(u); setUnitDropdownOpen(false); setUnitSearch(''); if (ingredientError) setIngredientError(null); }}
                                             className={cn("w-full text-left px-3 py-2 text-xs font-medium transition-colors border-b border-on-surface/4 last:border-0",
                                               newIngredientUnit === u ? "bg-primary/5 text-primary" : "text-on-surface/70 hover:bg-on-surface/3"
