@@ -117,8 +117,15 @@ const normalizeUnit = (input: string, strict = false): string => {
 
 // Parses "2", "1/2", "1 1/2", "0.5", "1-2" (range uses low end) into a number.
 // Returns null for anything it can't recognize.
+// Matches a decimal number in any of these forms: "1", "1.5", "0.5", ".5".
+// Used by both parseAmount and parseIngredientLine so they agree on what
+// counts as a number.
+const DECIMAL_PATTERN = '(?:\\d+\\.\\d+|\\d+\\.|\\.\\d+|\\d+)';
+
 const parseAmount = (str: string): number | null => {
-  const trimmed = str.trim();
+  // Normalize comma decimal separators ("0,5" → "0.5") so European-style
+  // input works without a special case.
+  const trimmed = str.trim().replace(/,/g, '.');
   if (!trimmed) return null;
   const mixedMatch = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
   if (mixedMatch) {
@@ -135,9 +142,15 @@ const parseAmount = (str: string): number | null => {
     if (!den) return null;
     return num / den;
   }
-  if (/^\d+(?:\.\d+)?$/.test(trimmed)) return parseFloat(trimmed);
-  const rangeMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*-\s*\d+(?:\.\d+)?$/);
-  if (rangeMatch) return parseFloat(rangeMatch[1]);
+  if (new RegExp(`^${DECIMAL_PATTERN}$`).test(trimmed)) {
+    const n = parseFloat(trimmed);
+    return Number.isFinite(n) ? n : null;
+  }
+  const rangeMatch = trimmed.match(new RegExp(`^(${DECIMAL_PATTERN})\\s*-\\s*${DECIMAL_PATTERN}$`));
+  if (rangeMatch) {
+    const n = parseFloat(rangeMatch[1]);
+    return Number.isFinite(n) ? n : null;
+  }
   return null;
 };
 
@@ -188,9 +201,15 @@ const displayAmount = (amount: string): string => {
 
 // Parses a single bulk-paste line into { amount, unit, name }.
 const parseIngredientLine = (raw: string): { name: string; amount: string; unit: string } | null => {
-  const line = raw.trim().replace(/^[-*•·●]\s*/, '').replace(/\s+/g, ' ');
+  // Strip bullets, collapse whitespace, and normalize comma decimals.
+  const line = raw.trim().replace(/^[-*•·●]\s*/, '').replace(/\s+/g, ' ').replace(/(\d),(\d)/g, '$1.$2');
   if (!line) return null;
-  const amountMatch = line.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)\s*(.*)$/);
+  // Leading amount can be a mixed fraction ("1 1/2"), a fraction ("1/2"),
+  // a decimal with or without a leading zero (".5", "0.5", "1.5"), a plain
+  // integer, or a range ("1-2"). The pattern matches any of these.
+  const amountMatch = line.match(
+    new RegExp(`^(\\d+\\s+\\d+/\\d+|\\d+/\\d+|${DECIMAL_PATTERN}(?:\\s*-\\s*${DECIMAL_PATTERN})?)\\s*(.*)$`),
+  );
   if (!amountMatch) {
     return { name: line, amount: '', unit: '' };
   }
