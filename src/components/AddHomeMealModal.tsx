@@ -13,32 +13,183 @@ const HOME_COOKING_TAGS = [
   'Snack', 'Brunch', 'BBQ', 'One-Pot', 'Slow Cooker', 'Air Fryer',
 ];
 
-// Ordered by frequency of use in home cooking. Empty string = no unit (for "1 egg").
-const COOKING_UNITS: string[] = [
-  '', 'cup', 'cups', 'tbsp', 'tsp', 'oz', 'lb', 'g', 'kg', 'ml', 'l',
-  'tablespoon', 'tablespoons', 'teaspoon', 'teaspoons',
-  'ounce', 'ounces', 'pound', 'pounds', 'gram', 'grams', 'kilogram', 'kilograms',
-  'milliliter', 'milliliters', 'liter', 'liters',
-  'fl oz', 'fluid ounce', 'fluid ounces',
-  'pinch', 'dash', 'drop', 'drops', 'handful', 'to taste',
-  'clove', 'cloves', 'slice', 'slices', 'piece', 'pieces',
-  'can', 'cans', 'jar', 'jars', 'package', 'packages', 'pkg',
-  'bunch', 'bunches', 'sprig', 'sprigs', 'head', 'heads', 'stalk', 'stalks', 'stick', 'sticks',
-  'quart', 'quarts', 'qt', 'pint', 'pints', 'pt', 'gallon', 'gallons', 'gal',
-  'mg', 'milligram', 'milligrams',
-  'box', 'boxes', 'bag', 'bags', 'bottle', 'bottles',
-  'inch', 'inches', 'cm',
+// Unit definitions — the dropdown always shows the plural (canonical) form.
+// Aliases cover common user spellings including mistyped/long forms so the
+// bulk paste parser and single-add form can normalize whatever the user typed.
+type UnitDef = {
+  label: string;     // canonical plural form shown in dropdown
+  singular: string;  // singular form used when amount <= 1
+  aliases: string[]; // case-insensitive alias set for fuzzy matching
+};
+
+const UNITS: UnitDef[] = [
+  { label: 'cups', singular: 'cup', aliases: ['cup', 'cups', 'c'] },
+  { label: 'tbsp', singular: 'tbsp', aliases: ['tbsp', 'tbsps', 'tablespoon', 'tablespoons', 'tbl', 'tbls', 'tbs', 'T'] },
+  { label: 'tsp', singular: 'tsp', aliases: ['tsp', 'tsps', 'teaspoon', 'teaspoons', 't'] },
+  { label: 'oz', singular: 'oz', aliases: ['oz', 'ozs', 'ounce', 'ounces'] },
+  { label: 'fl oz', singular: 'fl oz', aliases: ['fl oz', 'fluid ounce', 'fluid ounces', 'floz'] },
+  { label: 'lbs', singular: 'lb', aliases: ['lb', 'lbs', 'pound', 'pounds'] },
+  { label: 'g', singular: 'g', aliases: ['g', 'gram', 'grams', 'gm'] },
+  { label: 'kg', singular: 'kg', aliases: ['kg', 'kilogram', 'kilograms', 'kilo', 'kilos'] },
+  { label: 'mg', singular: 'mg', aliases: ['mg', 'milligram', 'milligrams'] },
+  { label: 'ml', singular: 'ml', aliases: ['ml', 'milliliter', 'milliliters', 'millilitre', 'millilitres'] },
+  { label: 'L', singular: 'L', aliases: ['l', 'liter', 'liters', 'litre', 'litres'] },
+  { label: 'pinches', singular: 'pinch', aliases: ['pinch', 'pinches'] },
+  { label: 'dashes', singular: 'dash', aliases: ['dash', 'dashes'] },
+  { label: 'drops', singular: 'drop', aliases: ['drop', 'drops'] },
+  { label: 'handfuls', singular: 'handful', aliases: ['handful', 'handfuls'] },
+  { label: 'cloves', singular: 'clove', aliases: ['clove', 'cloves'] },
+  { label: 'slices', singular: 'slice', aliases: ['slice', 'slices'] },
+  { label: 'pieces', singular: 'piece', aliases: ['piece', 'pieces', 'pc', 'pcs'] },
+  { label: 'cans', singular: 'can', aliases: ['can', 'cans'] },
+  { label: 'jars', singular: 'jar', aliases: ['jar', 'jars'] },
+  { label: 'packages', singular: 'package', aliases: ['package', 'packages', 'pkg', 'pkgs', 'pack', 'packs'] },
+  { label: 'bunches', singular: 'bunch', aliases: ['bunch', 'bunches'] },
+  { label: 'sprigs', singular: 'sprig', aliases: ['sprig', 'sprigs'] },
+  { label: 'heads', singular: 'head', aliases: ['head', 'heads'] },
+  { label: 'stalks', singular: 'stalk', aliases: ['stalk', 'stalks'] },
+  { label: 'sticks', singular: 'stick', aliases: ['stick', 'sticks'] },
+  { label: 'quarts', singular: 'quart', aliases: ['quart', 'quarts', 'qt', 'qts'] },
+  { label: 'pints', singular: 'pint', aliases: ['pint', 'pints', 'pt', 'pts'] },
+  { label: 'gallons', singular: 'gallon', aliases: ['gallon', 'gallons', 'gal', 'gals'] },
+  { label: 'boxes', singular: 'box', aliases: ['box', 'boxes'] },
+  { label: 'bags', singular: 'bag', aliases: ['bag', 'bags'] },
+  { label: 'bottles', singular: 'bottle', aliases: ['bottle', 'bottles'] },
+  { label: 'inches', singular: 'inch', aliases: ['inch', 'inches', 'in'] },
+  { label: 'cm', singular: 'cm', aliases: ['cm', 'centimeter', 'centimeters'] },
 ];
 
-// Lowercase set for fast lookup when parsing bulk input.
-const UNIT_LOOKUP = new Set<string>(COOKING_UNITS.filter((u) => u).map((u) => u.toLowerCase()));
+// Returns singular form for amounts <= 1 (and > 0), otherwise the plural label.
+// Amount == null (no amount given) uses the plural label.
+const displayUnit = (label: string, amount: number | null): string => {
+  if (!label) return '';
+  const def = UNITS.find((u) => u.label === label);
+  if (!def) return label;
+  if (amount !== null && amount > 0 && amount <= 1) return def.singular;
+  return def.label;
+};
 
-// Parses a single line like "2 cups all-purpose flour" into { amount, unit, name }.
-// Falls back gracefully when amount or unit is missing ("salt to taste", "1 egg").
+// Classic iterative Levenshtein with O(min(m,n)) memory.
+const levenshtein = (a: string, b: string): number => {
+  if (a === b) return 0;
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const prev = new Array<number>(n + 1);
+  const curr = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= n; j++) prev[j] = curr[j];
+  }
+  return prev[n];
+};
+
+// Map any input (exact alias, mistype, singular/plural, long form) to a canonical
+// plural label. Returns '' if nothing reasonable matches. `strict` disables fuzzy
+// matching — used by the line parser to avoid turning ingredient words into units.
+const normalizeUnit = (input: string, strict = false): string => {
+  const cleaned = input.trim().toLowerCase().replace(/[.,;:]+$/, '');
+  if (!cleaned) return '';
+  for (const u of UNITS) {
+    if (u.aliases.some((a) => a.toLowerCase() === cleaned)) return u.label;
+  }
+  if (strict) return '';
+  // Fuzzy fallback: find closest alias, require a small distance relative to length.
+  let best: UnitDef | null = null;
+  let bestDist = Infinity;
+  for (const u of UNITS) {
+    for (const a of u.aliases) {
+      const d = levenshtein(cleaned, a.toLowerCase());
+      if (d < bestDist) { bestDist = d; best = u; }
+    }
+  }
+  if (!best) return '';
+  const threshold = cleaned.length <= 3 ? 1 : cleaned.length <= 5 ? 1 : 2;
+  if (bestDist <= threshold) return best.label;
+  return '';
+};
+
+// Parses "2", "1/2", "1 1/2", "0.5", "1-2" (range uses low end) into a number.
+// Returns null for anything it can't recognize.
+const parseAmount = (str: string): number | null => {
+  const trimmed = str.trim();
+  if (!trimmed) return null;
+  const mixedMatch = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (mixedMatch) {
+    const whole = parseInt(mixedMatch[1], 10);
+    const num = parseInt(mixedMatch[2], 10);
+    const den = parseInt(mixedMatch[3], 10);
+    if (!den) return null;
+    return whole + num / den;
+  }
+  const fracMatch = trimmed.match(/^(\d+)\/(\d+)$/);
+  if (fracMatch) {
+    const num = parseInt(fracMatch[1], 10);
+    const den = parseInt(fracMatch[2], 10);
+    if (!den) return null;
+    return num / den;
+  }
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) return parseFloat(trimmed);
+  const rangeMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*-\s*\d+(?:\.\d+)?$/);
+  if (rangeMatch) return parseFloat(rangeMatch[1]);
+  return null;
+};
+
+// Converts a decimal number to a display-friendly fraction like "1 1/2".
+// Uses common cooking fractions (eighths, thirds, quarters).
+const toFraction = (value: number): string => {
+  if (!Number.isFinite(value) || value < 0) return '';
+  if (value === 0) return '0';
+  const whole = Math.floor(value);
+  const frac = value - whole;
+  if (frac < 0.01) return String(whole);
+  const candidates: { value: number; str: string }[] = [
+    { value: 1 / 8, str: '1/8' },
+    { value: 1 / 6, str: '1/6' },
+    { value: 1 / 5, str: '1/5' },
+    { value: 1 / 4, str: '1/4' },
+    { value: 1 / 3, str: '1/3' },
+    { value: 3 / 8, str: '3/8' },
+    { value: 2 / 5, str: '2/5' },
+    { value: 1 / 2, str: '1/2' },
+    { value: 3 / 5, str: '3/5' },
+    { value: 5 / 8, str: '5/8' },
+    { value: 2 / 3, str: '2/3' },
+    { value: 3 / 4, str: '3/4' },
+    { value: 4 / 5, str: '4/5' },
+    { value: 5 / 6, str: '5/6' },
+    { value: 7 / 8, str: '7/8' },
+  ];
+  let best = candidates[0];
+  let bestDiff = Math.abs(frac - best.value);
+  for (const c of candidates) {
+    const diff = Math.abs(frac - c.value);
+    if (diff < bestDiff) { best = c; bestDiff = diff; }
+  }
+  // If rounding up to the next whole is closer than any fraction, just round up.
+  if (Math.abs(1 - frac) < bestDiff) return String(whole + 1);
+  if (whole === 0) return best.str;
+  return `${whole} ${best.str}`;
+};
+
+// Normalizes a stored amount string for display (e.g. "0.5" → "1/2").
+const displayAmount = (amount: string): string => {
+  if (!amount) return '';
+  const parsed = parseAmount(amount);
+  if (parsed === null) return amount;
+  return toFraction(parsed);
+};
+
+// Parses a single bulk-paste line into { amount, unit, name }.
 const parseIngredientLine = (raw: string): { name: string; amount: string; unit: string } | null => {
   const line = raw.trim().replace(/^[-*•·●]\s*/, '').replace(/\s+/g, ' ');
   if (!line) return null;
-  // Leading amount: integers, decimals, fractions, mixed ("1 1/2"), ranges ("1-2").
   const amountMatch = line.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)\s*(.*)$/);
   if (!amountMatch) {
     return { name: line, amount: '', unit: '' };
@@ -46,16 +197,16 @@ const parseIngredientLine = (raw: string): { name: string; amount: string; unit:
   const amount = amountMatch[1].replace(/\s*-\s*/, '-');
   const rest = amountMatch[2];
   if (!rest) return { name: '', amount, unit: '' };
-  // Try to match a unit at the start of rest. Try two-word units first (e.g. "fl oz").
   const words = rest.split(' ');
-  const twoWord = words.slice(0, 2).join(' ').toLowerCase().replace(/[.,;:]$/, '');
-  if (words.length >= 2 && UNIT_LOOKUP.has(twoWord)) {
-    return { amount, unit: words.slice(0, 2).join(' '), name: words.slice(2).join(' ') };
+  // Try a two-word unit first ("fl oz", "fluid ounces"), then one-word.
+  if (words.length >= 2) {
+    const twoWord = `${words[0]} ${words[1]}`;
+    const matched = normalizeUnit(twoWord);
+    if (matched) return { amount, unit: matched, name: words.slice(2).join(' ') };
   }
-  const oneWord = words[0].toLowerCase().replace(/[.,;:]$/, '');
-  if (UNIT_LOOKUP.has(oneWord)) {
-    return { amount, unit: words[0].replace(/[.,;:]$/, ''), name: words.slice(1).join(' ') };
-  }
+  const firstWord = words[0].replace(/[.,;:]$/, '');
+  const matched = normalizeUnit(firstWord);
+  if (matched) return { amount, unit: matched, name: words.slice(1).join(' ') };
   return { amount, unit: '', name: rest };
 };
 
@@ -99,6 +250,9 @@ export const AddHomeMealModal: React.FC = () => {
   const [unitSearch, setUnitSearch] = useState('');
   const [ingredientMode, setIngredientMode] = useState<'single' | 'bulk'>('single');
   const [bulkIngredientsText, setBulkIngredientsText] = useState('');
+  const [editingIngredientIdx, setEditingIngredientIdx] = useState<number | null>(null);
+  const [ingredientError, setIngredientError] = useState<string | null>(null);
+  const [bulkErrors, setBulkErrors] = useState<string[]>([]);
   const [newStep, setNewStep] = useState('');
 
   // Dish editing state
@@ -145,6 +299,9 @@ export const AddHomeMealModal: React.FC = () => {
       setUnitSearch('');
       setIngredientMode('single');
       setBulkIngredientsText('');
+      setEditingIngredientIdx(null);
+      setIngredientError(null);
+      setBulkErrors([]);
       setNewStep('');
       setEditingDishId(null);
       setDishName('');
@@ -190,38 +347,133 @@ export const AddHomeMealModal: React.FC = () => {
     e.target.value = '';
   };
 
-  const addIngredient = () => {
-    if (!newIngredientName.trim()) return;
-    setIngredients((prev) => [...prev, { name: newIngredientName.trim(), amount: newIngredientAmount.trim(), unit: newIngredientUnit.trim() }]);
+  // Builds a normalized RecipeIngredient from form state, returning either the
+  // ingredient or a user-facing error message. Validates that amount (if given)
+  // is numeric and converts it to a fraction; normalizes the unit label and
+  // picks singular/plural based on the amount.
+  const buildIngredient = (
+    name: string,
+    amountRaw: string,
+    unitRaw: string,
+  ): { ok: true; ingredient: RecipeIngredient } | { ok: false; error: string } => {
+    if (!name.trim()) return { ok: false, error: 'Ingredient name is required.' };
+    const amtTrim = amountRaw.trim();
+    let amountNum: number | null = null;
+    let finalAmount = '';
+    if (amtTrim) {
+      amountNum = parseAmount(amtTrim);
+      if (amountNum === null) {
+        return { ok: false, error: `"${amtTrim}" is not a valid number.` };
+      }
+      finalAmount = toFraction(amountNum);
+    }
+    const unitTrim = unitRaw.trim();
+    let finalUnit = '';
+    if (unitTrim) {
+      const normalized = normalizeUnit(unitTrim);
+      if (!normalized) {
+        return { ok: false, error: `"${unitTrim}" is not a recognized unit.` };
+      }
+      finalUnit = displayUnit(normalized, amountNum);
+    }
+    return {
+      ok: true,
+      ingredient: { name: name.trim(), amount: finalAmount, unit: finalUnit },
+    };
+  };
+
+  const saveIngredient = () => {
+    const result = buildIngredient(newIngredientName, newIngredientAmount, newIngredientUnit);
+    if (!result.ok) {
+      setIngredientError(result.error);
+      return;
+    }
+    setIngredients((prev) => {
+      if (editingIngredientIdx !== null) {
+        return prev.map((ing, i) => (i === editingIngredientIdx ? result.ingredient : ing));
+      }
+      return [...prev, result.ingredient];
+    });
     setNewIngredientName('');
     setNewIngredientAmount('');
     setNewIngredientUnit('');
+    setEditingIngredientIdx(null);
+    setIngredientError(null);
+  };
+
+  const startEditIngredient = (idx: number) => {
+    const ing = ingredients[idx];
+    if (!ing) return;
+    setNewIngredientName(ing.name);
+    setNewIngredientAmount(ing.amount);
+    // Normalize the stored unit back to its plural dropdown label so the
+    // dropdown value is selectable; fall back to the raw string if unknown.
+    setNewIngredientUnit(normalizeUnit(ing.unit) || '');
+    setEditingIngredientIdx(idx);
+    setIngredientError(null);
+    setIngredientMode('single');
+  };
+
+  const cancelEditIngredient = () => {
+    setNewIngredientName('');
+    setNewIngredientAmount('');
+    setNewIngredientUnit('');
+    setEditingIngredientIdx(null);
+    setIngredientError(null);
   };
 
   const addBulkIngredients = () => {
     const lines = bulkIngredientsText.split('\n');
-    const parsed: RecipeIngredient[] = [];
-    for (const line of lines) {
-      const result = parseIngredientLine(line);
-      if (result && (result.name || result.amount)) {
-        parsed.push({
-          name: result.name.trim(),
-          amount: result.amount.trim(),
-          unit: result.unit.trim(),
-        });
+    const parsedIngredients: RecipeIngredient[] = [];
+    const remainingLines: string[] = [];
+    const errors: string[] = [];
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const parsed = parseIngredientLine(trimmed);
+      if (!parsed || (!parsed.name && !parsed.amount)) {
+        errors.push(`Line ${idx + 1}: couldn't parse "${trimmed}".`);
+        remainingLines.push(line);
+        return;
       }
+      const result = buildIngredient(parsed.name, parsed.amount, parsed.unit);
+      if (!result.ok) {
+        errors.push(`Line ${idx + 1}: ${result.error} ("${trimmed}")`);
+        remainingLines.push(line);
+        return;
+      }
+      parsedIngredients.push(result.ingredient);
+    });
+    if (parsedIngredients.length > 0) {
+      setIngredients((prev) => [...prev, ...parsedIngredients]);
     }
-    if (parsed.length === 0) return;
-    setIngredients((prev) => [...prev, ...parsed]);
-    setBulkIngredientsText('');
+    setBulkIngredientsText(remainingLines.join('\n'));
+    setBulkErrors(errors);
   };
 
-  const removeIngredient = (idx: number) => setIngredients((prev) => prev.filter((_, i) => i !== idx));
+  const removeIngredient = (idx: number) => {
+    setIngredients((prev) => prev.filter((_, i) => i !== idx));
+    // If we were editing this row, clear the form.
+    if (editingIngredientIdx === idx) cancelEditIngredient();
+    else if (editingIngredientIdx !== null && editingIngredientIdx > idx) {
+      setEditingIngredientIdx(editingIngredientIdx - 1);
+    }
+  };
 
   const filteredUnits = useMemo(() => {
-    if (!unitSearch.trim()) return COOKING_UNITS;
+    const labels = ['', ...UNITS.map((u) => u.label)];
+    if (!unitSearch.trim()) return labels;
     const q = unitSearch.toLowerCase();
-    return COOKING_UNITS.filter((u) => u.toLowerCase().includes(q));
+    // Match on label, singular form, or any alias so search works for
+    // "teaspoon" → tsp, "pound" → lbs, etc.
+    return labels.filter((label) => {
+      if (label === '') return '(none)'.includes(q);
+      const def = UNITS.find((u) => u.label === label);
+      if (!def) return label.toLowerCase().includes(q);
+      if (def.label.toLowerCase().includes(q)) return true;
+      if (def.singular.toLowerCase().includes(q)) return true;
+      return def.aliases.some((a) => a.toLowerCase().includes(q));
+    });
   }, [unitSearch]);
 
   const addStep = () => {
@@ -808,31 +1060,46 @@ export const AddHomeMealModal: React.FC = () => {
               {page === 'ingredients' && (
                 <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
-                    {/* Mode toggle */}
-                    <div className="flex gap-2 mb-4 p-1 bg-on-surface/[0.04] rounded-xl">
-                      <button onClick={() => setIngredientMode('single')}
-                        className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
-                          ingredientMode === 'single' ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40"
-                        )}>
-                        <Plus size={13} className="inline mr-1" />Add One
-                      </button>
-                      <button onClick={() => setIngredientMode('bulk')}
-                        className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
-                          ingredientMode === 'bulk' ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40"
-                        )}>
-                        <ClipboardPaste size={13} className="inline mr-1" />Paste List
-                      </button>
-                    </div>
+                    {/* Mode toggle — hidden while editing an existing ingredient */}
+                    {editingIngredientIdx === null && (
+                      <div className="flex gap-2 mb-4 p-1 bg-on-surface/[0.04] rounded-xl">
+                        <button onClick={() => { setIngredientMode('single'); setBulkErrors([]); }}
+                          className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
+                            ingredientMode === 'single' ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40"
+                          )}>
+                          <Plus size={13} className="inline mr-1" />Add One
+                        </button>
+                        <button onClick={() => { setIngredientMode('bulk'); setIngredientError(null); }}
+                          className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
+                            ingredientMode === 'bulk' ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40"
+                          )}>
+                          <ClipboardPaste size={13} className="inline mr-1" />Paste List
+                        </button>
+                      </div>
+                    )}
 
                     {ingredientMode === 'single' ? (
                       /* Single-ingredient form */
-                      <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
-                        <input type="text" value={newIngredientName} onChange={(e) => setNewIngredientName(e.target.value)}
+                      <div className={cn(
+                        "border rounded-2xl p-4 mb-5",
+                        editingIngredientIdx !== null
+                          ? "bg-primary/5 border-primary/25"
+                          : "bg-on-surface/[0.03] border-on-surface/8"
+                      )}>
+                        {editingIngredientIdx !== null && (
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-primary/70 mb-2">
+                            Editing ingredient
+                          </p>
+                        )}
+                        <input type="text" value={newIngredientName}
+                          onChange={(e) => { setNewIngredientName(e.target.value); if (ingredientError) setIngredientError(null); }}
                           placeholder="Ingredient name" autoFocus
                           className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5" />
                         <div className="flex gap-2.5 mb-3">
-                          <input type="text" value={newIngredientAmount} onChange={(e) => setNewIngredientAmount(e.target.value)}
+                          <input type="text" value={newIngredientAmount}
+                            onChange={(e) => { setNewIngredientAmount(e.target.value); if (ingredientError) setIngredientError(null); }}
                             placeholder="Amount"
+                            inputMode="decimal"
                             className="flex-1 min-w-0 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                           {/* Unit dropdown */}
                           <div className="flex-1 min-w-0 relative">
@@ -866,7 +1133,7 @@ export const AddHomeMealModal: React.FC = () => {
                                       ) : (
                                         filteredUnits.map((u) => (
                                           <button key={u || '_none'} type="button"
-                                            onClick={() => { setNewIngredientUnit(u); setUnitDropdownOpen(false); setUnitSearch(''); }}
+                                            onClick={() => { setNewIngredientUnit(u); setUnitDropdownOpen(false); setUnitSearch(''); if (ingredientError) setIngredientError(null); }}
                                             className={cn("w-full text-left px-3 py-2 text-xs font-medium transition-colors border-b border-on-surface/4 last:border-0",
                                               newIngredientUnit === u ? "bg-primary/5 text-primary" : "text-on-surface/70 hover:bg-on-surface/3"
                                             )}>
@@ -881,21 +1148,56 @@ export const AddHomeMealModal: React.FC = () => {
                             </AnimatePresence>
                           </div>
                         </div>
-                        <button onClick={addIngredient} disabled={!newIngredientName.trim()}
-                          className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
-                          <Plus size={14} className="inline mr-1" />Add Ingredient
-                        </button>
+                        {ingredientError && (
+                          <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-[11px] text-red-600 font-medium">{ingredientError}</p>
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          {editingIngredientIdx !== null && (
+                            <button onClick={cancelEditIngredient}
+                              className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-on-surface/50 border border-on-surface/10 hover:text-on-surface hover:border-on-surface/20 transition-all">
+                              Cancel
+                            </button>
+                          )}
+                          <button onClick={saveIngredient} disabled={!newIngredientName.trim()}
+                            className={cn("py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-30",
+                              editingIngredientIdx !== null
+                                ? "flex-1 bg-primary text-white hover:bg-primary/90"
+                                : "w-full text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30"
+                            )}>
+                            {editingIngredientIdx !== null ? (
+                              <><Check size={14} className="inline mr-1" />Update</>
+                            ) : (
+                              <><Plus size={14} className="inline mr-1" />Add Ingredient</>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       /* Bulk paste form */
                       <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
                         <p className="text-[11px] text-on-surface/45 mb-2 leading-relaxed">
-                          Paste one ingredient per line. We&apos;ll auto-detect the amount and unit.
+                          Paste one ingredient per line as <span className="font-semibold">amount unit name</span>.
+                          Amounts must be numbers; units get auto-corrected.
                         </p>
-                        <textarea value={bulkIngredientsText} onChange={(e) => setBulkIngredientsText(e.target.value)}
-                          placeholder={'2 cups flour\n1 tsp salt\n3 large eggs\n1/2 cup milk'}
+                        <textarea value={bulkIngredientsText}
+                          onChange={(e) => { setBulkIngredientsText(e.target.value); if (bulkErrors.length) setBulkErrors([]); }}
+                          placeholder={'2 cups flour\n1 tsp salt\n3 eggs\n1/2 cup milk'}
                           rows={6} autoFocus
                           className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none mb-3 font-mono leading-relaxed" />
+                        {bulkErrors.length > 0 && (
+                          <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-[11px] font-bold text-red-700 mb-1">
+                              {bulkErrors.length} line{bulkErrors.length !== 1 ? 's' : ''} need{bulkErrors.length === 1 ? 's' : ''} editing:
+                            </p>
+                            <ul className="space-y-0.5">
+                              {bulkErrors.map((err, i) => (
+                                <li key={i} className="text-[11px] text-red-600 leading-snug">{err}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                         <button onClick={addBulkIngredients} disabled={!bulkIngredientsText.trim()}
                           className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
                           <Plus size={14} className="inline mr-1" />Add All
@@ -903,7 +1205,7 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Ingredient list */}
+                    {/* Ingredient list — rows are tappable to edit */}
                     {ingredients.length === 0 ? (
                       <div className="text-center py-10">
                         <Hash size={28} className="mx-auto text-on-surface/15 mb-2" />
@@ -911,15 +1213,28 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     ) : (
                       <div className="space-y-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1.5">
+                          Added ({ingredients.length}) · tap to edit
+                        </p>
                         {ingredients.map((ing, idx) => (
-                          <div key={idx} className="flex items-center gap-3 px-3 py-2.5 bg-white border border-on-surface/8 rounded-xl">
-                            <div className="flex-1 min-w-0">
+                          <div key={idx}
+                            className={cn(
+                              "flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors",
+                              editingIngredientIdx === idx
+                                ? "bg-primary/5 border-primary/25"
+                                : "bg-white border-on-surface/8 hover:border-on-surface/15"
+                            )}
+                          >
+                            <button onClick={() => startEditIngredient(idx)}
+                              className="flex-1 min-w-0 text-left">
                               <p className="text-sm font-medium text-on-surface/80 truncate">{ing.name}</p>
                               {(ing.amount || ing.unit) && (
-                                <p className="text-[11px] text-on-surface/40">{ing.amount} {ing.unit}</p>
+                                <p className="text-[11px] text-on-surface/40">{displayAmount(ing.amount)} {ing.unit}</p>
                               )}
-                            </div>
-                            <button onClick={() => removeIngredient(idx)} className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors">
+                            </button>
+                            <button onClick={() => removeIngredient(idx)}
+                              className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors flex-shrink-0"
+                              aria-label="Remove ingredient">
                               <X size={14} />
                             </button>
                           </div>
@@ -927,7 +1242,17 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <BottomBtn label="Done" onClick={() => setPage('main')} />
+                  <BottomBtn
+                    label={editingIngredientIdx !== null ? 'Update' : 'Done'}
+                    onClick={() => {
+                      if (editingIngredientIdx !== null) {
+                        saveIngredient();
+                      } else {
+                        setPage('main');
+                      }
+                    }}
+                    disabled={editingIngredientIdx !== null && !newIngredientName.trim()}
+                  />
                 </SubPage>
               )}
 
