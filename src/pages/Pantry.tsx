@@ -3619,10 +3619,10 @@ export const Pantry: React.FC = () => {
 
   // Hide bottom nav when filter/city/cuisine sheets are open
   useEffect(() => {
-    const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen || showHomeCooking;
+    const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen;
     setHideBottomNav(anyOpen);
     return () => setHideBottomNav(false);
-  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, showHomeCooking, setHideBottomNav]);
+  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, setHideBottomNav]);
 
   const {
     lists, createList,
