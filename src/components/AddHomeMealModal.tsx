@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, CalendarDays, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, GripVertical, Star, BookOpen, Clock, Flame, Users, Hash, FileText } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, GripVertical, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { Calendar } from './RatingShared';
 import { useRecipes } from '../contexts/RecipesContext';
 
 const HOME_COOKING_TAGS = [
@@ -14,7 +13,53 @@ const HOME_COOKING_TAGS = [
   'Snack', 'Brunch', 'BBQ', 'One-Pot', 'Slow Cooker', 'Air Fryer',
 ];
 
-type Page = 'main' | 'notes' | 'tags' | 'photos' | 'date' | 'dishes' | 'ingredients' | 'steps';
+// Ordered by frequency of use in home cooking. Empty string = no unit (for "1 egg").
+const COOKING_UNITS: string[] = [
+  '', 'cup', 'cups', 'tbsp', 'tsp', 'oz', 'lb', 'g', 'kg', 'ml', 'l',
+  'tablespoon', 'tablespoons', 'teaspoon', 'teaspoons',
+  'ounce', 'ounces', 'pound', 'pounds', 'gram', 'grams', 'kilogram', 'kilograms',
+  'milliliter', 'milliliters', 'liter', 'liters',
+  'fl oz', 'fluid ounce', 'fluid ounces',
+  'pinch', 'dash', 'drop', 'drops', 'handful', 'to taste',
+  'clove', 'cloves', 'slice', 'slices', 'piece', 'pieces',
+  'can', 'cans', 'jar', 'jars', 'package', 'packages', 'pkg',
+  'bunch', 'bunches', 'sprig', 'sprigs', 'head', 'heads', 'stalk', 'stalks', 'stick', 'sticks',
+  'quart', 'quarts', 'qt', 'pint', 'pints', 'pt', 'gallon', 'gallons', 'gal',
+  'mg', 'milligram', 'milligrams',
+  'box', 'boxes', 'bag', 'bags', 'bottle', 'bottles',
+  'inch', 'inches', 'cm',
+];
+
+// Lowercase set for fast lookup when parsing bulk input.
+const UNIT_LOOKUP = new Set<string>(COOKING_UNITS.filter((u) => u).map((u) => u.toLowerCase()));
+
+// Parses a single line like "2 cups all-purpose flour" into { amount, unit, name }.
+// Falls back gracefully when amount or unit is missing ("salt to taste", "1 egg").
+const parseIngredientLine = (raw: string): { name: string; amount: string; unit: string } | null => {
+  const line = raw.trim().replace(/^[-*•·●]\s*/, '').replace(/\s+/g, ' ');
+  if (!line) return null;
+  // Leading amount: integers, decimals, fractions, mixed ("1 1/2"), ranges ("1-2").
+  const amountMatch = line.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?)\s*(.*)$/);
+  if (!amountMatch) {
+    return { name: line, amount: '', unit: '' };
+  }
+  const amount = amountMatch[1].replace(/\s*-\s*/, '-');
+  const rest = amountMatch[2];
+  if (!rest) return { name: '', amount, unit: '' };
+  // Try to match a unit at the start of rest. Try two-word units first (e.g. "fl oz").
+  const words = rest.split(' ');
+  const twoWord = words.slice(0, 2).join(' ').toLowerCase().replace(/[.,;:]$/, '');
+  if (words.length >= 2 && UNIT_LOOKUP.has(twoWord)) {
+    return { amount, unit: words.slice(0, 2).join(' '), name: words.slice(2).join(' ') };
+  }
+  const oneWord = words[0].toLowerCase().replace(/[.,;:]$/, '');
+  if (UNIT_LOOKUP.has(oneWord)) {
+    return { amount, unit: words[0].replace(/[.,;:]$/, ''), name: words.slice(1).join(' ') };
+  }
+  return { amount, unit: '', name: rest };
+};
+
+type Page = 'main' | 'tags' | 'photos' | 'dishes' | 'ingredients' | 'steps';
 
 export const AddHomeMealModal: React.FC = () => {
   const {
@@ -50,6 +95,10 @@ export const AddHomeMealModal: React.FC = () => {
   const [newIngredientName, setNewIngredientName] = useState('');
   const [newIngredientAmount, setNewIngredientAmount] = useState('');
   const [newIngredientUnit, setNewIngredientUnit] = useState('');
+  const [unitDropdownOpen, setUnitDropdownOpen] = useState(false);
+  const [unitSearch, setUnitSearch] = useState('');
+  const [ingredientMode, setIngredientMode] = useState<'single' | 'bulk'>('single');
+  const [bulkIngredientsText, setBulkIngredientsText] = useState('');
   const [newStep, setNewStep] = useState('');
 
   // Dish editing state
@@ -92,6 +141,10 @@ export const AddHomeMealModal: React.FC = () => {
       setNewIngredientName('');
       setNewIngredientAmount('');
       setNewIngredientUnit('');
+      setUnitDropdownOpen(false);
+      setUnitSearch('');
+      setIngredientMode('single');
+      setBulkIngredientsText('');
       setNewStep('');
       setEditingDishId(null);
       setDishName('');
@@ -145,7 +198,31 @@ export const AddHomeMealModal: React.FC = () => {
     setNewIngredientUnit('');
   };
 
+  const addBulkIngredients = () => {
+    const lines = bulkIngredientsText.split('\n');
+    const parsed: RecipeIngredient[] = [];
+    for (const line of lines) {
+      const result = parseIngredientLine(line);
+      if (result && (result.name || result.amount)) {
+        parsed.push({
+          name: result.name.trim(),
+          amount: result.amount.trim(),
+          unit: result.unit.trim(),
+        });
+      }
+    }
+    if (parsed.length === 0) return;
+    setIngredients((prev) => [...prev, ...parsed]);
+    setBulkIngredientsText('');
+  };
+
   const removeIngredient = (idx: number) => setIngredients((prev) => prev.filter((_, i) => i !== idx));
+
+  const filteredUnits = useMemo(() => {
+    if (!unitSearch.trim()) return COOKING_UNITS;
+    const q = unitSearch.toLowerCase();
+    return COOKING_UNITS.filter((u) => u.toLowerCase().includes(q));
+  }, [unitSearch]);
 
   const addStep = () => {
     if (!newStep.trim()) return;
@@ -168,11 +245,7 @@ export const AddHomeMealModal: React.FC = () => {
         newPhotos.push({ url: compressed, caption: '', isFavorite: false });
       } catch { /* skip failed photos */ }
     }
-    setPhotos((prev) => {
-      const updated = [...prev, ...newPhotos];
-      setTimeout(() => setPage('photos'), 0);
-      return updated;
-    });
+    setPhotos((prev) => [...prev, ...newPhotos]);
     e.target.value = '';
   };
 
@@ -291,10 +364,8 @@ export const AddHomeMealModal: React.FC = () => {
   const hasDishes = dishes.length > 0;
   const hasTags = selectedTags.length > 0;
   const hasPhotos = photos.length > 0;
-  const hasDate = visitDate !== '';
   const hasIngredients = ingredients.length > 0;
   const hasSteps = steps.length > 0;
-  const dateLabel = hasDate ? new Date(visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined;
 
   const filteredTags = useMemo(() => {
     if (!tagSearch.trim()) return HOME_COOKING_TAGS;
@@ -519,13 +590,6 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Additional details */}
-                    <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <div className="space-y-2">
-                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
-                      </div>
-                    </div>
-
                     {/* Public/Private toggle */}
                     <div className="border-t border-on-surface/6 pt-3 pb-1">
                       <button
@@ -573,16 +637,6 @@ export const AddHomeMealModal: React.FC = () => {
                     )}
                   </div>
                 </motion.div>
-              )}
-
-              {/* ═══════════ DATE ═══════════ */}
-              {page === 'date' && (
-                <SubPage key="date" onBack={() => setPage('main')} title="Date Cooked">
-                  <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-                    <Calendar value={visitDate} onChange={setVisitDate} onClear={() => setVisitDate('')} />
-                  </div>
-                  <BottomBtn label="Done" onClick={() => setPage('main')} />
-                </SubPage>
               )}
 
               {/* ═══════════ DISHES ═══════════ */}
@@ -754,24 +808,100 @@ export const AddHomeMealModal: React.FC = () => {
               {page === 'ingredients' && (
                 <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
-                    {/* Add ingredient form */}
-                    <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
-                      <input type="text" value={newIngredientName} onChange={(e) => setNewIngredientName(e.target.value)}
-                        placeholder="Ingredient name" autoFocus
-                        className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5" />
-                      <div className="flex gap-2.5 mb-3">
-                        <input type="text" value={newIngredientAmount} onChange={(e) => setNewIngredientAmount(e.target.value)}
-                          placeholder="Amount"
-                          className="flex-1 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                        <input type="text" value={newIngredientUnit} onChange={(e) => setNewIngredientUnit(e.target.value)}
-                          placeholder="Unit (cups, g...)"
-                          className="flex-1 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                      </div>
-                      <button onClick={addIngredient} disabled={!newIngredientName.trim()}
-                        className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
-                        <Plus size={14} className="inline mr-1" />Add Ingredient
+                    {/* Mode toggle */}
+                    <div className="flex gap-2 mb-4 p-1 bg-on-surface/[0.04] rounded-xl">
+                      <button onClick={() => setIngredientMode('single')}
+                        className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
+                          ingredientMode === 'single' ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40"
+                        )}>
+                        <Plus size={13} className="inline mr-1" />Add One
+                      </button>
+                      <button onClick={() => setIngredientMode('bulk')}
+                        className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
+                          ingredientMode === 'bulk' ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40"
+                        )}>
+                        <ClipboardPaste size={13} className="inline mr-1" />Paste List
                       </button>
                     </div>
+
+                    {ingredientMode === 'single' ? (
+                      /* Single-ingredient form */
+                      <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
+                        <input type="text" value={newIngredientName} onChange={(e) => setNewIngredientName(e.target.value)}
+                          placeholder="Ingredient name" autoFocus
+                          className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5" />
+                        <div className="flex gap-2.5 mb-3">
+                          <input type="text" value={newIngredientAmount} onChange={(e) => setNewIngredientAmount(e.target.value)}
+                            placeholder="Amount"
+                            className="flex-1 min-w-0 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          {/* Unit dropdown */}
+                          <div className="flex-1 min-w-0 relative">
+                            <button type="button" onClick={() => { setUnitDropdownOpen(!unitDropdownOpen); setUnitSearch(''); }}
+                              className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 flex items-center justify-between gap-1 text-left">
+                              <span className={cn("truncate", newIngredientUnit ? "text-on-surface" : "text-on-surface/35")}>
+                                {newIngredientUnit || 'Unit'}
+                              </span>
+                              <ChevronDown size={14} className="text-on-surface/30 flex-shrink-0" />
+                            </button>
+                            <AnimatePresence>
+                              {unitDropdownOpen && (
+                                <>
+                                  <div className="fixed inset-0 z-10" onClick={() => setUnitDropdownOpen(false)} />
+                                  <motion.div
+                                    initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                                    transition={{ duration: 0.15 }}
+                                    className="absolute left-0 right-0 top-full mt-1 bg-white border border-on-surface/10 rounded-xl shadow-lg z-20 overflow-hidden"
+                                  >
+                                    <div className="p-2 border-b border-on-surface/6">
+                                      <div className="relative">
+                                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                                        <input type="text" value={unitSearch} onChange={(e) => setUnitSearch(e.target.value)}
+                                          placeholder="Search units..." autoFocus
+                                          className="w-full bg-on-surface/[0.04] rounded-lg pl-7 pr-2 py-1.5 text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                                      </div>
+                                    </div>
+                                    <div className="max-h-52 overflow-y-auto" onTouchMove={(e) => e.stopPropagation()}>
+                                      {filteredUnits.length === 0 ? (
+                                        <p className="px-3 py-4 text-center text-[11px] text-on-surface/30">No matches</p>
+                                      ) : (
+                                        filteredUnits.map((u) => (
+                                          <button key={u || '_none'} type="button"
+                                            onClick={() => { setNewIngredientUnit(u); setUnitDropdownOpen(false); setUnitSearch(''); }}
+                                            className={cn("w-full text-left px-3 py-2 text-xs font-medium transition-colors border-b border-on-surface/4 last:border-0",
+                                              newIngredientUnit === u ? "bg-primary/5 text-primary" : "text-on-surface/70 hover:bg-on-surface/3"
+                                            )}>
+                                            {u || <span className="italic text-on-surface/35">(none)</span>}
+                                          </button>
+                                        ))
+                                      )}
+                                    </div>
+                                  </motion.div>
+                                </>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                        <button onClick={addIngredient} disabled={!newIngredientName.trim()}
+                          className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
+                          <Plus size={14} className="inline mr-1" />Add Ingredient
+                        </button>
+                      </div>
+                    ) : (
+                      /* Bulk paste form */
+                      <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
+                        <p className="text-[11px] text-on-surface/45 mb-2 leading-relaxed">
+                          Paste one ingredient per line. We&apos;ll auto-detect the amount and unit.
+                        </p>
+                        <textarea value={bulkIngredientsText} onChange={(e) => setBulkIngredientsText(e.target.value)}
+                          placeholder={'2 cups flour\n1 tsp salt\n3 large eggs\n1/2 cup milk'}
+                          rows={6} autoFocus
+                          className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none mb-3 font-mono leading-relaxed" />
+                        <button onClick={addBulkIngredients} disabled={!bulkIngredientsText.trim()}
+                          className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
+                          <Plus size={14} className="inline mr-1" />Add All
+                        </button>
+                      </div>
+                    )}
 
                     {/* Ingredient list */}
                     {ingredients.length === 0 ? (

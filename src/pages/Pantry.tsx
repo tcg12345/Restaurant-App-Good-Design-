@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, BookOpen, Flame, Users, Hash, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -2914,6 +2914,80 @@ const CreateTripSheet: React.FC<{
 /* ── Home Cooking Tab ── */
 const HOME_MEAL_TAGS = ['Comfort Food', 'Healthy', 'Quick & Easy', 'Baking', 'Date Night', 'Meal Prep', 'Grill', 'Pasta', 'Asian', 'Mexican', 'Italian', 'Dessert', 'Breakfast', 'Soup', 'Salad', 'Seafood', 'Vegetarian', 'New Recipe'];
 
+// Simple swipeable photo lightbox for home meal views.
+const PhotoLightbox: React.FC<{
+  photos: { url: string; caption: string }[];
+  index: number | null;
+  onClose: () => void;
+  onChange: (idx: number | null) => void;
+}> = ({ photos, index, onClose, onChange }) => {
+  useEffect(() => {
+    if (index === null) return;
+    document.body.style.overflow = 'hidden';
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowRight' && index < photos.length - 1) onChange(index + 1);
+      else if (e.key === 'ArrowLeft' && index > 0) onChange(index - 1);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => { document.body.style.overflow = ''; window.removeEventListener('keydown', handleKey); };
+  }, [index, photos.length, onChange, onClose]);
+
+  if (index === null || !photos[index]) return null;
+  const photo = photos[index];
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[200] bg-black/95 flex flex-col"
+        onClick={onClose}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0">
+          <span className="text-sm text-white/60 font-medium tabular-nums">{index + 1} / {photos.length}</span>
+          <button onClick={(e) => { e.stopPropagation(); onClose(); }}
+            className="p-2 -mr-2 text-white/70 hover:text-white transition-colors">
+            <X size={22} />
+          </button>
+        </div>
+
+        {/* Photo */}
+        <div className="flex-1 flex items-center justify-center px-4 min-h-0" onClick={(e) => e.stopPropagation()}>
+          <motion.img
+            key={photo.url}
+            src={photo.url}
+            alt={photo.caption || `Photo ${index + 1}`}
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.2 }}
+            className="max-w-full max-h-full object-contain rounded-lg"
+          />
+        </div>
+
+        {/* Caption + nav */}
+        <div className="flex-shrink-0 px-5 py-4" onClick={(e) => e.stopPropagation()}>
+          {photo.caption && (
+            <p className="text-sm text-white/80 text-center mb-3 leading-relaxed">{photo.caption}</p>
+          )}
+          {photos.length > 1 && (
+            <div className="flex items-center justify-center gap-4">
+              <button onClick={() => index > 0 && onChange(index - 1)} disabled={index === 0}
+                className="p-2 rounded-full bg-white/10 text-white disabled:opacity-30 transition-opacity">
+                <ChevronLeft size={20} />
+              </button>
+              <button onClick={() => index < photos.length - 1 && onChange(index + 1)} disabled={index === photos.length - 1}
+                className="p-2 rounded-full bg-white/10 text-white disabled:opacity-30 transition-opacity">
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
 const HomeCookingTab: React.FC<{
   meals: HomeMeal[];
   onCreateMeal: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
@@ -2921,13 +2995,18 @@ const HomeCookingTab: React.FC<{
   onDeleteMeal: (id: string) => void;
   onOpenModal: (meal?: HomeMeal) => void;
   onBack: () => void;
-}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack }) => {
+  selectedMealId: string | null;
+  onSelectMeal: (id: string | null) => void;
+  recipeViewOpen: boolean;
+  onOpenRecipeView: () => void;
+  onCloseRecipeView: () => void;
+}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, recipeViewOpen, onOpenRecipeView, onCloseRecipeView }) => {
   const { phoneMode } = useSettings();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'recent' | 'highest'>('recent');
-  const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [lightboxPhotoIdx, setLightboxPhotoIdx] = useState<number | null>(null);
 
   const selectedMeal = meals.find((m) => m.id === selectedMealId) || null;
 
@@ -2954,15 +3033,183 @@ const HomeCookingTab: React.FC<{
 
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
 
+  // ── Full recipe view (Task 7) ──
+  if (selectedMeal && recipeViewOpen) {
+    const hasIngredients = (selectedMeal.ingredients?.length ?? 0) > 0;
+    const hasSteps = (selectedMeal.steps?.length ?? 0) > 0;
+    const totalTime = (selectedMeal.prepTime ?? 0) + (selectedMeal.cookTime ?? 0);
+    const recipePhotos = [
+      ...(selectedMeal.coverPhoto ? [{ url: selectedMeal.coverPhoto, caption: '' }] : []),
+      ...selectedMeal.photos.map((p) => ({ url: p.url, caption: p.caption })),
+    ];
+
+    return (
+      <div>
+        {/* Back header */}
+        <div className="flex items-center gap-3 mb-4">
+          <button onClick={onCloseRecipeView} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+            <ArrowLeft size={20} />
+          </button>
+          <h2 className="font-serif font-bold text-lg flex-1 truncate">{selectedMeal.name}</h2>
+        </div>
+
+        {/* Photos header strip */}
+        {recipePhotos.length > 0 && (
+          <div className="-mx-3 mb-5 overflow-x-auto">
+            <div className="flex gap-2 px-3 pb-1">
+              {recipePhotos.map((photo, i) => (
+                <button key={i} onClick={() => setLightboxPhotoIdx(i)}
+                  className="w-32 h-24 rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 transition-opacity">
+                  <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recipe title + meta */}
+        <div className="mb-6">
+          <h1 className="font-serif font-bold text-2xl text-on-surface mb-2">{selectedMeal.name}</h1>
+          {selectedMeal.description && (
+            <p className="text-sm text-on-surface/60 leading-relaxed mb-4">{selectedMeal.description}</p>
+          )}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+            {(selectedMeal.prepTime ?? 0) > 0 && (
+              <div className="flex items-center gap-1.5">
+                <Clock size={13} className="text-on-surface/40" />
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Prep</p>
+                  <p className="font-semibold text-on-surface/75">{selectedMeal.prepTime} min</p>
+                </div>
+              </div>
+            )}
+            {(selectedMeal.cookTime ?? 0) > 0 && (
+              <div className="flex items-center gap-1.5">
+                <Flame size={13} className="text-on-surface/40" />
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Cook</p>
+                  <p className="font-semibold text-on-surface/75">{selectedMeal.cookTime} min</p>
+                </div>
+              </div>
+            )}
+            {totalTime > 0 && (selectedMeal.prepTime ?? 0) > 0 && (selectedMeal.cookTime ?? 0) > 0 && (
+              <div className="flex items-center gap-1.5">
+                <Clock size={13} className="text-on-surface/40" />
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Total</p>
+                  <p className="font-semibold text-on-surface/75">{totalTime} min</p>
+                </div>
+              </div>
+            )}
+            {(selectedMeal.servings ?? 0) > 0 && (
+              <div className="flex items-center gap-1.5">
+                <Users size={13} className="text-on-surface/40" />
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Servings</p>
+                  <p className="font-semibold text-on-surface/75">{selectedMeal.servings}</p>
+                </div>
+              </div>
+            )}
+            {selectedMeal.difficulty && (
+              <div className="flex items-center gap-1.5">
+                <span className="w-[13px] h-[13px] rounded-full bg-yellow-100 flex items-center justify-center text-[9px]">⚡</span>
+                <div>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/35">Difficulty</p>
+                  <p className="font-semibold text-on-surface/75">{selectedMeal.difficulty}</p>
+                </div>
+              </div>
+            )}
+          </div>
+          {selectedMeal.cuisine && (
+            <p className="text-[11px] text-on-surface/40 mt-3">
+              <span className="font-bold uppercase tracking-widest">Cuisine · </span>
+              {selectedMeal.cuisine}
+            </p>
+          )}
+        </div>
+
+        {/* Ingredients */}
+        {hasIngredients && (
+          <div className="mb-6 bg-white rounded-2xl border border-on-surface/6 p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Hash size={16} className="text-emerald-600" />
+              <h3 className="font-serif font-bold text-base">Ingredients</h3>
+              <span className="text-[11px] text-on-surface/35">({selectedMeal.ingredients!.length})</span>
+            </div>
+            <ul className="space-y-2.5">
+              {selectedMeal.ingredients!.map((ing, i) => (
+                <li key={i} className="flex items-baseline gap-3 text-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0 mt-1.5" />
+                  <span className="flex-1 text-on-surface/80">
+                    {(ing.amount || ing.unit) && (
+                      <span className="font-semibold text-on-surface tabular-nums">{ing.amount}{ing.unit ? ` ${ing.unit}` : ''} </span>
+                    )}
+                    <span className="text-on-surface/70">{ing.name}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Steps */}
+        {hasSteps && (
+          <div className="mb-6 bg-white rounded-2xl border border-on-surface/6 p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <FileText size={16} className="text-emerald-600" />
+              <h3 className="font-serif font-bold text-base">Directions</h3>
+            </div>
+            <ol className="space-y-4">
+              {selectedMeal.steps!.map((step, i) => (
+                <li key={i} className="flex gap-3">
+                  <span className="flex-shrink-0 w-7 h-7 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold flex items-center justify-center mt-0.5">
+                    {i + 1}
+                  </span>
+                  <p className="flex-1 text-sm text-on-surface/80 leading-relaxed pt-0.5">{step}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {!hasIngredients && !hasSteps && (
+          <div className="text-center py-16">
+            <BookOpen size={32} className="mx-auto text-on-surface/15 mb-2" />
+            <p className="text-sm text-on-surface/40">No recipe details yet</p>
+            <button onClick={() => onOpenModal(selectedMeal)}
+              className="mt-4 px-4 py-2 bg-emerald-600 text-white rounded-full text-xs font-semibold">
+              Add Ingredients &amp; Steps
+            </button>
+          </div>
+        )}
+
+        {/* Lightbox */}
+        <PhotoLightbox
+          photos={recipePhotos}
+          index={lightboxPhotoIdx}
+          onClose={() => setLightboxPhotoIdx(null)}
+          onChange={setLightboxPhotoIdx}
+        />
+      </div>
+    );
+  }
+
   // ── Meal detail view (diary / blog entry style) ──
   if (selectedMeal) {
     const heroPhoto = selectedMeal.photos.length > 0 ? selectedMeal.photos[0] : null;
+    const allPhotos = [
+      ...(selectedMeal.coverPhoto ? [{ url: selectedMeal.coverPhoto, caption: '' }] : []),
+      ...selectedMeal.photos.map((p) => ({ url: p.url, caption: p.caption })),
+    ];
+    // Lightbox index for hero photo: accounts for coverPhoto being index 0.
+    const heroLightboxIdx = selectedMeal.coverPhoto ? 1 : 0;
+    const hasRecipeDetails = (selectedMeal.ingredients?.length ?? 0) > 0 || (selectedMeal.steps?.length ?? 0) > 0;
 
     return (
       <div>
         {/* Back + actions header */}
         <div className="flex items-center gap-3 mb-4">
-          <button onClick={() => setSelectedMealId(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+          <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
             <ArrowLeft size={20} />
           </button>
           <div className="flex-1" />
@@ -2978,16 +3225,18 @@ const HomeCookingTab: React.FC<{
 
         {/* Hero photo */}
         {heroPhoto && (
-          <div className="relative -mx-3 mb-5 rounded-2xl overflow-hidden">
-            <img src={heroPhoto.url} alt={selectedMeal.name} className="w-full aspect-[16/9] object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-            <div className="absolute bottom-3 left-4 right-4">
-              <h2 className="font-serif font-bold text-xl text-white drop-shadow-lg">{selectedMeal.name}</h2>
-              <p className="text-xs text-white/70 mt-0.5">
-                {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-              </p>
+          <button onClick={() => setLightboxPhotoIdx(heroLightboxIdx)} className="block w-full text-left">
+            <div className="relative -mx-3 mb-5 rounded-2xl overflow-hidden">
+              <img src={heroPhoto.url} alt={selectedMeal.name} className="w-full aspect-[16/9] object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+              <div className="absolute bottom-3 left-4 right-4">
+                <h2 className="font-serif font-bold text-xl text-white drop-shadow-lg">{selectedMeal.name}</h2>
+                <p className="text-xs text-white/70 mt-0.5">
+                  {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                </p>
+              </div>
             </div>
-          </div>
+          </button>
         )}
 
         {/* Title (no hero) */}
@@ -3018,6 +3267,23 @@ const HomeCookingTab: React.FC<{
               <span key={tag} className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[11px] font-semibold">{tag}</span>
             ))}
           </div>
+        )}
+
+        {/* Recipe button — prominent, opens full recipe view */}
+        {hasRecipeDetails && (
+          <button onClick={onOpenRecipeView}
+            className="w-full flex items-center gap-3 px-5 py-4 mb-5 rounded-2xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-md hover:shadow-lg active:scale-[0.98] transition-all">
+            <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center flex-shrink-0">
+              <BookOpen size={20} />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="font-serif font-bold text-base">View Full Recipe</p>
+              <p className="text-[11px] text-white/70">
+                {selectedMeal.ingredients?.length ?? 0} ingredients · {selectedMeal.steps?.length ?? 0} steps
+              </p>
+            </div>
+            <ChevronRight size={20} className="text-white/80 flex-shrink-0" />
+          </button>
         )}
 
         {/* Notes */}
@@ -3057,11 +3323,15 @@ const HomeCookingTab: React.FC<{
           <div className="mb-5">
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
             <div className="grid grid-cols-3 gap-2">
-              {selectedMeal.photos.slice(1).map((photo, i) => (
-                <div key={i} className="aspect-square rounded-xl overflow-hidden">
-                  <img src={photo.url} alt={photo.caption || `Photo ${i + 2}`} className="w-full h-full object-cover" />
-                </div>
-              ))}
+              {selectedMeal.photos.slice(1).map((photo, i) => {
+                const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + i + 1;
+                return (
+                  <button key={i} onClick={() => setLightboxPhotoIdx(lightboxIdx)}
+                    className="aspect-square rounded-xl overflow-hidden hover:opacity-90 transition-opacity">
+                    <img src={photo.url} alt={photo.caption || `Photo ${i + 2}`} className="w-full h-full object-cover" />
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -3071,11 +3341,15 @@ const HomeCookingTab: React.FC<{
           <div className="mb-5">
             <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
             <div className="grid grid-cols-3 gap-2">
-              {selectedMeal.photos.map((photo, i) => (
-                <div key={i} className="aspect-square rounded-xl overflow-hidden">
-                  <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
-                </div>
-              ))}
+              {selectedMeal.photos.map((photo, i) => {
+                const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + i;
+                return (
+                  <button key={i} onClick={() => setLightboxPhotoIdx(lightboxIdx)}
+                    className="aspect-square rounded-xl overflow-hidden hover:opacity-90 transition-opacity">
+                    <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -3101,13 +3375,21 @@ const HomeCookingTab: React.FC<{
                 <div className="flex gap-3">
                   <button onClick={() => setConfirmDeleteId(null)}
                     className="flex-1 py-2 rounded-xl bg-on-surface/5 text-on-surface/60 text-sm font-semibold">Cancel</button>
-                  <button onClick={() => { onDeleteMeal(confirmDeleteId); setConfirmDeleteId(null); setSelectedMealId(null); }}
+                  <button onClick={() => { onDeleteMeal(confirmDeleteId); setConfirmDeleteId(null); onSelectMeal(null); }}
                     className="flex-1 py-2 rounded-xl bg-red-500 text-white text-sm font-semibold">Delete</button>
                 </div>
               </motion.div>
             </>
           )}
         </AnimatePresence>
+
+        {/* Photo lightbox */}
+        <PhotoLightbox
+          photos={allPhotos}
+          index={lightboxPhotoIdx}
+          onClose={() => setLightboxPhotoIdx(null)}
+          onChange={setLightboxPhotoIdx}
+        />
       </div>
     );
   }
@@ -3187,47 +3469,55 @@ const HomeCookingTab: React.FC<{
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredMeals.map((meal) => (
-            <button
-              key={meal.id}
-              onClick={() => setSelectedMealId(meal.id)}
-              className="w-full flex gap-3 p-3 bg-white rounded-2xl border border-on-surface/6 shadow-sm hover:shadow-md transition-all text-left"
-            >
-              {/* Photo thumbnail */}
-              {meal.photos.length > 0 ? (
-                <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0">
-                  <img src={meal.photos[0].url} alt={meal.name} className="w-full h-full object-cover" />
-                </div>
-              ) : (
-                <div className="w-20 h-20 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                  <ChefHat size={24} className="text-emerald-300" />
-                </div>
-              )}
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-semibold text-on-surface truncate">{meal.name}</p>
-                  <span className={cn("text-sm font-bold flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
-                </div>
-
-                <p className="text-[11px] text-on-surface/40 mt-0.5">
-                  {new Date(meal.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  {meal.dishes.length > 0 && ` · ${meal.dishes.length} dish${meal.dishes.length !== 1 ? 'es' : ''}`}
-                </p>
-
-                {meal.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {meal.tags.slice(0, 3).map((tag) => (
-                      <span key={tag} className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-semibold">{tag}</span>
-                    ))}
-                    {meal.tags.length > 3 && (
-                      <span className="px-2 py-0.5 bg-on-surface/5 text-on-surface/40 rounded-full text-[10px] font-semibold">+{meal.tags.length - 3}</span>
-                    )}
+          {filteredMeals.map((meal) => {
+            const coverPhoto = meal.coverPhoto || meal.photos[0]?.url;
+            const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+            const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
+            return (
+              <button
+                key={meal.id}
+                onClick={() => onSelectMeal(meal.id)}
+                className="w-full flex gap-3 p-3 bg-white rounded-2xl border border-on-surface/6 shadow-sm hover:shadow-md transition-all text-left"
+              >
+                {/* Photo thumbnail */}
+                {coverPhoto ? (
+                  <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0">
+                    <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="w-24 h-24 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                    <ChefHat size={28} className="text-emerald-300" />
                   </div>
                 )}
-              </div>
-            </button>
-          ))}
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-on-surface truncate">{meal.name}</p>
+                    <span className={cn("text-sm font-bold flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
+                  </div>
+
+                  {totalTime > 0 && (
+                    <div className="flex items-center gap-1 mt-1 text-[11px] text-on-surface/50">
+                      <Clock size={11} />
+                      <span>{totalTime} min</span>
+                      {meal.difficulty && <span className="text-on-surface/30">· {meal.difficulty}</span>}
+                    </div>
+                  )}
+
+                  {ingredientPreview.length > 0 ? (
+                    <p className="text-[11px] text-on-surface/45 mt-1 leading-snug line-clamp-2">
+                      {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
+                      {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
+                    </p>
+                  ) : meal.dishes.length > 0 ? (
+                    <p className="text-[11px] text-on-surface/40 mt-1">
+                      {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}
+                    </p>
+                  ) : null}
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -3241,6 +3531,8 @@ export const Pantry: React.FC = () => {
   const [activeTab, setActiveTab] = useState<PantryTab>('lists');
   const [showTrips, setShowTrips] = useState(false);
   const [showHomeCooking, setShowHomeCooking] = useState(false);
+  const [homeCookingSelectedMealId, setHomeCookingSelectedMealId] = useState<string | null>(null);
+  const [homeCookingRecipeViewOpen, setHomeCookingRecipeViewOpen] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -3446,9 +3738,11 @@ export const Pantry: React.FC = () => {
       : lists.find((l) => l.id === selectedList.id) ?? null
     : null;
 
+  const hideTopBar = showHomeCooking && homeCookingSelectedMealId !== null;
+
   return (
     <div className="pb-32">
-      <TopBar title="My Lists" rightAction={!currentList ? (
+      {!hideTopBar && <TopBar title="My Lists" rightAction={!currentList ? (
         <div className="relative" ref={moreMenuRef}>
           <button onClick={() => setMoreMenuOpen(!moreMenuOpen)}
             className="p-2 hover:bg-muted rounded-full transition-colors">
@@ -3487,7 +3781,7 @@ export const Pantry: React.FC = () => {
             )}
           </AnimatePresence>
         </div>
-      ) : undefined} />
+      ) : undefined} />}
 
       <main className="px-3">
         {currentList ? (
@@ -3499,7 +3793,12 @@ export const Pantry: React.FC = () => {
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
-            onBack={() => setShowHomeCooking(false)}
+            onBack={() => { setShowHomeCooking(false); setHomeCookingSelectedMealId(null); setHomeCookingRecipeViewOpen(false); }}
+            selectedMealId={homeCookingSelectedMealId}
+            onSelectMeal={(id) => { setHomeCookingSelectedMealId(id); if (id === null) setHomeCookingRecipeViewOpen(false); }}
+            recipeViewOpen={homeCookingRecipeViewOpen}
+            onOpenRecipeView={() => setHomeCookingRecipeViewOpen(true)}
+            onCloseRecipeView={() => setHomeCookingRecipeViewOpen(false)}
           />
         ) : showTrips ? (
           <TripsTab
@@ -3528,7 +3827,12 @@ export const Pantry: React.FC = () => {
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
-            onBack={() => setShowHomeCooking(false)}
+            onBack={() => { setShowHomeCooking(false); setHomeCookingSelectedMealId(null); setHomeCookingRecipeViewOpen(false); }}
+            selectedMealId={homeCookingSelectedMealId}
+            onSelectMeal={(id) => { setHomeCookingSelectedMealId(id); if (id === null) setHomeCookingRecipeViewOpen(false); }}
+            recipeViewOpen={homeCookingRecipeViewOpen}
+            onOpenRecipeView={() => setHomeCookingRecipeViewOpen(true)}
+            onCloseRecipeView={() => setHomeCookingRecipeViewOpen(false)}
           />
         ) : (
           <>
