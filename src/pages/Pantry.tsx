@@ -1354,7 +1354,7 @@ const ListDetailView: React.FC<{
                     cuisine={info?.cuisine ?? ''}
                     price={info?.price ?? ''}
                     notes={wishItem?.notes}
-                    onRemove={() => isWishlistView ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
+                    onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
                   />
                 ))}
               </div>

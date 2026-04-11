@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, CalendarDays, Tag, StickyNote, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Link as LinkIcon, Search, GripVertical, Star, BookOpen } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, CalendarDays, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, GripVertical, Star, BookOpen, Clock, Flame, Users, Hash, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useLists, type PhotoItem, type HomeMealDish } from '../contexts/ListsContext';
+import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Calendar } from './RatingShared';
 import { useRecipes } from '../contexts/RecipesContext';
@@ -14,7 +14,7 @@ const HOME_COOKING_TAGS = [
   'Snack', 'Brunch', 'BBQ', 'One-Pot', 'Slow Cooker', 'Air Fryer',
 ];
 
-type Page = 'main' | 'notes' | 'tags' | 'photos' | 'date' | 'dishes';
+type Page = 'main' | 'notes' | 'tags' | 'photos' | 'date' | 'dishes' | 'ingredients' | 'steps';
 
 export const AddHomeMealModal: React.FC = () => {
   const {
@@ -36,6 +36,22 @@ export const AddHomeMealModal: React.FC = () => {
   const [dishes, setDishes] = useState<HomeMealDish[]>([]);
   const [isPublic, setIsPublic] = useState(false);
 
+  // Recipe-like fields
+  const [coverPhoto, setCoverPhoto] = useState('');
+  const [prepTime, setPrepTime] = useState(0);
+  const [cookTime, setCookTime] = useState(0);
+  const [servings, setServings] = useState(4);
+  const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>('Medium');
+  const [cuisine, setCuisine] = useState('');
+  const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
+  const [steps, setSteps] = useState<string[]>([]);
+
+  // Ingredient/step form state
+  const [newIngredientName, setNewIngredientName] = useState('');
+  const [newIngredientAmount, setNewIngredientAmount] = useState('');
+  const [newIngredientUnit, setNewIngredientUnit] = useState('');
+  const [newStep, setNewStep] = useState('');
+
   // Dish editing state
   const [editingDishId, setEditingDishId] = useState<string | null>(null);
   const [dishName, setDishName] = useState('');
@@ -52,6 +68,7 @@ export const AddHomeMealModal: React.FC = () => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dishPhotoInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (homeMealModalOpen) {
@@ -64,6 +81,18 @@ export const AddHomeMealModal: React.FC = () => {
       setPhotos(existing?.photos ?? []);
       setDishes(existing?.dishes ?? []);
       setIsPublic(existing?.isPublic ?? false);
+      setCoverPhoto(existing?.coverPhoto ?? '');
+      setPrepTime(existing?.prepTime ?? 0);
+      setCookTime(existing?.cookTime ?? 0);
+      setServings(existing?.servings ?? 4);
+      setDifficulty(existing?.difficulty ?? 'Medium');
+      setCuisine(existing?.cuisine ?? '');
+      setIngredients(existing?.ingredients ? [...existing.ingredients] : []);
+      setSteps(existing?.steps ? [...existing.steps] : []);
+      setNewIngredientName('');
+      setNewIngredientAmount('');
+      setNewIngredientUnit('');
+      setNewStep('');
       setEditingDishId(null);
       setDishName('');
       setDishDescription('');
@@ -99,6 +128,32 @@ export const AddHomeMealModal: React.FC = () => {
       reader.readAsDataURL(file);
     });
   };
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const compressed = await compressImage(file);
+    setCoverPhoto(compressed);
+    e.target.value = '';
+  };
+
+  const addIngredient = () => {
+    if (!newIngredientName.trim()) return;
+    setIngredients((prev) => [...prev, { name: newIngredientName.trim(), amount: newIngredientAmount.trim(), unit: newIngredientUnit.trim() }]);
+    setNewIngredientName('');
+    setNewIngredientAmount('');
+    setNewIngredientUnit('');
+  };
+
+  const removeIngredient = (idx: number) => setIngredients((prev) => prev.filter((_, i) => i !== idx));
+
+  const addStep = () => {
+    if (!newStep.trim()) return;
+    setSteps((prev) => [...prev, newStep.trim()]);
+    setNewStep('');
+  };
+
+  const removeStep = (idx: number) => setSteps((prev) => prev.filter((_, i) => i !== idx));
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -202,30 +257,29 @@ export const AddHomeMealModal: React.FC = () => {
 
   const handleSave = () => {
     if (!mealName.trim()) return;
+    const mealData = {
+      name: mealName.trim(),
+      date: visitDate,
+      score,
+      wouldMakeAgain,
+      description: notes,
+      photos,
+      tags: selectedTags,
+      dishes,
+      isPublic,
+      coverPhoto,
+      prepTime,
+      cookTime,
+      servings,
+      difficulty,
+      cuisine: cuisine.trim(),
+      ingredients,
+      steps,
+    };
     if (existing) {
-      updateHomeMeal(existing.id, {
-        name: mealName.trim(),
-        date: visitDate,
-        score,
-        wouldMakeAgain,
-        description: notes,
-        photos,
-        tags: selectedTags,
-        dishes,
-        isPublic,
-      });
+      updateHomeMeal(existing.id, mealData);
     } else {
-      createHomeMeal({
-        name: mealName.trim(),
-        date: visitDate,
-        score,
-        wouldMakeAgain,
-        description: notes,
-        photos,
-        tags: selectedTags,
-        dishes,
-        isPublic,
-      });
+      createHomeMeal(mealData);
     }
     closeHomeMealModal();
   };
@@ -235,10 +289,11 @@ export const AddHomeMealModal: React.FC = () => {
   const scoreRing = score >= 8 ? 'ring-green-400/30' : score >= 5 ? 'ring-yellow-400/30' : 'ring-red-400/30';
 
   const hasDishes = dishes.length > 0;
-  const hasNotes = notes.trim().length > 0;
   const hasTags = selectedTags.length > 0;
   const hasPhotos = photos.length > 0;
   const hasDate = visitDate !== '';
+  const hasIngredients = ingredients.length > 0;
+  const hasSteps = steps.length > 0;
   const dateLabel = hasDate ? new Date(visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined;
 
   const filteredTags = useMemo(() => {
@@ -271,6 +326,7 @@ export const AddHomeMealModal: React.FC = () => {
           >
             {photoInput}
             <input ref={dishPhotoInputRef} type="file" accept="image/*" onChange={handleDishPhotoUpload} className="hidden" />
+            <input ref={coverInputRef} type="file" accept="image/*" onChange={handleCoverUpload} className="hidden" />
             <AnimatePresence mode="wait">
               {/* ═══════════ MAIN PAGE ═══════════ */}
               {page === 'main' && (
@@ -285,6 +341,24 @@ export const AddHomeMealModal: React.FC = () => {
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
+                    {/* Cover photo */}
+                    <button onClick={() => coverInputRef.current?.click()}
+                      className="w-full h-36 rounded-2xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-2 mb-5 overflow-hidden hover:border-primary/30 transition-colors relative">
+                      {coverPhoto ? (
+                        <>
+                          <img src={coverPhoto} alt="Cover" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                            <Camera size={24} className="text-white" />
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <Camera size={24} className="text-on-surface/25" />
+                          <span className="text-xs text-on-surface/35 font-medium">Add cover photo</span>
+                        </>
+                      )}
+                    </button>
+
                     {/* Meal name input */}
                     <div className="mb-4">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Meal Name</p>
@@ -294,8 +368,78 @@ export const AddHomeMealModal: React.FC = () => {
                         onChange={(e) => setMealName(e.target.value)}
                         placeholder="e.g. Sunday Pasta Night"
                         autoFocus
-                        className="w-full bg-white border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
                       />
+                    </div>
+
+                    {/* Description */}
+                    <div className="mb-4">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Description</p>
+                      <textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="A brief description of this recipe..."
+                        rows={3}
+                        className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                      />
+                    </div>
+
+                    {/* Quick info */}
+                    <div className="border-t border-on-surface/6 pt-4 mb-4">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-3">Quick Info</p>
+                      <div className="grid grid-cols-3 gap-3 mb-4">
+                        <div>
+                          <div className="flex items-center gap-1 mb-1.5">
+                            <Clock size={12} className="text-on-surface/35" />
+                            <span className="text-[10px] font-semibold text-on-surface/45">Prep</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <input type="number" value={prepTime} onChange={(e) => setPrepTime(Math.max(0, parseInt(e.target.value) || 0))}
+                              className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-3 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                            <span className="text-[10px] text-on-surface/35 flex-shrink-0">min</span>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1 mb-1.5">
+                            <Flame size={12} className="text-on-surface/35" />
+                            <span className="text-[10px] font-semibold text-on-surface/45">Cook</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <input type="number" value={cookTime} onChange={(e) => setCookTime(Math.max(0, parseInt(e.target.value) || 0))}
+                              className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-3 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                            <span className="text-[10px] text-on-surface/35 flex-shrink-0">min</span>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1 mb-1.5">
+                            <Users size={12} className="text-on-surface/35" />
+                            <span className="text-[10px] font-semibold text-on-surface/45">Servings</span>
+                          </div>
+                          <input type="number" value={servings} onChange={(e) => setServings(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-3 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                        </div>
+                      </div>
+
+                      {/* Difficulty */}
+                      <div className="mb-4">
+                        <span className="text-[10px] font-semibold text-on-surface/45 mb-1.5 block">Difficulty</span>
+                        <div className="flex gap-2">
+                          {(['Easy', 'Medium', 'Hard'] as const).map((d) => (
+                            <button key={d} onClick={() => setDifficulty(d)}
+                              className={cn("flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all",
+                                difficulty === d ? "border-yellow-300 bg-yellow-50 text-yellow-700" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
+                              )}>{d}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Cuisine */}
+                      <div>
+                        <span className="text-[10px] font-semibold text-on-surface/45 mb-1.5 block">Cuisine</span>
+                        <input type="text" value={cuisine} onChange={(e) => setCuisine(e.target.value)}
+                          placeholder="e.g. Italian, Mexican, Thai..."
+                          className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      </div>
                     </div>
 
                     {/* Score circle + slider */}
@@ -364,14 +508,21 @@ export const AddHomeMealModal: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Detail buttons */}
+                    {/* Recipe details */}
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Add details</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Recipe Details</p>
                       <div className="space-y-2">
-                        <DetailBtn icon={<StickyNote size={17} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
-                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
-                        <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
+                        <DetailBtn icon={<Hash size={17} />} label="Ingredients" active={hasIngredients} sub={hasIngredients ? `${ingredients.length} items` : undefined} onClick={() => setPage('ingredients')} />
+                        <DetailBtn icon={<FileText size={17} />} label="Steps" active={hasSteps} sub={hasSteps ? `${steps.length} steps` : undefined} onClick={() => setPage('steps')} />
                         <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
+                        <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
+                      </div>
+                    </div>
+
+                    {/* Additional details */}
+                    <div className="border-t border-on-surface/6 pt-3 pb-2">
+                      <div className="space-y-2">
+                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
                       </div>
                     </div>
 
@@ -422,18 +573,6 @@ export const AddHomeMealModal: React.FC = () => {
                     )}
                   </div>
                 </motion.div>
-              )}
-
-              {/* ═══════════ NOTES ═══════════ */}
-              {page === 'notes' && (
-                <SubPage key="notes" onBack={() => setPage('main')} title="Notes">
-                  <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-                    <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
-                      placeholder="How did it turn out? Any changes you'd make next time?" rows={8} autoFocus
-                      className="w-full bg-white border border-on-surface/10 rounded-2xl px-4 py-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed" />
-                  </div>
-                  <BottomBtn label={hasNotes ? 'Update Notes' : 'Save Notes'} onClick={() => setPage('main')} />
-                </SubPage>
               )}
 
               {/* ═══════════ DATE ═══════════ */}
@@ -608,6 +747,97 @@ export const AddHomeMealModal: React.FC = () => {
                     )}
                   </div>
                   <BottomBtn label={editingDishId ? 'Update Dish' : 'Add Dish'} onClick={handleSaveDish} disabled={!dishName.trim()} />
+                </SubPage>
+              )}
+
+              {/* ═══════════ INGREDIENTS ═══════════ */}
+              {page === 'ingredients' && (
+                <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
+                    {/* Add ingredient form */}
+                    <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
+                      <input type="text" value={newIngredientName} onChange={(e) => setNewIngredientName(e.target.value)}
+                        placeholder="Ingredient name" autoFocus
+                        className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5" />
+                      <div className="flex gap-2.5 mb-3">
+                        <input type="text" value={newIngredientAmount} onChange={(e) => setNewIngredientAmount(e.target.value)}
+                          placeholder="Amount"
+                          className="flex-1 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                        <input type="text" value={newIngredientUnit} onChange={(e) => setNewIngredientUnit(e.target.value)}
+                          placeholder="Unit (cups, g...)"
+                          className="flex-1 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      </div>
+                      <button onClick={addIngredient} disabled={!newIngredientName.trim()}
+                        className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
+                        <Plus size={14} className="inline mr-1" />Add Ingredient
+                      </button>
+                    </div>
+
+                    {/* Ingredient list */}
+                    {ingredients.length === 0 ? (
+                      <div className="text-center py-10">
+                        <Hash size={28} className="mx-auto text-on-surface/15 mb-2" />
+                        <p className="text-sm text-on-surface/30">No ingredients yet</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {ingredients.map((ing, idx) => (
+                          <div key={idx} className="flex items-center gap-3 px-3 py-2.5 bg-white border border-on-surface/8 rounded-xl">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-on-surface/80 truncate">{ing.name}</p>
+                              {(ing.amount || ing.unit) && (
+                                <p className="text-[11px] text-on-surface/40">{ing.amount} {ing.unit}</p>
+                              )}
+                            </div>
+                            <button onClick={() => removeIngredient(idx)} className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors">
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <BottomBtn label="Done" onClick={() => setPage('main')} />
+                </SubPage>
+              )}
+
+              {/* ═══════════ STEPS ═══════════ */}
+              {page === 'steps' && (
+                <SubPage key="steps" onBack={() => setPage('main')} title="Steps">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
+                    {/* Add step form */}
+                    <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
+                      <textarea value={newStep} onChange={(e) => setNewStep(e.target.value)}
+                        placeholder={`Step ${steps.length + 1}: What to do...`}
+                        rows={4} autoFocus
+                        className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none mb-3" />
+                      <button onClick={addStep} disabled={!newStep.trim()}
+                        className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
+                        <Plus size={14} className="inline mr-1" />Add Step
+                      </button>
+                    </div>
+
+                    {/* Steps list */}
+                    {steps.length === 0 ? (
+                      <div className="text-center py-10">
+                        <FileText size={28} className="mx-auto text-on-surface/15 mb-2" />
+                        <p className="text-sm text-on-surface/30">No steps yet</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {steps.map((step, idx) => (
+                          <div key={idx} className="flex items-start gap-3 px-3 py-2.5 bg-white border border-on-surface/8 rounded-xl">
+                            <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{idx + 1}</span>
+                            <p className="flex-1 text-sm text-on-surface/70 leading-relaxed">{step}</p>
+                            <button onClick={() => removeStep(idx)} className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors flex-shrink-0">
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <BottomBtn label="Done" onClick={() => setPage('main')} />
                 </SubPage>
               )}
 
