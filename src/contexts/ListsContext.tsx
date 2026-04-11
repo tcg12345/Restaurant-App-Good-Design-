@@ -437,14 +437,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const cloudRecentViews = cloud.recentViews || [];
         // Restore custom order from meta
         const cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
-        // Fall back to localStorage when cloud is empty — the Supabase home_meals
-        // column may silently fail to write (see saveHomeMeals) and we don't want
-        // a reload to wipe out a locally-saved meal.
+        // Home meals recovery order:
+        //   1. dedicated home_meals column (may be missing on some schemas)
+        //   2. restaurant_meta.__home_meals__ fallback (always works)
+        //   3. localStorage (in case both cloud locations are empty)
         const rawCloudHomeMeals = cloud.homeMeals || [];
+        const metaHomeMeals = Array.isArray((cloudMeta as Record<string, unknown>).__home_meals__)
+          ? ((cloudMeta as Record<string, unknown>).__home_meals__ as HomeMeal[])
+          : [];
         const cloudHomeMeals = rawCloudHomeMeals.length > 0
           ? rawCloudHomeMeals
-          : localHomeMeals.length > 0 ? localHomeMeals : [];
-        const homeMealsUsedLocalFallback = rawCloudHomeMeals.length === 0 && localHomeMeals.length > 0;
+          : metaHomeMeals.length > 0
+            ? metaHomeMeals
+            : localHomeMeals.length > 0 ? localHomeMeals : [];
+        const homeMealsUsedLocalFallback = rawCloudHomeMeals.length === 0 && metaHomeMeals.length === 0 && localHomeMeals.length > 0;
 
         // Reconcile: ensure every rating's listIds are reflected in
         // list.restaurantIds (fixes data drift where ratings exist but
@@ -741,9 +747,21 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, []);
 
   // ── Home Meal sync + CRUD ──
+  // Save to the dedicated home_meals column if it exists, AND stash a copy
+  // inside restaurant_meta.__home_meals__ as a reliable fallback. The
+  // dedicated column may fail (missing column, payload size, RLS, etc.);
+  // the meta fallback uses a column that is always present, which is what
+  // we already do for trips and custom_order.
   const syncHomeMealsToCloud = useCallback((data: HomeMeal[]) => {
-    if (userIdRef.current && supabaseConfigured) saveHomeMeals(userIdRef.current, data);
-  }, []);
+    if (!userIdRef.current || !supabaseConfigured) return;
+    saveHomeMeals(userIdRef.current, data);
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, __home_meals__: data as unknown as RestaurantMeta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
+  }, [syncMetaToCloud]);
 
   const createHomeMeal = useCallback((meal: Omit<HomeMeal, 'id' | 'createdAt'>): HomeMeal => {
     const newMeal: HomeMeal = { ...meal, id: `meal-${Date.now()}`, createdAt: Date.now() };
