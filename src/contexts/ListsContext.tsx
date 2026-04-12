@@ -188,6 +188,10 @@ interface ListsContextValue {
   restaurantMeta: Record<string, RestaurantMeta>;
   cacheRestaurantMeta: (meta: RestaurantMeta) => void;
   getRestaurantInfo: (restaurantId: string) => RestaurantMeta | undefined;
+  /** Set an arbitrary key inside restaurantMeta and sync to cloud. Used by
+   *  the review system to stash __my_meal_reviews__ through the context
+   *  pipeline so it doesn't get overwritten by other meta syncs. */
+  stashMetaKey: (key: string, value: unknown) => void;
 
   // Wishlist
   wishlist: WishlistItem[];
@@ -816,6 +820,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   }, [syncMetaToCloud]);
 
+  const stashMetaKey = useCallback((key: string, value: unknown) => {
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, [key]: value as RestaurantMeta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
+  }, [syncMetaToCloud]);
+
   const getRestaurantInfo = useCallback((restaurantId: string): RestaurantMeta | undefined => {
     if (restaurantMeta[restaurantId]) return restaurantMeta[restaurantId];
     const rated = ratings.find((r) => r.restaurantId === restaurantId);
@@ -1163,7 +1176,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     <ListsContext.Provider value={{
       ratings, rateRestaurant, updateRating, removeRating, getRating,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
-      restaurantMeta, cacheRestaurantMeta, getRestaurantInfo,
+      restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
       wishlist, addToWishlist, removeFromWishlist, isWishlisted, getWishlistItem,
       ratingModalOpen, ratingModalRestaurant, openRatingModal, closeRatingModal,
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,

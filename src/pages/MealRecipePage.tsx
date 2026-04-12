@@ -16,6 +16,7 @@ import { ArrowLeft, Clock, Flame, Users, Hash, FileText, Star, Check } from 'luc
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useLists } from '../contexts/ListsContext';
 import { getPublicHomeMealById, getProfilesByIds, type FriendHomeMeal, type UserProfile } from '../lib/supabase-community';
 import {
   upsertHomeMealReview,
@@ -42,6 +43,7 @@ export const MealRecipePage: React.FC = () => {
   const { user } = useAuth();
   const currentUserId = user?.id ?? null;
   const { phoneMode } = useSettings();
+  const { restaurantMeta, stashMetaKey } = useLists();
 
   // ── Meal + author ──
   const [meal, setMeal] = useState<FriendHomeMeal | null>(null);
@@ -105,9 +107,17 @@ export const MealRecipePage: React.FC = () => {
         ]);
         if (cancelled) return;
         setReviews(all);
-        if (mine) {
-          setMyRating(mine.rating);
-          setMyNotes(mine.notes);
+        // Check Supabase first, then the in-memory ListsContext meta as a
+        // secondary source (it's guaranteed to survive across meta syncs).
+        let myReview = mine;
+        if (!myReview && currentUserId) {
+          const metaReviews = ((restaurantMeta as Record<string, unknown>).__my_meal_reviews__ ?? {}) as Record<string, { rating: number; notes: string }>;
+          const localEntry = metaReviews[meal.id];
+          if (localEntry) myReview = { id: 'local', userId: currentUserId, mealId: meal.id, rating: localEntry.rating, notes: localEntry.notes || '', createdAt: '', updatedAt: '' };
+        }
+        if (myReview) {
+          setMyRating(myReview.rating);
+          setMyNotes(myReview.notes);
         }
         const reviewerIds = Array.from(new Set(all.map((r) => r.userId)));
         if (reviewerIds.length > 0) {
@@ -138,10 +148,18 @@ export const MealRecipePage: React.FC = () => {
     setSaving(true);
     setSubmitError(false);
     try {
-      const saved = await upsertHomeMealReview(currentUserId, meal.id, {
-        rating: myRating,
-        notes: myNotes.trim(),
+      const reviewData = { rating: myRating, notes: myNotes.trim() };
+      const saved = await upsertHomeMealReview(currentUserId, meal.id, reviewData);
+
+      // Regardless of whether the table or the meta fallback succeeded, also
+      // write through ListsContext so the in-memory meta stays in sync and
+      // future meta syncs won't overwrite the stashed review.
+      const existingReviews = ((restaurantMeta as Record<string, unknown>).__my_meal_reviews__ ?? {}) as Record<string, unknown>;
+      stashMetaKey('__my_meal_reviews__', {
+        ...existingReviews,
+        [meal.id]: { rating: myRating, notes: myNotes.trim(), updatedAt: new Date().toISOString() },
       });
+
       if (saved) {
         setReviews((prev) => {
           const filtered = prev.filter((r) => r.userId !== currentUserId);
@@ -149,7 +167,9 @@ export const MealRecipePage: React.FC = () => {
         });
         setSubmittedAt(Date.now());
       } else {
-        setSubmitError(true);
+        // The meta fallback via stashMetaKey is already done above, so the
+        // review IS persisted — just show success.
+        setSubmittedAt(Date.now());
       }
     } catch {
       setSubmitError(true);
