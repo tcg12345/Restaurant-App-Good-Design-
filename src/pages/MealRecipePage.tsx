@@ -58,6 +58,7 @@ export const MealRecipePage: React.FC = () => {
   const [myHoverRating, setMyHoverRating] = useState<number | null>(null);
   const [myNotes, setMyNotes] = useState('');
   const [submittedAt, setSubmittedAt] = useState<number | null>(null);
+  const [submitError, setSubmitError] = useState(false);
 
   // ── Transient recipe-page UI state (display-only) ──
   const [servingsScale, setServingsScale] = useState(1);
@@ -135,6 +136,7 @@ export const MealRecipePage: React.FC = () => {
   const handleSubmitReview = async () => {
     if (!currentUserId || !meal || myRating < 1) return;
     setSaving(true);
+    setSubmitError(false);
     try {
       const saved = await upsertHomeMealReview(currentUserId, meal.id, {
         rating: myRating,
@@ -146,7 +148,11 @@ export const MealRecipePage: React.FC = () => {
           return [saved, ...filtered];
         });
         setSubmittedAt(Date.now());
+      } else {
+        setSubmitError(true);
       }
+    } catch {
+      setSubmitError(true);
     } finally {
       setSaving(false);
     }
@@ -497,6 +503,11 @@ export const MealRecipePage: React.FC = () => {
               </span>
             ) : 'Submit review'}
           </button>
+          {submitError && (
+            <p className="text-xs text-red-500 text-center mt-2">
+              Something went wrong. Please try again.
+            </p>
+          )}
         </div>
       )}
     </section>

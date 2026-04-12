@@ -865,6 +865,33 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* Your rating */}
+                    <div className="border-t border-on-surface/8 pt-3 mb-3">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-2 text-center">Your Rating</p>
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-baseline gap-1 mb-2">
+                          <span className={cn(
+                            "text-4xl font-serif font-bold tabular-nums",
+                            score >= 8 ? 'text-green-500' : score >= 5 ? 'text-yellow-500' : score > 0 ? 'text-red-400' : 'text-on-surface/25',
+                          )}>
+                            {score > 0 ? score.toFixed(1) : '—'}
+                          </span>
+                          <span className="text-xs text-on-surface/35 font-medium">/ 10</span>
+                        </div>
+                        <div className="w-full max-w-[240px]">
+                          <input
+                            type="range" min="0" max="10" step="0.1"
+                            value={score}
+                            onChange={(e) => setScore(parseFloat(e.target.value))}
+                            className="w-full h-2 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary"
+                          />
+                          <p className="text-[11px] font-medium text-on-surface/45 text-center mt-1">
+                            {score === 0 ? 'Slide to rate' : score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Dishes — compact */}
                     <div className="border-t border-on-surface/8 pt-2.5 mb-2">
                       <div className="flex items-center justify-between mb-1.5">

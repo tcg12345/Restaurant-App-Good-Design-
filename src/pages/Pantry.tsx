@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
+import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
+import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
@@ -2934,6 +2936,12 @@ const HomeCookingTab: React.FC<{
   // Transient recipe-page UI state (not persisted — pure display aids).
   const [servingsScale, setServingsScale] = useState(1);
   const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
+  // Rating tab: "mine" shows the author's own /10 score; "community" shows
+  // 5-star reviews from friends/other users.
+  const [ratingTab, setRatingTab] = useState<'mine' | 'community'>('mine');
+  const [communityReviews, setCommunityReviews] = useState<HomeMealReview[]>([]);
+  const [reviewerProfiles, setReviewerProfiles] = useState<Record<string, UserProfile>>({});
+  const [loadingReviews, setLoadingReviews] = useState(false);
 
   const selectedMeal = meals.find((m) => m.id === selectedMealId) || null;
 
@@ -2941,7 +2949,33 @@ const HomeCookingTab: React.FC<{
   useEffect(() => {
     setServingsScale(1);
     setCheckedIngredients(new Set());
+    setRatingTab('mine');
+    setCommunityReviews([]);
+    setReviewerProfiles({});
   }, [selectedMealId]);
+
+  // Lazily load community reviews when the user switches to that tab.
+  useEffect(() => {
+    if (ratingTab !== 'community' || !selectedMealId) return;
+    if (communityReviews.length > 0) return; // already loaded
+    let cancelled = false;
+    setLoadingReviews(true);
+    (async () => {
+      try {
+        const reviews = await getHomeMealReviews(selectedMealId);
+        if (cancelled) return;
+        setCommunityReviews(reviews);
+        const ids = [...new Set(reviews.map((r) => r.userId))];
+        if (ids.length > 0) {
+          const profiles = await getProfilesByIds(ids);
+          if (!cancelled) setReviewerProfiles(profiles);
+        }
+      } finally {
+        if (!cancelled) setLoadingReviews(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ratingTab, selectedMealId, communityReviews.length]);
 
   const filteredMeals = useMemo(() => {
     let result = [...meals];
@@ -3024,50 +3058,138 @@ const HomeCookingTab: React.FC<{
       </div>
     );
 
+    const communitySummary = summarizeReviews(communityReviews);
+
     const titleBlock = (
       <header>
-        <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-2">
+        <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-1">
           {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
         </p>
-        <h1 className="font-serif font-bold text-[28px] leading-[1.1] sm:text-5xl text-on-surface mb-4">
+        <h1 className="font-serif font-bold text-[26px] leading-[1.15] sm:text-4xl text-on-surface mb-3">
           {selectedMeal.name}
         </h1>
 
-        {/* Rating + would-make-again editorial callout */}
-        <div className="flex items-center gap-4 mb-4">
-          {selectedMeal.score > 0 && (
-            <div className="flex items-baseline">
-              <span className={cn("text-5xl font-serif font-bold tabular-nums", scoreColor(selectedMeal.score))}>
-                {selectedMeal.score.toFixed(1)}
-              </span>
-              <span className="text-sm text-on-surface/35 font-medium ml-1">/ 10</span>
-            </div>
-          )}
-          {'wouldMakeAgain' in selectedMeal && (
-            <span className={cn(
-              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold",
-              selectedMeal.wouldMakeAgain
-                ? "bg-emerald-100 text-emerald-700"
-                : "bg-red-50 text-red-600",
-            )}>
-              <span className={cn(
-                "w-1.5 h-1.5 rounded-full",
-                selectedMeal.wouldMakeAgain ? "bg-emerald-500" : "bg-red-500",
-              )} />
-              {selectedMeal.wouldMakeAgain ? 'Would make again' : "Wouldn't repeat"}
-            </span>
-          )}
-        </div>
-
+        {/* Tags */}
         {selectedMeal.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 mb-4">
             {selectedMeal.tags.map((tag) => (
-              <span key={tag} className="inline-flex items-center px-3 py-1 bg-amber-50 text-amber-800 rounded-full text-[11px] font-semibold tracking-wide">
+              <span key={tag} className="inline-flex items-center px-2.5 py-0.5 bg-amber-50 text-amber-800 rounded-full text-[10px] font-semibold tracking-wide">
                 {tag}
               </span>
             ))}
           </div>
         )}
+
+        {/* My Rating ↔ Community toggle */}
+        <div className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
+          <div className="flex border-b border-on-surface/6">
+            <button
+              onClick={() => setRatingTab('mine')}
+              className={cn(
+                "flex-1 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-center transition-colors",
+                ratingTab === 'mine'
+                  ? "text-on-surface border-b-2 border-emerald-600"
+                  : "text-on-surface/40 hover:text-on-surface/60",
+              )}
+            >
+              My Rating
+            </button>
+            <button
+              onClick={() => setRatingTab('community')}
+              className={cn(
+                "flex-1 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-center transition-colors",
+                ratingTab === 'community'
+                  ? "text-on-surface border-b-2 border-amber-500"
+                  : "text-on-surface/40 hover:text-on-surface/60",
+              )}
+            >
+              Community
+            </button>
+          </div>
+
+          {ratingTab === 'mine' ? (
+            <div className="px-4 py-4 flex items-center gap-4">
+              {selectedMeal.score > 0 ? (
+                <>
+                  <div className="flex items-baseline">
+                    <span className={cn("text-4xl font-serif font-bold tabular-nums", scoreColor(selectedMeal.score))}>
+                      {selectedMeal.score.toFixed(1)}
+                    </span>
+                    <span className="text-xs text-on-surface/35 font-medium ml-1">/ 10</span>
+                  </div>
+                  {'wouldMakeAgain' in selectedMeal && (
+                    <span className={cn(
+                      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold",
+                      selectedMeal.wouldMakeAgain
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-red-50 text-red-600",
+                    )}>
+                      <span className={cn(
+                        "w-1.5 h-1.5 rounded-full",
+                        selectedMeal.wouldMakeAgain ? "bg-emerald-500" : "bg-red-500",
+                      )} />
+                      {selectedMeal.wouldMakeAgain ? 'Would make again' : "Wouldn't repeat"}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-on-surface/40 italic">No rating yet — edit to add one.</p>
+              )}
+            </div>
+          ) : (
+            <div className="px-4 py-4">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="flex items-baseline">
+                  <span className="text-4xl font-serif font-bold tabular-nums text-amber-600">
+                    {communitySummary.count > 0 ? communitySummary.average.toFixed(1) : '—'}
+                  </span>
+                  <span className="text-xs text-on-surface/35 font-medium ml-1">/ 5</span>
+                </div>
+                <div>
+                  <div className="flex gap-0.5 mb-0.5">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star key={n} size={14} className={cn(
+                        communitySummary.count > 0 && n <= Math.round(communitySummary.average)
+                          ? "text-amber-500 fill-amber-500"
+                          : "text-amber-200",
+                      )} />
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-on-surface/45">
+                    {communitySummary.count === 0 ? 'No reviews yet' : `${communitySummary.count} review${communitySummary.count !== 1 ? 's' : ''}`}
+                  </p>
+                </div>
+              </div>
+
+              {loadingReviews ? (
+                <p className="text-xs text-on-surface/40 text-center py-3">Loading…</p>
+              ) : communityReviews.length === 0 ? (
+                <p className="text-xs text-on-surface/40 italic">Share this recipe (set to Public) so friends can rate it.</p>
+              ) : (
+                <div className="space-y-2.5 max-h-60 overflow-y-auto">
+                  {communityReviews.map((r) => {
+                    const name = reviewerProfiles[r.userId]?.display_name || reviewerProfiles[r.userId]?.username || 'Someone';
+                    return (
+                      <div key={r.id} className="border-t border-on-surface/6 pt-2.5 first:border-0 first:pt-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="text-xs font-semibold text-on-surface">{name}</p>
+                          <div className="flex gap-0.5">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star key={n} size={11} className={cn(
+                                n <= r.rating ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                              )} />
+                            ))}
+                          </div>
+                        </div>
+                        {r.notes && <p className="text-[12px] text-on-surface/60 leading-relaxed">{r.notes}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </header>
     );
 

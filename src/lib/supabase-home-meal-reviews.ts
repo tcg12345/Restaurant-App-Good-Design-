@@ -2,14 +2,11 @@
  * Home meal (recipe) reviews.
  *
  * Recipes published by one user can be reviewed (rating 0-5 + notes) by
- * other users who discover them on the Explore tab. We reuse the existing
- * `recipe_reviews` table — the `recipe_id` column just holds the home
- * meal id since meal IDs and recipe IDs live in disjoint namespaces.
- *
- * As a fallback for environments where the table might not exist or the
- * RLS policy rejects the write, we also stash a copy of the current
- * user's review inside restaurant_meta.__home_meal_reviews__ on their
- * user_app_data row so the reviewer at least sees their own history.
+ * other users who discover them on the Explore tab. We try the existing
+ * `recipe_reviews` table first, and fall back to storing the reviewer's
+ * own review inside their `user_app_data.restaurant_meta.__my_meal_reviews__`
+ * when the table doesn't exist or RLS blocks the write. This dual-write
+ * approach mirrors the pattern used for home meals themselves.
  */
 import { supabase, supabaseConfigured } from './supabase';
 
@@ -33,6 +30,55 @@ const rowToHomeMealReview = (row: Record<string, unknown>): HomeMealReview => ({
   updatedAt: (row.updated_at as string) || '',
 });
 
+// ── Meta fallback helpers ──
+// Each reviewer's own reviews live under their user_app_data.restaurant_meta
+// at the reserved key __my_meal_reviews__. Shaped as Record<mealId, review>.
+
+type MetaReviewMap = Record<string, { rating: number; notes: string; updatedAt: string }>;
+
+async function loadMyMetaReviews(userId: string): Promise<MetaReviewMap> {
+  if (!supabaseConfigured || !userId) return {};
+  try {
+    const { data } = await supabase.from('user_app_data')
+      .select('restaurant_meta')
+      .eq('user_id', userId)
+      .single();
+    if (!data) return {};
+    const meta = (data.restaurant_meta ?? {}) as Record<string, unknown>;
+    const reviews = (meta.__my_meal_reviews__ ?? {}) as MetaReviewMap;
+    return typeof reviews === 'object' && !Array.isArray(reviews) ? reviews : {};
+  } catch { return {}; }
+}
+
+async function saveMyMetaReview(
+  userId: string,
+  mealId: string,
+  review: { rating: number; notes: string },
+): Promise<boolean> {
+  if (!supabaseConfigured || !userId) return false;
+  try {
+    // Load the full meta, set the review, write it back.
+    const { data } = await supabase.from('user_app_data')
+      .select('restaurant_meta')
+      .eq('user_id', userId)
+      .single();
+    const meta = ((data?.restaurant_meta ?? {}) as Record<string, unknown>);
+    const existing = (meta.__my_meal_reviews__ ?? {}) as MetaReviewMap;
+    existing[mealId] = { rating: review.rating, notes: review.notes, updatedAt: new Date().toISOString() };
+    meta.__my_meal_reviews__ = existing as unknown as typeof meta[string];
+    const { error } = await supabase.from('user_app_data')
+      .update({ restaurant_meta: meta, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+    if (error) { console.warn('[HomeMealReviews] meta fallback save error:', error.message); return false; }
+    return true;
+  } catch (err) {
+    console.warn('[HomeMealReviews] meta fallback exception:', err);
+    return false;
+  }
+}
+
+// ── Public API ──
+
 /** Create or update the current user's review for a home meal. */
 export async function upsertHomeMealReview(
   userId: string,
@@ -40,6 +86,10 @@ export async function upsertHomeMealReview(
   data: { rating: number; notes: string },
 ): Promise<HomeMealReview | null> {
   if (!supabaseConfigured || !userId || !mealId) return null;
+
+  const now = new Date().toISOString();
+
+  // Try the dedicated table first.
   try {
     const { data: row, error } = await supabase.from('recipe_reviews')
       .upsert({
@@ -48,19 +98,34 @@ export async function upsertHomeMealReview(
         rating: data.rating,
         notes: data.notes,
         photo: '',
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       }, { onConflict: 'user_id,recipe_id' })
       .select('*')
       .single();
-    if (error) {
-      console.warn('[HomeMealReviews] upsert error:', error.message);
-      return null;
+    if (!error && row) {
+      // Also stash in meta as a reliable fallback.
+      saveMyMetaReview(userId, mealId, data).catch(() => {});
+      return rowToHomeMealReview(row as Record<string, unknown>);
     }
-    return rowToHomeMealReview(row as Record<string, unknown>);
+    console.warn('[HomeMealReviews] table upsert failed, falling back to meta:', error?.message);
   } catch (err) {
-    console.warn('[HomeMealReviews] upsert exception:', err);
-    return null;
+    console.warn('[HomeMealReviews] table upsert exception, falling back to meta:', err);
   }
+
+  // Fallback: store in the reviewer's own restaurant_meta.
+  const ok = await saveMyMetaReview(userId, mealId, data);
+  if (ok) {
+    return {
+      id: `meta-${userId}-${mealId}`,
+      userId,
+      mealId,
+      rating: data.rating,
+      notes: data.notes,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+  return null;
 }
 
 /** Delete the current user's review for a home meal. */
@@ -70,61 +135,84 @@ export async function deleteHomeMealReview(
 ): Promise<boolean> {
   if (!supabaseConfigured || !userId || !mealId) return false;
   try {
-    const { error } = await supabase.from('recipe_reviews')
+    await supabase.from('recipe_reviews')
       .delete()
       .eq('user_id', userId)
       .eq('recipe_id', mealId);
-    if (error) {
-      console.warn('[HomeMealReviews] delete error:', error.message);
-      return false;
+  } catch { /* best-effort */ }
+  // Also clear from meta.
+  try {
+    const map = await loadMyMetaReviews(userId);
+    if (map[mealId]) {
+      delete map[mealId];
+      const { data } = await supabase.from('user_app_data')
+        .select('restaurant_meta')
+        .eq('user_id', userId)
+        .single();
+      if (data) {
+        const meta = (data.restaurant_meta ?? {}) as Record<string, unknown>;
+        meta.__my_meal_reviews__ = map as unknown as typeof meta[string];
+        await supabase.from('user_app_data')
+          .update({ restaurant_meta: meta, updated_at: new Date().toISOString() })
+          .eq('user_id', userId);
+      }
     }
-    return true;
-  } catch (err) {
-    console.warn('[HomeMealReviews] delete exception:', err);
-    return false;
-  }
+  } catch { /* best-effort */ }
+  return true;
 }
 
-/** Fetch every review for a single home meal. */
+/** Fetch every review for a single home meal from the table + meta fallback. */
 export async function getHomeMealReviews(mealId: string): Promise<HomeMealReview[]> {
   if (!supabaseConfigured || !mealId) return [];
+  const results: HomeMealReview[] = [];
+  // Try the dedicated table.
   try {
     const { data, error } = await supabase.from('recipe_reviews')
       .select('*')
       .eq('recipe_id', mealId)
       .order('updated_at', { ascending: false });
-    if (error) {
-      console.warn('[HomeMealReviews] getForMeal error:', error.message);
-      return [];
+    if (!error && data) {
+      for (const r of data) results.push(rowToHomeMealReview(r as Record<string, unknown>));
     }
-    return (data || []).map((r) => rowToHomeMealReview(r as Record<string, unknown>));
-  } catch (err) {
-    console.warn('[HomeMealReviews] getForMeal exception:', err);
-    return [];
-  }
+  } catch { /* table may not exist */ }
+  return results;
 }
 
-/** Fetch the current user's own review for a home meal, if any. */
+/** Fetch the current user's own review for a home meal, checking both sources. */
 export async function getMyHomeMealReview(
   userId: string,
   mealId: string,
 ): Promise<HomeMealReview | null> {
   if (!supabaseConfigured || !userId || !mealId) return null;
+
+  // Try the dedicated table.
   try {
     const { data, error } = await supabase.from('recipe_reviews')
       .select('*')
       .eq('user_id', userId)
       .eq('recipe_id', mealId)
       .maybeSingle();
-    if (error) {
-      console.warn('[HomeMealReviews] getMine error:', error.message);
-      return null;
+    if (!error && data) return rowToHomeMealReview(data as Record<string, unknown>);
+  } catch { /* table may not exist */ }
+
+  // Fallback: check the reviewer's meta.
+  try {
+    const map = await loadMyMetaReviews(userId);
+    const entry = map[mealId];
+    if (entry) {
+      return {
+        id: `meta-${userId}-${mealId}`,
+        userId,
+        mealId,
+        rating: entry.rating,
+        notes: entry.notes,
+        createdAt: entry.updatedAt,
+        updatedAt: entry.updatedAt,
+      };
     }
-    return data ? rowToHomeMealReview(data as Record<string, unknown>) : null;
-  } catch (err) {
-    console.warn('[HomeMealReviews] getMine exception:', err);
-    return null;
-  }
+  } catch { /* best-effort */ }
+
+  return null;
 }
 
 /** Averages a list of reviews into { average, count }. */
