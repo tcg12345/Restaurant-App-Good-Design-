@@ -1,7 +1,9 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
+import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
+import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
@@ -2928,6 +2930,7 @@ const HomeCookingTab: React.FC<{
   onSelectMeal: (id: string | null) => void;
 }> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal }) => {
   const { phoneMode } = useSettings();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'recent' | 'highest'>('recent');
@@ -2942,6 +2945,7 @@ const HomeCookingTab: React.FC<{
   const [communityReviews, setCommunityReviews] = useState<HomeMealReview[]>([]);
   const [reviewerProfiles, setReviewerProfiles] = useState<Record<string, UserProfile>>({});
   const [loadingReviews, setLoadingReviews] = useState(false);
+  const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
 
   const selectedMeal = meals.find((m) => m.id === selectedMealId) || null;
 
@@ -3041,12 +3045,30 @@ const HomeCookingTab: React.FC<{
 
     // ── Reusable section blocks, identical content for phone and desktop ──
 
+    const buildSharedRecipe = (): SharedRecipe => ({
+      mealId: selectedMeal.id,
+      authorId: user?.id || '',
+      authorName: user?.user_metadata?.display_name || user?.user_metadata?.username || 'You',
+      name: selectedMeal.name,
+      image: coverUrl,
+      description: selectedMeal.description || undefined,
+      tags: selectedMeal.tags.length > 0 ? selectedMeal.tags : undefined,
+      totalTime: (selectedMeal.prepTime ?? 0) + (selectedMeal.cookTime ?? 0) || undefined,
+      difficulty: selectedMeal.difficulty || undefined,
+      ingredientCount: selectedMeal.ingredients?.length || undefined,
+      stepCount: selectedMeal.steps?.length || undefined,
+    });
+
     const actionsHeader = (
       <div className="flex items-center gap-3">
         <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
           <ArrowLeft size={20} />
         </button>
         <div className="flex-1" />
+        <button onClick={() => setShareRecipeData(buildSharedRecipe())}
+          className="p-2 text-on-surface/40 hover:text-emerald-600 rounded-full transition-colors" title="Share recipe">
+          <Share2 size={18} />
+        </button>
         <button onClick={() => onOpenModal(selectedMeal)}
           className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
           <Edit3 size={18} />
@@ -3440,6 +3462,14 @@ const HomeCookingTab: React.FC<{
       />
     );
 
+    const shareSheet = (
+      <ShareRecipeSheet
+        open={!!shareRecipeData}
+        recipe={shareRecipeData}
+        onClose={() => setShareRecipeData(null)}
+      />
+    );
+
     // ── Phone layout: full-width hero + fully stacked sections ──
     if (phoneMode) {
       return (
@@ -3467,6 +3497,7 @@ const HomeCookingTab: React.FC<{
 
           {deleteConfirmOverlay}
           {lightbox}
+          {shareSheet}
         </div>
       );
     }

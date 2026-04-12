@@ -12,7 +12,9 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Clock, Flame, Users, Hash, FileText, Star, Check } from 'lucide-react';
+import { ArrowLeft, Clock, Flame, Users, Hash, FileText, Star, Check, Share2 } from 'lucide-react';
+import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
+import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -61,6 +63,7 @@ export const MealRecipePage: React.FC = () => {
   const [myNotes, setMyNotes] = useState('');
   const [submittedAt, setSubmittedAt] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState(false);
+  const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
 
   // ── Transient recipe-page UI state (display-only) ──
   const [servingsScale, setServingsScale] = useState(1);
@@ -229,6 +232,20 @@ export const MealRecipePage: React.FC = () => {
   ];
 
   const authorName = authorProfile?.display_name || authorProfile?.username || 'A friend';
+
+  const buildSharedRecipe = (): SharedRecipe => ({
+    mealId: meal.id,
+    authorId: meal.userId,
+    authorName,
+    name: meal.name,
+    image: coverUrl,
+    description: meal.description || undefined,
+    tags: meal.tags.length > 0 ? meal.tags : undefined,
+    totalTime: totalTime || undefined,
+    difficulty: meal.difficulty || undefined,
+    ingredientCount: meal.ingredients?.length || undefined,
+    stepCount: meal.steps?.length || undefined,
+  });
   const isAuthor = !!currentUserId && meal.userId === currentUserId;
 
   // ── Reusable section blocks, rendered identically on phone and desktop
@@ -588,9 +605,13 @@ export const MealRecipePage: React.FC = () => {
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/50 hover:text-on-surface transition-colors" aria-label="Back">
             <ArrowLeft size={22} />
           </button>
-          <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium truncate">
+          <p className="flex-1 text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium truncate">
             From {authorName}&rsquo;s kitchen
           </p>
+          <button onClick={() => setShareRecipeData(buildSharedRecipe())}
+            className="p-2 -mr-2 text-on-surface/40 hover:text-emerald-600 transition-colors" aria-label="Share">
+            <Share2 size={20} />
+          </button>
         </div>
 
         {/* Full-width hero photo */}
@@ -623,6 +644,12 @@ export const MealRecipePage: React.FC = () => {
           onClose={() => setLightboxPhotoIdx(null)}
           onChange={setLightboxPhotoIdx}
         />
+
+        <ShareRecipeSheet
+          open={!!shareRecipeData}
+          recipe={shareRecipeData}
+          onClose={() => setShareRecipeData(null)}
+        />
       </div>
     );
   }
@@ -635,9 +662,13 @@ export const MealRecipePage: React.FC = () => {
         <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors" aria-label="Back">
           <ArrowLeft size={20} />
         </button>
-        <p className="text-[11px] uppercase tracking-[0.14em] text-on-surface/40 font-medium">
+        <p className="flex-1 text-[11px] uppercase tracking-[0.14em] text-on-surface/40 font-medium">
           From {authorName}&rsquo;s kitchen
         </p>
+        <button onClick={() => setShareRecipeData(buildSharedRecipe())}
+          className="p-2 -mr-2 text-on-surface/40 hover:text-emerald-600 transition-colors" aria-label="Share">
+          <Share2 size={18} />
+        </button>
       </div>
 
       {/* Hero row: heading on left, cover image on right */}
@@ -698,6 +729,12 @@ export const MealRecipePage: React.FC = () => {
         index={lightboxPhotoIdx}
         onClose={() => setLightboxPhotoIdx(null)}
         onChange={setLightboxPhotoIdx}
+      />
+
+      <ShareRecipeSheet
+        open={!!shareRecipeData}
+        recipe={shareRecipeData}
+        onClose={() => setShareRecipeData(null)}
       />
     </div>
   );

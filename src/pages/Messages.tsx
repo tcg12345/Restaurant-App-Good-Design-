@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, Send, Search, X, Users, Check, MessageCircle, ChevronRight, Star, MapPin, Trash2, Share2 } from 'lucide-react';
+import { ArrowLeft, Plus, Send, Search, X, Users, Check, MessageCircle, ChevronRight, Star, MapPin, Trash2, Share2, ChefHat, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useChat, type Conversation, type SharedRestaurant } from '../contexts/ChatContext';
+import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -57,6 +57,59 @@ const RestaurantShareCard: React.FC<{
         )}
         <div className="flex items-center gap-1 mt-2 text-primary">
           <span className="text-[10px] font-semibold">{restaurant.isReview ? 'View Review' : 'View Details'}</span>
+          <ChevronRight size={10} />
+        </div>
+      </div>
+    </button>
+  );
+};
+
+/* ── Recipe Share Card ── */
+const RecipeShareCard: React.FC<{
+  recipe: SharedRecipe;
+  onClick?: () => void;
+}> = ({ recipe, onClick }) => {
+  const totalLabel = recipe.totalTime && recipe.totalTime > 0
+    ? (recipe.totalTime < 60 ? `${recipe.totalTime}m` : `${Math.floor(recipe.totalTime / 60)}h ${recipe.totalTime % 60 ? `${recipe.totalTime % 60}m` : ''}`.trim())
+    : '';
+  return (
+    <button onClick={onClick} className="w-full max-w-[280px] bg-gradient-to-br from-emerald-50/60 to-white border border-emerald-200/50 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all text-left">
+      {recipe.image && (
+        <div className="w-full h-28 overflow-hidden">
+          <img src={recipe.image} alt={recipe.name} className="w-full h-full object-cover" />
+        </div>
+      )}
+      <div className="p-3">
+        <div className="flex items-center gap-1.5 mb-1">
+          <ChefHat size={12} className="text-emerald-600" />
+          <span className="text-[10px] font-semibold text-emerald-700/70 uppercase tracking-wider">{recipe.authorName}&rsquo;s recipe</span>
+        </div>
+        <p className="text-sm font-serif font-bold text-on-surface/85 truncate">{recipe.name}</p>
+        {recipe.description && (
+          <p className="text-[11px] text-on-surface/45 mt-0.5 line-clamp-1 leading-snug italic">{recipe.description}</p>
+        )}
+        <div className="flex items-center flex-wrap gap-1.5 mt-2">
+          {totalLabel && (
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700/80 bg-emerald-100 px-1.5 py-0.5 rounded-full">
+              <Clock size={9} /> {totalLabel}
+            </span>
+          )}
+          {recipe.difficulty && (
+            <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{recipe.difficulty}</span>
+          )}
+          {(recipe.ingredientCount ?? 0) > 0 && (
+            <span className="text-[9px] text-on-surface/40">{recipe.ingredientCount} ingredients</span>
+          )}
+        </div>
+        {recipe.tags && recipe.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {recipe.tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[9px] font-semibold rounded-full">{tag}</span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-1 mt-2 text-emerald-600">
+          <span className="text-[10px] font-semibold">View Recipe</span>
           <ChevronRight size={10} />
         </div>
       </div>
@@ -465,17 +518,25 @@ const ChatView: React.FC<{
                   {showSender && (
                     <p className="text-[10px] font-semibold text-on-surface/40 mb-0.5 px-1">{getParticipantName(msg.senderId)}</p>
                   )}
-                  {msg.sharedRestaurant ? (
+                  {(msg.sharedRestaurant || msg.sharedRecipe) ? (
                     <div className={cn("rounded-2xl overflow-hidden", isMe ? "rounded-br-md" : "rounded-bl-md")}>
                       {msg.text && (
                         <div className={cn("px-3.5 py-2 text-sm", isMe ? "bg-primary text-white" : "bg-on-surface/[0.06] text-on-surface/80")}>
                           {msg.text}
                         </div>
                       )}
-                      <RestaurantShareCard
-                        restaurant={msg.sharedRestaurant}
-                        onClick={() => handleRestaurantClick(msg.sharedRestaurant!)}
-                      />
+                      {msg.sharedRestaurant && (
+                        <RestaurantShareCard
+                          restaurant={msg.sharedRestaurant}
+                          onClick={() => handleRestaurantClick(msg.sharedRestaurant!)}
+                        />
+                      )}
+                      {msg.sharedRecipe && (
+                        <RecipeShareCard
+                          recipe={msg.sharedRecipe}
+                          onClick={() => navigate(`/meal/${msg.sharedRecipe!.authorId}/${msg.sharedRecipe!.mealId}`)}
+                        />
+                      )}
                     </div>
                   ) : (
                     <div className={cn("px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed",
@@ -639,6 +700,10 @@ export const Messages: React.FC = () => {
     if (last.sharedRestaurant) {
       const prefix = last.senderId === user?.id ? 'You' : (profiles[last.senderId]?.display_name || 'Someone');
       return `${prefix} shared ${last.sharedRestaurant.name}`;
+    }
+    if (last.sharedRecipe) {
+      const prefix = last.senderId === user?.id ? 'You' : (profiles[last.senderId]?.display_name || 'Someone');
+      return `${prefix} shared a recipe: ${last.sharedRecipe.name}`;
     }
     const prefix = last.senderId === user?.id ? 'You: ' : '';
     return prefix + last.text;

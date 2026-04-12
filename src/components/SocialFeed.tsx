@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen, Share2 } from 'lucide-react';
+import { ShareRecipeSheet } from './ShareRecipeSheet';
+import type { SharedRecipe } from '../contexts/ChatContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
@@ -49,6 +51,7 @@ export const SocialFeed: React.FC = () => {
   const [userLiked, setUserLiked] = useState<Set<string>>(new Set());
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
+  const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [openComments, setOpenComments] = useState<string | null>(null);
@@ -61,6 +64,23 @@ export const SocialFeed: React.FC = () => {
   const openFriendRecipe = useCallback((m: FriendHomeMeal) => {
     navigate(`/meal/${m.userId}/${m.id}`);
   }, [navigate]);
+
+  const buildSharedRecipe = useCallback((m: FriendHomeMeal): SharedRecipe => {
+    const author = profiles[m.userId];
+    return {
+      mealId: m.id,
+      authorId: m.userId,
+      authorName: author?.display_name || author?.username || 'A friend',
+      name: m.name,
+      image: getMealCoverUrl(m),
+      description: m.description || undefined,
+      tags: m.tags.length > 0 ? m.tags : undefined,
+      totalTime: ((m.prepTime ?? 0) + (m.cookTime ?? 0)) || undefined,
+      difficulty: m.difficulty || undefined,
+      ingredientCount: m.ingredients?.length || undefined,
+      stepCount: m.steps?.length || undefined,
+    };
+  }, [profiles]);
 
   const loadFeed = useCallback(async () => {
     if (!userId) { setLoading(false); return; }
@@ -333,7 +353,16 @@ export const SocialFeed: React.FC = () => {
                       <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
                       <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">cooked at home</p>
                     </div>
-                    <span className="text-[10px] text-on-surface/35 font-medium">{mealTimeAgo}</span>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span className="text-[10px] text-on-surface/35 font-medium">{mealTimeAgo}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
+                        className="p-1.5 -mr-1 text-on-surface/35 hover:text-emerald-600 transition-colors"
+                        aria-label="Share recipe"
+                      >
+                        <Share2 size={13} />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Meal body */}
@@ -665,6 +694,11 @@ export const SocialFeed: React.FC = () => {
       </div>
       )}
 
+      <ShareRecipeSheet
+        open={!!shareRecipeData}
+        recipe={shareRecipeData}
+        onClose={() => setShareRecipeData(null)}
+      />
     </section>
   );
 };
