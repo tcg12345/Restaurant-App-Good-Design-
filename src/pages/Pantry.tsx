@@ -7,7 +7,7 @@ import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
-import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
@@ -2959,6 +2959,9 @@ const HomeCookingTab: React.FC<{
   }, [selectedMealId]);
 
   // Lazily load community reviews when the user switches to that tab.
+  // Scan the author's friends' meta rows too so reviews saved via the
+  // ListsContext fallback (restaurant_meta.__my_meal_reviews__) show up
+  // even when the dedicated recipe_reviews table doesn't exist.
   useEffect(() => {
     if (ratingTab !== 'community' || !selectedMealId) return;
     if (communityReviews.length > 0) return; // already loaded
@@ -2966,7 +2969,13 @@ const HomeCookingTab: React.FC<{
     setLoadingReviews(true);
     (async () => {
       try {
-        const reviews = await getHomeMealReviews(selectedMealId);
+        const authorId = user?.id || null;
+        let scanIds: string[] = [];
+        if (authorId) {
+          const friends = await getFriends(authorId);
+          scanIds = [authorId, ...friends.map((f) => f.friend_id)];
+        }
+        const reviews = await getHomeMealReviews(selectedMealId, scanIds);
         if (cancelled) return;
         setCommunityReviews(reviews);
         const ids = [...new Set(reviews.map((r) => r.userId))];
@@ -2979,7 +2988,7 @@ const HomeCookingTab: React.FC<{
       }
     })();
     return () => { cancelled = true; };
-  }, [ratingTab, selectedMealId, communityReviews.length]);
+  }, [ratingTab, selectedMealId, communityReviews.length, user]);
 
   const filteredMeals = useMemo(() => {
     let result = [...meals];

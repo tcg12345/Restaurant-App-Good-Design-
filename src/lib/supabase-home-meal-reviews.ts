@@ -161,21 +161,65 @@ export async function deleteHomeMealReview(
   return true;
 }
 
-/** Fetch every review for a single home meal from the table + meta fallback. */
-export async function getHomeMealReviews(mealId: string): Promise<HomeMealReview[]> {
+/** Fetch every review for a single home meal from the table + meta fallback.
+ *  Pass `scanUserIds` to also read `restaurant_meta.__my_meal_reviews__[mealId]`
+ *  from those users' `user_app_data` rows — this is how reviews that were
+ *  persisted via the ListsContext meta path become visible to the author. */
+export async function getHomeMealReviews(
+  mealId: string,
+  scanUserIds: string[] = [],
+): Promise<HomeMealReview[]> {
   if (!supabaseConfigured || !mealId) return [];
-  const results: HomeMealReview[] = [];
-  // Try the dedicated table.
+  const byUser = new Map<string, HomeMealReview>();
+
+  // 1. Dedicated table (preferred — wins on duplicates).
   try {
     const { data, error } = await supabase.from('recipe_reviews')
       .select('*')
       .eq('recipe_id', mealId)
       .order('updated_at', { ascending: false });
     if (!error && data) {
-      for (const r of data) results.push(rowToHomeMealReview(r as Record<string, unknown>));
+      for (const r of data) {
+        const review = rowToHomeMealReview(r as Record<string, unknown>);
+        byUser.set(review.userId, review);
+      }
     }
   } catch { /* table may not exist */ }
-  return results;
+
+  // 2. Meta fallback — scan the provided users' restaurant_meta.
+  if (scanUserIds.length > 0) {
+    try {
+      const { data, error } = await supabase.from('user_app_data')
+        .select('user_id, restaurant_meta')
+        .in('user_id', scanUserIds);
+      if (!error && data) {
+        for (const row of data) {
+          const uid = (row as { user_id: string }).user_id;
+          if (byUser.has(uid)) continue; // table entry wins
+          const meta = (row.restaurant_meta ?? {}) as Record<string, unknown>;
+          const map = (meta.__my_meal_reviews__ ?? {}) as Record<string, { rating: number; notes: string; updatedAt: string }>;
+          const entry = map[mealId];
+          if (entry) {
+            byUser.set(uid, {
+              id: `meta-${uid}-${mealId}`,
+              userId: uid,
+              mealId,
+              rating: entry.rating,
+              notes: entry.notes || '',
+              createdAt: entry.updatedAt || '',
+              updatedAt: entry.updatedAt || '',
+            });
+          }
+        }
+      }
+    } catch { /* best-effort */ }
+  }
+
+  return Array.from(byUser.values()).sort((a, b) => {
+    const at = a.updatedAt ? Date.parse(a.updatedAt) : 0;
+    const bt = b.updatedAt ? Date.parse(b.updatedAt) : 0;
+    return bt - at;
+  });
 }
 
 /** Fetch the current user's own review for a home meal, checking both sources. */
@@ -222,28 +266,60 @@ export function summarizeReviews(reviews: HomeMealReview[]): { average: number; 
   return { average: sum / reviews.length, count: reviews.length };
 }
 
-/** Batch-fetch review summaries for multiple meal IDs in a single query. */
+/** Batch-fetch review summaries for multiple meal IDs. Reads from both the
+ *  `recipe_reviews` table AND (optionally) from the meta fallback on each of
+ *  the provided users' `user_app_data` rows, deduplicated per (meal, user). */
 export async function getReviewSummariesBatch(
   mealIds: string[],
+  scanUserIds: string[] = [],
 ): Promise<Record<string, { average: number; count: number }>> {
   const result: Record<string, { average: number; count: number }> = {};
   if (!supabaseConfigured || mealIds.length === 0) return result;
+  // Map: mealId → (userId → rating). Table entries win on duplicates.
+  const perMeal: Record<string, Map<string, number>> = {};
+
+  // 1. Table.
   try {
     const { data, error } = await supabase.from('recipe_reviews')
-      .select('recipe_id, rating')
+      .select('recipe_id, user_id, rating')
       .in('recipe_id', mealIds);
-    if (error || !data) return result;
-    // Group by meal id and compute averages.
-    const groups: Record<string, number[]> = {};
-    for (const row of data) {
-      const id = row.recipe_id as string;
-      if (!groups[id]) groups[id] = [];
-      groups[id].push(Number(row.rating) || 0);
-    }
-    for (const [id, ratings] of Object.entries(groups)) {
-      const sum = ratings.reduce((a, b) => a + b, 0);
-      result[id] = { average: sum / ratings.length, count: ratings.length };
+    if (!error && data) {
+      for (const row of data) {
+        const meal = row.recipe_id as string;
+        const user = row.user_id as string;
+        if (!perMeal[meal]) perMeal[meal] = new Map();
+        perMeal[meal].set(user, Number(row.rating) || 0);
+      }
     }
   } catch { /* table may not exist */ }
+
+  // 2. Meta fallback — scan provided users' meta for each meal.
+  if (scanUserIds.length > 0) {
+    try {
+      const { data, error } = await supabase.from('user_app_data')
+        .select('user_id, restaurant_meta')
+        .in('user_id', scanUserIds);
+      if (!error && data) {
+        const mealIdSet = new Set(mealIds);
+        for (const row of data) {
+          const uid = (row as { user_id: string }).user_id;
+          const meta = (row.restaurant_meta ?? {}) as Record<string, unknown>;
+          const map = (meta.__my_meal_reviews__ ?? {}) as Record<string, { rating: number }>;
+          for (const [mealId, entry] of Object.entries(map)) {
+            if (!mealIdSet.has(mealId)) continue;
+            if (!perMeal[mealId]) perMeal[mealId] = new Map();
+            if (!perMeal[mealId].has(uid)) perMeal[mealId].set(uid, Number(entry.rating) || 0);
+          }
+        }
+      }
+    } catch { /* best-effort */ }
+  }
+
+  for (const [mealId, ratingMap] of Object.entries(perMeal)) {
+    const ratings = Array.from(ratingMap.values());
+    if (ratings.length === 0) continue;
+    const sum = ratings.reduce((a, b) => a + b, 0);
+    result[mealId] = { average: sum / ratings.length, count: ratings.length };
+  }
   return result;
 }

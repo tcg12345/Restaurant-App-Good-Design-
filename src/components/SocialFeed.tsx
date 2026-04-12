@@ -115,8 +115,11 @@ export const SocialFeed: React.FC = () => {
     }
     // Batch-fetch community rating summaries for all home meals so cards
     // can show the 5-star average instead of the author's self-rating.
+    // Scan the viewer's friends' meta (plus self) so reviews persisted via
+    // the ListsContext fallback are included in the averages.
     if (meals.length > 0) {
-      getReviewSummariesBatch(meals.map((m) => m.id))
+      const scanIds = [userId, ...friendIds];
+      getReviewSummariesBatch(meals.map((m) => m.id), scanIds)
         .then(setMealRatingSummaries)
         .catch(() => {});
     }

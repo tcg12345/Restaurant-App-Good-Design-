@@ -19,7 +19,7 @@ import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
-import { getPublicHomeMealById, getProfilesByIds, type FriendHomeMeal, type UserProfile } from '../lib/supabase-community';
+import { getPublicHomeMealById, getProfilesByIds, getFriends, type FriendHomeMeal, type UserProfile } from '../lib/supabase-community';
 import {
   upsertHomeMealReview,
   getHomeMealReviews,
@@ -104,8 +104,20 @@ export const MealRecipePage: React.FC = () => {
     setSubmittedAt(null);
     (async () => {
       try {
+        // Build the list of user IDs whose meta we should scan for reviews:
+        // the author (author's own reviews wouldn't count but if they ever
+        // reviewed something in that column it's harmless), the viewer, and
+        // all of the viewer's friends (they're likely reviewers).
+        let scanIds: string[] = [meal.userId];
+        if (currentUserId) {
+          scanIds.push(currentUserId);
+          try {
+            const friends = await getFriends(currentUserId);
+            scanIds = [...new Set([...scanIds, ...friends.map((f) => f.friend_id)])];
+          } catch { /* best-effort */ }
+        }
         const [all, mine] = await Promise.all([
-          getHomeMealReviews(meal.id),
+          getHomeMealReviews(meal.id, scanIds),
           currentUserId ? getMyHomeMealReview(currentUserId, meal.id) : Promise.resolve(null),
         ]);
         if (cancelled) return;
