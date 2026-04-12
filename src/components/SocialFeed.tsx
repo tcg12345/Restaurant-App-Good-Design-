@@ -12,6 +12,7 @@ import {
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
 import { getMealCoverUrl } from '../lib/recipe-display';
+import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
 
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
@@ -47,6 +48,7 @@ export const SocialFeed: React.FC = () => {
   const [likes, setLikes] = useState<Record<string, number>>({});
   const [userLiked, setUserLiked] = useState<Set<string>>(new Set());
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
   const [loading, setLoading] = useState(true);
 
   const [openComments, setOpenComments] = useState<string | null>(null);
@@ -90,6 +92,13 @@ export const SocialFeed: React.FC = () => {
       setLikes(likesData.likes);
       setUserLiked(likesData.userLiked);
       setCommentCounts(ccounts);
+    }
+    // Batch-fetch community rating summaries for all home meals so cards
+    // can show the 5-star average instead of the author's self-rating.
+    if (meals.length > 0) {
+      getReviewSummariesBatch(meals.map((m) => m.id))
+        .then(setMealRatingSummaries)
+        .catch(() => {});
     }
     setLoading(false);
   }, [userId]);
@@ -356,11 +365,21 @@ export const SocialFeed: React.FC = () => {
                               )}
                             </div>
                           </div>
-                          {m.score > 0 && (
-                            <div className={cn("flex-shrink-0 w-10 h-10 rounded-full bg-white ring-2 flex items-center justify-center", m.score >= 8 ? 'ring-green-500/30' : m.score >= 5 ? 'ring-yellow-500/30' : 'ring-red-500/30')}>
-                              <span className={cn("text-sm font-serif font-bold", scoreColor(m.score))}>{m.score.toFixed(1)}</span>
-                            </div>
-                          )}
+                          {(() => {
+                            const summary = mealRatingSummaries[m.id];
+                            return summary && summary.count > 0 ? (
+                              <div className="flex-shrink-0 flex flex-col items-center gap-0.5">
+                                <div className="flex gap-0.5">
+                                  {[1, 2, 3, 4, 5].map((n) => (
+                                    <Star key={n} size={11} className={cn(
+                                      n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                                    )} />
+                                  ))}
+                                </div>
+                                <span className="text-[9px] text-on-surface/40 font-medium">{summary.average.toFixed(1)}</span>
+                              </div>
+                            ) : null;
+                          })()}
                         </div>
                         {m.description && (
                           <div className="mt-2 pl-2.5 border-l-2 border-emerald-300/60">
@@ -437,9 +456,21 @@ export const SocialFeed: React.FC = () => {
                             )}
                           </div>
                         </div>
-                        <div className={cn("flex-shrink-0 w-10 h-10 rounded-full bg-white ring-2 flex items-center justify-center", m.score >= 8 ? 'ring-green-500/30' : m.score >= 5 ? 'ring-yellow-500/30' : 'ring-red-500/30')}>
-                          <span className={cn("text-sm font-serif font-bold", scoreColor(m.score))}>{m.score.toFixed(1)}</span>
-                        </div>
+                        {(() => {
+                          const summary = mealRatingSummaries[m.id];
+                          return summary && summary.count > 0 ? (
+                            <div className="flex-shrink-0 flex flex-col items-center gap-0.5">
+                              <div className="flex gap-0.5">
+                                {[1, 2, 3, 4, 5].map((n) => (
+                                  <Star key={n} size={11} className={cn(
+                                    n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                                  )} />
+                                ))}
+                              </div>
+                              <span className="text-[9px] text-on-surface/40 font-medium">{summary.average.toFixed(1)}</span>
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                       {m.description && (
                         <div className="mt-2 pl-2.5 border-l-2 border-emerald-300/60">

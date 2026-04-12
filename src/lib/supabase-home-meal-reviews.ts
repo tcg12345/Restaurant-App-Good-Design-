@@ -221,3 +221,29 @@ export function summarizeReviews(reviews: HomeMealReview[]): { average: number; 
   const sum = reviews.reduce((acc, r) => acc + (Number.isFinite(r.rating) ? r.rating : 0), 0);
   return { average: sum / reviews.length, count: reviews.length };
 }
+
+/** Batch-fetch review summaries for multiple meal IDs in a single query. */
+export async function getReviewSummariesBatch(
+  mealIds: string[],
+): Promise<Record<string, { average: number; count: number }>> {
+  const result: Record<string, { average: number; count: number }> = {};
+  if (!supabaseConfigured || mealIds.length === 0) return result;
+  try {
+    const { data, error } = await supabase.from('recipe_reviews')
+      .select('recipe_id, rating')
+      .in('recipe_id', mealIds);
+    if (error || !data) return result;
+    // Group by meal id and compute averages.
+    const groups: Record<string, number[]> = {};
+    for (const row of data) {
+      const id = row.recipe_id as string;
+      if (!groups[id]) groups[id] = [];
+      groups[id].push(Number(row.rating) || 0);
+    }
+    for (const [id, ratings] of Object.entries(groups)) {
+      const sum = ratings.reduce((a, b) => a + b, 0);
+      result[id] = { average: sum / ratings.length, count: ratings.length };
+    }
+  } catch { /* table may not exist */ }
+  return result;
+}
