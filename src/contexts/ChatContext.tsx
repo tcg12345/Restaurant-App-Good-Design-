@@ -19,11 +19,26 @@ export interface SharedRestaurant {
   isReview: boolean;    // true = sharing a review, false = sharing a detail page
 }
 
+export interface SharedRecipe {
+  mealId: string;
+  authorId: string;
+  authorName: string;
+  name: string;
+  image: string;        // cover photo URL
+  description?: string;
+  tags?: string[];
+  totalTime?: number;   // minutes
+  difficulty?: string;
+  ingredientCount?: number;
+  stepCount?: number;
+}
+
 export interface ChatMessage {
   id: string;
   senderId: string;
   text: string;
   sharedRestaurant?: SharedRestaurant;
+  sharedRecipe?: SharedRecipe;
   timestamp: number;
 }
 
@@ -40,7 +55,7 @@ export interface Conversation {
 interface ChatContextValue {
   conversations: Conversation[];
   createConversation: (participantIds: string[], name?: string) => Conversation;
-  sendMessage: (conversationId: string, text: string, sharedRestaurant?: SharedRestaurant) => void;
+  sendMessage: (conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe) => void;
   getConversation: (id: string) => Conversation | undefined;
   findDirectConversation: (friendId: string) => Conversation | undefined;
   deleteConversation: (id: string) => void;
@@ -144,13 +159,14 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return conv;
   }, [userId, syncToCloud, readTimestamps]);
 
-  const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant) => {
+  const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe) => {
     if (!userId) return;
     const msg: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       senderId: userId,
       text,
       sharedRestaurant,
+      sharedRecipe,
       timestamp: Date.now(),
     };
     setConversations((prev) => {

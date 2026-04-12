@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, CalendarDays, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, GripVertical, Star, BookOpen, Clock, Flame, Users, Hash, FileText } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, GripVertical, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { Calendar } from './RatingShared';
 import { useRecipes } from '../contexts/RecipesContext';
 
 const HOME_COOKING_TAGS = [
@@ -14,7 +13,223 @@ const HOME_COOKING_TAGS = [
   'Snack', 'Brunch', 'BBQ', 'One-Pot', 'Slow Cooker', 'Air Fryer',
 ];
 
-type Page = 'main' | 'notes' | 'tags' | 'photos' | 'date' | 'dishes' | 'ingredients' | 'steps';
+// Unit definitions — the dropdown always shows the plural (canonical) form.
+// Aliases cover common user spellings including mistyped/long forms so the
+// bulk paste parser and single-add form can normalize whatever the user typed.
+type UnitDef = {
+  label: string;     // canonical plural form shown in dropdown
+  singular: string;  // singular form used when amount <= 1
+  aliases: string[]; // case-insensitive alias set for fuzzy matching
+};
+
+const UNITS: UnitDef[] = [
+  { label: 'cups', singular: 'cup', aliases: ['cup', 'cups', 'c'] },
+  { label: 'tbsp', singular: 'tbsp', aliases: ['tbsp', 'tbsps', 'tablespoon', 'tablespoons', 'tbl', 'tbls', 'tbs', 'T'] },
+  { label: 'tsp', singular: 'tsp', aliases: ['tsp', 'tsps', 'teaspoon', 'teaspoons', 't'] },
+  { label: 'oz', singular: 'oz', aliases: ['oz', 'ozs', 'ounce', 'ounces'] },
+  { label: 'fl oz', singular: 'fl oz', aliases: ['fl oz', 'fluid ounce', 'fluid ounces', 'floz'] },
+  { label: 'lbs', singular: 'lb', aliases: ['lb', 'lbs', 'pound', 'pounds'] },
+  { label: 'g', singular: 'g', aliases: ['g', 'gram', 'grams', 'gm'] },
+  { label: 'kg', singular: 'kg', aliases: ['kg', 'kilogram', 'kilograms', 'kilo', 'kilos'] },
+  { label: 'mg', singular: 'mg', aliases: ['mg', 'milligram', 'milligrams'] },
+  { label: 'ml', singular: 'ml', aliases: ['ml', 'milliliter', 'milliliters', 'millilitre', 'millilitres'] },
+  { label: 'L', singular: 'L', aliases: ['l', 'liter', 'liters', 'litre', 'litres'] },
+  { label: 'pinches', singular: 'pinch', aliases: ['pinch', 'pinches'] },
+  { label: 'dashes', singular: 'dash', aliases: ['dash', 'dashes'] },
+  { label: 'drops', singular: 'drop', aliases: ['drop', 'drops'] },
+  { label: 'handfuls', singular: 'handful', aliases: ['handful', 'handfuls'] },
+  { label: 'cloves', singular: 'clove', aliases: ['clove', 'cloves'] },
+  { label: 'slices', singular: 'slice', aliases: ['slice', 'slices'] },
+  { label: 'pieces', singular: 'piece', aliases: ['piece', 'pieces', 'pc', 'pcs'] },
+  { label: 'cans', singular: 'can', aliases: ['can', 'cans'] },
+  { label: 'jars', singular: 'jar', aliases: ['jar', 'jars'] },
+  { label: 'packages', singular: 'package', aliases: ['package', 'packages', 'pkg', 'pkgs', 'pack', 'packs'] },
+  { label: 'bunches', singular: 'bunch', aliases: ['bunch', 'bunches'] },
+  { label: 'sprigs', singular: 'sprig', aliases: ['sprig', 'sprigs'] },
+  { label: 'heads', singular: 'head', aliases: ['head', 'heads'] },
+  { label: 'stalks', singular: 'stalk', aliases: ['stalk', 'stalks'] },
+  { label: 'sticks', singular: 'stick', aliases: ['stick', 'sticks'] },
+  { label: 'quarts', singular: 'quart', aliases: ['quart', 'quarts', 'qt', 'qts'] },
+  { label: 'pints', singular: 'pint', aliases: ['pint', 'pints', 'pt', 'pts'] },
+  { label: 'gallons', singular: 'gallon', aliases: ['gallon', 'gallons', 'gal', 'gals'] },
+  { label: 'boxes', singular: 'box', aliases: ['box', 'boxes'] },
+  { label: 'bags', singular: 'bag', aliases: ['bag', 'bags'] },
+  { label: 'bottles', singular: 'bottle', aliases: ['bottle', 'bottles'] },
+  { label: 'inches', singular: 'inch', aliases: ['inch', 'inches', 'in'] },
+  { label: 'cm', singular: 'cm', aliases: ['cm', 'centimeter', 'centimeters'] },
+];
+
+// Returns singular form for amounts <= 1 (and > 0), otherwise the plural label.
+// Amount == null (no amount given) uses the plural label.
+const displayUnit = (label: string, amount: number | null): string => {
+  if (!label) return '';
+  const def = UNITS.find((u) => u.label === label);
+  if (!def) return label;
+  if (amount !== null && amount > 0 && amount <= 1) return def.singular;
+  return def.label;
+};
+
+// Classic iterative Levenshtein with O(min(m,n)) memory.
+const levenshtein = (a: string, b: string): number => {
+  if (a === b) return 0;
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const prev = new Array<number>(n + 1);
+  const curr = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= n; j++) prev[j] = curr[j];
+  }
+  return prev[n];
+};
+
+// Map any input (exact alias, mistype, singular/plural, long form) to a canonical
+// plural label. Returns '' if nothing reasonable matches. `strict` disables fuzzy
+// matching — used by the line parser to avoid turning ingredient words into units.
+const normalizeUnit = (input: string, strict = false): string => {
+  const cleaned = input.trim().toLowerCase().replace(/[.,;:]+$/, '');
+  if (!cleaned) return '';
+  for (const u of UNITS) {
+    if (u.aliases.some((a) => a.toLowerCase() === cleaned)) return u.label;
+  }
+  if (strict) return '';
+  // Fuzzy fallback: find closest alias, require a small distance relative to length.
+  let best: UnitDef | null = null;
+  let bestDist = Infinity;
+  for (const u of UNITS) {
+    for (const a of u.aliases) {
+      const d = levenshtein(cleaned, a.toLowerCase());
+      if (d < bestDist) { bestDist = d; best = u; }
+    }
+  }
+  if (!best) return '';
+  const threshold = cleaned.length <= 3 ? 1 : cleaned.length <= 5 ? 1 : 2;
+  if (bestDist <= threshold) return best.label;
+  return '';
+};
+
+// Parses "2", "1/2", "1 1/2", "0.5", "1-2" (range uses low end) into a number.
+// Returns null for anything it can't recognize.
+// Matches a decimal number in any of these forms: "1", "1.5", "0.5", ".5".
+// Used by both parseAmount and parseIngredientLine so they agree on what
+// counts as a number.
+const DECIMAL_PATTERN = '(?:\\d+\\.\\d+|\\d+\\.|\\.\\d+|\\d+)';
+
+const parseAmount = (str: string): number | null => {
+  // Normalize comma decimal separators ("0,5" → "0.5") so European-style
+  // input works without a special case.
+  const trimmed = str.trim().replace(/,/g, '.');
+  if (!trimmed) return null;
+  const mixedMatch = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (mixedMatch) {
+    const whole = parseInt(mixedMatch[1], 10);
+    const num = parseInt(mixedMatch[2], 10);
+    const den = parseInt(mixedMatch[3], 10);
+    if (!den) return null;
+    return whole + num / den;
+  }
+  const fracMatch = trimmed.match(/^(\d+)\/(\d+)$/);
+  if (fracMatch) {
+    const num = parseInt(fracMatch[1], 10);
+    const den = parseInt(fracMatch[2], 10);
+    if (!den) return null;
+    return num / den;
+  }
+  if (new RegExp(`^${DECIMAL_PATTERN}$`).test(trimmed)) {
+    const n = parseFloat(trimmed);
+    return Number.isFinite(n) ? n : null;
+  }
+  const rangeMatch = trimmed.match(new RegExp(`^(${DECIMAL_PATTERN})\\s*-\\s*${DECIMAL_PATTERN}$`));
+  if (rangeMatch) {
+    const n = parseFloat(rangeMatch[1]);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+};
+
+// Converts a decimal number to a display-friendly fraction like "1 1/2".
+// Uses common cooking fractions (eighths, thirds, quarters).
+const toFraction = (value: number): string => {
+  if (!Number.isFinite(value) || value < 0) return '';
+  if (value === 0) return '0';
+  const whole = Math.floor(value);
+  const frac = value - whole;
+  if (frac < 0.01) return String(whole);
+  const candidates: { value: number; str: string }[] = [
+    { value: 1 / 8, str: '1/8' },
+    { value: 1 / 6, str: '1/6' },
+    { value: 1 / 5, str: '1/5' },
+    { value: 1 / 4, str: '1/4' },
+    { value: 1 / 3, str: '1/3' },
+    { value: 3 / 8, str: '3/8' },
+    { value: 2 / 5, str: '2/5' },
+    { value: 1 / 2, str: '1/2' },
+    { value: 3 / 5, str: '3/5' },
+    { value: 5 / 8, str: '5/8' },
+    { value: 2 / 3, str: '2/3' },
+    { value: 3 / 4, str: '3/4' },
+    { value: 4 / 5, str: '4/5' },
+    { value: 5 / 6, str: '5/6' },
+    { value: 7 / 8, str: '7/8' },
+  ];
+  let best = candidates[0];
+  let bestDiff = Math.abs(frac - best.value);
+  for (const c of candidates) {
+    const diff = Math.abs(frac - c.value);
+    if (diff < bestDiff) { best = c; bestDiff = diff; }
+  }
+  // If rounding up to the next whole is closer than any fraction, just round up.
+  if (Math.abs(1 - frac) < bestDiff) return String(whole + 1);
+  if (whole === 0) return best.str;
+  return `${whole} ${best.str}`;
+};
+
+// Normalizes a stored amount string for display (e.g. "0.5" → "1/2").
+const displayAmount = (amount: string): string => {
+  if (!amount) return '';
+  const parsed = parseAmount(amount);
+  if (parsed === null) return amount;
+  return toFraction(parsed);
+};
+
+// Parses a single bulk-paste line into { amount, unit, name }.
+const parseIngredientLine = (raw: string): { name: string; amount: string; unit: string } | null => {
+  // Strip bullets, collapse whitespace, and normalize comma decimals.
+  const line = raw.trim().replace(/^[-*•·●]\s*/, '').replace(/\s+/g, ' ').replace(/(\d),(\d)/g, '$1.$2');
+  if (!line) return null;
+  // Leading amount can be a mixed fraction ("1 1/2"), a fraction ("1/2"),
+  // a decimal with or without a leading zero (".5", "0.5", "1.5"), a plain
+  // integer, or a range ("1-2"). The pattern matches any of these.
+  const amountMatch = line.match(
+    new RegExp(`^(\\d+\\s+\\d+/\\d+|\\d+/\\d+|${DECIMAL_PATTERN}(?:\\s*-\\s*${DECIMAL_PATTERN})?)\\s*(.*)$`),
+  );
+  if (!amountMatch) {
+    return { name: line, amount: '', unit: '' };
+  }
+  const amount = amountMatch[1].replace(/\s*-\s*/, '-');
+  const rest = amountMatch[2];
+  if (!rest) return { name: '', amount, unit: '' };
+  const words = rest.split(' ');
+  // Try a two-word unit first ("fl oz", "fluid ounces"), then one-word.
+  if (words.length >= 2) {
+    const twoWord = `${words[0]} ${words[1]}`;
+    const matched = normalizeUnit(twoWord);
+    if (matched) return { amount, unit: matched, name: words.slice(2).join(' ') };
+  }
+  const firstWord = words[0].replace(/[.,;:]$/, '');
+  const matched = normalizeUnit(firstWord);
+  if (matched) return { amount, unit: matched, name: words.slice(1).join(' ') };
+  return { amount, unit: '', name: rest };
+};
+
+type Page = 'main' | 'tags' | 'photos' | 'dishes' | 'ingredients' | 'steps';
 
 export const AddHomeMealModal: React.FC = () => {
   const {
@@ -27,7 +242,7 @@ export const AddHomeMealModal: React.FC = () => {
   const existing = homeMealModalData;
 
   const [mealName, setMealName] = useState('');
-  const [score, setScore] = useState(7);
+  const [score, setScore] = useState(0);
   const [notes, setNotes] = useState('');
   const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
   const [wouldMakeAgain, setWouldMakeAgain] = useState(true);
@@ -38,11 +253,14 @@ export const AddHomeMealModal: React.FC = () => {
 
   // Recipe-like fields
   const [coverPhoto, setCoverPhoto] = useState('');
-  const [prepTime, setPrepTime] = useState(0);
-  const [cookTime, setCookTime] = useState(0);
-  const [servings, setServings] = useState(4);
+  // Prep / cook time is edited as separate hours + minutes strings so the
+  // fields can be empty (placeholder "0") until the user actually types.
+  const [prepHoursStr, setPrepHoursStr] = useState('');
+  const [prepMinutesStr, setPrepMinutesStr] = useState('');
+  const [cookHoursStr, setCookHoursStr] = useState('');
+  const [cookMinutesStr, setCookMinutesStr] = useState('');
+  const [servingsStr, setServingsStr] = useState('');
   const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>('Medium');
-  const [cuisine, setCuisine] = useState('');
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
   const [steps, setSteps] = useState<string[]>([]);
 
@@ -50,6 +268,13 @@ export const AddHomeMealModal: React.FC = () => {
   const [newIngredientName, setNewIngredientName] = useState('');
   const [newIngredientAmount, setNewIngredientAmount] = useState('');
   const [newIngredientUnit, setNewIngredientUnit] = useState('');
+  const [unitDropdownOpen, setUnitDropdownOpen] = useState(false);
+  const [unitSearch, setUnitSearch] = useState('');
+  const [ingredientMode, setIngredientMode] = useState<'single' | 'bulk'>('single');
+  const [bulkIngredientsText, setBulkIngredientsText] = useState('');
+  const [editingIngredientIdx, setEditingIngredientIdx] = useState<number | null>(null);
+  const [ingredientError, setIngredientError] = useState<string | null>(null);
+  const [bulkErrors, setBulkErrors] = useState<string[]>([]);
   const [newStep, setNewStep] = useState('');
 
   // Dish editing state
@@ -73,7 +298,7 @@ export const AddHomeMealModal: React.FC = () => {
   useEffect(() => {
     if (homeMealModalOpen) {
       setMealName(existing?.name ?? '');
-      setScore(existing?.score ?? 7);
+      setScore(existing?.score ?? 0);
       setNotes(existing?.description ?? '');
       setVisitDate(existing?.date ?? new Date().toISOString().slice(0, 10));
       setWouldMakeAgain(existing?.wouldMakeAgain ?? true);
@@ -82,16 +307,32 @@ export const AddHomeMealModal: React.FC = () => {
       setDishes(existing?.dishes ?? []);
       setIsPublic(existing?.isPublic ?? false);
       setCoverPhoto(existing?.coverPhoto ?? '');
-      setPrepTime(existing?.prepTime ?? 0);
-      setCookTime(existing?.cookTime ?? 0);
-      setServings(existing?.servings ?? 4);
+      // Split stored minute totals into hours + minutes strings. Empty
+      // strings render as placeholder "0".
+      const prepMins = existing?.prepTime ?? 0;
+      const cookMins = existing?.cookTime ?? 0;
+      const ph = Math.floor(prepMins / 60);
+      const pm = prepMins % 60;
+      const ch = Math.floor(cookMins / 60);
+      const cm = cookMins % 60;
+      setPrepHoursStr(ph > 0 ? String(ph) : '');
+      setPrepMinutesStr(pm > 0 ? String(pm) : '');
+      setCookHoursStr(ch > 0 ? String(ch) : '');
+      setCookMinutesStr(cm > 0 ? String(cm) : '');
+      setServingsStr(existing?.servings != null ? String(existing.servings) : '');
       setDifficulty(existing?.difficulty ?? 'Medium');
-      setCuisine(existing?.cuisine ?? '');
       setIngredients(existing?.ingredients ? [...existing.ingredients] : []);
       setSteps(existing?.steps ? [...existing.steps] : []);
       setNewIngredientName('');
       setNewIngredientAmount('');
       setNewIngredientUnit('');
+      setUnitDropdownOpen(false);
+      setUnitSearch('');
+      setIngredientMode('single');
+      setBulkIngredientsText('');
+      setEditingIngredientIdx(null);
+      setIngredientError(null);
+      setBulkErrors([]);
       setNewStep('');
       setEditingDishId(null);
       setDishName('');
@@ -137,15 +378,134 @@ export const AddHomeMealModal: React.FC = () => {
     e.target.value = '';
   };
 
-  const addIngredient = () => {
-    if (!newIngredientName.trim()) return;
-    setIngredients((prev) => [...prev, { name: newIngredientName.trim(), amount: newIngredientAmount.trim(), unit: newIngredientUnit.trim() }]);
+  // Builds a normalized RecipeIngredient from form state, returning either the
+  // ingredient or a user-facing error message. Validates that amount (if given)
+  // is numeric and converts it to a fraction; normalizes the unit label and
+  // picks singular/plural based on the amount.
+  const buildIngredient = (
+    name: string,
+    amountRaw: string,
+    unitRaw: string,
+  ): { ok: true; ingredient: RecipeIngredient } | { ok: false; error: string } => {
+    if (!name.trim()) return { ok: false, error: 'Ingredient name is required.' };
+    const amtTrim = amountRaw.trim();
+    let amountNum: number | null = null;
+    let finalAmount = '';
+    if (amtTrim) {
+      amountNum = parseAmount(amtTrim);
+      if (amountNum === null) {
+        return { ok: false, error: `"${amtTrim}" is not a valid number.` };
+      }
+      finalAmount = toFraction(amountNum);
+    }
+    const unitTrim = unitRaw.trim();
+    let finalUnit = '';
+    if (unitTrim) {
+      const normalized = normalizeUnit(unitTrim);
+      if (!normalized) {
+        return { ok: false, error: `"${unitTrim}" is not a recognized unit.` };
+      }
+      finalUnit = displayUnit(normalized, amountNum);
+    }
+    return {
+      ok: true,
+      ingredient: { name: name.trim(), amount: finalAmount, unit: finalUnit },
+    };
+  };
+
+  const saveIngredient = () => {
+    const result = buildIngredient(newIngredientName, newIngredientAmount, newIngredientUnit);
+    if (!result.ok) {
+      setIngredientError(result.error);
+      return;
+    }
+    setIngredients((prev) => {
+      if (editingIngredientIdx !== null) {
+        return prev.map((ing, i) => (i === editingIngredientIdx ? result.ingredient : ing));
+      }
+      return [...prev, result.ingredient];
+    });
     setNewIngredientName('');
     setNewIngredientAmount('');
     setNewIngredientUnit('');
+    setEditingIngredientIdx(null);
+    setIngredientError(null);
   };
 
-  const removeIngredient = (idx: number) => setIngredients((prev) => prev.filter((_, i) => i !== idx));
+  const startEditIngredient = (idx: number) => {
+    const ing = ingredients[idx];
+    if (!ing) return;
+    setNewIngredientName(ing.name);
+    setNewIngredientAmount(ing.amount);
+    // Normalize the stored unit back to its plural dropdown label so the
+    // dropdown value is selectable; fall back to the raw string if unknown.
+    setNewIngredientUnit(normalizeUnit(ing.unit) || '');
+    setEditingIngredientIdx(idx);
+    setIngredientError(null);
+    setIngredientMode('single');
+  };
+
+  const cancelEditIngredient = () => {
+    setNewIngredientName('');
+    setNewIngredientAmount('');
+    setNewIngredientUnit('');
+    setEditingIngredientIdx(null);
+    setIngredientError(null);
+  };
+
+  const addBulkIngredients = () => {
+    const lines = bulkIngredientsText.split('\n');
+    const parsedIngredients: RecipeIngredient[] = [];
+    const remainingLines: string[] = [];
+    const errors: string[] = [];
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const parsed = parseIngredientLine(trimmed);
+      if (!parsed || (!parsed.name && !parsed.amount)) {
+        errors.push(`Line ${idx + 1}: couldn't parse "${trimmed}".`);
+        remainingLines.push(line);
+        return;
+      }
+      const result = buildIngredient(parsed.name, parsed.amount, parsed.unit);
+      if (!result.ok) {
+        errors.push(`Line ${idx + 1}: ${result.error} ("${trimmed}")`);
+        remainingLines.push(line);
+        return;
+      }
+      parsedIngredients.push(result.ingredient);
+    });
+    if (parsedIngredients.length > 0) {
+      setIngredients((prev) => [...prev, ...parsedIngredients]);
+    }
+    setBulkIngredientsText(remainingLines.join('\n'));
+    setBulkErrors(errors);
+  };
+
+  const removeIngredient = (idx: number) => {
+    setIngredients((prev) => prev.filter((_, i) => i !== idx));
+    // If we were editing this row, clear the form.
+    if (editingIngredientIdx === idx) cancelEditIngredient();
+    else if (editingIngredientIdx !== null && editingIngredientIdx > idx) {
+      setEditingIngredientIdx(editingIngredientIdx - 1);
+    }
+  };
+
+  const filteredUnits = useMemo(() => {
+    const labels = ['', ...UNITS.map((u) => u.label)];
+    if (!unitSearch.trim()) return labels;
+    const q = unitSearch.toLowerCase();
+    // Match on label, singular form, or any alias so search works for
+    // "teaspoon" → tsp, "pound" → lbs, etc.
+    return labels.filter((label) => {
+      if (label === '') return '(none)'.includes(q);
+      const def = UNITS.find((u) => u.label === label);
+      if (!def) return label.toLowerCase().includes(q);
+      if (def.label.toLowerCase().includes(q)) return true;
+      if (def.singular.toLowerCase().includes(q)) return true;
+      return def.aliases.some((a) => a.toLowerCase().includes(q));
+    });
+  }, [unitSearch]);
 
   const addStep = () => {
     if (!newStep.trim()) return;
@@ -168,11 +528,7 @@ export const AddHomeMealModal: React.FC = () => {
         newPhotos.push({ url: compressed, caption: '', isFavorite: false });
       } catch { /* skip failed photos */ }
     }
-    setPhotos((prev) => {
-      const updated = [...prev, ...newPhotos];
-      setTimeout(() => setPage('photos'), 0);
-      return updated;
-    });
+    setPhotos((prev) => [...prev, ...newPhotos]);
     e.target.value = '';
   };
 
@@ -255,6 +611,19 @@ export const AddHomeMealModal: React.FC = () => {
     setPage('main');
   };
 
+  // Convert the hours/minutes strings into a single minute total for storage.
+  const prepTotalMinutes = (parseInt(prepHoursStr, 10) || 0) * 60 + (parseInt(prepMinutesStr, 10) || 0);
+  const cookTotalMinutes = (parseInt(cookHoursStr, 10) || 0) * 60 + (parseInt(cookMinutesStr, 10) || 0);
+  const servingsValue = parseInt(servingsStr, 10);
+
+  // Servings stepper helper — defaults to 4 when the field is empty.
+  const adjustServings = (delta: number) => {
+    const current = parseInt(servingsStr, 10);
+    const base = Number.isFinite(current) && current > 0 ? current : 4;
+    const next = Math.max(1, base + delta);
+    setServingsStr(String(next));
+  };
+
   const handleSave = () => {
     if (!mealName.trim()) return;
     const mealData = {
@@ -268,11 +637,10 @@ export const AddHomeMealModal: React.FC = () => {
       dishes,
       isPublic,
       coverPhoto,
-      prepTime,
-      cookTime,
-      servings,
+      prepTime: prepTotalMinutes,
+      cookTime: cookTotalMinutes,
+      servings: Number.isFinite(servingsValue) && servingsValue > 0 ? servingsValue : 4,
       difficulty,
-      cuisine: cuisine.trim(),
       ingredients,
       steps,
     };
@@ -284,17 +652,11 @@ export const AddHomeMealModal: React.FC = () => {
     closeHomeMealModal();
   };
 
-  const scoreColor = score >= 8 ? 'text-green-400' : score >= 5 ? 'text-yellow-400' : 'text-red-400';
-  const scoreBg = score >= 8 ? 'from-green-500/20 to-green-600/5' : score >= 5 ? 'from-yellow-500/20 to-yellow-600/5' : 'from-red-500/20 to-red-600/5';
-  const scoreRing = score >= 8 ? 'ring-green-400/30' : score >= 5 ? 'ring-yellow-400/30' : 'ring-red-400/30';
-
   const hasDishes = dishes.length > 0;
   const hasTags = selectedTags.length > 0;
   const hasPhotos = photos.length > 0;
-  const hasDate = visitDate !== '';
   const hasIngredients = ingredients.length > 0;
   const hasSteps = steps.length > 0;
-  const dateLabel = hasDate ? new Date(visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined;
 
   const filteredTags = useMemo(() => {
     if (!tagSearch.trim()) return HOME_COOKING_TAGS;
@@ -340,249 +702,298 @@ export const AddHomeMealModal: React.FC = () => {
                     <button onClick={closeHomeMealModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
 
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
-                    {/* Cover photo */}
-                    <button onClick={() => coverInputRef.current?.click()}
-                      className="w-full h-36 rounded-2xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-2 mb-5 overflow-hidden hover:border-primary/30 transition-colors relative">
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3">
+                    {/* Cover photo — compact dropzone */}
+                    <button
+                      onClick={() => coverInputRef.current?.click()}
+                      className="w-full h-20 rounded-2xl border border-dashed border-on-surface/20 bg-on-surface/[0.02] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] flex items-center justify-center gap-2 mb-3 overflow-hidden hover:border-primary/30 transition-colors relative"
+                    >
                       {coverPhoto ? (
                         <>
                           <img src={coverPhoto} alt="Cover" className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                            <Camera size={24} className="text-white" />
+                            <Camera size={18} className="text-white" />
                           </div>
                         </>
                       ) : (
                         <>
-                          <Camera size={24} className="text-on-surface/25" />
-                          <span className="text-xs text-on-surface/35 font-medium">Add cover photo</span>
+                          <Camera size={16} className="text-on-surface/30" />
+                          <span className="text-xs text-on-surface/40 font-medium">Add cover photo</span>
                         </>
                       )}
                     </button>
 
-                    {/* Meal name input */}
-                    <div className="mb-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Meal Name</p>
-                      <input
-                        type="text"
-                        value={mealName}
-                        onChange={(e) => setMealName(e.target.value)}
-                        placeholder="e.g. Sunday Pasta Night"
-                        autoFocus
-                        className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
+                    {/* Meal name */}
+                    <input
+                      type="text"
+                      value={mealName}
+                      onChange={(e) => setMealName(e.target.value)}
+                      placeholder="Meal name"
+                      autoFocus
+                      className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl px-4 py-2.5 text-sm font-semibold placeholder:font-medium placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5"
+                    />
 
-                    {/* Description */}
-                    <div className="mb-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Description</p>
-                      <textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="A brief description of this recipe..."
-                        rows={3}
-                        className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                      />
-                    </div>
+                    {/* Description (max-height w/ internal scroll) */}
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="A brief description..."
+                      rows={2}
+                      className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-4 text-sm font-medium placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none max-h-24 overflow-y-auto mb-3"
+                    />
 
-                    {/* Quick info */}
-                    <div className="border-t border-on-surface/6 pt-4 mb-4">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-3">Quick Info</p>
-                      <div className="grid grid-cols-3 gap-3 mb-4">
-                        <div>
-                          <div className="flex items-center gap-1 mb-1.5">
-                            <Clock size={12} className="text-on-surface/35" />
-                            <span className="text-[10px] font-semibold text-on-surface/45">Prep</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <input type="number" value={prepTime} onChange={(e) => setPrepTime(Math.max(0, parseInt(e.target.value) || 0))}
-                              className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-3 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                            <span className="text-[10px] text-on-surface/35 flex-shrink-0">min</span>
-                          </div>
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1 mb-1.5">
-                            <Flame size={12} className="text-on-surface/35" />
-                            <span className="text-[10px] font-semibold text-on-surface/45">Cook</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <input type="number" value={cookTime} onChange={(e) => setCookTime(Math.max(0, parseInt(e.target.value) || 0))}
-                              className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-3 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                            <span className="text-[10px] text-on-surface/35 flex-shrink-0">min</span>
-                          </div>
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1 mb-1.5">
-                            <Users size={12} className="text-on-surface/35" />
-                            <span className="text-[10px] font-semibold text-on-surface/45">Servings</span>
-                          </div>
-                          <input type="number" value={servings} onChange={(e) => setServings(Math.max(1, parseInt(e.target.value) || 1))}
-                            className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-3 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                        </div>
+                    {/* Quick Info */}
+                    <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Quick Info</p>
+
+                    {/* Prep | Cook — side-by-side w/ divider */}
+                    <div className="flex items-stretch bg-on-surface/[0.04] border border-on-surface/10 rounded-xl mb-2">
+                      <div className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2">
+                        <Clock size={12} className="text-on-surface/40 flex-shrink-0" />
+                        <span className="text-[10px] font-semibold text-on-surface/50 mr-0.5">Prep</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={prepHoursStr}
+                          onChange={(e) => setPrepHoursStr(e.target.value.replace(/\D/g, ''))}
+                          placeholder="0"
+                          className="w-6 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Prep hours"
+                        />
+                        <span className="text-[10px] text-on-surface/45">h</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={prepMinutesStr}
+                          onChange={(e) => setPrepMinutesStr(e.target.value.replace(/\D/g, ''))}
+                          onBlur={() => {
+                            const m = parseInt(prepMinutesStr, 10) || 0;
+                            if (m >= 60) {
+                              const extraH = Math.floor(m / 60);
+                              const remMin = m % 60;
+                              const h = parseInt(prepHoursStr, 10) || 0;
+                              setPrepHoursStr(String(h + extraH));
+                              setPrepMinutesStr(remMin > 0 ? String(remMin) : '');
+                            }
+                          }}
+                          placeholder="0"
+                          className="w-7 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Prep minutes"
+                        />
+                        <span className="text-[10px] text-on-surface/45">m</span>
                       </div>
-
-                      {/* Difficulty */}
-                      <div className="mb-4">
-                        <span className="text-[10px] font-semibold text-on-surface/45 mb-1.5 block">Difficulty</span>
-                        <div className="flex gap-2">
-                          {(['Easy', 'Medium', 'Hard'] as const).map((d) => (
-                            <button key={d} onClick={() => setDifficulty(d)}
-                              className={cn("flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all",
-                                difficulty === d ? "border-yellow-300 bg-yellow-50 text-yellow-700" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
-                              )}>{d}</button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Cuisine */}
-                      <div>
-                        <span className="text-[10px] font-semibold text-on-surface/45 mb-1.5 block">Cuisine</span>
-                        <input type="text" value={cuisine} onChange={(e) => setCuisine(e.target.value)}
-                          placeholder="e.g. Italian, Mexican, Thai..."
-                          className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                      </div>
-                    </div>
-
-                    {/* Score circle + slider */}
-                    <div className="flex flex-col items-center pt-1 sm:pt-3">
-                      <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
-                        <div className="text-center">
-                          <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
-                          <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
-                        </div>
-                      </div>
-                      <div className="w-full max-w-[260px] mb-1.5">
-                        <input type="range" min="1" max="10" step="0.1" value={score} onChange={(e) => setScore(parseFloat(e.target.value))}
-                          className="w-full h-2.5 bg-on-surface/8 rounded-full appearance-none cursor-pointer accent-primary" />
-                        <div className="flex justify-between mt-1 text-[10px] text-on-surface/25 font-semibold px-0.5">
-                          <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
-                        </div>
-                      </div>
-                      <p className="text-xs font-medium text-on-surface/40 mb-4">
-                        {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
-                      </p>
-
-                      {/* Would make again toggle */}
-                      <div className="w-full max-w-[260px] mb-5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 text-center mb-2">Would you make it again?</p>
-                        <div className="flex gap-2">
-                          <button onClick={() => setWouldMakeAgain(true)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", wouldMakeAgain ? "bg-green-50 border-green-200 text-green-700" : "bg-white border-on-surface/10 text-on-surface/40")}>Yes!</button>
-                          <button onClick={() => setWouldMakeAgain(false)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", !wouldMakeAgain ? "bg-red-50 border-red-200 text-red-600" : "bg-white border-on-surface/10 text-on-surface/40")}>Nah</button>
-                        </div>
+                      <div className="w-px bg-on-surface/10 my-2" />
+                      <div className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2">
+                        <Flame size={12} className="text-on-surface/40 flex-shrink-0" />
+                        <span className="text-[10px] font-semibold text-on-surface/50 mr-0.5">Cook</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={cookHoursStr}
+                          onChange={(e) => setCookHoursStr(e.target.value.replace(/\D/g, ''))}
+                          placeholder="0"
+                          className="w-6 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Cook hours"
+                        />
+                        <span className="text-[10px] text-on-surface/45">h</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={cookMinutesStr}
+                          onChange={(e) => setCookMinutesStr(e.target.value.replace(/\D/g, ''))}
+                          onBlur={() => {
+                            const m = parseInt(cookMinutesStr, 10) || 0;
+                            if (m >= 60) {
+                              const extraH = Math.floor(m / 60);
+                              const remMin = m % 60;
+                              const h = parseInt(cookHoursStr, 10) || 0;
+                              setCookHoursStr(String(h + extraH));
+                              setCookMinutesStr(remMin > 0 ? String(remMin) : '');
+                            }
+                          }}
+                          placeholder="0"
+                          className="w-7 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Cook minutes"
+                        />
+                        <span className="text-[10px] text-on-surface/45">m</span>
                       </div>
                     </div>
 
-                    {/* Dishes section */}
-                    <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <div className="flex items-center justify-between mb-2.5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35">Dishes</p>
+                    {/* Servings stepper + Difficulty pills */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="flex items-center bg-on-surface/[0.04] border border-on-surface/10 rounded-xl flex-shrink-0">
+                        <div className="pl-2.5 pr-0.5 py-1.5 flex items-center gap-1">
+                          <Users size={12} className="text-on-surface/40" />
+                          <span className="text-[10px] font-semibold text-on-surface/50">Serves</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => adjustServings(-1)}
+                          className="w-6 h-8 text-on-surface/55 hover:text-on-surface transition-colors text-base leading-none"
+                          aria-label="Decrease servings"
+                        >−</button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={servingsStr}
+                          onChange={(e) => setServingsStr(e.target.value.replace(/\D/g, ''))}
+                          placeholder="4"
+                          className="w-7 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
+                          aria-label="Servings"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => adjustServings(1)}
+                          className="w-6 h-8 text-on-surface/55 hover:text-on-surface transition-colors text-base leading-none pr-1"
+                          aria-label="Increase servings"
+                        >+</button>
+                      </div>
+                      <div className="flex gap-1 flex-1 min-w-0">
+                        {(['Easy', 'Medium', 'Hard'] as const).map((d) => (
+                          <button
+                            key={d}
+                            onClick={() => setDifficulty(d)}
+                            className={cn(
+                              "flex-1 py-1.5 rounded-full text-[11px] font-semibold border transition-all",
+                              difficulty === d
+                                ? "border-yellow-300 bg-yellow-50 text-yellow-700"
+                                : "border-on-surface/10 bg-on-surface/[0.02] text-on-surface/50 hover:border-on-surface/20",
+                            )}
+                          >
+                            {d}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Your rating */}
+                    <div className="border-t border-on-surface/8 pt-3 mb-3">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-2 text-center">Your Rating</p>
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-baseline gap-1 mb-2">
+                          <span className={cn(
+                            "text-4xl font-serif font-bold tabular-nums",
+                            score >= 8 ? 'text-green-500' : score >= 5 ? 'text-yellow-500' : score > 0 ? 'text-red-400' : 'text-on-surface/25',
+                          )}>
+                            {score > 0 ? score.toFixed(1) : '—'}
+                          </span>
+                          <span className="text-xs text-on-surface/35 font-medium">/ 10</span>
+                        </div>
+                        <div className="w-full max-w-[240px]">
+                          <input
+                            type="range" min="0" max="10" step="0.1"
+                            value={score}
+                            onChange={(e) => setScore(parseFloat(e.target.value))}
+                            className="w-full h-2 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary"
+                          />
+                          <p className="text-[11px] font-medium text-on-surface/45 text-center mt-1">
+                            {score === 0 ? 'Slide to rate' : score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dishes — compact */}
+                    <div className="border-t border-on-surface/8 pt-2.5 mb-2">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium">Dishes</p>
                         <button
                           onClick={() => openDishPage()}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
                         >
-                          <Plus size={14} />
-                          Add Dish
+                          <Plus size={12} />Add Dish
                         </button>
                       </div>
                       {hasDishes ? (
-                        <div className="space-y-1.5">
-                          {dishes.map((dish) => (
-                            <button key={dish.id} onClick={() => openDishPage(dish)}
-                              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-on-surface/8 bg-white hover:border-on-surface/15 transition-all text-left">
+                        <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
+                          {dishes.map((dish, i) => (
+                            <button
+                              key={dish.id}
+                              onClick={() => openDishPage(dish)}
+                              className={cn(
+                                "w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-on-surface/[0.03] transition-colors",
+                                i !== dishes.length - 1 && "border-b border-on-surface/6",
+                              )}
+                            >
                               {dish.photo ? (
-                                <img src={dish.photo} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                                <img src={dish.photo} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
                               ) : (
-                                <div className="w-10 h-10 rounded-lg bg-on-surface/5 flex items-center justify-center flex-shrink-0">
-                                  <UtensilsCrossed size={16} className="text-on-surface/20" />
+                                <div className="w-8 h-8 rounded-lg bg-on-surface/5 flex items-center justify-center flex-shrink-0">
+                                  <UtensilsCrossed size={13} className="text-on-surface/25" />
                                 </div>
                               )}
-                              <span className="text-sm font-medium text-on-surface/70 flex-1 truncate">{dish.name}</span>
-                              <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
+                              <span className="text-[13px] font-medium text-on-surface/75 flex-1 truncate">{dish.name}</span>
+                              <ChevronRight size={13} className="text-on-surface/25 flex-shrink-0" />
                             </button>
                           ))}
                         </div>
                       ) : (
-                        <div className="flex items-center gap-3 px-3.5 py-4 rounded-xl border border-dashed border-on-surface/10 bg-on-surface/2">
-                          <UtensilsCrossed size={18} className="text-on-surface/20" />
-                          <p className="text-xs text-on-surface/30">No dishes added</p>
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-on-surface/12 bg-on-surface/[0.02]">
+                          <UtensilsCrossed size={14} className="text-on-surface/25" />
+                          <p className="text-[11px] text-on-surface/35">No dishes added</p>
                         </div>
                       )}
                     </div>
 
-                    {/* Recipe details */}
-                    <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Recipe Details</p>
-                      <div className="space-y-2">
-                        <DetailBtn icon={<Hash size={17} />} label="Ingredients" active={hasIngredients} sub={hasIngredients ? `${ingredients.length} items` : undefined} onClick={() => setPage('ingredients')} />
-                        <DetailBtn icon={<FileText size={17} />} label="Steps" active={hasSteps} sub={hasSteps ? `${steps.length} steps` : undefined} onClick={() => setPage('steps')} />
-                        <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
-                        <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
+                    {/* Recipe Details — compact menu list */}
+                    <div className="border-t border-on-surface/8 pt-2.5 mb-2">
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Recipe Details</p>
+                      <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
+                        <DetailRow icon={<Hash size={14} />} label="Ingredients" active={hasIngredients} sub={hasIngredients ? `${ingredients.length} items` : undefined} onClick={() => setPage('ingredients')} />
+                        <DetailRow icon={<FileText size={14} />} label="Steps" active={hasSteps} sub={hasSteps ? `${steps.length} steps` : undefined} onClick={() => setPage('steps')} />
+                        <DetailRow icon={<Image size={14} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
+                        <DetailRow icon={<Tag size={14} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} isLast />
                       </div>
                     </div>
 
-                    {/* Additional details */}
-                    <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <div className="space-y-2">
-                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
-                      </div>
-                    </div>
-
-                    {/* Public/Private toggle */}
-                    <div className="border-t border-on-surface/6 pt-3 pb-1">
-                      <button
-                        onClick={() => setIsPublic(!isPublic)}
-                        className={cn("w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left",
-                          isPublic ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
-                        )}
-                      >
-                        <span className={cn("flex-shrink-0", isPublic ? "text-primary" : "text-on-surface/30")}>
-                          {isPublic ? <Globe size={17} /> : <Lock size={17} />}
-                        </span>
-                        <span className={cn("text-xs font-semibold flex-1", isPublic ? "text-primary" : "text-on-surface/50")}>
-                          {isPublic ? 'Public' : 'Private'}
-                        </span>
-                        <span className="text-[11px] text-on-surface/30">
-                          {isPublic ? 'Visible to friends' : 'Only you can see this'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Footer */}
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
+                    {/* Privacy — compact */}
                     <button
-                      onClick={handleSave}
-                      disabled={!mealName.trim()}
-                      className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40"
+                      onClick={() => setIsPublic(!isPublic)}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all text-left",
+                        isPublic ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15",
+                      )}
                     >
-                      {existing ? 'Update Meal' : 'Save Meal'}
+                      <span className={cn("flex-shrink-0", isPublic ? "text-primary" : "text-on-surface/35")}>
+                        {isPublic ? <Globe size={14} /> : <Lock size={14} />}
+                      </span>
+                      <span className={cn("text-[12px] font-semibold flex-1", isPublic ? "text-primary" : "text-on-surface/55")}>
+                        {isPublic ? 'Public' : 'Private'}
+                      </span>
+                      <span className="text-[10px] text-on-surface/30">
+                        {isPublic ? 'Visible to friends' : 'Only you can see this'}
+                      </span>
                     </button>
+
                     {existing && !confirmDelete && (
-                      <button onClick={() => setConfirmDelete(true)}
-                        className="w-full py-2.5 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors">
+                      <button
+                        onClick={() => setConfirmDelete(true)}
+                        className="w-full mt-3 py-2 text-red-400 text-[11px] font-semibold hover:text-red-500 transition-colors"
+                      >
                         Delete Meal
                       </button>
                     )}
                     {existing && confirmDelete && (
-                      <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
-                        <p className="text-xs text-red-600 font-medium">Delete this meal?</p>
+                      <div className="mt-3 flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                        <p className="text-[11px] text-red-600 font-medium">Delete this meal?</p>
                         <div className="flex gap-2">
-                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
-                          <button onClick={() => { if (existing) { deleteHomeMeal(existing.id); } closeHomeMealModal(); }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+                          <button onClick={() => setConfirmDelete(false)} className="px-2.5 py-1 text-[11px] font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
+                          <button onClick={() => { if (existing) { deleteHomeMeal(existing.id); } closeHomeMealModal(); }} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
                         </div>
                       </div>
                     )}
                   </div>
-                </motion.div>
-              )}
 
-              {/* ═══════════ DATE ═══════════ */}
-              {page === 'date' && (
-                <SubPage key="date" onBack={() => setPage('main')} title="Date Cooked">
-                  <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
-                    <Calendar value={visitDate} onChange={setVisitDate} onClear={() => setVisitDate('')} />
+                  {/* Sticky save footer — pill button w/ drop shadow */}
+                  <div className="px-5 pt-2.5 pb-4 flex-shrink-0 border-t border-on-surface/8 bg-surface">
+                    <button
+                      onClick={handleSave}
+                      disabled={!mealName.trim()}
+                      className="w-full py-3 bg-primary text-white rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_rgba(188,108,97,0.55)] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:shadow-none"
+                    >
+                      {existing ? 'Update Meal' : 'Save Meal'}
+                    </button>
                   </div>
-                  <BottomBtn label="Done" onClick={() => setPage('main')} />
-                </SubPage>
+                </motion.div>
               )}
 
               {/* ═══════════ DISHES ═══════════ */}
@@ -754,26 +1165,147 @@ export const AddHomeMealModal: React.FC = () => {
               {page === 'ingredients' && (
                 <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
-                    {/* Add ingredient form */}
-                    <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
-                      <input type="text" value={newIngredientName} onChange={(e) => setNewIngredientName(e.target.value)}
-                        placeholder="Ingredient name" autoFocus
-                        className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5" />
-                      <div className="flex gap-2.5 mb-3">
-                        <input type="text" value={newIngredientAmount} onChange={(e) => setNewIngredientAmount(e.target.value)}
-                          placeholder="Amount"
-                          className="flex-1 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                        <input type="text" value={newIngredientUnit} onChange={(e) => setNewIngredientUnit(e.target.value)}
-                          placeholder="Unit (cups, g...)"
-                          className="flex-1 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    {/* Mode toggle — hidden while editing an existing ingredient */}
+                    {editingIngredientIdx === null && (
+                      <div className="flex gap-2 mb-4 p-1 bg-on-surface/[0.04] rounded-xl">
+                        <button onClick={() => { setIngredientMode('single'); setBulkErrors([]); }}
+                          className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
+                            ingredientMode === 'single' ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40"
+                          )}>
+                          <Plus size={13} className="inline mr-1" />Add One
+                        </button>
+                        <button onClick={() => { setIngredientMode('bulk'); setIngredientError(null); }}
+                          className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
+                            ingredientMode === 'bulk' ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40"
+                          )}>
+                          <ClipboardPaste size={13} className="inline mr-1" />Paste List
+                        </button>
                       </div>
-                      <button onClick={addIngredient} disabled={!newIngredientName.trim()}
-                        className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
-                        <Plus size={14} className="inline mr-1" />Add Ingredient
-                      </button>
-                    </div>
+                    )}
 
-                    {/* Ingredient list */}
+                    {ingredientMode === 'single' ? (
+                      /* Single-ingredient form */
+                      <div className={cn(
+                        "border rounded-2xl p-4 mb-5",
+                        editingIngredientIdx !== null
+                          ? "bg-primary/5 border-primary/25"
+                          : "bg-on-surface/[0.03] border-on-surface/8"
+                      )}>
+                        {editingIngredientIdx !== null && (
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-primary/70 mb-2">
+                            Editing ingredient
+                          </p>
+                        )}
+                        <input type="text" value={newIngredientName}
+                          onChange={(e) => { setNewIngredientName(e.target.value); if (ingredientError) setIngredientError(null); }}
+                          placeholder="Ingredient name" autoFocus
+                          className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5" />
+                        <div className="flex gap-2.5 mb-3">
+                          <input type="text" value={newIngredientAmount}
+                            onChange={(e) => { setNewIngredientAmount(e.target.value); if (ingredientError) setIngredientError(null); }}
+                            placeholder="Amount"
+                            inputMode="decimal"
+                            className="flex-1 min-w-0 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          {/* Unit combobox — the field itself becomes the search bar while open. */}
+                          <div className={cn("flex-1 min-w-0 relative", unitDropdownOpen && "z-20")}>
+                            <input
+                              type="text"
+                              value={unitDropdownOpen ? unitSearch : newIngredientUnit}
+                              onFocus={() => { setUnitDropdownOpen(true); setUnitSearch(''); }}
+                              onChange={(e) => { setUnitDropdownOpen(true); setUnitSearch(e.target.value); }}
+                              placeholder="Unit"
+                              className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 pl-4 pr-8 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            />
+                            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+                            <AnimatePresence>
+                              {unitDropdownOpen && (
+                                <>
+                                  <div className="fixed inset-0 z-10" onClick={() => { setUnitDropdownOpen(false); setUnitSearch(''); }} />
+                                  <motion.div
+                                    initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                                    transition={{ duration: 0.15 }}
+                                    className="absolute left-0 right-0 top-full mt-1 bg-white border border-on-surface/10 rounded-xl shadow-lg z-20 overflow-hidden"
+                                  >
+                                    <div className="max-h-52 overflow-y-auto" onTouchMove={(e) => e.stopPropagation()}>
+                                      {filteredUnits.length === 0 ? (
+                                        <p className="px-3 py-4 text-center text-[11px] text-on-surface/30">No matches</p>
+                                      ) : (
+                                        filteredUnits.map((u) => (
+                                          <button key={u || '_none'} type="button"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => { setNewIngredientUnit(u); setUnitDropdownOpen(false); setUnitSearch(''); if (ingredientError) setIngredientError(null); }}
+                                            className={cn("w-full text-left px-3 py-2 text-xs font-medium transition-colors border-b border-on-surface/4 last:border-0",
+                                              newIngredientUnit === u ? "bg-primary/5 text-primary" : "text-on-surface/70 hover:bg-on-surface/3"
+                                            )}>
+                                            {u || <span className="italic text-on-surface/35">(none)</span>}
+                                          </button>
+                                        ))
+                                      )}
+                                    </div>
+                                  </motion.div>
+                                </>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                        {ingredientError && (
+                          <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-[11px] text-red-600 font-medium">{ingredientError}</p>
+                          </div>
+                        )}
+                        <div className="flex gap-2">
+                          {editingIngredientIdx !== null && (
+                            <button onClick={cancelEditIngredient}
+                              className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-on-surface/50 border border-on-surface/10 hover:text-on-surface hover:border-on-surface/20 transition-all">
+                              Cancel
+                            </button>
+                          )}
+                          <button onClick={saveIngredient} disabled={!newIngredientName.trim()}
+                            className={cn("py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-30",
+                              editingIngredientIdx !== null
+                                ? "flex-1 bg-primary text-white hover:bg-primary/90"
+                                : "w-full text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30"
+                            )}>
+                            {editingIngredientIdx !== null ? (
+                              <><Check size={14} className="inline mr-1" />Update</>
+                            ) : (
+                              <><Plus size={14} className="inline mr-1" />Add Ingredient</>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Bulk paste form */
+                      <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
+                        <p className="text-[11px] text-on-surface/45 mb-2 leading-relaxed">
+                          Paste one ingredient per line as <span className="font-semibold">amount unit name</span>.
+                          Amounts must be numbers; units get auto-corrected.
+                        </p>
+                        <textarea value={bulkIngredientsText}
+                          onChange={(e) => { setBulkIngredientsText(e.target.value); if (bulkErrors.length) setBulkErrors([]); }}
+                          placeholder={'2 cups flour\n1 tsp salt\n3 eggs\n1/2 cup milk'}
+                          rows={6} autoFocus
+                          className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none mb-3 font-mono leading-relaxed" />
+                        {bulkErrors.length > 0 && (
+                          <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                            <p className="text-[11px] font-bold text-red-700 mb-1">
+                              {bulkErrors.length} line{bulkErrors.length !== 1 ? 's' : ''} need{bulkErrors.length === 1 ? 's' : ''} editing:
+                            </p>
+                            <ul className="space-y-0.5">
+                              {bulkErrors.map((err, i) => (
+                                <li key={i} className="text-[11px] text-red-600 leading-snug">{err}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <button onClick={addBulkIngredients} disabled={!bulkIngredientsText.trim()}
+                          className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
+                          <Plus size={14} className="inline mr-1" />Add All
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Ingredient list — rows are tappable to edit */}
                     {ingredients.length === 0 ? (
                       <div className="text-center py-10">
                         <Hash size={28} className="mx-auto text-on-surface/15 mb-2" />
@@ -781,15 +1313,28 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     ) : (
                       <div className="space-y-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1.5">
+                          Added ({ingredients.length}) · tap to edit
+                        </p>
                         {ingredients.map((ing, idx) => (
-                          <div key={idx} className="flex items-center gap-3 px-3 py-2.5 bg-white border border-on-surface/8 rounded-xl">
-                            <div className="flex-1 min-w-0">
+                          <div key={idx}
+                            className={cn(
+                              "flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors",
+                              editingIngredientIdx === idx
+                                ? "bg-primary/5 border-primary/25"
+                                : "bg-white border-on-surface/8 hover:border-on-surface/15"
+                            )}
+                          >
+                            <button onClick={() => startEditIngredient(idx)}
+                              className="flex-1 min-w-0 text-left">
                               <p className="text-sm font-medium text-on-surface/80 truncate">{ing.name}</p>
                               {(ing.amount || ing.unit) && (
-                                <p className="text-[11px] text-on-surface/40">{ing.amount} {ing.unit}</p>
+                                <p className="text-[11px] text-on-surface/40">{displayAmount(ing.amount)} {ing.unit}</p>
                               )}
-                            </div>
-                            <button onClick={() => removeIngredient(idx)} className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors">
+                            </button>
+                            <button onClick={() => removeIngredient(idx)}
+                              className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors flex-shrink-0"
+                              aria-label="Remove ingredient">
                               <X size={14} />
                             </button>
                           </div>
@@ -797,7 +1342,17 @@ export const AddHomeMealModal: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <BottomBtn label="Done" onClick={() => setPage('main')} />
+                  <BottomBtn
+                    label={editingIngredientIdx !== null ? 'Update' : 'Done'}
+                    onClick={() => {
+                      if (editingIngredientIdx !== null) {
+                        saveIngredient();
+                      } else {
+                        setPage('main');
+                      }
+                    }}
+                    disabled={editingIngredientIdx !== null && !newIngredientName.trim()}
+                  />
                 </SubPage>
               )}
 
@@ -956,17 +1511,27 @@ export const AddHomeMealModal: React.FC = () => {
 
 /* ── Shared sub-components ── */
 
-const DetailBtn: React.FC<{
-  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
-}> = ({ icon, label, active, sub, onClick }) => (
-  <button onClick={onClick}
-    className={cn("w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left",
-      active ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
+// Compact ~44px-tall row used inside a bordered container on the main page.
+// Relies on a shared parent for the outer border/background.
+const DetailRow: React.FC<{
+  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void; isLast?: boolean;
+}> = ({ icon, label, active, sub, onClick, isLast }) => (
+  <button
+    onClick={onClick}
+    className={cn(
+      "w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors",
+      !isLast && "border-b border-on-surface/6",
+    )}
+  >
+    <span className={cn(
+      "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
+      active ? "bg-primary/10 text-primary" : "bg-on-surface/[0.05] text-on-surface/45",
     )}>
-    <span className={cn("flex-shrink-0", active ? "text-primary" : "text-on-surface/30")}>{icon}</span>
-    <span className={cn("text-xs font-semibold flex-1", active ? "text-primary" : "text-on-surface/50")}>{label}</span>
-    {sub && <span className="text-[11px] text-primary/60 flex-shrink-0">{sub}</span>}
-    <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
+      {icon}
+    </span>
+    <span className={cn("text-[13px] font-medium flex-1", active ? "text-on-surface" : "text-on-surface/65")}>{label}</span>
+    {sub && <span className="text-[11px] text-primary/70 flex-shrink-0">{sub}</span>}
+    <ChevronRight size={13} className="text-on-surface/25 flex-shrink-0" />
   </button>
 );
 

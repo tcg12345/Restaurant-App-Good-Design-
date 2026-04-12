@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen, Share2 } from 'lucide-react';
+import { ShareRecipeSheet } from './ShareRecipeSheet';
+import type { SharedRecipe } from '../contexts/ChatContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
@@ -11,6 +13,8 @@ import {
   getFriendsPublicHomeMeals,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
+import { getMealCoverUrl } from '../lib/recipe-display';
+import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
 
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
@@ -46,6 +50,8 @@ export const SocialFeed: React.FC = () => {
   const [likes, setLikes] = useState<Record<string, number>>({});
   const [userLiked, setUserLiked] = useState<Set<string>>(new Set());
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
+  const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [openComments, setOpenComments] = useState<string | null>(null);
@@ -53,6 +59,28 @@ export const SocialFeed: React.FC = () => {
   const [commentProfiles, setCommentProfiles] = useState<Record<string, UserProfile>>({});
   const [newComment, setNewComment] = useState('');
   const [commentsLoading, setCommentsLoading] = useState(false);
+  // Always navigate to the full recipe page — the phone-optimized layout
+  // handles the narrow viewport, so we no longer need the bottom-sheet modal.
+  const openFriendRecipe = useCallback((m: FriendHomeMeal) => {
+    navigate(`/meal/${m.userId}/${m.id}`);
+  }, [navigate]);
+
+  const buildSharedRecipe = useCallback((m: FriendHomeMeal): SharedRecipe => {
+    const author = profiles[m.userId];
+    return {
+      mealId: m.id,
+      authorId: m.userId,
+      authorName: author?.display_name || author?.username || 'A friend',
+      name: m.name,
+      image: getMealCoverUrl(m),
+      description: m.description || undefined,
+      tags: m.tags.length > 0 ? m.tags : undefined,
+      totalTime: ((m.prepTime ?? 0) + (m.cookTime ?? 0)) || undefined,
+      difficulty: m.difficulty || undefined,
+      ingredientCount: m.ingredients?.length || undefined,
+      stepCount: m.steps?.length || undefined,
+    };
+  }, [profiles]);
 
   const loadFeed = useCallback(async () => {
     if (!userId) { setLoading(false); return; }
@@ -84,6 +112,16 @@ export const SocialFeed: React.FC = () => {
       setLikes(likesData.likes);
       setUserLiked(likesData.userLiked);
       setCommentCounts(ccounts);
+    }
+    // Batch-fetch community rating summaries for all home meals so cards
+    // can show the 5-star average instead of the author's self-rating.
+    // Scan the viewer's friends' meta (plus self) so reviews persisted via
+    // the ListsContext fallback are included in the averages.
+    if (meals.length > 0) {
+      const scanIds = [userId, ...friendIds];
+      getReviewSummariesBatch(meals.map((m) => m.id), scanIds)
+        .then(setMealRatingSummaries)
+        .catch(() => {});
     }
     setLoading(false);
   }, [userId]);
@@ -272,17 +310,129 @@ export const SocialFeed: React.FC = () => {
   }
   if (feedItems.length === 0 && feedMode === 'friends') return null;
 
+  // Recipes-only mode uses its own list rendered from homeMeals.
+  const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
+
   return (
     <section className="mb-8">
-      <SectionHeader count={feedItems.length} />
-      {feedMode !== 'friends' ? (
+      <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
+      {feedMode === 'experts' ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <div className="w-14 h-14 rounded-full bg-on-surface/5 flex items-center justify-center mb-3">
-            {feedMode === 'experts' ? <Star size={24} className="text-amber-400 fill-amber-400" /> : <BookOpen size={24} className="text-primary/40" />}
+            <Star size={24} className="text-amber-400 fill-amber-400" />
           </div>
-          <p className="text-sm font-semibold text-on-surface/50">{feedMode === 'experts' ? 'Expert Picks' : 'Recipes'}</p>
+          <p className="text-sm font-semibold text-on-surface/50">Expert Picks</p>
           <p className="text-xs text-on-surface/35 mt-1">Coming soon</p>
         </div>
+      ) : feedMode === 'recipes' ? (
+        recipesSorted.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center mb-3">
+              <ChefHat size={24} className="text-emerald-400" />
+            </div>
+            <p className="text-sm font-semibold text-on-surface/50">No recipes yet</p>
+            <p className="text-xs text-on-surface/35 mt-1 max-w-[240px]">
+              When your friends publish a recipe, it will show up here so you can try it and leave a rating.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recipesSorted.map((m) => {
+              const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
+              return (
+                <div
+                  key={`recipe-${m.userId}-${m.id}`}
+                  onClick={() => openFriendRecipe(m)}
+                  className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+                >
+                  {/* User header */}
+                  <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
+                    <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()}>
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 ring-2 ring-emerald-200/50 flex items-center justify-center">
+                        <ChefHat size={17} className="text-emerald-600" />
+                      </div>
+                    </Link>
+                    <div className="flex-1 min-w-0">
+                      <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
+                      <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">cooked at home</p>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span className="text-[10px] text-on-surface/35 font-medium">{mealTimeAgo}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
+                        className="p-1.5 -mr-1 text-on-surface/35 hover:text-emerald-600 transition-colors"
+                        aria-label="Share recipe"
+                      >
+                        <Share2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Meal body */}
+                  <div className="px-4 pb-3.5">
+                    <div className="flex gap-3">
+                      {/* Thumbnail — canonical cover photo so it matches the detail page hero. */}
+                      <div className="w-20 h-20 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
+                        {getMealCoverUrl(m) ? (
+                          <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <ChefHat size={24} className="text-emerald-400" />
+                          </div>
+                        )}
+                      </div>
+                      {/* Details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-serif font-bold text-sm truncate leading-tight">{m.name}</h3>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full">
+                                {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                              {m.dishes.length > 0 && (
+                                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
+                                  <UtensilsCrossed size={9} /> {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {(() => {
+                            const summary = mealRatingSummaries[m.id];
+                            return summary && summary.count > 0 ? (
+                              <div className="flex-shrink-0 flex flex-col items-center gap-0.5">
+                                <div className="flex gap-0.5">
+                                  {[1, 2, 3, 4, 5].map((n) => (
+                                    <Star key={n} size={11} className={cn(
+                                      n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                                    )} />
+                                  ))}
+                                </div>
+                                <span className="text-[9px] text-on-surface/40 font-medium">{summary.average.toFixed(1)}</span>
+                              </div>
+                            ) : null;
+                          })()}
+                        </div>
+                        {m.description && (
+                          <div className="mt-2 pl-2.5 border-l-2 border-emerald-300/60">
+                            <p className="text-[11px] text-on-surface/55 italic line-clamp-2 leading-snug">{m.description}</p>
+                          </div>
+                        )}
+                        {m.tags.length > 0 && (
+                          <div className="flex gap-1 mt-2 flex-wrap">
+                            {m.tags.slice(0, 4).map((t) => (
+                              <span key={t} className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{t}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
       ) : (
       <div className="space-y-3">
         {feedItems.map((item) => {
@@ -290,16 +440,20 @@ export const SocialFeed: React.FC = () => {
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
             return (
-              <div key={`meal-${m.id}`} className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden">
+              <div
+                key={`meal-${m.id}`}
+                onClick={() => openFriendRecipe(m)}
+                className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+              >
                 {/* User header */}
                 <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
-                  <Link to={`/user/${getUsername(m.userId)}`}>
+                  <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()}>
                     <div className="w-9 h-9 rounded-full bg-emerald-100 ring-2 ring-emerald-200/50 flex items-center justify-center">
                       <ChefHat size={17} className="text-emerald-600" />
                     </div>
                   </Link>
                   <div className="flex-1 min-w-0">
-                    <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
+                    <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
                     <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">cooked at home</p>
                   </div>
                   <span className="text-[10px] text-on-surface/35 font-medium">{mealTimeAgo}</span>
@@ -310,8 +464,8 @@ export const SocialFeed: React.FC = () => {
                   <div className="flex gap-3">
                     {/* Thumbnail */}
                     <div className="w-20 h-20 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
-                      {m.photos.length > 0 ? (
-                        <img src={m.photos[0].url} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      {getMealCoverUrl(m) ? (
+                        <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
                           <ChefHat size={24} className="text-emerald-400" />
@@ -334,9 +488,21 @@ export const SocialFeed: React.FC = () => {
                             )}
                           </div>
                         </div>
-                        <div className={cn("flex-shrink-0 w-10 h-10 rounded-full bg-white ring-2 flex items-center justify-center", m.score >= 8 ? 'ring-green-500/30' : m.score >= 5 ? 'ring-yellow-500/30' : 'ring-red-500/30')}>
-                          <span className={cn("text-sm font-serif font-bold", scoreColor(m.score))}>{m.score.toFixed(1)}</span>
-                        </div>
+                        {(() => {
+                          const summary = mealRatingSummaries[m.id];
+                          return summary && summary.count > 0 ? (
+                            <div className="flex-shrink-0 flex flex-col items-center gap-0.5">
+                              <div className="flex gap-0.5">
+                                {[1, 2, 3, 4, 5].map((n) => (
+                                  <Star key={n} size={11} className={cn(
+                                    n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                                  )} />
+                                ))}
+                              </div>
+                              <span className="text-[9px] text-on-surface/40 font-medium">{summary.average.toFixed(1)}</span>
+                            </div>
+                          ) : null;
+                        })()}
                       </div>
                       {m.description && (
                         <div className="mt-2 pl-2.5 border-l-2 border-emerald-300/60">
@@ -530,6 +696,12 @@ export const SocialFeed: React.FC = () => {
         })}
       </div>
       )}
+
+      <ShareRecipeSheet
+        open={!!shareRecipeData}
+        recipe={shareRecipeData}
+        onClose={() => setShareRecipeData(null)}
+      />
     </section>
   );
 };

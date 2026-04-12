@@ -601,19 +601,47 @@ export interface FriendHomeMeal extends HomeMeal {
   userId: string;
 }
 
+// Pulls home meals from both the dedicated home_meals column AND the
+// restaurant_meta.__home_meals__ fallback that ListsContext writes to when
+// the dedicated column is missing. Meals are de-duplicated by id.
+const mergeHomeMealSources = (row: Record<string, unknown>): HomeMeal[] => {
+  const primary = Array.isArray(row.home_meals) ? (row.home_meals as HomeMeal[]) : [];
+  const meta = (row.restaurant_meta && typeof row.restaurant_meta === 'object' && !Array.isArray(row.restaurant_meta))
+    ? (row.restaurant_meta as Record<string, unknown>)
+    : {};
+  const fallback = Array.isArray((meta as Record<string, unknown>).__home_meals__)
+    ? ((meta as Record<string, unknown>).__home_meals__ as HomeMeal[])
+    : [];
+  const byId = new Map<string, HomeMeal>();
+  // Prefer primary column entries (most likely fresher if both exist).
+  for (const m of fallback) if (m && m.id) byId.set(m.id, m);
+  for (const m of primary) if (m && m.id) byId.set(m.id, m);
+  return Array.from(byId.values());
+};
+
 export async function getFriendsPublicHomeMeals(friendIds: string[]): Promise<FriendHomeMeal[]> {
   if (!supabaseConfigured || friendIds.length === 0) return [];
   try {
-    const { data, error } = await supabase.from('user_app_data')
-      .select('user_id, home_meals')
+    // Try the canonical select first. If the home_meals column doesn't
+    // exist on this schema, retry without it and rely entirely on the
+    // restaurant_meta.__home_meals__ fallback.
+    let { data, error } = await supabase.from('user_app_data')
+      .select('user_id, home_meals, restaurant_meta')
       .in('user_id', friendIds);
-    if (error) { console.error('[Friends] getPublicHomeMeals error:', error); return []; }
+    if (error) {
+      const fallback = await supabase.from('user_app_data')
+        .select('user_id, restaurant_meta')
+        .in('user_id', friendIds);
+      data = fallback.data as typeof data;
+      error = fallback.error;
+    }
+    if (error) { console.warn('[Friends] getPublicHomeMeals error:', error.message); return []; }
     const result: FriendHomeMeal[] = [];
     for (const row of data || []) {
-      const meals = (row.home_meals as HomeMeal[]) || [];
+      const meals = mergeHomeMealSources(row as Record<string, unknown>);
       for (const meal of meals) {
         if (meal.isPublic) {
-          result.push({ ...meal, userId: row.user_id });
+          result.push({ ...meal, userId: (row as { user_id: string }).user_id });
         }
       }
     }
@@ -622,16 +650,52 @@ export async function getFriendsPublicHomeMeals(friendIds: string[]): Promise<Fr
   } catch (err) { console.error('[Friends] getPublicHomeMeals exception:', err); return []; }
 }
 
+/** Fetch a single user's public home meal by id, honoring both the dedicated
+ *  home_meals column and the restaurant_meta.__home_meals__ fallback. Returns
+ *  null when the meal is missing or not marked public. */
+export async function getPublicHomeMealById(userId: string, mealId: string): Promise<FriendHomeMeal | null> {
+  if (!supabaseConfigured || !userId || !mealId) return null;
+  try {
+    let { data, error } = await supabase.from('user_app_data')
+      .select('home_meals, restaurant_meta')
+      .eq('user_id', userId)
+      .single();
+    if (error || !data) {
+      const fallback = await supabase.from('user_app_data')
+        .select('restaurant_meta')
+        .eq('user_id', userId)
+        .single();
+      data = fallback.data as typeof data;
+      error = fallback.error;
+    }
+    if (error || !data) return null;
+    const meals = mergeHomeMealSources(data as Record<string, unknown>);
+    const match = meals.find((m) => m.id === mealId && m.isPublic);
+    return match ? { ...match, userId } : null;
+  } catch (err) {
+    console.warn('[Community] getPublicHomeMealById exception:', err);
+    return null;
+  }
+}
+
 /** Fetch public home meals for a single user (for profile view). */
 export async function getUserPublicHomeMeals(userId: string): Promise<HomeMeal[]> {
   if (!supabaseConfigured || !userId) return [];
   try {
-    const { data, error } = await supabase.from('user_app_data')
-      .select('home_meals')
+    let { data, error } = await supabase.from('user_app_data')
+      .select('home_meals, restaurant_meta')
       .eq('user_id', userId)
       .single();
+    if (error || !data) {
+      const fallback = await supabase.from('user_app_data')
+        .select('restaurant_meta')
+        .eq('user_id', userId)
+        .single();
+      data = fallback.data as typeof data;
+      error = fallback.error;
+    }
     if (error || !data) return [];
-    const meals = (data.home_meals as HomeMeal[]) || [];
+    const meals = mergeHomeMealSources(data as Record<string, unknown>);
     return meals.filter((m) => m.isPublic).sort((a, b) => b.createdAt - a.createdAt);
   } catch (err) { console.error('[Community] getUserPublicHomeMeals exception:', err); return []; }
 }

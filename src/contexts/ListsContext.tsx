@@ -188,6 +188,10 @@ interface ListsContextValue {
   restaurantMeta: Record<string, RestaurantMeta>;
   cacheRestaurantMeta: (meta: RestaurantMeta) => void;
   getRestaurantInfo: (restaurantId: string) => RestaurantMeta | undefined;
+  /** Set an arbitrary key inside restaurantMeta and sync to cloud. Used by
+   *  the review system to stash __my_meal_reviews__ through the context
+   *  pipeline so it doesn't get overwritten by other meta syncs. */
+  stashMetaKey: (key: string, value: unknown) => void;
 
   // Wishlist
   wishlist: WishlistItem[];
@@ -388,6 +392,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const localRatings = loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, []);
         const localLists = loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, []);
         const localWishlist = loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, []);
+        const localHomeMeals = loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, []);
 
         // If both cloud and local ratings are empty, try to recover from community_ratings
         // (published ratings survive even if user_app_data.ratings got wiped).
@@ -436,7 +441,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const cloudRecentViews = cloud.recentViews || [];
         // Restore custom order from meta
         const cloudCustomOrder = Array.isArray((cloudMeta as any).__custom_order__) ? (cloudMeta as any).__custom_order__ as string[] : [];
-        const cloudHomeMeals = cloud.homeMeals || [];
+        // Home meals recovery order:
+        //   1. dedicated home_meals column (may be missing on some schemas)
+        //   2. restaurant_meta.__home_meals__ fallback (always works)
+        //   3. localStorage (in case both cloud locations are empty)
+        const rawCloudHomeMeals = cloud.homeMeals || [];
+        const metaHomeMeals = Array.isArray((cloudMeta as Record<string, unknown>).__home_meals__)
+          ? ((cloudMeta as Record<string, unknown>).__home_meals__ as HomeMeal[])
+          : [];
+        const cloudHomeMeals = rawCloudHomeMeals.length > 0
+          ? rawCloudHomeMeals
+          : metaHomeMeals.length > 0
+            ? metaHomeMeals
+            : localHomeMeals.length > 0 ? localHomeMeals : [];
+        const homeMealsUsedLocalFallback = rawCloudHomeMeals.length === 0 && metaHomeMeals.length === 0 && localHomeMeals.length > 0;
 
         // Reconcile: ensure every rating's listIds are reflected in
         // list.restaurantIds (fixes data drift where ratings exist but
@@ -475,8 +493,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         // If we used local fallback data (cloud was empty but local had content), or lists were reconciled, save back to cloud
         const finalLists = listsChanged ? reconciledLists : cloudLists;
-        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged) {
-          console.log('[Supabase] Syncing data to cloud' + (listsChanged ? ' (lists reconciled)' : ' (local fallback)'));
+        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || homeMealsUsedLocalFallback) {
+          console.log('[Supabase] Syncing data to cloud' + (listsChanged ? ' (lists reconciled)' : homeMealsUsedLocalFallback ? ' (home meals fallback)' : ' (local fallback)'));
           await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMeta, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
         }
 
@@ -733,9 +751,21 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, []);
 
   // ── Home Meal sync + CRUD ──
+  // Save to the dedicated home_meals column if it exists, AND stash a copy
+  // inside restaurant_meta.__home_meals__ as a reliable fallback. The
+  // dedicated column may fail (missing column, payload size, RLS, etc.);
+  // the meta fallback uses a column that is always present, which is what
+  // we already do for trips and custom_order.
   const syncHomeMealsToCloud = useCallback((data: HomeMeal[]) => {
-    if (userIdRef.current && supabaseConfigured) saveHomeMeals(userIdRef.current, data);
-  }, []);
+    if (!userIdRef.current || !supabaseConfigured) return;
+    saveHomeMeals(userIdRef.current, data);
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, __home_meals__: data as unknown as RestaurantMeta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
+  }, [syncMetaToCloud]);
 
   const createHomeMeal = useCallback((meal: Omit<HomeMeal, 'id' | 'createdAt'>): HomeMeal => {
     const newMeal: HomeMeal = { ...meal, id: `meal-${Date.now()}`, createdAt: Date.now() };
@@ -784,6 +814,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const cacheRestaurantMeta = useCallback((meta: RestaurantMeta) => {
     setRestaurantMeta((prev) => {
       const next = { ...prev, [meta.id]: meta };
+      saveToStorage(STORAGE_KEY_META, next);
+      syncMetaToCloud(next);
+      return next;
+    });
+  }, [syncMetaToCloud]);
+
+  const stashMetaKey = useCallback((key: string, value: unknown) => {
+    setRestaurantMeta((prev) => {
+      const next = { ...prev, [key]: value as RestaurantMeta };
       saveToStorage(STORAGE_KEY_META, next);
       syncMetaToCloud(next);
       return next;
@@ -1137,7 +1176,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     <ListsContext.Provider value={{
       ratings, rateRestaurant, updateRating, removeRating, getRating,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
-      restaurantMeta, cacheRestaurantMeta, getRestaurantInfo,
+      restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
       wishlist, addToWishlist, removeFromWishlist, isWishlisted, getWishlistItem,
       ratingModalOpen, ratingModalRestaurant, openRatingModal, closeRatingModal,
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye, Map as MapIcon } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye, Map as MapIcon, ChefHat } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -9,7 +9,7 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, type CommunityRating, type UserProfile } from '../lib/supabase-community';
+import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
@@ -189,11 +189,11 @@ export const Map: React.FC = () => {
       tabDataCache.expertProfiles = expProfs;
     })();
   }, [userId, tabDataLoaded]);
-  const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts' | 'hotels'>(() => {
+  const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes'>(() => {
     const saved = sessionStorage.getItem('map-mode');
-    return (saved === 'myratings' || saved === 'friends' || saved === 'experts' || saved === 'hotels') ? saved : 'discover';
+    return (saved === 'myratings' || saved === 'friends' || saved === 'experts' || saved === 'hotels' || saved === 'recipes') ? saved : 'discover';
   });
-  const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts' | 'hotels') => {
+  const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes') => {
     setMapModeRaw(mode);
     sessionStorage.setItem('map-mode', mode);
     // Reset rating filters when switching modes
@@ -206,6 +206,10 @@ export const Map: React.FC = () => {
   };
   const [hotelPlaces, setHotelPlaces] = useState<PlaceResult[]>([]);
   const [hotelsLoading, setHotelsLoading] = useState(false);
+  // Recipes mode: friends' public home meals + the meal we're viewing in modal.
+  const [friendRecipes, setFriendRecipes] = useState<FriendHomeMeal[]>([]);
+  const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
+  const [recipeAuthorProfiles, setRecipeAuthorProfiles] = useState<Record<string, UserProfile>>({});
   const hotelMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
@@ -1317,6 +1321,40 @@ export const Map: React.FC = () => {
   useEffect(() => {
     if (mapMode === 'hotels' && hotelPlaces.length === 0) fetchHotels();
   }, [mapMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch friends' public home meals when entering recipes mode. Loads lazily
+  // the first time the tab is opened and refreshes every time it's re-opened.
+  useEffect(() => {
+    if (mapMode !== 'recipes' || !userId) return;
+    let cancelled = false;
+    setFriendRecipesLoading(true);
+    (async () => {
+      try {
+        const friends = await getFriends(userId);
+        const friendIds = friends.map((f) => f.friend_id);
+        if (friendIds.length === 0) {
+          if (!cancelled) setFriendRecipes([]);
+          return;
+        }
+        const meals = await getFriendsPublicHomeMeals(friendIds);
+        if (cancelled) return;
+        meals.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+        setFriendRecipes(meals);
+        // Pull author profiles so we can show names on cards.
+        const uniqueAuthors = Array.from(new Set(meals.map((m) => m.userId)));
+        if (uniqueAuthors.length > 0) {
+          const profiles = await getProfilesByIds(uniqueAuthors);
+          if (cancelled) return;
+          setRecipeAuthorProfiles(profiles);
+        }
+      } catch (err) {
+        console.warn('[Map] friend recipes fetch failed:', err);
+      } finally {
+        if (!cancelled) setFriendRecipesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mapMode, userId]);
 
   // Add/remove hotel markers
   useEffect(() => {
@@ -2854,6 +2892,17 @@ export const Map: React.FC = () => {
                   <Building2 size={16} className={mapMode === 'hotels' ? "text-teal-600" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">Hotels</span>
                 </button>
+
+                <button
+                  onClick={() => setMapMode(mapMode === 'recipes' ? 'discover' : 'recipes')}
+                  className={cn(
+                    "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
+                    mapMode === 'recipes' ? "bg-emerald-600/10 border-emerald-600/30 text-emerald-700" : "border-on-surface/10 hover:bg-muted"
+                  )}
+                >
+                  <ChefHat size={16} className={mapMode === 'recipes' ? "text-emerald-600" : "text-on-surface/50"} />
+                  <span className="text-xs font-bold uppercase tracking-wider">Recipes</span>
+                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -3046,6 +3095,76 @@ export const Map: React.FC = () => {
             </div>
           ))}
 
+          {/* Recipes tab content — friends' public home meals */}
+          {mapMode === 'recipes' && (
+            friendRecipesLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 size={24} className="text-emerald-600 animate-spin" />
+                <span className="ml-3 text-sm text-on-surface/50 font-medium">Loading recipes...</span>
+              </div>
+            ) : friendRecipes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <ChefHat size={32} className="text-on-surface/20 mb-3" />
+                <p className="text-sm text-on-surface/50 font-medium mb-1">No recipes from friends yet</p>
+                <p className="text-xs text-on-surface/40 max-w-[240px]">
+                  Recipes your friends share publicly will appear here. Add friends or follow someone to discover theirs.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {friendRecipes.map((meal) => {
+                  const profile = recipeAuthorProfiles[meal.userId];
+                  const authorName = profile?.display_name || profile?.username || 'Friend';
+                  const authorInitial = (authorName || '?').charAt(0).toUpperCase();
+                  const cover = meal.coverPhoto || meal.photos?.[0]?.url || '';
+                  const totalMinutes = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+                  const totalLabel = totalMinutes > 0
+                    ? (totalMinutes < 60 ? `${totalMinutes} min` : totalMinutes % 60 === 0 ? `${Math.floor(totalMinutes / 60)} hr` : `${Math.floor(totalMinutes / 60)} hr ${totalMinutes % 60} min`)
+                    : '';
+                  return (
+                    <button
+                      key={`${meal.userId}-${meal.id}`}
+                      onClick={() => navigate(`/meal/${meal.userId}/${meal.id}`)}
+                      className="w-full flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group text-left"
+                    >
+                      <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-emerald-50 self-center">
+                        {cover ? (
+                          <img src={cover} alt={meal.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-emerald-300">
+                            <ChefHat size={24} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
+                        <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{meal.name}</h3>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          {totalLabel && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/80 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                              {totalLabel}
+                            </span>
+                          )}
+                          {meal.difficulty && (
+                            <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{meal.difficulty}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="w-4 h-4 rounded-full bg-emerald-100 text-[8px] font-bold text-emerald-700 flex items-center justify-center flex-shrink-0">
+                            {authorInitial}
+                          </span>
+                          <span className="text-[10px] text-on-surface/40 truncate">{authorName}</span>
+                        </div>
+                      </div>
+                      <div className="self-center flex-shrink-0">
+                        <ChevronRight size={16} className="text-on-surface/25" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          )}
+
           {/* Discover tab content — integrated feed + search */}
           {mapMode === 'discover' && (
             <div className="space-y-4">
@@ -3236,6 +3355,7 @@ export const Map: React.FC = () => {
         </>
         )}
       </motion.div>
+
     </div>
   );
 };

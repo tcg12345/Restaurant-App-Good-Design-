@@ -409,14 +409,14 @@ export const AddRestaurantModal: React.FC = () => {
                       </div>
                     </div>
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Add details</p>
-                      <div className="space-y-2">
-                        <DetailBtn icon={<StickyNote size={17} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
-                        <DetailBtn icon={<DollarSign size={17} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
-                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
-                        <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
-                        <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
-                        <DetailBtn icon={<Users size={17} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} />
+                      <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Add details</p>
+                      <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
+                        <DetailBtn icon={<StickyNote size={14} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
+                        <DetailBtn icon={<DollarSign size={14} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
+                        <DetailBtn icon={<CalendarDays size={14} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
+                        <DetailBtn icon={<Tag size={14} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
+                        <DetailBtn icon={<Image size={14} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
+                        <DetailBtn icon={<Users size={14} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} isLast />
                       </div>
                     </div>
                   </div>
@@ -745,17 +745,28 @@ export const AddRestaurantModal: React.FC = () => {
 
 /* ── Shared sub-components ── */
 
+// Compact ~44px row shared with the Log Home Meal modal. Relies on a
+// parent container for the outer border/background and uses a bottom
+// divider between rows except on the last one.
 const DetailBtn: React.FC<{
-  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
-}> = ({ icon, label, active, sub, onClick }) => (
-  <button onClick={onClick}
-    className={cn("w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all text-left",
-      active ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
+  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void; isLast?: boolean;
+}> = ({ icon, label, active, sub, onClick, isLast }) => (
+  <button
+    onClick={onClick}
+    className={cn(
+      "w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors",
+      !isLast && "border-b border-on-surface/6",
+    )}
+  >
+    <span className={cn(
+      "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
+      active ? "bg-primary/10 text-primary" : "bg-on-surface/[0.05] text-on-surface/45",
     )}>
-    <span className={cn("flex-shrink-0", active ? "text-primary" : "text-on-surface/30")}>{icon}</span>
-    <span className={cn("text-xs font-semibold flex-1", active ? "text-primary" : "text-on-surface/50")}>{label}</span>
-    {sub && <span className="text-[11px] text-primary/60 flex-shrink-0">{sub}</span>}
-    <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
+      {icon}
+    </span>
+    <span className={cn("text-[13px] font-medium flex-1", active ? "text-on-surface" : "text-on-surface/65")}>{label}</span>
+    {sub && <span className="text-[11px] text-primary/70 flex-shrink-0">{sub}</span>}
+    <ChevronRight size={13} className="text-on-surface/25 flex-shrink-0" />
   </button>
 );
 

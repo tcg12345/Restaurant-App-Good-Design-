@@ -1,8 +1,13 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
+import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
+import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
+import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
+import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
+import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
@@ -2921,15 +2926,69 @@ const HomeCookingTab: React.FC<{
   onDeleteMeal: (id: string) => void;
   onOpenModal: (meal?: HomeMeal) => void;
   onBack: () => void;
-}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack }) => {
+  selectedMealId: string | null;
+  onSelectMeal: (id: string | null) => void;
+}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal }) => {
   const { phoneMode } = useSettings();
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'recent' | 'highest'>('recent');
-  const [selectedMealId, setSelectedMealId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [lightboxPhotoIdx, setLightboxPhotoIdx] = useState<number | null>(null);
+  // Transient recipe-page UI state (not persisted — pure display aids).
+  const [servingsScale, setServingsScale] = useState(1);
+  const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
+  // Rating tab: "mine" shows the author's own /10 score; "community" shows
+  // 5-star reviews from friends/other users.
+  const [ratingTab, setRatingTab] = useState<'mine' | 'community'>('mine');
+  const [communityReviews, setCommunityReviews] = useState<HomeMealReview[]>([]);
+  const [reviewerProfiles, setReviewerProfiles] = useState<Record<string, UserProfile>>({});
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
 
   const selectedMeal = meals.find((m) => m.id === selectedMealId) || null;
+
+  // Reset the transient display state whenever the user opens a different meal.
+  useEffect(() => {
+    setServingsScale(1);
+    setCheckedIngredients(new Set());
+    setRatingTab('mine');
+    setCommunityReviews([]);
+    setReviewerProfiles({});
+  }, [selectedMealId]);
+
+  // Lazily load community reviews when the user switches to that tab.
+  // Scan the author's friends' meta rows too so reviews saved via the
+  // ListsContext fallback (restaurant_meta.__my_meal_reviews__) show up
+  // even when the dedicated recipe_reviews table doesn't exist.
+  useEffect(() => {
+    if (ratingTab !== 'community' || !selectedMealId) return;
+    if (communityReviews.length > 0) return; // already loaded
+    let cancelled = false;
+    setLoadingReviews(true);
+    (async () => {
+      try {
+        const authorId = user?.id || null;
+        let scanIds: string[] = [];
+        if (authorId) {
+          const friends = await getFriends(authorId);
+          scanIds = [authorId, ...friends.map((f) => f.friend_id)];
+        }
+        const reviews = await getHomeMealReviews(selectedMealId, scanIds);
+        if (cancelled) return;
+        setCommunityReviews(reviews);
+        const ids = [...new Set(reviews.map((r) => r.userId))];
+        if (ids.length > 0) {
+          const profiles = await getProfilesByIds(ids);
+          if (!cancelled) setReviewerProfiles(profiles);
+        }
+      } finally {
+        if (!cancelled) setLoadingReviews(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ratingTab, selectedMealId, communityReviews.length, user]);
 
   const filteredMeals = useMemo(() => {
     let result = [...meals];
@@ -2956,158 +3015,560 @@ const HomeCookingTab: React.FC<{
 
   // ── Meal detail view (diary / blog entry style) ──
   if (selectedMeal) {
-    const heroPhoto = selectedMeal.photos.length > 0 ? selectedMeal.photos[0] : null;
+    // Canonical cover image used everywhere (card thumbnails, phone hero,
+    // desktop hero-image column) so every surface shows the same photo for
+    // the same recipe.
+    const coverUrl = getMealCoverUrl(selectedMeal);
+    const allPhotos = [
+      ...(selectedMeal.coverPhoto ? [{ url: selectedMeal.coverPhoto, caption: '' }] : []),
+      ...selectedMeal.photos.map((p) => ({ url: p.url, caption: p.caption })),
+    ];
+    // coverUrl is always allPhotos[0] (either the explicit coverPhoto at
+    // index 0, or the first photo when no coverPhoto was set).
+    const coverLightboxIdx = 0;
+    const hasIngredients = (selectedMeal.ingredients?.length ?? 0) > 0;
+    const hasSteps = (selectedMeal.steps?.length ?? 0) > 0;
+    const totalTime = (selectedMeal.prepTime ?? 0) + (selectedMeal.cookTime ?? 0);
 
-    return (
-      <div>
-        {/* Back + actions header */}
-        <div className="flex items-center gap-3 mb-4">
-          <button onClick={() => setSelectedMealId(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-            <ArrowLeft size={20} />
-          </button>
-          <div className="flex-1" />
-          <button onClick={() => onOpenModal(selectedMeal)}
-            className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
-            <Edit3 size={18} />
-          </button>
-          <button onClick={() => setConfirmDeleteId(selectedMeal.id)}
-            className="p-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
-            <Trash2 size={18} />
-          </button>
-        </div>
+    // Servings scaling: `baseServings` is the author's original, `displayServings`
+    // is what the ratio button is currently set to. Ratio is derived from that.
+    const baseServings = selectedMeal.servings && selectedMeal.servings > 0 ? selectedMeal.servings : 4;
+    const displayServings = Math.max(1, Math.round(baseServings * servingsScale));
 
-        {/* Hero photo */}
-        {heroPhoto && (
-          <div className="relative -mx-3 mb-5 rounded-2xl overflow-hidden">
-            <img src={heroPhoto.url} alt={selectedMeal.name} className="w-full aspect-[16/9] object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-            <div className="absolute bottom-3 left-4 right-4">
-              <h2 className="font-serif font-bold text-xl text-white drop-shadow-lg">{selectedMeal.name}</h2>
-              <p className="text-xs text-white/70 mt-0.5">
-                {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-              </p>
-            </div>
-          </div>
-        )}
+    const toggleCheckedIngredient = (idx: number) => {
+      setCheckedIngredients((prev) => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx);
+        else next.add(idx);
+        return next;
+      });
+    };
 
-        {/* Title (no hero) */}
-        {!heroPhoto && (
-          <div className="mb-4">
-            <h2 className="font-serif font-bold text-xl">{selectedMeal.name}</h2>
-            <p className="text-xs text-on-surface/40 mt-0.5">
-              {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-            </p>
-          </div>
-        )}
+    const jumpTargets: { id: string; label: string }[] = [
+      ...(hasIngredients ? [{ id: 'ingredients', label: 'Ingredients' }] : []),
+      ...(hasSteps ? [{ id: 'directions', label: 'Directions' }] : []),
+      ...(selectedMeal.description ? [{ id: 'notes', label: 'Notes' }] : []),
+      ...(selectedMeal.photos.length > 0 ? [{ id: 'photos', label: 'Photos' }] : []),
+    ];
 
-        {/* Score + would make again + tags */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className={cn("text-2xl font-bold", scoreColor(selectedMeal.score))}>{selectedMeal.score.toFixed(1)}</div>
-          <span className="text-[10px] text-on-surface/30 font-medium">/ 10</span>
-          {'wouldMakeAgain' in selectedMeal && (
-            <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium",
-              selectedMeal.wouldMakeAgain ? "bg-green-50 text-green-600" : "bg-red-50 text-red-500"
-            )}>
-              {selectedMeal.wouldMakeAgain ? 'Would make again' : 'Wouldn\'t repeat'}
-            </span>
-          )}
-        </div>
+
+    // ── Reusable section blocks, identical content for phone and desktop ──
+
+    const buildSharedRecipe = (): SharedRecipe => ({
+      mealId: selectedMeal.id,
+      authorId: user?.id || '',
+      authorName: user?.user_metadata?.display_name || user?.user_metadata?.username || 'You',
+      name: selectedMeal.name,
+      image: coverUrl,
+      description: selectedMeal.description || undefined,
+      tags: selectedMeal.tags.length > 0 ? selectedMeal.tags : undefined,
+      totalTime: (selectedMeal.prepTime ?? 0) + (selectedMeal.cookTime ?? 0) || undefined,
+      difficulty: selectedMeal.difficulty || undefined,
+      ingredientCount: selectedMeal.ingredients?.length || undefined,
+      stepCount: selectedMeal.steps?.length || undefined,
+    });
+
+    const actionsHeader = (
+      <div className="flex items-center gap-3">
+        <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+          <ArrowLeft size={20} />
+        </button>
+        <div className="flex-1" />
+        <button onClick={() => setShareRecipeData(buildSharedRecipe())}
+          className="p-2 text-on-surface/40 hover:text-emerald-600 rounded-full transition-colors" title="Share recipe">
+          <Share2 size={18} />
+        </button>
+        <button onClick={() => onOpenModal(selectedMeal)}
+          className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
+          <Edit3 size={18} />
+        </button>
+        <button onClick={() => setConfirmDeleteId(selectedMeal.id)}
+          className="p-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
+          <Trash2 size={18} />
+        </button>
+      </div>
+    );
+
+    const communitySummary = summarizeReviews(communityReviews);
+
+    const titleBlock = (
+      <header>
+        <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] text-on-surface/40 font-medium mb-1">
+          {new Date(selectedMeal.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+        </p>
+        <h1 className="font-serif font-bold text-[26px] leading-[1.15] sm:text-4xl text-on-surface mb-3">
+          {selectedMeal.name}
+        </h1>
+
+        {/* Tags */}
         {selectedMeal.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-5">
+          <div className="flex flex-wrap gap-1.5 mb-4">
             {selectedMeal.tags.map((tag) => (
-              <span key={tag} className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-[11px] font-semibold">{tag}</span>
+              <span key={tag} className="inline-flex items-center px-2.5 py-0.5 bg-amber-50 text-amber-800 rounded-full text-[10px] font-semibold tracking-wide">
+                {tag}
+              </span>
             ))}
           </div>
         )}
 
-        {/* Notes */}
-        {selectedMeal.description && (
-          <div className="mb-5 bg-white rounded-2xl border border-on-surface/6 p-4">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2">Notes</h3>
-            <p className="text-sm text-on-surface/70 leading-relaxed whitespace-pre-wrap">{selectedMeal.description}</p>
+        {/* My Rating ↔ Community toggle */}
+        <div className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
+          <div className="flex border-b border-on-surface/6">
+            <button
+              onClick={() => setRatingTab('mine')}
+              className={cn(
+                "flex-1 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-center transition-colors",
+                ratingTab === 'mine'
+                  ? "text-on-surface border-b-2 border-emerald-600"
+                  : "text-on-surface/40 hover:text-on-surface/60",
+              )}
+            >
+              My Rating
+            </button>
+            <button
+              onClick={() => setRatingTab('community')}
+              className={cn(
+                "flex-1 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-center transition-colors",
+                ratingTab === 'community'
+                  ? "text-on-surface border-b-2 border-amber-500"
+                  : "text-on-surface/40 hover:text-on-surface/60",
+              )}
+            >
+              Community
+            </button>
           </div>
-        )}
 
-        {/* Dishes */}
-        {selectedMeal.dishes.length > 0 && (
-          <div className="mb-5">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Dishes ({selectedMeal.dishes.length})</h3>
-            <div className="space-y-3">
-              {selectedMeal.dishes.map((dish) => (
-                <div key={dish.id} className="bg-white rounded-2xl border border-on-surface/6 overflow-hidden">
-                  {dish.photo && (
-                    <img src={dish.photo} alt={dish.name} className="w-full aspect-[3/2] object-cover" />
-                  )}
-                  <div className="p-3">
-                    <p className="text-sm font-semibold text-on-surface">{dish.name}</p>
-                    {dish.description && <p className="text-xs text-on-surface/50 mt-1 leading-relaxed">{dish.description}</p>}
-                    {dish.recipeLink && (
-                      <a href={dish.recipeLink} target="_blank" rel="noopener noreferrer"
-                        className="text-[11px] text-primary font-medium mt-2 inline-block hover:underline">View Recipe →</a>
-                    )}
+          {ratingTab === 'mine' ? (
+            <div className="px-4 py-4 flex items-center gap-4">
+              {selectedMeal.score > 0 ? (
+                <>
+                  <div className="flex items-baseline">
+                    <span className={cn("text-4xl font-serif font-bold tabular-nums", scoreColor(selectedMeal.score))}>
+                      {selectedMeal.score.toFixed(1)}
+                    </span>
+                    <span className="text-xs text-on-surface/35 font-medium ml-1">/ 10</span>
                   </div>
-                </div>
-              ))}
+                  {'wouldMakeAgain' in selectedMeal && (
+                    <span className={cn(
+                      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold",
+                      selectedMeal.wouldMakeAgain
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-red-50 text-red-600",
+                    )}>
+                      <span className={cn(
+                        "w-1.5 h-1.5 rounded-full",
+                        selectedMeal.wouldMakeAgain ? "bg-emerald-500" : "bg-red-500",
+                      )} />
+                      {selectedMeal.wouldMakeAgain ? 'Would make again' : "Wouldn't repeat"}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-on-surface/40 italic">No rating yet — edit to add one.</p>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Additional photos gallery (excluding hero) */}
-        {selectedMeal.photos.length > 1 && (
-          <div className="mb-5">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
-            <div className="grid grid-cols-3 gap-2">
-              {selectedMeal.photos.slice(1).map((photo, i) => (
-                <div key={i} className="aspect-square rounded-xl overflow-hidden">
-                  <img src={photo.url} alt={photo.caption || `Photo ${i + 2}`} className="w-full h-full object-cover" />
+          ) : (
+            <div className="px-4 py-4">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="flex items-baseline">
+                  <span className="text-4xl font-serif font-bold tabular-nums text-amber-600">
+                    {communitySummary.count > 0 ? communitySummary.average.toFixed(1) : '—'}
+                  </span>
+                  <span className="text-xs text-on-surface/35 font-medium ml-1">/ 5</span>
                 </div>
-              ))}
+                <div>
+                  <div className="flex gap-0.5 mb-0.5">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star key={n} size={14} className={cn(
+                        communitySummary.count > 0 && n <= Math.round(communitySummary.average)
+                          ? "text-amber-500 fill-amber-500"
+                          : "text-amber-200",
+                      )} />
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-on-surface/45">
+                    {communitySummary.count === 0 ? 'No reviews yet' : `${communitySummary.count} review${communitySummary.count !== 1 ? 's' : ''}`}
+                  </p>
+                </div>
+              </div>
+
+              {loadingReviews ? (
+                <p className="text-xs text-on-surface/40 text-center py-3">Loading…</p>
+              ) : communityReviews.length === 0 ? (
+                <p className="text-xs text-on-surface/40 italic">Share this recipe (set to Public) so friends can rate it.</p>
+              ) : (
+                <div className="space-y-2.5 max-h-60 overflow-y-auto">
+                  {communityReviews.map((r) => {
+                    const name = reviewerProfiles[r.userId]?.display_name || reviewerProfiles[r.userId]?.username || 'Someone';
+                    return (
+                      <div key={r.id} className="border-t border-on-surface/6 pt-2.5 first:border-0 first:pt-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="text-xs font-semibold text-on-surface">{name}</p>
+                          <div className="flex gap-0.5">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star key={n} size={11} className={cn(
+                                n <= r.rating ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                              )} />
+                            ))}
+                          </div>
+                        </div>
+                        {r.notes && <p className="text-[12px] text-on-surface/60 leading-relaxed">{r.notes}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Photos gallery (no hero — show all) */}
-        {!heroPhoto && selectedMeal.photos.length > 0 && (
-          <div className="mb-5">
-            <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-3">Photos</h3>
-            <div className="grid grid-cols-3 gap-2">
-              {selectedMeal.photos.map((photo, i) => (
-                <div key={i} className="aspect-square rounded-xl overflow-hidden">
-                  <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {selectedMeal.isPublic && (
-          <p className="text-[11px] text-on-surface/30 mt-4 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Shared on social feed
-          </p>
-        )}
-
-        {/* Delete confirm */}
-        <AnimatePresence>
-          {confirmDeleteId && (
-            <>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/40 z-50" onClick={() => setConfirmDeleteId(null)} />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 bg-white rounded-2xl p-5 z-50 shadow-xl text-center"
-              >
-                <p className="font-semibold text-on-surface mb-2">Delete this meal?</p>
-                <p className="text-sm text-on-surface/50 mb-4">This cannot be undone.</p>
-                <div className="flex gap-3">
-                  <button onClick={() => setConfirmDeleteId(null)}
-                    className="flex-1 py-2 rounded-xl bg-on-surface/5 text-on-surface/60 text-sm font-semibold">Cancel</button>
-                  <button onClick={() => { onDeleteMeal(confirmDeleteId); setConfirmDeleteId(null); setSelectedMealId(null); }}
-                    className="flex-1 py-2 rounded-xl bg-red-500 text-white text-sm font-semibold">Delete</button>
-                </div>
-              </motion.div>
-            </>
           )}
-        </AnimatePresence>
+        </div>
+      </header>
+    );
+
+    // Stat cards — on phone use compact durations ("2h 45m") in a 2-col grid
+    // so nothing wraps or gets clipped; desktop keeps the wider 5-col layout.
+    const durationLabel = (m: number) => phoneMode ? formatDurationCompact(m) : formatDuration(m);
+    const statCells: { key: string; icon: React.ReactNode; label: string; value: string }[] = [];
+    if ((selectedMeal.prepTime ?? 0) > 0) {
+      statCells.push({ key: 'prep', icon: <Clock size={12} className="text-on-surface/40" />, label: 'Prep', value: durationLabel(selectedMeal.prepTime ?? 0) });
+    }
+    if ((selectedMeal.cookTime ?? 0) > 0) {
+      statCells.push({ key: 'cook', icon: <Flame size={12} className="text-on-surface/40" />, label: 'Cook', value: durationLabel(selectedMeal.cookTime ?? 0) });
+    }
+    if (totalTime > 0 && (selectedMeal.prepTime ?? 0) > 0 && (selectedMeal.cookTime ?? 0) > 0) {
+      statCells.push({ key: 'total', icon: <Clock size={12} className="text-on-surface/40" />, label: 'Total', value: durationLabel(totalTime) });
+    }
+    if ((selectedMeal.servings ?? 0) > 0) {
+      statCells.push({ key: 'serves', icon: <Users size={12} className="text-on-surface/40" />, label: 'Serves', value: String(selectedMeal.servings) });
+    }
+    if (selectedMeal.difficulty) {
+      statCells.push({ key: 'difficulty', icon: <Star size={12} className="text-amber-500 fill-amber-500" />, label: 'Difficulty', value: selectedMeal.difficulty });
+    }
+
+    const statCardsBlock = statCells.length > 0 ? (
+      <div className={cn(
+        "grid gap-px bg-on-surface/8 rounded-2xl overflow-hidden border border-on-surface/8",
+        phoneMode ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5",
+      )}>
+        {statCells.map((c) => (
+          <div key={c.key} className="bg-white px-4 py-3 min-w-0">
+            <div className="flex items-center gap-1.5 mb-1">
+              {c.icon}
+              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium truncate">{c.label}</p>
+            </div>
+            <p className="font-serif font-bold text-lg text-on-surface leading-tight whitespace-nowrap truncate">{c.value}</p>
+          </div>
+        ))}
+      </div>
+    ) : null;
+
+    const ingredientsBlock = hasIngredients ? (
+      <section id="ingredients">
+        <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
+          <div className="flex items-baseline justify-between gap-3 mb-4">
+            <h2 className="font-serif font-bold text-2xl text-on-surface">Ingredients</h2>
+            <span className="text-[11px] text-on-surface/40 font-medium">
+              {selectedMeal.ingredients!.length} item{selectedMeal.ingredients!.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-on-surface/6">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mb-0.5">Scale for</p>
+              <p className="text-sm font-semibold text-on-surface tabular-nums">
+                {displayServings} serving{displayServings !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 bg-on-surface/[0.04] border border-on-surface/10 rounded-full">
+              <button
+                type="button"
+                onClick={() => setServingsScale(Math.max(0.25, (displayServings - 1) / baseServings))}
+                disabled={displayServings <= 1}
+                className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface disabled:opacity-30 transition-colors text-lg"
+                aria-label="Decrease servings"
+              >−</button>
+              <div className="w-9 text-center text-sm font-semibold tabular-nums">{displayServings}</div>
+              <button
+                type="button"
+                onClick={() => setServingsScale((displayServings + 1) / baseServings)}
+                className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface transition-colors text-lg"
+                aria-label="Increase servings"
+              >+</button>
+            </div>
+          </div>
+
+          <ul className="space-y-0.5">
+            {selectedMeal.ingredients!.map((ing, i) => {
+              const isChecked = checkedIngredients.has(i);
+              const scaledAmount = ing.amount ? scaleQuantity(ing.amount, servingsScale) : '';
+              return (
+                <li key={i}>
+                  <label className={cn(
+                    "flex items-baseline gap-3 py-2.5 cursor-pointer group transition-colors",
+                    isChecked && "opacity-40",
+                  )}>
+                    <span className="flex items-center flex-shrink-0 translate-y-[2px]">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleCheckedIngredient(i)}
+                        className="sr-only peer"
+                      />
+                      <span className={cn(
+                        "w-[20px] h-[20px] rounded border-2 flex items-center justify-center transition-all",
+                        isChecked
+                          ? "bg-emerald-500 border-emerald-500 text-white"
+                          : "border-on-surface/20 group-hover:border-on-surface/40",
+                      )}>
+                        {isChecked && <Check size={13} strokeWidth={3} />}
+                      </span>
+                    </span>
+                    <span className={cn(
+                      "flex-1 text-[15px] leading-[1.6] text-on-surface/80",
+                      isChecked && "line-through",
+                    )}>
+                      {(scaledAmount || ing.unit) && (
+                        <span className="font-semibold text-on-surface tabular-nums">
+                          {scaledAmount}{ing.unit ? ` ${ing.unit}` : ''}
+                          {ing.name ? ' ' : ''}
+                        </span>
+                      )}
+                      <span className="text-on-surface/70">{ing.name}</span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </section>
+    ) : null;
+
+    const directionsBlock = hasSteps ? (
+      <section id="directions">
+        <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
+          <h2 className="font-serif font-bold text-2xl text-on-surface mb-5">Directions</h2>
+          <ol className="space-y-5">
+            {selectedMeal.steps!.map((step, i) => {
+              const timerMinutes = extractStepMinutes(step);
+              return (
+                <li key={i} className="border-b border-on-surface/6 last:border-0 pb-5 last:pb-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-600 mb-1.5">
+                    Step {i + 1}
+                  </p>
+                  <p className="text-[16px] leading-[1.7] text-on-surface/85 whitespace-pre-wrap">
+                    {step}
+                  </p>
+                  {timerMinutes !== null && (
+                    <div className="mt-2">
+                      <StepTimer minutes={timerMinutes} />
+                    </div>
+                    )}
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </section>
+    ) : null;
+
+    const notesBlock = selectedMeal.description ? (
+      <section id="notes">
+        <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Notes</h2>
+        <blockquote className="relative bg-amber-50/60 border-l-4 border-amber-400 rounded-r-xl px-5 py-4 sm:px-6 sm:py-5">
+          <p className="italic font-serif text-on-surface/75 leading-[1.7] text-[15px] sm:text-[16px] whitespace-pre-wrap">
+            {selectedMeal.description}
+          </p>
+        </blockquote>
+      </section>
+    ) : null;
+
+    const dishesBlock = selectedMeal.dishes.length > 0 ? (
+      <section>
+        <h2 className="font-serif font-bold text-xl text-on-surface mb-3">
+          Dishes <span className="text-sm text-on-surface/35 font-medium">({selectedMeal.dishes.length})</span>
+        </h2>
+        <div className="grid sm:grid-cols-2 gap-4">
+          {selectedMeal.dishes.map((dish) => (
+            <div key={dish.id} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
+              {dish.photo && (
+                <img src={dish.photo} alt={dish.name} className="w-full aspect-[3/2] object-cover" />
+              )}
+              <div className="p-4">
+                <p className="font-serif font-bold text-base text-on-surface">{dish.name}</p>
+                {dish.description && <p className="text-sm text-on-surface/60 mt-1 leading-relaxed">{dish.description}</p>}
+                {dish.recipeLink && (
+                  <a href={dish.recipeLink} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-primary font-semibold mt-3 inline-block hover:underline">View Recipe →</a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    ) : null;
+
+    // The header cover photo is either selectedMeal.coverPhoto (lives outside
+    // selectedMeal.photos) or selectedMeal.photos[0]. In the second case we
+    // skip photos[0] from the grid so it isn't shown twice.
+    const photosSliceStart = selectedMeal.coverPhoto ? 0 : 1;
+    const photosVisible = selectedMeal.photos.length > photosSliceStart;
+    const photosBlock = photosVisible ? (
+      <section id="photos">
+        <h2 className="font-serif font-bold text-xl text-on-surface mb-3">Photos</h2>
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          {selectedMeal.photos.slice(photosSliceStart).map((photo, i) => {
+            const lightboxIdx = (selectedMeal.coverPhoto ? 1 : 0) + photosSliceStart + i;
+            return (
+              <button
+                key={i}
+                onClick={() => setLightboxPhotoIdx(lightboxIdx)}
+                className="aspect-square rounded-lg overflow-hidden hover:opacity-90 transition-opacity"
+              >
+                <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    ) : null;
+
+    const publicBadge = selectedMeal.isPublic ? (
+      <p className="text-[11px] text-on-surface/30 flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Shared on social feed
+      </p>
+    ) : null;
+
+    const deleteConfirmOverlay = (
+      <AnimatePresence>
+        {confirmDeleteId && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 z-50" onClick={() => setConfirmDeleteId(null)} />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 bg-white rounded-2xl p-5 z-50 shadow-xl text-center"
+            >
+              <p className="font-semibold text-on-surface mb-2">Delete this meal?</p>
+              <p className="text-sm text-on-surface/50 mb-4">This cannot be undone.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setConfirmDeleteId(null)}
+                  className="flex-1 py-2 rounded-xl bg-on-surface/5 text-on-surface/60 text-sm font-semibold">Cancel</button>
+                <button onClick={() => { onDeleteMeal(confirmDeleteId); setConfirmDeleteId(null); onSelectMeal(null); }}
+                  className="flex-1 py-2 rounded-xl bg-red-500 text-white text-sm font-semibold">Delete</button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    );
+
+    const lightbox = (
+      <PhotoLightbox
+        photos={allPhotos}
+        index={lightboxPhotoIdx}
+        onClose={() => setLightboxPhotoIdx(null)}
+        onChange={setLightboxPhotoIdx}
+      />
+    );
+
+    const shareSheet = (
+      <ShareRecipeSheet
+        open={!!shareRecipeData}
+        recipe={shareRecipeData}
+        onClose={() => setShareRecipeData(null)}
+      />
+    );
+
+    // ── Phone layout: full-width hero + fully stacked sections ──
+    if (phoneMode) {
+      return (
+        <div className="-mx-3 pb-20">
+          <div className="px-4 pt-2 pb-1">{actionsHeader}</div>
+
+          {coverUrl ? (
+            <button onClick={() => setLightboxPhotoIdx(coverLightboxIdx)} className="block w-full text-left mt-2 mb-5">
+              <img src={coverUrl} alt={selectedMeal.name} className="w-full aspect-[4/3] object-cover" />
+            </button>
+          ) : (
+            <div className="mt-2" />
+          )}
+
+          <div className="px-5 space-y-8">
+            {titleBlock}
+            {statCardsBlock}
+            {ingredientsBlock}
+            {directionsBlock}
+            {notesBlock}
+            {dishesBlock}
+            {photosBlock}
+            {publicBadge}
+          </div>
+
+          {deleteConfirmOverlay}
+          {lightbox}
+          {shareSheet}
+        </div>
+      );
+    }
+
+    // ── Desktop layout: editorial with two-column ingredients + directions ──
+    return (
+      <div className="max-w-[880px] mx-auto px-3">
+        <div className="mb-6">{actionsHeader}</div>
+
+        {/* Hero row: title block on left, cover photo on right */}
+        <div className="grid md:grid-cols-[minmax(0,1fr)_240px] gap-6 items-stretch mb-8">
+          {titleBlock}
+          {coverUrl && (
+            <button
+              type="button"
+              onClick={() => setLightboxPhotoIdx(coverLightboxIdx)}
+              className="hidden md:block relative rounded-2xl overflow-hidden border border-on-surface/8 group"
+              aria-label="Open photo gallery"
+            >
+              <img src={coverUrl} alt={selectedMeal.name} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
+            </button>
+          )}
+        </div>
+
+        {statCardsBlock && <div className="mb-8">{statCardsBlock}</div>}
+
+        {jumpTargets.length > 1 && (
+          <nav className="sticky top-0 z-20 bg-surface/85 backdrop-blur-md border-b border-on-surface/8 mb-6">
+            <div className="flex gap-1 py-2.5 overflow-x-auto scrollbar-hide">
+              {jumpTargets.map((t) => (
+                <a
+                  key={t.id}
+                  href={`#${t.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const el = document.getElementById(t.id);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold text-on-surface/60 hover:bg-on-surface/5 hover:text-on-surface transition-colors whitespace-nowrap"
+                >
+                  {t.label}
+                </a>
+              ))}
+            </div>
+          </nav>
+        )}
+
+        <div className="grid md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-10 mb-10">
+          <div className="md:sticky md:top-16 md:self-start">{ingredientsBlock}</div>
+          {directionsBlock}
+        </div>
+
+        <div className="space-y-8 mb-12">
+          {notesBlock}
+          {dishesBlock}
+          {photosBlock}
+          {publicBadge}
+        </div>
+
+        {deleteConfirmOverlay}
+        {lightbox}
       </div>
     );
   }
@@ -3187,47 +3648,55 @@ const HomeCookingTab: React.FC<{
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredMeals.map((meal) => (
-            <button
-              key={meal.id}
-              onClick={() => setSelectedMealId(meal.id)}
-              className="w-full flex gap-3 p-3 bg-white rounded-2xl border border-on-surface/6 shadow-sm hover:shadow-md transition-all text-left"
-            >
-              {/* Photo thumbnail */}
-              {meal.photos.length > 0 ? (
-                <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0">
-                  <img src={meal.photos[0].url} alt={meal.name} className="w-full h-full object-cover" />
-                </div>
-              ) : (
-                <div className="w-20 h-20 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                  <ChefHat size={24} className="text-emerald-300" />
-                </div>
-              )}
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-semibold text-on-surface truncate">{meal.name}</p>
-                  <span className={cn("text-sm font-bold flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
-                </div>
-
-                <p className="text-[11px] text-on-surface/40 mt-0.5">
-                  {new Date(meal.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  {meal.dishes.length > 0 && ` · ${meal.dishes.length} dish${meal.dishes.length !== 1 ? 'es' : ''}`}
-                </p>
-
-                {meal.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {meal.tags.slice(0, 3).map((tag) => (
-                      <span key={tag} className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-semibold">{tag}</span>
-                    ))}
-                    {meal.tags.length > 3 && (
-                      <span className="px-2 py-0.5 bg-on-surface/5 text-on-surface/40 rounded-full text-[10px] font-semibold">+{meal.tags.length - 3}</span>
-                    )}
+          {filteredMeals.map((meal) => {
+            const coverPhoto = getMealCoverUrl(meal);
+            const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+            const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
+            return (
+              <button
+                key={meal.id}
+                onClick={() => onSelectMeal(meal.id)}
+                className="w-full flex gap-3 p-3 bg-white rounded-2xl border border-on-surface/6 shadow-sm hover:shadow-md transition-all text-left"
+              >
+                {/* Photo thumbnail */}
+                {coverPhoto ? (
+                  <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0">
+                    <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="w-24 h-24 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                    <ChefHat size={28} className="text-emerald-300" />
                   </div>
                 )}
-              </div>
-            </button>
-          ))}
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-on-surface truncate">{meal.name}</p>
+                    <span className={cn("text-sm font-bold flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
+                  </div>
+
+                  {totalTime > 0 && (
+                    <div className="flex items-center gap-1 mt-1 text-[11px] text-on-surface/50">
+                      <Clock size={11} />
+                      <span>{formatDuration(totalTime)}</span>
+                      {meal.difficulty && <span className="text-on-surface/30">· {meal.difficulty}</span>}
+                    </div>
+                  )}
+
+                  {ingredientPreview.length > 0 ? (
+                    <p className="text-[11px] text-on-surface/45 mt-1 leading-snug line-clamp-2">
+                      {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
+                      {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
+                    </p>
+                  ) : meal.dishes.length > 0 ? (
+                    <p className="text-[11px] text-on-surface/40 mt-1">
+                      {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}
+                    </p>
+                  ) : null}
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -3241,6 +3710,7 @@ export const Pantry: React.FC = () => {
   const [activeTab, setActiveTab] = useState<PantryTab>('lists');
   const [showTrips, setShowTrips] = useState(false);
   const [showHomeCooking, setShowHomeCooking] = useState(false);
+  const [homeCookingSelectedMealId, setHomeCookingSelectedMealId] = useState<string | null>(null);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -3323,12 +3793,13 @@ export const Pantry: React.FC = () => {
     setMoreMenuOpen(false);
   };
 
-  // Hide bottom nav when filter/city/cuisine sheets are open
+  // Hide bottom nav when filter/city/cuisine sheets are open, or when we're
+  // viewing a home meal detail page (it has its own back button / actions).
   useEffect(() => {
-    const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen || showHomeCooking;
+    const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen || homeCookingSelectedMealId !== null;
     setHideBottomNav(anyOpen);
     return () => setHideBottomNav(false);
-  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, showHomeCooking, setHideBottomNav]);
+  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, homeCookingSelectedMealId, setHideBottomNav]);
 
   const {
     lists, createList,
@@ -3446,9 +3917,11 @@ export const Pantry: React.FC = () => {
       : lists.find((l) => l.id === selectedList.id) ?? null
     : null;
 
+  const hideTopBar = showHomeCooking && homeCookingSelectedMealId !== null;
+
   return (
     <div className="pb-32">
-      <TopBar title="My Lists" rightAction={!currentList ? (
+      {!hideTopBar && <TopBar title="My Lists" rightAction={!currentList ? (
         <div className="relative" ref={moreMenuRef}>
           <button onClick={() => setMoreMenuOpen(!moreMenuOpen)}
             className="p-2 hover:bg-muted rounded-full transition-colors">
@@ -3487,7 +3960,7 @@ export const Pantry: React.FC = () => {
             )}
           </AnimatePresence>
         </div>
-      ) : undefined} />
+      ) : undefined} />}
 
       <main className="px-3">
         {currentList ? (
@@ -3499,7 +3972,9 @@ export const Pantry: React.FC = () => {
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
-            onBack={() => setShowHomeCooking(false)}
+            onBack={() => { setShowHomeCooking(false); setHomeCookingSelectedMealId(null); }}
+            selectedMealId={homeCookingSelectedMealId}
+            onSelectMeal={setHomeCookingSelectedMealId}
           />
         ) : showTrips ? (
           <TripsTab
@@ -3528,7 +4003,9 @@ export const Pantry: React.FC = () => {
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
-            onBack={() => setShowHomeCooking(false)}
+            onBack={() => { setShowHomeCooking(false); setHomeCookingSelectedMealId(null); }}
+            selectedMealId={homeCookingSelectedMealId}
+            onSelectMeal={setHomeCookingSelectedMealId}
           />
         ) : (
           <>
