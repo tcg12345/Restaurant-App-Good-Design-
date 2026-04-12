@@ -382,26 +382,22 @@ export const MealRecipePage: React.FC = () => {
     <section id="directions">
       <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
         <h2 className="font-serif font-bold text-2xl text-on-surface mb-5">Directions</h2>
-        <ol className="space-y-6">
+        <ol className="space-y-5">
           {meal.steps!.map((step, i) => {
             const timerMinutes = extractStepMinutes(step);
             return (
-              <li key={i} className="flex gap-4 sm:gap-5">
-                <div className="flex-shrink-0">
-                  <span className="block font-serif font-bold text-4xl sm:text-5xl text-emerald-600/80 leading-none tabular-nums">
-                    {i + 1}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0 pt-1">
-                  <p className="text-[16px] leading-[1.7] text-on-surface/85 whitespace-pre-wrap">
-                    {step}
-                  </p>
-                  {timerMinutes !== null && (
-                    <div className="mt-2">
-                      <StepTimer minutes={timerMinutes} />
-                    </div>
-                  )}
-                </div>
+              <li key={i} className="border-b border-on-surface/6 last:border-0 pb-5 last:pb-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-600 mb-1.5">
+                  Step {i + 1}
+                </p>
+                <p className="text-[16px] leading-[1.7] text-on-surface/85 whitespace-pre-wrap">
+                  {step}
+                </p>
+                {timerMinutes !== null && (
+                  <div className="mt-2">
+                    <StepTimer minutes={timerMinutes} />
+                  </div>
+                )}
               </li>
             );
           })}
