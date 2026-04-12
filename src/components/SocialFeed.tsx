@@ -413,8 +413,8 @@ export const SocialFeed: React.FC = () => {
                   <div className="flex gap-3">
                     {/* Thumbnail */}
                     <div className="w-20 h-20 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
-                      {m.photos.length > 0 ? (
-                        <img src={m.photos[0].url} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      {getMealCoverUrl(m) ? (
+                        <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
                           <ChefHat size={24} className="text-emerald-400" />
