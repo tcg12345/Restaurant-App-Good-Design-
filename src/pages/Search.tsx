@@ -43,19 +43,27 @@ export const Search: React.FC = () => {
       <main className="px-4 pt-4">
         {tab === 'discover' ? (
           <div className="space-y-3">
-            <button
-              type="button"
-              onClick={() => navigate('/search/main')}
-              className="w-full relative"
-              aria-label="Open search"
-            >
-              <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
-                <SearchIcon size={18} />
-              </div>
-              <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-4 text-sm font-medium text-on-surface/40 text-left">
-                Search restaurants, cuisines, lists...
-              </div>
-            </button>
+            {/* Real input that transitions into the full search page on focus.
+                readOnly keeps the mobile keyboard from flashing before the
+                route change; the auto-focus on SearchMain brings it up there. */}
+            <div className="w-full relative">
+              <SearchIcon
+                size={18}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none"
+              />
+              <input
+                type="text"
+                readOnly
+                placeholder="Search restaurants, cuisines, lists..."
+                onFocus={(e) => {
+                  e.currentTarget.blur();
+                  navigate('/search/main');
+                }}
+                onClick={() => navigate('/search/main')}
+                className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06] rounded-full py-3 pl-11 pr-4 text-sm font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none cursor-pointer transition-colors"
+                aria-label="Search"
+              />
+            </div>
 
             <button
               type="button"
