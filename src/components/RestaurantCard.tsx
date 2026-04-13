@@ -1,6 +1,5 @@
 import React from 'react';
-import { Star, Heart, Users, Award, Plus, Building2 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Star, Heart, Plus, Building2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 
@@ -29,8 +28,6 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   rating,
   price,
   cuisine,
-  friendReviews = 0,
-  expertReviews = 0,
   onAdd,
   onHeart,
   isWishlisted = false,
@@ -39,86 +36,76 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   className,
 }) => {
   return (
-    <Link to={`/restaurant/${id}`}>
-      <motion.div
-        whileHover={{ y: -5 }}
-        className={cn(
-          "group relative overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-500 hover:shadow-xl",
-          isHotel && "ring-1 ring-teal-200",
-          className
-        )}
-      >
-        <div className="relative aspect-[3/4] sm:aspect-[4/3] lg:aspect-[3/2] overflow-hidden">
-          <img
-            src={image}
-            alt={name}
-            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+    <Link to={`/restaurant/${id}`} className={cn('group block', className)}>
+      <div className="relative aspect-[4/5] sm:aspect-[4/3] overflow-hidden rounded-2xl bg-on-surface/5">
+        <img
+          src={image}
+          alt={name}
+          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
+          referrerPolicy="no-referrer"
+        />
 
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onHeart?.();
+          }}
+          className={cn(
+            'absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md transition-colors z-10',
+            isWishlisted ? 'text-red-400' : 'text-white hover:text-red-300',
+          )}
+          aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+        >
+          <Heart size={15} className={cn(isWishlisted && 'fill-red-400')} />
+        </button>
+
+        {onAdd && (
           <button
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              onHeart?.();
+              onAdd();
             }}
+            className="absolute top-2.5 left-2.5 w-8 h-8 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md text-white hover:text-primary transition-colors z-10"
+            aria-label="Add to list"
+          >
+            <Plus size={15} />
+          </button>
+        )}
+
+        {isHotel && (
+          <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 px-2 py-1 rounded-full bg-black/40 backdrop-blur-md z-10">
+            <Building2 size={9} className="text-white" />
+            <span className="text-[9px] font-bold text-white uppercase tracking-wider">Hotel</span>
+          </div>
+        )}
+      </div>
+
+      <div className="pt-2.5 pb-1">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-serif text-[15px] sm:text-base font-bold leading-snug text-on-surface line-clamp-2 flex-1">
+            {name}
+          </h3>
+          <div
             className={cn(
-              "absolute top-2.5 right-2.5 sm:top-2 sm:right-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full transition-colors z-10",
-              isWishlisted ? "text-red-400" : "text-on-surface/60 hover:text-red-400"
+              'flex items-center gap-0.5 flex-shrink-0 pt-0.5',
+              isHotel ? 'text-teal-600' : 'text-primary',
             )}
           >
-            <Heart size={18} className={cn("sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5", isWishlisted && "fill-red-400")} />
-          </button>
-
-          {onAdd && (
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onAdd();
-              }}
-              className="absolute top-2.5 left-2.5 sm:top-2 sm:left-2 p-2 sm:p-2 lg:p-1.5 glass rounded-full text-on-surface/60 hover:text-primary transition-colors z-10"
-            >
-              <Plus size={18} className="sm:w-4.5 sm:h-4.5 lg:w-3.5 lg:h-3.5" />
-            </button>
-          )}
-
-          {isHotel && (
-            <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-teal-600/90 backdrop-blur-sm z-10">
-              <Building2 size={10} className="text-white" />
-              <span className="text-[9px] font-bold text-white uppercase tracking-wider">Hotel</span>
-            </div>
-          )}
-        </div>
-
-        <div className="p-3 sm:p-3">
-          <div className="flex items-start justify-between gap-1.5 mb-0.5">
-            <h3 className="font-serif text-sm sm:text-base lg:text-sm font-bold leading-tight line-clamp-3 sm:line-clamp-2 min-h-[3rem] sm:min-h-[2.25rem] lg:min-h-[2.5rem]">{name}</h3>
-            <div className={cn("flex items-center gap-0.5 flex-shrink-0", isHotel ? "text-teal-600" : "text-primary")}>
-              <Star size={13} className={cn("sm:w-3.5 sm:h-3.5 lg:w-3 lg:h-3", isHotel ? "fill-teal-600" : "fill-primary")} />
-              <span className="text-xs sm:text-sm lg:text-xs font-bold">{rating}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5 text-[11px] sm:text-xs lg:text-[10px] text-on-surface/60 font-semibold uppercase tracking-wider truncate">
-            <span className="truncate">{cuisine}</span>
-            <span>•</span>
-            <span>{price}</span>
-          </div>
-
-          <div className="mt-1.5 flex items-center gap-2.5 text-[10px] sm:text-[11px] lg:text-[10px] text-on-surface/40 font-medium">
-            <span className="flex items-center gap-0.5">
-              <Users size={10} className="sm:w-2.5 sm:h-2.5" />
-              {friendReviews} friends
-            </span>
-            <span className="flex items-center gap-0.5">
-              <Award size={10} className="sm:w-2.5 sm:h-2.5" />
-              {expertReviews} experts
-            </span>
+            <Star
+              size={12}
+              className={cn(isHotel ? 'fill-teal-600' : 'fill-primary')}
+            />
+            <span className="text-xs font-bold">{rating}</span>
           </div>
         </div>
-      </motion.div>
+        <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+          {cuisine}
+          {price && <span className="text-on-surface/25 mx-1.5">·</span>}
+          {price}
+        </p>
+      </div>
     </Link>
   );
 };

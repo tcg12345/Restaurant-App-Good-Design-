@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Compass, Users, User, ListPlus } from 'lucide-react';
+import { Compass, Search, User, ListPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 
 const navItems = [
-  { icon: Compass, label: 'Explore', path: '/', isExplore: true },
+  { icon: Compass, label: 'Home', path: '/', isExplore: true },
+  { icon: Search, label: 'Search', path: '/search' },
   { icon: ListPlus, label: 'Lists', path: '/pantry' },
-  { icon: Users, label: 'Circle', path: '/circle' },
   { icon: User, label: 'Profile', path: '/profile' },
 ];
 
@@ -70,10 +70,8 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                       setExpanded(true);
                       return;
                     }
-                    if (location.pathname === '/') {
-                      window.dispatchEvent(new CustomEvent('open-discover-sheet'));
-                    } else {
-                      navigate('/?discover=1');
+                    if (location.pathname !== '/') {
+                      navigate('/');
                     }
                     if (collapsible) setTimeout(() => setExpanded(false), 150);
                   }}
