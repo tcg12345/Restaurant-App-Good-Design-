@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Compass, User, ListPlus } from 'lucide-react';
+import { Compass, Search, User, ListPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 
 const navItems = [
   { icon: Compass, label: 'Explore', path: '/', isExplore: true },
+  { icon: Search, label: 'Search', path: '/search' },
   { icon: ListPlus, label: 'Lists', path: '/pantry' },
   { icon: User, label: 'Profile', path: '/profile' },
 ];

@@ -10,6 +10,8 @@ import { Experts } from './pages/Experts';
 import { Profile } from './pages/Profile';
 import { Pantry } from './pages/Pantry';
 import { Circle } from './pages/Circle';
+import { Search } from './pages/Search';
+import { SearchMain } from './pages/SearchMain';
 import { RestaurantDetail } from './pages/RestaurantDetail';
 import { Onboarding } from './pages/Onboarding';
 import { BottomNav } from './components/BottomNav';
@@ -114,6 +116,8 @@ const AppContent: React.FC = () => {
             <Route path="/" element={<Map />} />
             <Route path="/auth" element={<Navigate to="/" replace />} />
             <Route path="/circle" element={<Circle />} />
+            <Route path="/search" element={<Search />} />
+            <Route path="/search/main" element={<SearchMain />} />
             <Route path="/experts" element={<Experts />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/pantry" element={<Pantry />} />
