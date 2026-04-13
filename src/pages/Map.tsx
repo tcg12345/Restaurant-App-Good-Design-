@@ -10,7 +10,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
-import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { SocialFeed } from '../components/SocialFeed';
@@ -56,40 +56,6 @@ const PRICE_LEVELS = [
 ];
 
 const QUICK_FILTERS = ['Near Me', 'Hotels', 'Italian', 'Fine Dining', 'Sushi', 'Mexican'];
-
-// US state name → abbreviation
-const STATE_ABBR: Record<string, string> = {
-  'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA',
-  'Colorado':'CO','Connecticut':'CT','Delaware':'DE','Florida':'FL','Georgia':'GA',
-  'Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS',
-  'Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA',
-  'Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT',
-  'Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM',
-  'New York':'NY','North Carolina':'NC','North Dakota':'ND','Ohio':'OH','Oklahoma':'OK',
-  'Oregon':'OR','Pennsylvania':'PA','Rhode Island':'RI','South Carolina':'SC',
-  'South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT',
-  'Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY',
-  'District of Columbia':'DC',
-};
-
-// Extract "City, ST" from full or short address
-function extractCityState(fullAddress: string, shortAddress: string): string {
-  // fullAddress is like "123 Main St, Westport, CT 06880, USA"
-  // Try to extract city and state from fullAddress
-  const parts = fullAddress.split(',').map((s) => s.trim());
-  if (parts.length >= 3) {
-    const city = parts[parts.length - 3]; // e.g. "Westport"
-    const stateZip = parts[parts.length - 2]; // e.g. "CT 06880"
-    const state = stateZip?.replace(/\d+/g, '').trim(); // e.g. "CT"
-    if (city && state && state.length <= 3) return `${city}, ${state}`;
-    // If state part is longer (like country name), try city only
-    if (city) return city;
-  }
-  // Fallback: use second part of short address
-  const shortParts = shortAddress.split(',').map((s) => s.trim());
-  if (shortParts.length >= 2) return shortParts.slice(1).join(', ');
-  return shortParts[0] || '';
-}
 
 function ratingToPlace(r: CommunityRating): PlaceResult | null {
   if (!r.lat || !r.lng) return null;
