@@ -287,13 +287,10 @@ export const SocialFeed: React.FC = () => {
                   <div className="h-2 w-16 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 </div>
               </div>
-              <div className="flex gap-4">
-                <div className="w-24 h-24 rounded-2xl bg-on-surface/[0.05] animate-pulse flex-shrink-0" />
-                <div className="flex-1 space-y-2 pt-1">
-                  <div className="h-3 w-3/4 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                  <div className="h-2.5 w-1/2 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                  <div className="h-2 w-full rounded-full bg-on-surface/[0.05] animate-pulse" />
-                </div>
+              <div className="w-full aspect-[16/10] rounded-lg bg-on-surface/[0.05] animate-pulse mb-3" />
+              <div className="space-y-2">
+                <div className="h-3 w-3/4 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                <div className="h-2.5 w-1/2 rounded-full bg-on-surface/[0.05] animate-pulse" />
               </div>
             </li>
           ))}
@@ -361,47 +358,45 @@ export const SocialFeed: React.FC = () => {
                     onClick={() => openFriendRecipe(m)}
                     className="block w-full text-left group"
                   >
-                    <div className="flex gap-4">
-                      <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
-                        {getMealCoverUrl(m) ? (
-                          <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <ChefHat size={28} className="text-emerald-400" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0 flex flex-col justify-center">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{m.name}</h3>
-                            <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                              {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                              {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
-                            </p>
-                          </div>
-                          {summary && summary.count > 0 && (
-                            <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
-                              <div className="flex gap-0.5">
-                                {[1, 2, 3, 4, 5].map((n) => (
-                                  <Star key={n} size={11} className={cn(
-                                    n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
-                                  )} />
-                                ))}
-                              </div>
-                              <span className="text-[10px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
-                            </div>
-                          )}
+                    {/* Full-width cover image */}
+                    <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                      {getMealCoverUrl(m) ? (
+                        <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <ChefHat size={40} className="text-emerald-400" />
                         </div>
-                        {m.tags.length > 0 && (
-                          <div className="flex gap-1 mt-1.5 flex-wrap">
-                            {m.tags.slice(0, 3).map((t) => (
-                              <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
+                      )}
+                    </div>
+                    {/* Details below image */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-2">{m.name}</h3>
+                        <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                          {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
+                        </p>
+                      </div>
+                      {summary && summary.count > 0 && (
+                        <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
+                          <div className="flex gap-0.5">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star key={n} size={12} className={cn(
+                                n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                              )} />
                             ))}
                           </div>
-                        )}
-                      </div>
+                          <span className="text-[11px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
+                        </div>
+                      )}
                     </div>
+                    {m.tags.length > 0 && (
+                      <div className="flex gap-1.5 mt-2 flex-wrap">
+                        {m.tags.slice(0, 3).map((t) => (
+                          <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
+                        ))}
+                      </div>
+                    )}
                     {m.description && (
                       <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
                         &ldquo;{m.description}&rdquo;
@@ -441,47 +436,45 @@ export const SocialFeed: React.FC = () => {
                   onClick={() => openFriendRecipe(m)}
                   className="block w-full text-left group"
                 >
-                  <div className="flex gap-4">
-                    <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
-                      {getMealCoverUrl(m) ? (
-                        <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <ChefHat size={28} className="text-emerald-400" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 flex flex-col justify-center">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{m.name}</h3>
-                          <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                            {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
-                          </p>
-                        </div>
-                        {summary && summary.count > 0 && (
-                          <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
-                            <div className="flex gap-0.5">
-                              {[1, 2, 3, 4, 5].map((n) => (
-                                <Star key={n} size={11} className={cn(
-                                  n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
-                                )} />
-                              ))}
-                            </div>
-                            <span className="text-[10px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
-                          </div>
-                        )}
+                  {/* Full-width cover image */}
+                  <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                    {getMealCoverUrl(m) ? (
+                      <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <ChefHat size={40} className="text-emerald-400" />
                       </div>
-                      {m.tags.length > 0 && (
-                        <div className="flex gap-1 mt-1.5 flex-wrap">
-                          {m.tags.slice(0, 3).map((t) => (
-                            <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
+                    )}
+                  </div>
+                  {/* Details below image */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-2">{m.name}</h3>
+                      <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                        {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
+                      </p>
+                    </div>
+                    {summary && summary.count > 0 && (
+                      <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
+                        <div className="flex gap-0.5">
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <Star key={n} size={12} className={cn(
+                              n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                            )} />
                           ))}
                         </div>
-                      )}
-                    </div>
+                        <span className="text-[11px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
+                      </div>
+                    )}
                   </div>
+                  {m.tags.length > 0 && (
+                    <div className="flex gap-1.5 mt-2 flex-wrap">
+                      {m.tags.slice(0, 3).map((t) => (
+                        <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
+                      ))}
+                    </div>
+                  )}
                   {m.description && (
                     <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
                       &ldquo;{m.description}&rdquo;
@@ -530,39 +523,35 @@ export const SocialFeed: React.FC = () => {
               onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
               className="block w-full text-left group"
             >
-              <div className="flex gap-4">
-                {/* Thumbnail */}
-                <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
-                  {r.photo_url ? (
-                    <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center font-serif text-2xl font-bold text-on-surface/20">
-                      {initialOf(r.restaurant_name)}
-                    </div>
-                  )}
-                </div>
-                {/* Details */}
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{r.restaurant_name}</h3>
-                      <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                        {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}
-                      </p>
-                    </div>
-                    <span className={cn("text-xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
-                      {Number(r.score).toFixed(1)}
-                    </span>
+              {/* Full-width cover image */}
+              <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                {r.photo_url ? (
+                  <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center font-serif text-4xl font-bold text-on-surface/20">
+                    {initialOf(r.restaurant_name)}
                   </div>
-                  {r.tags && r.tags.length > 0 && (
-                    <div className="flex gap-1 mt-1.5 flex-wrap">
-                      {r.tags.slice(0, 3).map((t) => (
-                        <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
+              {/* Details below image */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-2">{r.restaurant_name}</h3>
+                  <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                    {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}
+                  </p>
+                </div>
+                <span className={cn("text-2xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
+                  {Number(r.score).toFixed(1)}
+                </span>
+              </div>
+              {r.tags && r.tags.length > 0 && (
+                <div className="flex gap-1.5 mt-2 flex-wrap">
+                  {r.tags.slice(0, 3).map((t) => (
+                    <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
+                  ))}
+                </div>
+              )}
               {r.notes && (
                 <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
                   &ldquo;{r.notes}&rdquo;
