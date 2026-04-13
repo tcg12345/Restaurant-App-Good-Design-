@@ -238,7 +238,7 @@ export const FollowingFeed: React.FC = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search followed restaurants..."
-            className="w-full bg-white/60 backdrop-blur-sm rounded-full py-2.5 pl-10 pr-9 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 border border-on-surface/10"
+            className="w-full bg-on-surface/[0.04] rounded-full py-2.5 pl-10 pr-9 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06]"
             autoCapitalize="off"
             autoCorrect="off"
           />
@@ -257,10 +257,10 @@ export const FollowingFeed: React.FC = () => {
           type="button"
           onClick={() => setFiltersOpen(true)}
           className={cn(
-            'relative w-10 h-10 rounded-full flex items-center justify-center border transition-colors flex-shrink-0',
+            'relative w-10 h-10 rounded-full flex items-center justify-center transition-colors flex-shrink-0',
             hasActiveFilters
-              ? 'bg-primary text-white border-primary'
-              : 'bg-white/60 text-on-surface/60 border-on-surface/10 hover:bg-white/80',
+              ? 'bg-primary text-white'
+              : 'bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.08]',
           )}
           aria-label="Filters"
         >
@@ -308,7 +308,7 @@ export const FollowingFeed: React.FC = () => {
               </button>
             )}
           </div>
-          <ul className="space-y-2">
+          <ul className="divide-y divide-on-surface/[0.06]">
             {visible.map((r) => {
               const profile = profiles[r.user_id];
               const city = extractCity(r.address);
@@ -318,15 +318,15 @@ export const FollowingFeed: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                    className="w-full flex items-center gap-3 p-2.5 rounded-2xl bg-white/60 backdrop-blur-sm border border-on-surface/8 hover:bg-white/85 transition-colors text-left"
+                    className="w-full flex items-center gap-4 py-3.5 text-left group"
                   >
-                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-on-surface/5 flex-shrink-0 relative flex items-center justify-center">
-                      <SearchIcon size={18} className="text-on-surface/20" />
+                    <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 relative flex items-center justify-center">
+                      <SearchIcon size={20} className="text-on-surface/20" />
                       {r.photo_url && (
                         <img
                           src={r.photo_url}
                           alt=""
-                          className="absolute inset-0 w-full h-full object-cover"
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
                           loading="lazy"
                           onError={(e) => {
                             (e.currentTarget as HTMLImageElement).style.display = 'none';
@@ -335,20 +335,20 @@ export const FollowingFeed: React.FC = () => {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-on-surface truncate">
+                      <div className="flex items-start justify-between gap-3">
+                        <h4 className="font-serif text-[15px] font-bold text-on-surface leading-snug line-clamp-2">
                           {r.restaurant_name}
-                        </p>
-                        <span className="flex items-center gap-0.5 text-[11px] font-bold text-primary flex-shrink-0">
-                          <Star size={11} className="fill-primary" />
+                        </h4>
+                        <span className="flex items-center gap-0.5 text-xs font-bold text-primary flex-shrink-0 pt-0.5">
+                          <Star size={12} className="fill-primary" />
                           {score.toFixed(1)}
                         </span>
                       </div>
-                      <p className="text-[11px] text-on-surface/50 truncate">
+                      <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
                         {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
                       </p>
                       {profile && (
-                        <p className="text-[10px] text-on-surface/40 mt-0.5 truncate">
+                        <p className="text-[11px] text-on-surface/40 mt-1 truncate">
                           via {profile.display_name || profile.username}
                         </p>
                       )}

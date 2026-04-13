@@ -537,12 +537,12 @@ export const Home: React.FC = () => {
               {/* Fake search bar — tapping opens the search page */}
               <button
                 onClick={() => setSearchActive(true)}
-                className="w-full relative mb-6"
+                className="w-full relative mb-8"
               >
                 <div className="absolute inset-y-0 left-4 flex items-center text-on-surface/40">
-                  <Search size={20} />
+                  <Search size={18} />
                 </div>
-                <div className="w-full bg-white rounded-2xl py-4 pl-12 pr-12 text-sm font-medium shadow-sm text-on-surface/40 text-left">
+                <div className="w-full bg-on-surface/[0.04] rounded-full py-3.5 pl-11 pr-4 text-sm font-medium text-on-surface/40 text-left">
                   Search restaurant, cuisine, occasion...
                 </div>
               </button>
@@ -635,7 +635,7 @@ export const Home: React.FC = () => {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search restaurant, cuisine, occasion..."
-                        className="w-full bg-white rounded-2xl py-3.5 pl-12 pr-12 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                        className="w-full bg-on-surface/[0.04] rounded-full py-3.5 pl-12 pr-12 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06] transition-all"
                       />
                       <button
                         type="button"
@@ -668,7 +668,7 @@ export const Home: React.FC = () => {
                         onFocus={() => { if (locationQuery.trim()) setShowLocationResults(true); }}
                         placeholder={locationLabel || 'Location...'}
                         className={cn(
-                          "w-full bg-white rounded-2xl py-3.5 pl-11 pr-10 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all",
+                          "w-full bg-on-surface/[0.04] rounded-full py-3.5 pl-11 pr-10 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06] transition-all",
                           locationLabel && !locationQuery && "placeholder:text-on-surface/70"
                         )}
                       />
@@ -745,11 +745,12 @@ export const Home: React.FC = () => {
                     <button
                       key={filter}
                       onClick={() => handleFilterClick(filter)}
-                      className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all ${
+                      className={cn(
+                        "whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-all",
                         activeFilter === filter
-                          ? 'bg-primary text-white border-primary'
-                          : 'bg-white border-muted hover:border-primary hover:text-primary'
-                      }`}
+                          ? 'bg-primary text-white'
+                          : 'bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.08]',
+                      )}
                     >
                       {filter}
                     </button>
@@ -789,7 +790,7 @@ export const Home: React.FC = () => {
                             <Sparkles size={15} className="text-primary/60" />
                             <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                           </div>
-                          <div className={cn("grid gap-3", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
+                          <div className={cn("grid gap-x-3 gap-y-6", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
                             {recommendations.map((place) => {
                               const props = placeToCardProps(place as any);
                               return (
@@ -860,7 +861,7 @@ export const Home: React.FC = () => {
                             {places.length} found
                           </span>
                         </div>
-                        <div className={cn("grid gap-3 sm:gap-4", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
+                        <div className={cn("grid gap-x-3 sm:gap-x-4 gap-y-6 sm:gap-y-7", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
                           {visiblePlaces.map((place) => {
                             const props = placeToCardProps(place);
                             const placeIsHotel = hotelIds.has(place.id) || place.types?.includes('hotel') || place.types?.includes('lodging');

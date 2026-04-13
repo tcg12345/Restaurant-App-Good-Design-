@@ -453,12 +453,12 @@ export const Profile: React.FC = () => {
             {/* Top cuisines */}
             {cuisineStats.length > 0 && (
               <section>
-                <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Top cuisines</h3>
-                <div className="rounded-2xl bg-white border border-on-surface/8 p-4 space-y-2.5">
+                <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-3">Top cuisines</h3>
+                <div className="space-y-3">
                   {cuisineStats.map(([name, count]) => (
                     <div key={name} className="flex items-center gap-3">
                       <span className="text-xs font-semibold text-on-surface/70 w-20 truncate">{name}</span>
-                      <div className="flex-1 h-1.5 rounded-full bg-on-surface/6 overflow-hidden">
+                      <div className="flex-1 h-1.5 rounded-full bg-on-surface/[0.06] overflow-hidden">
                         <div
                           className="h-full rounded-full bg-primary/70"
                           style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
@@ -480,16 +480,16 @@ export const Profile: React.FC = () => {
                     See all
                   </button>
                 </div>
-                <div className="flex gap-2.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+                <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
                   {topRated.slice(0, 6).map((r) => (
                     <Link
                       key={r.restaurantId}
                       to={`/restaurant/${r.restaurantId}`}
-                      className="flex-shrink-0 w-[130px] rounded-2xl border border-on-surface/8 bg-white overflow-hidden hover:shadow-md transition-shadow"
+                      className="flex-shrink-0 w-[135px] group"
                     >
-                      <div className="aspect-[4/3] bg-on-surface/[0.04] relative">
+                      <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-on-surface/[0.05] relative">
                         {r.image ? (
-                          <img src={r.image} alt="" className="w-full h-full object-cover" />
+                          <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-on-surface/15">
                             <MapPin size={22} />
@@ -497,16 +497,15 @@ export const Profile: React.FC = () => {
                         )}
                         <span
                           className={cn(
-                            'absolute top-1.5 right-1.5 text-[11px] font-serif font-bold px-1.5 py-0.5 rounded-lg bg-white/90 shadow-sm backdrop-blur-sm',
-                            scoreColor(numericScore(r.score)),
+                            'absolute top-1.5 right-1.5 text-[11px] font-serif font-bold px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-md text-white',
                           )}
                         >
                           {formatScore(r.score)}
                         </span>
                       </div>
-                      <div className="px-2.5 py-2">
-                        <p className="text-[11px] font-bold truncate leading-tight">{r.name}</p>
-                        <p className="text-[10px] text-on-surface/40 truncate mt-0.5">{r.cuisine}</p>
+                      <div className="pt-2">
+                        <p className="text-[12px] font-bold truncate leading-tight">{r.name}</p>
+                        <p className="text-[10px] text-on-surface/40 truncate mt-0.5 uppercase tracking-wider">{r.cuisine}</p>
                       </div>
                     </Link>
                   ))}
@@ -518,35 +517,36 @@ export const Profile: React.FC = () => {
             {recentRatings.length > 0 && (
               <section>
                 <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Recent</h3>
-                <div className="space-y-1.5">
+                <ul className="divide-y divide-on-surface/[0.06]">
                   {recentRatings.slice(0, 5).map((r) => (
-                    <Link
-                      key={r.restaurantId}
-                      to={`/restaurant/${r.restaurantId}`}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-on-surface/8 hover:border-primary/15 transition-colors"
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-on-surface/[0.04] overflow-hidden flex-shrink-0">
-                        {r.image ? (
-                          <img src={r.image} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-                            <MapPin size={16} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{r.name}</p>
-                        <p className="text-[10px] text-on-surface/35">
-                          {r.visitDate
-                            ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                            : ''}
-                          {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
-                        </p>
-                      </div>
-                      <span className={cn('text-base font-serif font-bold flex-shrink-0', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
-                    </Link>
+                    <li key={r.restaurantId}>
+                      <Link
+                        to={`/restaurant/${r.restaurantId}`}
+                        className="flex items-center gap-4 py-3 group"
+                      >
+                        <div className="w-14 h-14 rounded-2xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
+                          {r.image ? (
+                            <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-on-surface/20">
+                              <MapPin size={16} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate">{r.name}</p>
+                          <p className="text-[11px] text-on-surface/40 mt-0.5">
+                            {r.visitDate
+                              ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                              : ''}
+                            {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
+                          </p>
+                        </div>
+                        <span className={cn('text-lg font-serif font-bold flex-shrink-0', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
+                      </Link>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </section>
             )}
 
@@ -577,18 +577,18 @@ export const Profile: React.FC = () => {
                   value={ratingSearch}
                   onChange={(e) => setRatingSearch(e.target.value)}
                   placeholder="Search ratings..."
-                  className="w-full bg-white rounded-xl py-2 pl-9 pr-3 text-sm border border-on-surface/8 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full bg-on-surface/[0.04] rounded-full py-2 pl-9 pr-3 text-sm focus:outline-none focus:bg-on-surface/[0.06]"
                 />
               </div>
-              <div className="flex bg-on-surface/[0.04] rounded-xl border border-on-surface/8 overflow-hidden">
+              <div className="flex bg-on-surface/[0.04] rounded-full overflow-hidden p-0.5">
                 {(['recent', 'high', 'low'] as const).map((k) => (
                   <button
                     key={k}
                     type="button"
                     onClick={() => setRatingSort(k)}
                     className={cn(
-                      'px-3 py-2 text-[11px] font-semibold transition-colors',
-                      ratingSort === k ? 'bg-white text-on-surface shadow-sm' : 'text-on-surface/40',
+                      'px-3 py-1.5 text-[11px] font-semibold rounded-full transition-colors',
+                      ratingSort === k ? 'bg-surface text-on-surface' : 'text-on-surface/40',
                     )}
                   >
                     {k === 'recent' ? 'New' : k === 'high' ? 'Top' : 'Low'}
@@ -599,55 +599,56 @@ export const Profile: React.FC = () => {
             {filteredSortedRatings.length === 0 ? (
               <p className="text-sm text-on-surface/40 text-center py-10">No ratings match your search.</p>
             ) : (
-              <div className="space-y-1.5">
+              <ul className="divide-y divide-on-surface/[0.06]">
                 {filteredSortedRatings.map((r) => (
-                  <Link
-                    key={r.restaurantId}
-                    to={`/restaurant/${r.restaurantId}`}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-on-surface/8 hover:border-primary/15 transition-colors"
-                  >
-                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-on-surface/[0.04] flex-shrink-0">
-                      {r.image ? (
-                        <img src={r.image} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-                          <MapPin size={18} />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{r.name}</p>
-                      <p className="text-[10px] text-on-surface/35 truncate">
-                        {r.cuisine}
-                        {r.price && ` · ${r.price}`}
-                        {r.address && ` · ${cityFromAddress(r.address) || r.address.split(',').pop()?.trim()}`}
-                      </p>
-                    </div>
-                    <div className="text-right flex-shrink-0 flex items-center gap-1.5">
-                      {r.wouldReturn && <TrendingUp size={12} className="text-emerald-500" />}
-                      <span className={cn('text-lg font-serif font-bold', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
-                    </div>
-                  </Link>
+                  <li key={r.restaurantId}>
+                    <Link
+                      to={`/restaurant/${r.restaurantId}`}
+                      className="flex items-center gap-4 py-3 group"
+                    >
+                      <div className="w-14 h-14 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+                        {r.image ? (
+                          <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-on-surface/20">
+                            <MapPin size={18} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{r.name}</p>
+                        <p className="text-[11px] text-on-surface/40 truncate mt-0.5">
+                          {r.cuisine}
+                          {r.price && ` · ${r.price}`}
+                          {r.address && ` · ${cityFromAddress(r.address) || r.address.split(',').pop()?.trim()}`}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0 flex items-center gap-1.5">
+                        {r.wouldReturn && <TrendingUp size={12} className="text-emerald-500" />}
+                        <span className={cn('text-lg font-serif font-bold', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
+                      </div>
+                    </Link>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </section>
         )}
 
         {activeTab === 'lists' && (
-          <section className="space-y-3 pb-4">
+          <section className="divide-y divide-on-surface/[0.06] pb-4">
             {lists.length === 0 ? (
               <p className="text-sm text-on-surface/40 text-center py-10">No lists yet.</p>
             ) : (
               lists.map((list) => {
                 const rids = listRestaurantIds(list);
                 return (
-                <div key={list.id} className="rounded-2xl border border-on-surface/8 bg-white overflow-hidden">
-                  <div className="px-3.5 py-3 flex items-center gap-2.5">
-                    <span className="text-lg">{list.emoji}</span>
+                <div key={list.id} className="py-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">{list.emoji}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{list.name}</p>
-                      <p className="text-[10px] text-on-surface/40">
+                      <p className="text-[15px] font-semibold truncate">{list.name}</p>
+                      <p className="text-[11px] text-on-surface/40 mt-0.5">
                         {rids.length} rated
                         {list.wishlistIds?.length ? ` · ${list.wishlistIds.length} saved` : ''}
                       </p>
@@ -655,14 +656,14 @@ export const Profile: React.FC = () => {
                     <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
                   </div>
                   {rids.length > 0 && (
-                    <div className="flex gap-1 px-3.5 pb-3 overflow-x-auto scrollbar-hide">
+                    <div className="flex gap-1.5 mt-3 overflow-x-auto scrollbar-hide">
                       {rids.slice(0, 5).map((id) => {
                         const r = ratings.find((x) => x.restaurantId === id);
                         return (
                           <Link
                             key={id}
                             to={`/restaurant/${id}`}
-                            className="flex-shrink-0 w-12 h-12 rounded-lg bg-on-surface/[0.04] overflow-hidden border border-on-surface/6"
+                            className="flex-shrink-0 w-14 h-14 rounded-xl bg-on-surface/[0.05] overflow-hidden"
                           >
                             {r?.image ? (
                               <img src={r.image} alt="" className="w-full h-full object-cover" />
@@ -675,7 +676,7 @@ export const Profile: React.FC = () => {
                         );
                       })}
                       {rids.length > 5 && (
-                        <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-on-surface/[0.04] flex items-center justify-center border border-on-surface/6">
+                        <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-on-surface/[0.05] flex items-center justify-center">
                           <span className="text-[10px] font-semibold text-on-surface/35">+{rids.length - 5}</span>
                         </div>
                       )}
@@ -689,7 +690,7 @@ export const Profile: React.FC = () => {
         )}
 
         {activeTab === 'wishlist' && (
-          <section className="space-y-1.5 pb-4">
+          <section className="divide-y divide-on-surface/[0.06] pb-4">
             {wishlist.length === 0 ? (
               <p className="text-sm text-on-surface/40 text-center py-10">Your wishlist is empty.</p>
             ) : (
@@ -697,10 +698,10 @@ export const Profile: React.FC = () => {
                 <Link
                   key={w.restaurantId}
                   to={`/restaurant/${w.restaurantId}`}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-on-surface/8 hover:border-rose-200/60 transition-colors"
+                  className="flex items-center gap-4 py-3 group"
                 >
-                  <div className="w-12 h-12 rounded-lg bg-on-surface/[0.04] overflow-hidden flex-shrink-0">
-                    {w.image ? <img src={w.image} alt="" className="w-full h-full object-cover" /> : (
+                  <div className="w-14 h-14 rounded-2xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
+                    {w.image ? <img src={w.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" /> : (
                       <div className="w-full h-full flex items-center justify-center text-rose-200">
                         <Heart size={18} className="fill-current" />
                       </div>
@@ -708,7 +709,7 @@ export const Profile: React.FC = () => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">{w.name}</p>
-                    <p className="text-[10px] text-on-surface/35 truncate">
+                    <p className="text-[11px] text-on-surface/40 truncate mt-0.5">
                       {w.cuisine}
                       {w.price && ` · ${w.price}`}
                       {w.address && ` · ${cityFromAddress(w.address) || ''}`}
@@ -722,9 +723,9 @@ export const Profile: React.FC = () => {
         )}
 
         {activeTab === 'cooking' && (
-          <section className="space-y-2.5 pb-4">
+          <section className="space-y-6 pb-4">
             {homeMeals.length === 0 ? (
-              <div className="text-center py-12 rounded-2xl border border-dashed border-on-surface/10">
+              <div className="text-center py-12">
                 <ChefHat size={28} className="mx-auto text-on-surface/15 mb-2" />
                 <p className="text-sm text-on-surface/40">No home meals logged yet.</p>
               </div>
@@ -737,32 +738,32 @@ export const Profile: React.FC = () => {
                   ? mealDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                   : '';
                 return (
-                <div key={meal.id} className="rounded-2xl border border-on-surface/8 bg-white overflow-hidden">
+                <div key={meal.id} className="group">
                   {mealPhotos[0]?.url && (
-                    <div className="aspect-[2/1] bg-on-surface/[0.04]">
-                      <img src={mealPhotos[0].url} alt="" className="w-full h-full object-cover" />
+                    <div className="aspect-[2/1] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
+                      <img src={mealPhotos[0].url} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" />
                     </div>
                   )}
-                  <div className="px-3.5 py-3">
-                    <div className="flex items-center gap-2">
+                  <div className="pt-3">
+                    <div className="flex items-start gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{meal.name}</p>
-                        <p className="text-[10px] text-on-surface/35 mt-0.5">
+                        <p className="font-serif text-[15px] font-bold leading-snug">{meal.name}</p>
+                        <p className="text-[11px] text-on-surface/40 mt-0.5 uppercase tracking-wider">
                           {dateLabel}
                           {mealDishes.length > 0 && `${dateLabel ? ' · ' : ''}${mealDishes.length} dish${mealDishes.length !== 1 ? 'es' : ''}`}
                         </p>
                       </div>
-                      <span className={cn('text-lg font-serif font-bold flex-shrink-0', scoreColor(numericScore(meal.score)))}>{formatScore(meal.score)}</span>
+                      <span className={cn('text-lg font-serif font-bold flex-shrink-0 pt-0.5', scoreColor(numericScore(meal.score)))}>{formatScore(meal.score)}</span>
                     </div>
                     {meal.description && (
                       <p className="text-[11px] text-on-surface/45 mt-1.5 leading-relaxed line-clamp-2">{meal.description}</p>
                     )}
                     <div className="flex flex-wrap items-center gap-1.5 mt-2">
                       {meal.wouldMakeAgain && (
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">Would make again</span>
+                        <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">Would make again</span>
                       )}
                       {!meal.isPublic && (
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-on-surface/[0.04] text-on-surface/35 border border-on-surface/8">Private</span>
+                        <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-on-surface/[0.06] text-on-surface/35">Private</span>
                       )}
                     </div>
                   </div>

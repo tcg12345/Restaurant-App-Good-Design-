@@ -426,20 +426,16 @@ const RestaurantRow: React.FC<{
         style={{ touchAction: 'pan-y' }}
         className="relative z-10"
       >
-        <Link to={`/restaurant/${restaurantId}`} className="block" onClick={(e) => { if (isDragging || swiped) e.preventDefault(); }}>
-          <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex active:scale-[0.99] transition-transform">
-            {!phoneMode && (
-              <div className="w-24 sm:w-28 flex-shrink-0">
-                {image ? (
-                  <img src={image} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-full h-full min-h-[5rem] bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-2xl font-serif font-bold">
-                    {name.charAt(0)}
-                  </div>
-                )}
-              </div>
-            )}
-            <div className={cn("flex-1 min-w-0", phoneMode ? "px-3.5 py-2.5" : "p-3")}>
+        <Link to={`/restaurant/${restaurantId}`} className="block group" onClick={(e) => { if (isDragging || swiped) e.preventDefault(); }}>
+          <div className="flex gap-4 py-3.5 active:scale-[0.99] transition-transform">
+            <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+              {image ? (
+                <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+              ) : (
+                <span className="text-2xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
+              )}
+            </div>
+            <div className={cn("flex-1 min-w-0 flex flex-col justify-center")}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
@@ -518,9 +514,9 @@ const RestaurantRow: React.FC<{
 
       {/* Desktop delete confirmation */}
       {confirmDelete && (
-        <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex items-center justify-center gap-3 border border-red-200">
+        <div className="absolute inset-0 z-20 bg-surface/95 backdrop-blur-sm rounded-2xl flex items-center justify-center gap-3">
           <p className="text-xs text-on-surface/60 font-medium">Delete this restaurant?</p>
-          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-on-surface/5">Cancel</button>
+          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10">Cancel</button>
           <button onClick={handleDelete} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
         </div>
       )}
@@ -539,30 +535,28 @@ const WishlistRow: React.FC<{
   onRemove?: () => void;
 }> = ({ restaurantId, name, image, cuisine, price, notes, onRemove }) => {
   return (
-    <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex">
-      <Link to={`/restaurant/${restaurantId}`} className="w-20 sm:w-24 flex-shrink-0 block">
+    <div className="flex items-start gap-4 py-3.5 group">
+      <Link to={`/restaurant/${restaurantId}`} className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block">
         {image ? (
-          <img src={image} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+          <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
         ) : (
-          <div className="w-full h-full min-h-[5rem] bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-2xl font-serif font-bold">
-            {name.charAt(0)}
-          </div>
+          <span className="text-2xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
         )}
       </Link>
-      <div className="flex-1 p-3 min-w-0 flex flex-col justify-between">
+      <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
         <div>
           <Link to={`/restaurant/${restaurantId}`}>
-            <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
+            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
           </Link>
           <p className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
             {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
           </p>
           {notes && (
-            <p className="text-xs text-on-surface/40 mt-1 line-clamp-2 italic">&ldquo;{notes}&rdquo;</p>
+            <p className="text-[11px] text-on-surface/45 mt-1 line-clamp-2 italic">&ldquo;{notes}&rdquo;</p>
           )}
         </div>
         {onRemove && (
-          <div className="flex justify-end mt-1.5 pt-1.5 border-t border-on-surface/5">
+          <div className="flex justify-end mt-1.5">
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
               className="text-[10px] font-bold text-red-400 uppercase tracking-wider hover:text-red-500"
@@ -590,44 +584,44 @@ const RestaurantGridCard: React.FC<{
   const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
   const [confirmDelete, setConfirmDelete] = useState(false);
   return (
-    <div className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden relative">
-      <Link to={`/restaurant/${restaurantId}`} className="block aspect-[4/3] overflow-hidden">
+    <div className="group relative">
+      <Link to={`/restaurant/${restaurantId}`} className="block aspect-[4/3] overflow-hidden rounded-2xl bg-on-surface/[0.05]">
         {image ? (
-          <img src={image} alt={name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" referrerPolicy="no-referrer" />
+          <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" referrerPolicy="no-referrer" />
         ) : (
-          <div className="w-full h-full bg-on-surface/5 flex items-center justify-center text-on-surface/20 text-3xl font-serif font-bold">
+          <div className="w-full h-full flex items-center justify-center text-on-surface/20 text-3xl font-serif font-bold">
             {name.charAt(0)}
           </div>
         )}
       </Link>
-      <div className="p-3">
+      <div className="pt-2.5 pb-1">
         <div className="flex items-start justify-between gap-2">
           <Link to={`/restaurant/${restaurantId}`} className="min-w-0 flex-1">
-            <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
+            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
           </Link>
-          <div className="flex items-center gap-1 flex-shrink-0">
+          <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5">
             {score !== undefined && score > 0 && (
               <span className={cn("text-base font-serif font-bold", scoreColor(score))}>{score.toFixed(1)}</span>
             )}
             {onEdit && (
               <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                className="p-1 text-on-surface/30 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors"><Edit3 size={12} /></button>
+                className="p-1 text-on-surface/30 hover:text-primary rounded-lg transition-colors"><Edit3 size={12} /></button>
             )}
             {onRemove && (
               <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(true); }}
-                className="p-1 text-on-surface/20 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={12} /></button>
+                className="p-1 text-on-surface/20 hover:text-red-500 rounded-lg transition-colors"><Trash2 size={12} /></button>
             )}
           </div>
         </div>
-        <p className="text-[10px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
+        <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
           {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
         </p>
       </div>
       {confirmDelete && (
-        <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-2 border border-red-200 p-3">
+        <div className="absolute inset-0 z-20 bg-surface/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-2 p-3">
           <p className="text-xs text-on-surface/60 font-medium text-center">Delete this restaurant?</p>
           <div className="flex gap-2">
-            <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-on-surface/5">Cancel</button>
+            <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10">Cancel</button>
             <button onClick={() => { if (onRemove) onRemove(); }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
           </div>
         </div>
@@ -1307,7 +1301,7 @@ const ListDetailView: React.FC<{
                 <Star size={14} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Rated ({ratedRestaurants.length})</h3>
               </div>
-              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" : "space-y-3"}>
+              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6" : "divide-y divide-on-surface/[0.06]"}>
                 {ratedRestaurants.map(({ id, info, rating }) => viewMode === 'grid' ? (
                   <RestaurantGridCard
                     key={id}
@@ -1349,7 +1343,7 @@ const ListDetailView: React.FC<{
                 <Heart size={14} className="text-red-400" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurants.length})</h3>
               </div>
-              <div className="space-y-3">
+              <div className="divide-y divide-on-surface/[0.06]">
                 {wishlistedRestaurants.map(({ id, info, wishItem }) => (
                   <WishlistRow
                     key={id}
@@ -4205,7 +4199,7 @@ export const Pantry: React.FC = () => {
               <div className="space-y-5">
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
-                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" : "space-y-3"}>
+                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6" : "divide-y divide-on-surface/[0.06]"}>
                     {filteredRatings.map((r, idx) => {
                       const inLists = getListsForRestaurant(r.restaurantId);
                       const isCustom = sortBy === 'custom';
@@ -4286,7 +4280,7 @@ export const Pantry: React.FC = () => {
                       <Heart size={14} className="text-red-400 fill-red-400" />
                       <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({regularWishlist.length})</h3>
                     </div>
-                    <div className="space-y-3">
+                    <div className="divide-y divide-on-surface/[0.06]">
                       {regularWishlist.map((w) => (
                         <WishlistRow
                           key={w.restaurantId}

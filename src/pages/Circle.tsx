@@ -248,8 +248,8 @@ export const Circle: React.FC = () => {
           <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
 
           {friends.length === 0 ? (
-            <div className="flex flex-col items-center py-6 bg-white/60 rounded-2xl border border-on-surface/6">
-              <Users size={20} className="text-on-surface/15 mb-2" />
+            <div className="flex flex-col items-center py-10">
+              <Users size={22} className="text-on-surface/15 mb-2.5" />
               <p className="text-xs font-medium text-on-surface/35">No friends yet</p>
               <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); }}
                 className="mt-2.5 inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
@@ -321,7 +321,7 @@ export const Circle: React.FC = () => {
               <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
           ) : expertProfiles.length === 0 ? (
-            <div className="flex items-center gap-3 py-4 px-4 bg-amber-50/50 rounded-2xl border border-amber-200/30">
+            <div className="flex items-center gap-3 py-4">
               <Crown size={18} className="text-amber-400 flex-shrink-0" />
               <div>
                 <p className="text-xs font-medium text-on-surface/50">No experts yet</p>
@@ -329,42 +329,40 @@ export const Circle: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
+            <div className="flex gap-5 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
               {expertProfiles.map((expert) => {
                 const isFollowed = expertFollowedIds.has(expert.user_id);
                 const rCount = expertRatingCounts[expert.user_id] || 0;
                 const fCount = expertFollowerCounts[expert.user_id] || 0;
                 return (
-                  <div key={expert.user_id} className="flex-shrink-0 w-44">
-                    <div className="bg-white rounded-2xl border border-on-surface/8 p-3 h-full">
-                      <Link to={`/user/${expert.username}`} className="block mb-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                            <span className="text-base font-serif font-bold text-amber-700">{expert.display_name.charAt(0).toUpperCase()}</span>
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1">
-                              <p className="text-xs font-bold truncate">{expert.display_name}</p>
-                              <Crown size={10} className="text-amber-500 flex-shrink-0" />
-                            </div>
-                            <p className="text-[9px] text-on-surface/35 mt-0.5">
-                              {formatCount(rCount)} reviews · {formatCount(fCount)} followers
-                            </p>
-                          </div>
+                  <div key={expert.user_id} className="flex-shrink-0 w-40">
+                    <Link to={`/user/${expert.username}`} className="block mb-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-11 h-11 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                          <span className="text-base font-serif font-bold text-amber-700">{expert.display_name.charAt(0).toUpperCase()}</span>
                         </div>
-                      </Link>
-                      {isFollowed ? (
-                        <div className="flex items-center justify-center gap-1 w-full py-1.5 bg-on-surface/4 rounded-full">
-                          <Check size={10} className="text-on-surface/35" />
-                          <span className="text-[9px] font-bold text-on-surface/35 uppercase tracking-wider">Following</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1">
+                            <p className="text-xs font-bold truncate">{expert.display_name}</p>
+                            <Crown size={10} className="text-amber-500 flex-shrink-0" />
+                          </div>
+                          <p className="text-[9px] text-on-surface/35 mt-0.5">
+                            {formatCount(rCount)} reviews · {formatCount(fCount)} followers
+                          </p>
                         </div>
-                      ) : (
-                        <button onClick={() => handleFollowExpert(expert.user_id)}
-                          className="w-full py-1.5 border border-primary/25 text-primary text-[9px] font-bold rounded-full uppercase tracking-wider hover:bg-primary/5 transition-colors">
-                          Follow
-                        </button>
-                      )}
-                    </div>
+                      </div>
+                    </Link>
+                    {isFollowed ? (
+                      <div className="flex items-center justify-center gap-1 w-full py-1.5 bg-on-surface/[0.04] rounded-full">
+                        <Check size={10} className="text-on-surface/35" />
+                        <span className="text-[9px] font-bold text-on-surface/35 uppercase tracking-wider">Following</span>
+                      </div>
+                    ) : (
+                      <button onClick={() => handleFollowExpert(expert.user_id)}
+                        className="w-full py-1.5 bg-primary/8 text-primary text-[9px] font-bold rounded-full uppercase tracking-wider hover:bg-primary/12 transition-colors">
+                        Follow
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -388,68 +386,69 @@ export const Circle: React.FC = () => {
           <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
 
           {activity.length === 0 ? (
-            <div className="flex flex-col items-center py-8 bg-white/60 rounded-2xl border border-on-surface/6">
-              <Star size={20} className="text-on-surface/15 mb-2" />
+            <div className="flex flex-col items-center py-10">
+              <Star size={22} className="text-on-surface/15 mb-2.5" />
               <p className="text-xs font-medium text-on-surface/35">No activity yet</p>
               <p className="text-[10px] text-on-surface/25 mt-1">Ratings from your friends will show up here</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <ul className="divide-y divide-on-surface/[0.06]">
               {activity.map((r) => {
                 const profile = activityProfiles[r.user_id];
                 const initial = (profile?.display_name || 'U').charAt(0).toUpperCase();
                 return (
-                  <Link key={r.id} to={`/restaurant/${r.restaurant_id}`} className="block">
-                    <motion.div
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden flex active:scale-[0.99] transition-transform"
-                    >
-                      {/* Restaurant thumbnail */}
-                      <div className="w-24 flex-shrink-0 bg-on-surface/5 flex items-center justify-center">
-                        {r.image ? (
-                          <img src={r.image} alt={r.restaurant_name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        ) : (
-                          <span className="text-2xl font-serif font-bold text-on-surface/10">{r.restaurant_name.charAt(0)}</span>
-                        )}
-                      </div>
-
-                      {/* Content */}
-                      <div className="flex-1 p-3 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <h3 className="font-serif font-bold text-sm leading-tight truncate">{r.restaurant_name}</h3>
-                            <p className="text-[10px] text-on-surface/40 uppercase tracking-wider mt-0.5">
-                              {r.cuisine}{r.price ? ` · ${r.price}` : ''}
-                            </p>
-                          </div>
-                          {/* Rating badge */}
-                          <div className={cn("flex-shrink-0 px-2.5 py-1 rounded-lg border", scoreBg(Number(r.score)))}>
-                            <span className={cn("text-sm font-serif font-bold", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
-                          </div>
+                  <li key={r.id}>
+                    <Link to={`/restaurant/${r.restaurant_id}`} className="block">
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-start gap-4 py-4 group"
+                      >
+                        {/* Restaurant thumbnail */}
+                        <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+                          {r.image ? (
+                            <img src={r.image} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+                          ) : (
+                            <span className="text-2xl font-serif font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</span>
+                          )}
                         </div>
 
-                        {/* Notes preview */}
-                        {r.notes && (
-                          <p className="text-[11px] text-on-surface/40 italic mt-1.5 line-clamp-1">"{r.notes}"</p>
-                        )}
-
-                        {/* Who rated + time */}
-                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-on-surface/5">
-                          <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                            <span className="text-[8px] font-serif font-bold text-primary/50">{initial}</span>
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{r.restaurant_name}</h3>
+                              <p className="text-[10px] text-on-surface/45 uppercase tracking-wider mt-0.5 font-semibold">
+                                {r.cuisine}{r.price ? ` · ${r.price}` : ''}
+                              </p>
+                            </div>
+                            <span className={cn("flex-shrink-0 text-lg font-serif font-bold", scoreColor(Number(r.score)))}>
+                              {Number(r.score).toFixed(1)}
+                            </span>
                           </div>
-                          <span className="text-[10px] text-on-surface/40 truncate">
-                            <span className="font-semibold text-on-surface/55">{getFriendName(r.user_id, activityProfiles)}</span>
-                          </span>
-                          <span className="text-[10px] text-on-surface/25 ml-auto flex-shrink-0">{timeAgo(r.created_at)}</span>
+
+                          {/* Notes preview */}
+                          {r.notes && (
+                            <p className="text-[11px] text-on-surface/45 italic mt-1 line-clamp-1">"{r.notes}"</p>
+                          )}
+
+                          {/* Who rated + time */}
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <div className="w-4 h-4 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                              <span className="text-[7px] font-serif font-bold text-primary/60">{initial}</span>
+                            </div>
+                            <span className="text-[11px] text-on-surface/40 truncate">
+                              <span className="font-semibold text-on-surface/55">{getFriendName(r.user_id, activityProfiles)}</span>
+                            </span>
+                            <span className="text-[11px] text-on-surface/25 ml-auto flex-shrink-0">{timeAgo(r.created_at)}</span>
+                          </div>
                         </div>
-                      </div>
-                    </motion.div>
-                  </Link>
+                      </motion.div>
+                    </Link>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
         </section>
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion } from 'motion/react';
-import { Star, Quote, UserCircle, Crown } from 'lucide-react';
+import { Star, Crown } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import {
@@ -139,25 +139,25 @@ export const Experts: React.FC = () => {
                   <p className="text-[10px] text-on-surface/35">@{e.profile.username}</p>
                 </div>
               </Link>
-              <div className="space-y-2">
+              <ul className="divide-y divide-on-surface/[0.06]">
                 {topRatings.map((r) => (
-                  <Link key={r.id} to={`/restaurant/${r.restaurant_id}`}>
-                    <div className="bg-white rounded-2xl border border-on-surface/8 p-3.5 active:scale-[0.99] transition-transform">
-                      <div className="flex items-start justify-between gap-2">
+                  <li key={r.id}>
+                    <Link to={`/restaurant/${r.restaurant_id}`} className="block py-3.5">
+                      <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <h4 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h4>
-                          <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
+                          <h4 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{r.restaurant_name}</h4>
+                          <p className="text-[10px] text-on-surface/45 uppercase tracking-wider mt-0.5 font-semibold">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
                         </div>
                         <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
                       </div>
                       {r.notes && <p className="text-[11px] text-on-surface/45 italic mt-1.5 line-clamp-2">"{r.notes}"</p>}
                       {r.tags && r.tags.length > 0 && (
-                        <div className="flex gap-1 mt-1.5 flex-wrap">{r.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}</div>
+                        <div className="flex gap-1 mt-1.5 flex-wrap">{r.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>)}</div>
                       )}
-                    </div>
-                  </Link>
+                    </Link>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </section>
           );
         })}
@@ -165,51 +165,49 @@ export const Experts: React.FC = () => {
         {recentReviews.length > 0 && (
           <section className="mb-12">
             <h2 className="text-2xl font-serif font-bold mb-8">Latest Expert Reviews</h2>
-            <div className="space-y-8">
+            <ul className="divide-y divide-on-surface/[0.08]">
               {recentReviews.map((review) => (
-                <motion.div
-                  key={review.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  className="relative bg-white rounded-3xl p-8 shadow-sm border border-muted"
-                >
-                  <div className="absolute -top-4 -left-4 w-12 h-12 bg-primary rounded-full flex items-center justify-center text-white shadow-xl">
-                    <Quote size={20} />
-                  </div>
-
-                  <div className="flex items-center justify-between mb-6">
-                    <Link to={`/user/${review.expertUsername}`} className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
-                        <span className="text-sm font-serif font-bold text-amber-700">{review.expertName.charAt(0).toUpperCase()}</span>
+                <li key={review.id}>
+                  <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    className="py-7"
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <Link to={`/user/${review.expertUsername}`} className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                          <span className="text-sm font-serif font-bold text-amber-700">{review.expertName.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-sm">{review.expertName}</h4>
+                          <p className="text-[10px] text-on-surface/40 uppercase tracking-widest">{timeAgo(review.created_at)}</p>
+                        </div>
+                      </Link>
+                      <div className="flex items-center gap-1 text-primary">
+                        <Star size={14} className="fill-primary" />
+                        <span className="text-sm font-bold">{Number(review.score).toFixed(1)}</span>
                       </div>
-                      <div>
-                        <h4 className="font-bold text-sm">{review.expertName}</h4>
-                        <p className="text-[10px] text-on-surface/40 uppercase tracking-widest">{timeAgo(review.created_at)}</p>
-                      </div>
-                    </Link>
-                    <div className="flex items-center gap-1 text-primary">
-                      <Star size={14} className="fill-primary" />
-                      <span className="text-sm font-bold">{Number(review.score).toFixed(1)}</span>
                     </div>
-                  </div>
 
-                  <Link to={`/restaurant/${review.restaurant_id}`}>
-                    <h3 className="font-serif text-xl font-bold mb-3">{review.restaurant_name}</h3>
-                    {review.notes && (
-                      <p className="text-sm text-on-surface/60 leading-relaxed italic">
-                        "{review.notes}"
+                    <Link to={`/restaurant/${review.restaurant_id}`} className="block group">
+                      <h3 className="font-serif text-2xl font-bold mb-2 leading-tight">{review.restaurant_name}</h3>
+                      {review.notes && (
+                        <div className="relative pl-4">
+                          <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary/40 rounded-full" />
+                          <p className="text-[15px] text-on-surface/70 leading-relaxed italic">
+                            "{review.notes}"
+                          </p>
+                        </div>
+                      )}
+                      <p className="mt-3 text-[11px] font-bold text-primary uppercase tracking-widest group-hover:text-primary/80 transition-colors">
+                        View restaurant →
                       </p>
-                    )}
-                  </Link>
-
-                  <Link to={`/restaurant/${review.restaurant_id}`}
-                    className="mt-6 block w-full py-3 rounded-xl bg-muted text-on-surface/60 text-xs font-bold uppercase tracking-widest text-center hover:bg-primary hover:text-white transition-all">
-                    View Restaurant
-                  </Link>
-                </motion.div>
+                    </Link>
+                  </motion.div>
+                </li>
               ))}
-            </div>
+            </ul>
           </section>
         )}
       </main>
