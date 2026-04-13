@@ -2679,24 +2679,37 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
                       return (
-                        <div key={place.id} className={cn("flex-shrink-0 w-44 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md")} onClick={() => navigate(`/restaurant/${place.id}`)}>
-                          <div className="w-full h-32 overflow-hidden relative">
-                            {(place as any).photoUrl ? <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={24} className="text-on-surface/15" /></div>}
-                            <div className="absolute top-1.5 right-1.5 flex gap-1">
-                              <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }} className="w-7 h-7 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
-                              <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors", wishlisted ? "bg-red-50/80 text-red-400" : "bg-white/80 text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
-                            </div>
-                          </div>
-                          <div className="p-2.5">
-                            <h3 className="font-serif font-bold text-xs leading-snug truncate">{place.name}</h3>
-                            <p className="text-[9px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                            {(place as any).rating > 0 && (
-                              <div className="flex items-center gap-1 mt-1">
-                                <Star size={10} className="fill-primary text-primary" />
-                                <span className="text-[10px] font-bold text-primary">{(place as any).rating.toFixed(1)}</span>
-                                {(place as any).priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {priceLevelToString((place as any).priceLevel)}</span>}
-                              </div>
+                        <div key={place.id} className="flex-shrink-0 w-44 group cursor-pointer" onClick={() => navigate(`/restaurant/${place.id}`)}>
+                          <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
+                            {(place as any).photoUrl ? (
+                              <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="h-full w-full flex items-center justify-center"><MapPinned size={24} className="text-on-surface/15" /></div>
                             )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }}
+                              className={cn(
+                                "absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md transition-colors",
+                                wishlisted ? "text-red-400" : "text-white/90 hover:text-red-300"
+                              )}
+                              aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                            >
+                              <Heart size={14} className={wishlisted ? "fill-red-400" : ""} />
+                            </button>
+                          </div>
+                          <div className="pt-2.5 pb-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <h3 className="font-serif text-[13px] font-bold leading-snug line-clamp-2 flex-1">{place.name}</h3>
+                              {(place as any).rating > 0 && (
+                                <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5 text-primary">
+                                  <Star size={11} className="fill-primary" />
+                                  <span className="text-[11px] font-bold">{(place as any).rating.toFixed(1)}</span>
+                                </div>
+                              )}
+                            </div>
+                            <p className="mt-0.5 text-[10px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                              {cuisine}{(place as any).priceLevel > 0 && <span className="text-on-surface/25 mx-1.5">·</span>}{(place as any).priceLevel > 0 && priceLevelToString((place as any).priceLevel)}
+                            </p>
                           </div>
                         </div>
                       );
@@ -3298,24 +3311,37 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           const cuisine = getCuisineLabel((place as any).types || []);
                           const wishlisted = isWishlisted(place.id);
                           return (
-                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md")} onClick={() => navigate(`/restaurant/${place.id}`)}>
-                              <div className="w-full h-28 overflow-hidden relative">
-                                {(place as any).photoUrl ? <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={24} className="text-on-surface/15" /></div>}
-                                <div className="absolute top-1.5 right-1.5 flex gap-1">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }} className="w-7 h-7 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-sm transition-colors", wishlisted ? "bg-red-50/80 text-red-400" : "bg-white/80 text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
-                                </div>
-                              </div>
-                              <div className="p-2.5">
-                                <h3 className="font-serif font-bold text-xs leading-snug truncate">{place.name}</h3>
-                                <p className="text-[9px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                                {(place as any).rating > 0 && (
-                                  <div className="flex items-center gap-1 mt-1">
-                                    <Star size={10} className="fill-primary text-primary" />
-                                    <span className="text-[10px] font-bold text-primary">{(place as any).rating.toFixed(1)}</span>
-                                    {(place as any).priceLevel > 0 && <span className="text-[10px] font-semibold text-on-surface/35 ml-0.5">· {priceLevelToString((place as any).priceLevel)}</span>}
-                                  </div>
+                            <div key={place.id} className="flex-shrink-0 w-40 group cursor-pointer" onClick={() => navigate(`/restaurant/${place.id}`)}>
+                              <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
+                                {(place as any).photoUrl ? (
+                                  <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center"><MapPinned size={22} className="text-on-surface/15" /></div>
                                 )}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }}
+                                  className={cn(
+                                    "absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md transition-colors",
+                                    wishlisted ? "text-red-400" : "text-white/90 hover:text-red-300"
+                                  )}
+                                  aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                                >
+                                  <Heart size={12} className={wishlisted ? "fill-red-400" : ""} />
+                                </button>
+                              </div>
+                              <div className="pt-2 pb-1">
+                                <div className="flex items-start justify-between gap-2">
+                                  <h3 className="font-serif text-[12px] font-bold leading-snug line-clamp-2 flex-1">{place.name}</h3>
+                                  {(place as any).rating > 0 && (
+                                    <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5 text-primary">
+                                      <Star size={10} className="fill-primary" />
+                                      <span className="text-[10px] font-bold">{(place as any).rating.toFixed(1)}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <p className="mt-0.5 text-[9px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                                  {cuisine}{(place as any).priceLevel > 0 && <span className="text-on-surface/25 mx-1">·</span>}{(place as any).priceLevel > 0 && priceLevelToString((place as any).priceLevel)}
+                                </p>
                               </div>
                             </div>
                           );

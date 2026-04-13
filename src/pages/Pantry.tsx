@@ -402,10 +402,10 @@ const RestaurantRow: React.FC<{
   if (dismissed) return null;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl">
-      {/* Swipe-to-delete red background */}
-      {onRemove && (
-        <div className="absolute inset-0 bg-red-500 flex items-center justify-end px-5 rounded-2xl">
+    <div className="relative">
+      {/* Swipe-to-delete red background — only visible while swiping */}
+      {onRemove && (swiped || isDragging) && (
+        <div className="absolute inset-y-1 right-0 w-24 bg-red-500 flex items-center justify-center rounded-2xl">
           <Trash2 size={18} className="text-white" />
         </div>
       )}
@@ -424,7 +424,7 @@ const RestaurantRow: React.FC<{
         animate={{ x: swiped ? -80 : 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
         style={{ touchAction: 'pan-y' }}
-        className="relative z-10"
+        className="relative z-10 bg-surface"
       >
         <Link to={`/restaurant/${restaurantId}`} className="block group" onClick={(e) => { if (isDragging || swiped) e.preventDefault(); }}>
           <div className="flex gap-4 py-3.5 active:scale-[0.99] transition-transform">
@@ -506,7 +506,7 @@ const RestaurantRow: React.FC<{
       {swiped && onRemove && (
         <button
           onClick={handleDelete}
-          className="absolute right-0 top-0 bottom-0 w-20 bg-red-500 flex items-center justify-center rounded-r-2xl z-0"
+          className="absolute right-0 top-1 bottom-1 w-20 bg-red-500 flex items-center justify-center rounded-2xl z-0"
         >
           <Trash2 size={18} className="text-white" />
         </button>
@@ -3641,57 +3641,60 @@ const HomeCookingTab: React.FC<{
           )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <ul className="divide-y divide-on-surface/[0.06]">
           {filteredMeals.map((meal) => {
             const coverPhoto = getMealCoverUrl(meal);
             const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
             const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
             return (
-              <button
-                key={meal.id}
-                onClick={() => onSelectMeal(meal.id)}
-                className="w-full flex gap-3 p-3 bg-white rounded-2xl border border-on-surface/6 shadow-sm hover:shadow-md transition-all text-left"
-              >
-                {/* Photo thumbnail */}
-                {coverPhoto ? (
-                  <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0">
-                    <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover" />
-                  </div>
-                ) : (
-                  <div className="w-24 h-24 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                    <ChefHat size={28} className="text-emerald-300" />
-                  </div>
-                )}
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-on-surface truncate">{meal.name}</p>
-                    <span className={cn("text-sm font-bold flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
+              <li key={meal.id}>
+                <button
+                  onClick={() => onSelectMeal(meal.id)}
+                  className="w-full flex gap-4 py-4 text-left group active:scale-[0.99] transition-transform"
+                >
+                  {/* Photo thumbnail */}
+                  <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
+                    {coverPhoto ? (
+                      <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-emerald-50">
+                        <ChefHat size={28} className="text-emerald-300" />
+                      </div>
+                    )}
                   </div>
 
-                  {totalTime > 0 && (
-                    <div className="flex items-center gap-1 mt-1 text-[11px] text-on-surface/50">
-                      <Clock size={11} />
-                      <span>{formatDuration(totalTime)}</span>
-                      {meal.difficulty && <span className="text-on-surface/30">· {meal.difficulty}</span>}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
+                      <span className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(meal.score))}>
+                        {meal.score.toFixed(1)}
+                      </span>
                     </div>
-                  )}
 
-                  {ingredientPreview.length > 0 ? (
-                    <p className="text-[11px] text-on-surface/45 mt-1 leading-snug line-clamp-2">
-                      {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
-                      {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
-                    </p>
-                  ) : meal.dishes.length > 0 ? (
-                    <p className="text-[11px] text-on-surface/40 mt-1">
-                      {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}
-                    </p>
-                  ) : null}
-                </div>
-              </button>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
+                      {totalTime > 0 ? (
+                        <>
+                          <Clock size={11} />
+                          <span>{formatDuration(totalTime)}</span>
+                          {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
+                        </>
+                      ) : meal.dishes.length > 0 ? (
+                        <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
+                      ) : null}
+                    </div>
+
+                    {ingredientPreview.length > 0 && (
+                      <p className="text-[12px] text-on-surface/50 mt-1 leading-snug line-clamp-2">
+                        {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
+                        {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
     </div>
   );

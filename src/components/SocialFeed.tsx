@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Eye, Star, ChevronDown, Sparkles, BookOpen, Share2 } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -220,19 +220,14 @@ export const SocialFeed: React.FC = () => {
   const currentOption = FEED_OPTIONS.find((o) => o.value === feedMode)!;
 
   const SectionHeader: React.FC<{ count?: number }> = ({ count }) => (
-    <div className="flex items-center gap-3 mb-4">
+    <div className="flex items-center gap-3 mb-2">
       <div className="relative" ref={feedDropdownRef}>
         <button
           onClick={() => setFeedDropdownOpen((p) => !p)}
-          className={cn(
-            "flex items-center gap-2 pl-3 pr-2.5 py-1.5 rounded-full border transition-all",
-            feedDropdownOpen
-              ? "bg-on-surface/5 border-on-surface/15"
-              : "bg-white border-on-surface/10 hover:border-on-surface/20"
-          )}
+          className="flex items-center gap-1.5 -ml-1 px-1 py-0.5 transition-colors hover:text-primary"
         >
-          <span className="text-sm font-bold font-serif">{currentOption.label}</span>
-          <ChevronDown size={14} className={cn("text-on-surface/40 transition-transform", feedDropdownOpen && "rotate-180")} />
+          <span className="text-xl font-bold font-serif">{currentOption.label}</span>
+          <ChevronDown size={16} className={cn("text-on-surface/40 transition-transform", feedDropdownOpen && "rotate-180")} />
         </button>
         <AnimatePresence>
           {feedDropdownOpen && (
@@ -282,29 +277,27 @@ export const SocialFeed: React.FC = () => {
     return (
       <section className="mb-8">
         <SectionHeader />
-        <div className="space-y-3">
+        <ul className="divide-y divide-on-surface/[0.06]">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden">
-              <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-on-surface/5 animate-pulse" />
+            <li key={i} className="py-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="h-2.5 w-24 rounded-full bg-on-surface/5 animate-pulse" />
-                  <div className="h-2 w-16 rounded-full bg-on-surface/5 animate-pulse" />
+                  <div className="h-2.5 w-24 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                  <div className="h-2 w-16 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 </div>
               </div>
-              <div className="px-4 pb-4">
-                <div className="flex gap-3">
-                  <div className="w-20 h-20 rounded-xl bg-on-surface/5 animate-pulse flex-shrink-0" />
-                  <div className="flex-1 space-y-2 pt-1">
-                    <div className="h-3 w-3/4 rounded-full bg-on-surface/5 animate-pulse" />
-                    <div className="h-2.5 w-1/2 rounded-full bg-on-surface/5 animate-pulse" />
-                    <div className="h-2 w-full rounded-full bg-on-surface/5 animate-pulse" />
-                  </div>
+              <div className="flex gap-4">
+                <div className="w-24 h-24 rounded-2xl bg-on-surface/[0.05] animate-pulse flex-shrink-0" />
+                <div className="flex-1 space-y-2 pt-1">
+                  <div className="h-3 w-3/4 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                  <div className="h-2.5 w-1/2 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                  <div className="h-2 w-full rounded-full bg-on-surface/[0.05] animate-pulse" />
                 </div>
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       </section>
     );
   }
@@ -336,162 +329,59 @@ export const SocialFeed: React.FC = () => {
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <ul className="divide-y divide-on-surface/[0.06]">
             {recipesSorted.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
+              const summary = mealRatingSummaries[m.id];
               return (
-                <div
-                  key={`recipe-${m.userId}-${m.id}`}
-                  onClick={() => openFriendRecipe(m)}
-                  className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
-                >
+                <li key={`recipe-${m.userId}-${m.id}`} className="py-5">
                   {/* User header */}
-                  <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
-                    <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()}>
-                      <div className="w-9 h-9 rounded-full bg-emerald-100 ring-2 ring-emerald-200/50 flex items-center justify-center">
-                        <ChefHat size={17} className="text-emerald-600" />
+                  <div className="flex items-center gap-3 mb-3">
+                    <Link to={`/user/${getUsername(m.userId)}`}>
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                        <ChefHat size={18} className="text-emerald-600" />
                       </div>
                     </Link>
                     <div className="flex-1 min-w-0">
-                      <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
-                      <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">cooked at home</p>
+                      <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-bold hover:text-primary">{getName(m.userId)}</Link>
+                      <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <span className="text-[10px] text-on-surface/35 font-medium">{mealTimeAgo}</span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
-                        className="p-1.5 -mr-1 text-on-surface/35 hover:text-emerald-600 transition-colors"
-                        aria-label="Share recipe"
-                      >
-                        <Share2 size={13} />
-                      </button>
-                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
+                      className="text-on-surface/35 hover:text-emerald-600 transition-colors p-1"
+                      aria-label="Share recipe"
+                    >
+                      <Share2 size={14} />
+                    </button>
                   </div>
 
-                  {/* Meal body */}
-                  <div className="px-4 pb-3.5">
-                    <div className="flex gap-3">
-                      {/* Thumbnail — canonical cover photo so it matches the detail page hero. */}
-                      <div className="w-20 h-20 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
+                  {/* Meal body — tappable */}
+                  <button
+                    type="button"
+                    onClick={() => openFriendRecipe(m)}
+                    className="block w-full text-left group"
+                  >
+                    <div className="flex gap-4">
+                      <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
                         {getMealCoverUrl(m) ? (
-                          <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
-                            <ChefHat size={24} className="text-emerald-400" />
+                            <ChefHat size={28} className="text-emerald-400" />
                           </div>
                         )}
                       </div>
-                      {/* Details */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0 flex flex-col justify-center">
+                        <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            <h3 className="font-serif font-bold text-sm truncate leading-tight">{m.name}</h3>
-                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full">
-                                {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                              </span>
-                              {m.dishes.length > 0 && (
-                                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
-                                  <UtensilsCrossed size={9} /> {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          {(() => {
-                            const summary = mealRatingSummaries[m.id];
-                            return summary && summary.count > 0 ? (
-                              <div className="flex-shrink-0 flex flex-col items-center gap-0.5">
-                                <div className="flex gap-0.5">
-                                  {[1, 2, 3, 4, 5].map((n) => (
-                                    <Star key={n} size={11} className={cn(
-                                      n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
-                                    )} />
-                                  ))}
-                                </div>
-                                <span className="text-[9px] text-on-surface/40 font-medium">{summary.average.toFixed(1)}</span>
-                              </div>
-                            ) : null;
-                          })()}
-                        </div>
-                        {m.description && (
-                          <div className="mt-2 pl-2.5 border-l-2 border-emerald-300/60">
-                            <p className="text-[11px] text-on-surface/55 italic line-clamp-2 leading-snug">{m.description}</p>
-                          </div>
-                        )}
-                        {m.tags.length > 0 && (
-                          <div className="flex gap-1 mt-2 flex-wrap">
-                            {m.tags.slice(0, 4).map((t) => (
-                              <span key={t} className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{t}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )
-      ) : (
-      <div className="space-y-3">
-        {feedItems.map((item) => {
-          if (item.type === 'homeMeal') {
-            const m = item.data;
-            const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
-            return (
-              <div
-                key={`meal-${m.id}`}
-                onClick={() => openFriendRecipe(m)}
-                className="bg-gradient-to-br from-emerald-50/60 to-white rounded-2xl border border-emerald-200/40 shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
-              >
-                {/* User header */}
-                <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
-                  <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()}>
-                    <div className="w-9 h-9 rounded-full bg-emerald-100 ring-2 ring-emerald-200/50 flex items-center justify-center">
-                      <ChefHat size={17} className="text-emerald-600" />
-                    </div>
-                  </Link>
-                  <div className="flex-1 min-w-0">
-                    <Link to={`/user/${getUsername(m.userId)}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold hover:text-primary">{getName(m.userId)}</Link>
-                    <p className="text-[10px] text-emerald-700/80 font-semibold uppercase tracking-wider">cooked at home</p>
-                  </div>
-                  <span className="text-[10px] text-on-surface/35 font-medium">{mealTimeAgo}</span>
-                </div>
-
-                {/* Meal body */}
-                <div className="px-4 pb-3.5">
-                  <div className="flex gap-3">
-                    {/* Thumbnail */}
-                    <div className="w-20 h-20 rounded-xl overflow-hidden bg-emerald-100/60 flex-shrink-0 ring-1 ring-emerald-200/40">
-                      {getMealCoverUrl(m) ? (
-                        <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <ChefHat size={24} className="text-emerald-400" />
-                        </div>
-                      )}
-                    </div>
-                    {/* Details */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <h3 className="font-serif font-bold text-sm truncate leading-tight">{m.name}</h3>
-                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full">
+                            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{m.name}</h3>
+                            <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
                               {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </span>
-                            {m.dishes.length > 0 && (
-                              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/70 bg-emerald-100/70 px-1.5 py-0.5 rounded-full inline-flex items-center gap-1">
-                                <UtensilsCrossed size={9} /> {m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}
-                              </span>
-                            )}
+                              {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
+                            </p>
                           </div>
-                        </div>
-                        {(() => {
-                          const summary = mealRatingSummaries[m.id];
-                          return summary && summary.count > 0 ? (
-                            <div className="flex-shrink-0 flex flex-col items-center gap-0.5">
+                          {summary && summary.count > 0 && (
+                            <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
                               <div className="flex gap-0.5">
                                 {[1, 2, 3, 4, 5].map((n) => (
                                   <Star key={n} size={11} className={cn(
@@ -499,27 +389,106 @@ export const SocialFeed: React.FC = () => {
                                   )} />
                                 ))}
                               </div>
-                              <span className="text-[9px] text-on-surface/40 font-medium">{summary.average.toFixed(1)}</span>
+                              <span className="text-[10px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
                             </div>
-                          ) : null;
-                        })()}
+                          )}
+                        </div>
+                        {m.tags.length > 0 && (
+                          <div className="flex gap-1 mt-1.5 flex-wrap">
+                            {m.tags.slice(0, 3).map((t) => (
+                              <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      {m.description && (
-                        <div className="mt-2 pl-2.5 border-l-2 border-emerald-300/60">
-                          <p className="text-[11px] text-on-surface/55 italic line-clamp-2 leading-snug">{m.description}</p>
+                    </div>
+                    {m.description && (
+                      <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
+                        &ldquo;{m.description}&rdquo;
+                      </p>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      ) : (
+      <ul className="divide-y divide-on-surface/[0.06]">
+        {feedItems.map((item) => {
+          if (item.type === 'homeMeal') {
+            const m = item.data;
+            const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
+            const summary = mealRatingSummaries[m.id];
+            return (
+              <li key={`meal-${m.id}`} className="py-5">
+                {/* User header */}
+                <div className="flex items-center gap-3 mb-3">
+                  <Link to={`/user/${getUsername(m.userId)}`}>
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <ChefHat size={18} className="text-emerald-600" />
+                    </div>
+                  </Link>
+                  <div className="flex-1 min-w-0">
+                    <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-bold hover:text-primary">{getName(m.userId)}</Link>
+                    <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
+                  </div>
+                </div>
+
+                {/* Meal body — tappable */}
+                <button
+                  type="button"
+                  onClick={() => openFriendRecipe(m)}
+                  className="block w-full text-left group"
+                >
+                  <div className="flex gap-4">
+                    <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
+                      {getMealCoverUrl(m) ? (
+                        <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <ChefHat size={28} className="text-emerald-400" />
                         </div>
                       )}
+                    </div>
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{m.name}</h3>
+                          <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                            {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
+                          </p>
+                        </div>
+                        {summary && summary.count > 0 && (
+                          <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
+                            <div className="flex gap-0.5">
+                              {[1, 2, 3, 4, 5].map((n) => (
+                                <Star key={n} size={11} className={cn(
+                                  n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                                )} />
+                              ))}
+                            </div>
+                            <span className="text-[10px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
+                          </div>
+                        )}
+                      </div>
                       {m.tags.length > 0 && (
-                        <div className="flex gap-1 mt-2 flex-wrap">
-                          {m.tags.slice(0, 4).map((t) => (
-                            <span key={t} className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{t}</span>
+                        <div className="flex gap-1 mt-1.5 flex-wrap">
+                          {m.tags.slice(0, 3).map((t) => (
+                            <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
                           ))}
                         </div>
                       )}
                     </div>
                   </div>
-                </div>
-              </div>
+                  {m.description && (
+                    <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
+                      &ldquo;{m.description}&rdquo;
+                    </p>
+                  )}
+                </button>
+              </li>
             );
           }
 
@@ -537,112 +506,96 @@ export const SocialFeed: React.FC = () => {
             address: r.address || '',
           };
           return (
-          <div key={r.id} className="bg-white rounded-2xl border border-on-surface/8 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+          <li key={r.id} className="py-5">
             {/* User header */}
-            <div className="px-4 pt-3.5 pb-2.5 flex items-center gap-3">
+            <div className="flex items-center gap-3 mb-3">
               <Link to={`/user/${getUsername(r.user_id)}`}>
-                <div className={cn("w-9 h-9 rounded-full flex items-center justify-center ring-2 ring-white shadow-sm", color.bg)}>
+                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center", color.bg)}>
                   <span className={cn("text-sm font-serif font-bold", color.text)}>{initial}</span>
                 </div>
               </Link>
               <div className="flex-1 min-w-0">
-                <Link to={`/user/${getUsername(r.user_id)}`} className="text-sm font-semibold hover:text-primary">{getName(r.user_id)}</Link>
-                <p className="text-[10px] text-on-surface/45 font-medium">
+                <Link to={`/user/${getUsername(r.user_id)}`} className="text-sm font-bold hover:text-primary">{getName(r.user_id)}</Link>
+                <p className="text-[10px] text-on-surface/40 font-medium uppercase tracking-wider">
                   {profiles[r.user_id]?.is_expert
-                    ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-semibold"><Star size={8} className="fill-amber-500 text-amber-500" />Expert Review</span>
-                    : 'rated a restaurant'}
+                    ? <span className="inline-flex items-center gap-1 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
+                    : <>Rated · {timeAgo(r.created_at)}</>}
                 </p>
               </div>
-              <span className="text-[10px] text-on-surface/35 font-medium">{timeAgo(r.created_at)}</span>
             </div>
 
             {/* Restaurant body — tappable */}
             <button
               type="button"
               onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-              className="block w-full text-left px-4 pb-3"
+              className="block w-full text-left group"
             >
-              <div className="flex gap-3">
+              <div className="flex gap-4">
                 {/* Thumbnail */}
-                <div className="w-20 h-20 rounded-xl overflow-hidden bg-on-surface/5 flex-shrink-0 ring-1 ring-on-surface/5">
+                <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
                   {r.photo_url ? (
-                    <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 font-serif text-2xl font-bold text-on-surface/20">
+                    <div className="w-full h-full flex items-center justify-center font-serif text-2xl font-bold text-on-surface/20">
                       {initialOf(r.restaurant_name)}
                     </div>
                   )}
                 </div>
                 {/* Details */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0 flex flex-col justify-center">
+                  <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <h3 className="font-serif font-bold text-sm leading-tight line-clamp-1">{r.restaurant_name}</h3>
-                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                        {r.cuisine && (
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-on-surface/50 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>
-                        )}
-                        {r.price && (
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/8 px-1.5 py-0.5 rounded-full">{r.price}</span>
-                        )}
-                      </div>
+                      <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{r.restaurant_name}</h3>
+                      <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                        {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}
+                      </p>
                     </div>
-                    {/* Score orb */}
-                    <div className={cn("flex-shrink-0 w-10 h-10 rounded-full bg-white ring-2 flex items-center justify-center", Number(r.score) >= 8 ? 'ring-green-500/30' : Number(r.score) >= 5 ? 'ring-yellow-500/30' : 'ring-red-500/30')}>
-                      <span className={cn("text-sm font-serif font-bold", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
-                    </div>
+                    <span className={cn("text-xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
+                      {Number(r.score).toFixed(1)}
+                    </span>
                   </div>
-                  {r.notes && (
-                    <div className="mt-2 pl-2.5 border-l-2 border-primary/30">
-                      <p className="text-[11px] text-on-surface/55 italic line-clamp-2 leading-snug">{r.notes}</p>
-                    </div>
-                  )}
                   {r.tags && r.tags.length > 0 && (
-                    <div className="flex gap-1 mt-2 flex-wrap">
-                      {r.tags.slice(0, 4).map((t) => (
-                        <span key={t} className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-primary/8 text-primary/70">{t}</span>
+                    <div className="flex gap-1 mt-1.5 flex-wrap">
+                      {r.tags.slice(0, 3).map((t) => (
+                        <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
                       ))}
                     </div>
                   )}
                 </div>
               </div>
+              {r.notes && (
+                <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
+                  &ldquo;{r.notes}&rdquo;
+                </p>
+              )}
             </button>
 
-            {/* Action buttons */}
-            <div className="px-4 pb-2.5 flex items-center gap-2">
+            {/* Actions row — tight, embedded */}
+            <div className="flex items-center gap-5 mt-3">
+              <button onClick={() => handleLike(r.id)} className={cn("flex items-center gap-1.5 transition-colors", userLiked.has(r.id) ? "text-red-500" : "text-on-surface/35 hover:text-red-500")}>
+                <Heart size={16} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
+                <span className="text-[11px] font-bold">{likes[r.id] || 0}</span>
+              </button>
+              <button onClick={() => handleOpenComments(r.id)} className={cn("flex items-center gap-1.5 transition-colors", openComments === r.id ? "text-primary" : "text-on-surface/35 hover:text-primary")}>
+                <MessageSquare size={16} />
+                <span className="text-[11px] font-bold">{commentCounts[r.id] || 0}</span>
+              </button>
+              <div className="flex-1" />
               <button
                 onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-primary/8 text-primary hover:bg-primary/12 transition-colors text-[11px] font-bold"
+                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-primary hover:text-primary/80 transition-colors"
               >
                 <Plus size={12} /> Rate
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); openWishlistModal(meta); }}
                 className={cn(
-                  "inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors",
-                  wishlisted ? "bg-red-50 text-red-500 hover:bg-red-100" : "bg-on-surface/5 text-on-surface/40 hover:bg-on-surface/10"
+                  "transition-colors",
+                  wishlisted ? "text-red-500 hover:text-red-600" : "text-on-surface/35 hover:text-red-500"
                 )}
                 aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
               >
-                <Heart size={14} className={wishlisted ? 'fill-red-500' : ''} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); navigate(`/review/${r.id}`); }}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-on-surface/5 text-on-surface/60 hover:bg-on-surface/10 transition-colors text-[11px] font-bold"
-              >
-                <Eye size={12} /> See Review
-              </button>
-            </div>
-
-            {/* Like & Comment */}
-            <div className="px-4 pb-3 pt-1 border-t border-on-surface/6 flex items-center gap-5">
-              <button onClick={() => handleLike(r.id)} className={cn("flex items-center gap-1.5 transition-colors pt-2", userLiked.has(r.id) ? "text-red-500" : "text-on-surface/35 hover:text-red-500")}>
-                <Heart size={16} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
-                <span className="text-[11px] font-semibold">{likes[r.id] || 0}</span>
-              </button>
-              <button onClick={() => handleOpenComments(r.id)} className={cn("flex items-center gap-1.5 transition-colors pt-2", openComments === r.id ? "text-primary" : "text-on-surface/35 hover:text-primary")}>
-                <MessageSquare size={16} />
-                <span className="text-[11px] font-semibold">{commentCounts[r.id] || 0}</span>
+                <Heart size={16} className={wishlisted ? 'fill-red-500' : ''} />
               </button>
             </div>
 
@@ -650,7 +603,7 @@ export const SocialFeed: React.FC = () => {
             <AnimatePresence>
               {openComments === r.id && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                  <div className="border-t border-on-surface/6 px-3.5 py-2.5 space-y-2">
+                  <div className="mt-3 pt-3 border-t border-on-surface/[0.06] space-y-2">
                     {commentsLoading ? (
                       <div className="text-center py-2"><div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
                     ) : comments.length === 0 ? (
@@ -691,10 +644,10 @@ export const SocialFeed: React.FC = () => {
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </li>
           );
         })}
-      </div>
+      </ul>
       )}
 
       <ShareRecipeSheet
