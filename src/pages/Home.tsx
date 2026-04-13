@@ -217,6 +217,7 @@ export const Home: React.FC = () => {
     setHideBottomNav(show);
   }, [setHideBottomNav]);
   const [showAllResults, setShowAllResults] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState<SortOption>(ss?.sortBy || 'popularity');
   const [selectedPrice, setSelectedPrice] = useState(ss?.selectedPrice || 0);
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>(ss?.selectedCuisines || []);
@@ -938,40 +939,133 @@ export const Home: React.FC = () => {
                       <>
                         <div className="flex items-center justify-between mb-4">
                           <h2 className="text-lg font-serif font-bold">Results</h2>
-                          <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">
-                            {places.length} found
-                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">
+                              {places.length} found
+                            </span>
+                            <div className="flex items-center gap-0.5 rounded-full bg-on-surface/[0.04] p-0.5">
+                              <button
+                                onClick={() => setViewMode('grid')}
+                                aria-label="Grid view"
+                                aria-pressed={viewMode === 'grid'}
+                                className={cn(
+                                  "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                                  viewMode === 'grid'
+                                    ? "bg-white text-primary shadow-sm"
+                                    : "text-on-surface/40 hover:text-on-surface/60",
+                                )}
+                              >
+                                <Grid size={14} />
+                              </button>
+                              <button
+                                onClick={() => setViewMode('list')}
+                                aria-label="List view"
+                                aria-pressed={viewMode === 'list'}
+                                className={cn(
+                                  "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                                  viewMode === 'list'
+                                    ? "bg-white text-primary shadow-sm"
+                                    : "text-on-surface/40 hover:text-on-surface/60",
+                                )}
+                              >
+                                <List size={14} />
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                        <div className={cn("grid gap-x-3 sm:gap-x-4 gap-y-6 sm:gap-y-7", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
-                          {visiblePlaces.map((place) => {
-                            const props = placeToCardProps(place);
-                            const placeIsHotel = hotelIds.has(place.id) || place.types?.includes('hotel') || place.types?.includes('lodging');
-                            return (
-                              <RestaurantCard
-                                key={place.id}
-                                {...props}
-                                isHotel={placeIsHotel}
-                                isWishlisted={isWishlisted(place.id)}
-                                onAdd={() => openAddRestaurantModal({
-                                  id: place.id,
-                                  name: place.name,
-                                  image: props.image,
-                                  cuisine: props.cuisine,
-                                  price: props.price,
-                                  address: place.address,
-                                })}
-                                onHeart={() => openWishlistModal({
-                                  id: place.id,
-                                  name: place.name,
-                                  image: props.image,
-                                  cuisine: props.cuisine,
-                                  price: props.price,
-                                  address: place.address,
-                                })}
-                              />
-                            );
-                          })}
-                        </div>
+                        {viewMode === 'grid' ? (
+                          <div className={cn("grid gap-x-3 sm:gap-x-4 gap-y-6 sm:gap-y-7", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
+                            {visiblePlaces.map((place) => {
+                              const props = placeToCardProps(place);
+                              const placeIsHotel = hotelIds.has(place.id) || place.types?.includes('hotel') || place.types?.includes('lodging');
+                              return (
+                                <RestaurantCard
+                                  key={place.id}
+                                  {...props}
+                                  isHotel={placeIsHotel}
+                                  isWishlisted={isWishlisted(place.id)}
+                                  onAdd={() => openAddRestaurantModal({
+                                    id: place.id,
+                                    name: place.name,
+                                    image: props.image,
+                                    cuisine: props.cuisine,
+                                    price: props.price,
+                                    address: place.address,
+                                  })}
+                                  onHeart={() => openWishlistModal({
+                                    id: place.id,
+                                    name: place.name,
+                                    image: props.image,
+                                    cuisine: props.cuisine,
+                                    price: props.price,
+                                    address: place.address,
+                                  })}
+                                />
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-on-surface/[0.06] border-y border-on-surface/[0.06]">
+                            {visiblePlaces.map((place) => {
+                              const props = placeToCardProps(place);
+                              const placeIsHotel = hotelIds.has(place.id) || place.types?.includes('hotel') || place.types?.includes('lodging');
+                              const wishlisted = isWishlisted(place.id);
+                              return (
+                                <Link
+                                  key={place.id}
+                                  to={`/restaurant/${place.id}`}
+                                  className="flex items-center gap-4 py-4 group"
+                                >
+                                  <div className="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/[0.05]">
+                                    <img
+                                      src={props.image}
+                                      alt={place.name}
+                                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <h3 className="font-serif text-[17px] font-bold text-on-surface line-clamp-1 leading-tight">
+                                        {place.name}
+                                      </h3>
+                                      <div className={cn("flex items-center gap-0.5 flex-shrink-0 pt-0.5", placeIsHotel ? "text-teal-600" : "text-primary")}>
+                                        <Star size={13} className={cn(placeIsHotel ? "fill-teal-600" : "fill-primary")} />
+                                        <span className="text-sm font-bold">{props.rating}</span>
+                                      </div>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                                      {props.cuisine}
+                                      {props.price && <span className="text-on-surface/25 mx-1.5">·</span>}
+                                      {props.price}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      openWishlistModal({
+                                        id: place.id,
+                                        name: place.name,
+                                        image: props.image,
+                                        cuisine: props.cuisine,
+                                        price: props.price,
+                                        address: place.address,
+                                      });
+                                    }}
+                                    aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                                    className={cn(
+                                      "flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors",
+                                      wishlisted ? "text-red-500" : "text-on-surface/30 hover:text-on-surface/60",
+                                    )}
+                                  >
+                                    <Heart size={18} className={cn(wishlisted && "fill-red-500")} />
+                                  </button>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
                         {hasMore && (
                           <button
                             onClick={() => setShowAllResults(!showAllResults)}
