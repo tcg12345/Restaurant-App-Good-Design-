@@ -427,12 +427,12 @@ const RestaurantRow: React.FC<{
         className="relative z-10 bg-surface"
       >
         <Link to={`/restaurant/${restaurantId}`} className="block group" onClick={(e) => { if (isDragging || swiped) e.preventDefault(); }}>
-          <div className="flex gap-4 py-3.5 active:scale-[0.99] transition-transform">
-            <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+          <div className="flex items-center gap-3 py-3 active:scale-[0.99] transition-transform">
+            <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
               {image ? (
                 <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
               ) : (
-                <span className="text-2xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
+                <span className="text-xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
               )}
             </div>
             <div className={cn("flex-1 min-w-0 flex flex-col justify-center")}>
@@ -535,12 +535,12 @@ const WishlistRow: React.FC<{
   onRemove?: () => void;
 }> = ({ restaurantId, name, image, cuisine, price, notes, onRemove }) => {
   return (
-    <div className="flex items-start gap-4 py-3.5 group">
-      <Link to={`/restaurant/${restaurantId}`} className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block">
+    <div className="flex items-start gap-3 py-3 group">
+      <Link to={`/restaurant/${restaurantId}`} className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block">
         {image ? (
           <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
         ) : (
-          <span className="text-2xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
+          <span className="text-xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
         )}
       </Link>
       <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
@@ -4006,44 +4006,48 @@ export const Pantry: React.FC = () => {
           />
         ) : (
           <>
-            {/* ── Horizontal list row ── */}
+            {/* ── Horizontal list row — flat transparent pills.
+                Background fills, shadows and borders removed for a
+                lighter content-first feel; the icons keep their brand
+                tint so Wishlist/Trips/Home Cooking stay recognizable
+                in a scan. The pill row itself has no outer border. */}
             <div className="mb-4">
               <div
                 ref={listScrollRef}
-                className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-3 px-3"
+                className="flex gap-1 overflow-x-auto scrollbar-hide pb-1 -mx-3 px-3"
                 style={{ WebkitOverflowScrolling: 'touch' }}
               >
                 {/* Wishlist pill — always first, not deletable */}
                 <button
                   onClick={() => setSelectedList({ id: '__wishlist__', name: 'Wishlist', emoji: '❤️', restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId), createdAt: 0 } as CustomList)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-red-50 rounded-full border border-red-200 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
                 >
-                  <span className="text-sm">❤️</span>
-                  <span className="text-xs font-semibold text-red-500 whitespace-nowrap">Wishlist</span>
-                  <span className="text-[10px] text-red-400 font-medium">{regularWishlist.length}</span>
+                  <Heart size={14} className="text-red-400 fill-red-400" />
+                  <span className="text-sm font-semibold whitespace-nowrap">Wishlist</span>
+                  <span className="text-xs text-on-surface/35 font-medium">{regularWishlist.length}</span>
                 </button>
 
                 {/* Trips pill — only shown when trips exist */}
                 {trips.length > 0 && (
                   <button
                     onClick={() => setShowTrips(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-primary/5 rounded-full border border-primary/20 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
                   >
-                    <Plane size={13} className="text-primary" />
-                    <span className="text-xs font-semibold text-primary whitespace-nowrap">Trips</span>
-                    <span className="text-[10px] text-primary/60 font-medium">{trips.length}</span>
+                    <Plane size={14} className="text-primary" />
+                    <span className="text-sm font-semibold whitespace-nowrap">Trips</span>
+                    <span className="text-xs text-on-surface/35 font-medium">{trips.length}</span>
                   </button>
                 )}
 
                 {/* Home Cooking pill */}
                 <button
                   onClick={() => setShowHomeCooking(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 rounded-full border border-emerald-200 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
                 >
-                  <ChefHat size={13} className="text-emerald-600" />
-                  <span className="text-xs font-semibold text-emerald-700 whitespace-nowrap">Home Cooking</span>
+                  <ChefHat size={14} className="text-emerald-600" />
+                  <span className="text-sm font-semibold whitespace-nowrap">Home Cooking</span>
                   {homeMeals.length > 0 && (
-                    <span className="text-[10px] text-emerald-500 font-medium">{homeMeals.length}</span>
+                    <span className="text-xs text-on-surface/35 font-medium">{homeMeals.length}</span>
                   )}
                 </button>
 
@@ -4053,11 +4057,11 @@ export const Pantry: React.FC = () => {
                     <button
                       key={list.id}
                       onClick={() => setSelectedList(list)}
-                      className="flex items-center gap-1.5 px-3.5 py-2 bg-white rounded-full border border-on-surface/10 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
                     >
                       <span className="text-sm">{list.emoji}</span>
-                      <span className="text-xs font-semibold text-on-surface/70 whitespace-nowrap">{list.name}</span>
-                      <span className="text-[10px] text-on-surface/30 font-medium">{total}</span>
+                      <span className="text-sm font-semibold whitespace-nowrap">{list.name}</span>
+                      <span className="text-xs text-on-surface/35 font-medium">{total}</span>
                     </button>
                   );
                 })}
@@ -4065,10 +4069,10 @@ export const Pantry: React.FC = () => {
                 {/* Create new list pill */}
                 <button
                   onClick={() => setCreateSheetOpen(true)}
-                  className="flex items-center gap-1 px-3 py-2 rounded-full border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all flex-shrink-0"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/40 hover:text-primary transition-colors flex-shrink-0"
                 >
                   <Plus size={14} />
-                  <span className="text-xs font-semibold whitespace-nowrap">New List</span>
+                  <span className="text-sm font-semibold whitespace-nowrap">New List</span>
                 </button>
               </div>
             </div>
