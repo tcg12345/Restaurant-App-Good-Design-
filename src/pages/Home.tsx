@@ -6,7 +6,7 @@ import { Search, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, Sl
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
-import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabaseConfigured } from '../lib/supabase';
@@ -40,45 +40,6 @@ const PRICE_LEVELS = [
 
 
 // Mock data removed — using real ratings from context
-
-// US state name → abbreviation
-const STATE_ABBR: Record<string, string> = {
-  'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA',
-  'Colorado':'CO','Connecticut':'CT','Delaware':'DE','Florida':'FL','Georgia':'GA',
-  'Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS',
-  'Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA',
-  'Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT',
-  'Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM',
-  'New York':'NY','North Carolina':'NC','North Dakota':'ND','Ohio':'OH','Oklahoma':'OK',
-  'Oregon':'OR','Pennsylvania':'PA','Rhode Island':'RI','South Carolina':'SC',
-  'South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT',
-  'Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY',
-  'District of Columbia':'DC',
-};
-
-function extractCityState(fullAddress: string, shortAddress: string): string {
-  // fullAddress is like "256 Post Rd E, Westport, CT 06880, USA"
-  // shortAddress is like "256 Post Rd E, Westport"
-  const parts = fullAddress.split(',').map((s) => s.trim());
-  if (parts.length >= 3) {
-    // Try to get city from second-to-last US part and state from the state+zip part
-    // Typical: ["256 Post Rd E", "Westport", "CT 06880", "USA"]
-    const city = parts[parts.length - 3] || '';
-    const stateZip = parts[parts.length - 2] || '';
-    const stateMatch = stateZip.match(/^([A-Z]{2})\b/);
-    if (stateMatch) {
-      return `${city}, ${stateMatch[1]}`;
-    }
-    // Try full state name
-    for (const [name, abbr] of Object.entries(STATE_ABBR)) {
-      if (stateZip.startsWith(name)) return `${city}, ${abbr}`;
-    }
-    return city || shortAddress.split(',')[0];
-  }
-  // Fallback: last part of short address
-  const shortParts = shortAddress.split(',').map((s) => s.trim());
-  return shortParts[shortParts.length - 1] || shortAddress;
-}
 
 function placeToCardProps(place: PlaceResult) {
   return {

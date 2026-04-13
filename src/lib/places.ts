@@ -517,3 +517,86 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
   placeDetailsCache.set(placeId, { data: details, ts: Date.now() });
   return details;
 }
+
+// US state name → abbreviation
+const STATE_ABBR: Record<string, string> = {
+  'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA',
+  'Colorado':'CO','Connecticut':'CT','Delaware':'DE','Florida':'FL','Georgia':'GA',
+  'Hawaii':'HI','Idaho':'ID','Illinois':'IL','Indiana':'IN','Iowa':'IA','Kansas':'KS',
+  'Kentucky':'KY','Louisiana':'LA','Maine':'ME','Maryland':'MD','Massachusetts':'MA',
+  'Michigan':'MI','Minnesota':'MN','Mississippi':'MS','Missouri':'MO','Montana':'MT',
+  'Nebraska':'NE','Nevada':'NV','New Hampshire':'NH','New Jersey':'NJ','New Mexico':'NM',
+  'New York':'NY','North Carolina':'NC','North Dakota':'ND','Ohio':'OH','Oklahoma':'OK',
+  'Oregon':'OR','Pennsylvania':'PA','Rhode Island':'RI','South Carolina':'SC',
+  'South Dakota':'SD','Tennessee':'TN','Texas':'TX','Utah':'UT','Vermont':'VT',
+  'Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY',
+  'District of Columbia':'DC',
+};
+
+// Pull a clean city name out of a "city + postcode" or "postcode + city" fragment.
+// Handles formats like "75002 Paris", "London SW1A 2AA", "Tokyo 131-0045",
+// "20122 Milano MI", "1012 AB Amsterdam", "Sydney NSW 2000".
+function cityFromRegion(region: string): string {
+  let tokens = region.split(/\s+/).filter(Boolean);
+  // Strip a leading numeric postcode (FR/DE/IT/NL style).
+  if (tokens[0] && /^\d/.test(tokens[0])) {
+    tokens = tokens.slice(1);
+    // Netherlands postcodes are "1234 AB" — drop the 2-letter tail too.
+    if (tokens[0] && /^[A-Z]{2}$/.test(tokens[0])) tokens = tokens.slice(1);
+  }
+  // Strip trailing postcode tokens (anything containing a digit).
+  while (tokens.length > 0 && /\d/.test(tokens[tokens.length - 1])) {
+    tokens.pop();
+  }
+  // Strip a trailing 2-3 letter all-caps province/state code (IT "MI", AU "NSW").
+  if (tokens.length > 1 && /^[A-Z]{2,3}$/.test(tokens[tokens.length - 1])) {
+    tokens.pop();
+  }
+  return tokens.join(' ').trim();
+}
+
+/**
+ * Extract a short "City, ST" (US) or "City, Country" (international) label
+ * from a Google Places formatted address. Falls back to a best-effort parse
+ * of the short address if the full address is missing.
+ *
+ * US example:   "256 Post Rd E, Westport, CT 06880, USA"  → "Westport, CT"
+ * France:       "15 Rue de la Paix, 75002 Paris, France"  → "Paris, France"
+ * UK:           "10 Downing St, London SW1A 2AA, UK"      → "London, UK"
+ * Japan:        "1-2 Oshiage, Tokyo 131-0045, Japan"      → "Tokyo, Japan"
+ */
+export function extractCityState(fullAddress: string, shortAddress: string = ''): string {
+  const parts = (fullAddress || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const last = parts[parts.length - 1] || '';
+  const isUS = /^(USA|United States)$/i.test(last);
+
+  if (isUS && parts.length >= 3) {
+    // e.g. ["256 Post Rd E", "Westport", "CT 06880", "USA"]
+    const city = parts[parts.length - 3] || '';
+    const stateZip = parts[parts.length - 2] || '';
+    const stateMatch = stateZip.match(/^([A-Z]{2})\b/);
+    if (stateMatch) return city ? `${city}, ${stateMatch[1]}` : stateMatch[1];
+    for (const [name, abbr] of Object.entries(STATE_ABBR)) {
+      if (stateZip.startsWith(name)) return city ? `${city}, ${abbr}` : abbr;
+    }
+    if (city) return city;
+  }
+
+  if (!isUS && parts.length >= 3) {
+    const country = last;
+    // Try the second-to-last piece first (most common).
+    let city = cityFromRegion(parts[parts.length - 2] || '');
+    // If that only left a short state/province code, the real city is one earlier
+    // (e.g. Canada: "…, Toronto, ON M5V 3L9, Canada").
+    if ((!city || /^[A-Z]{2,3}$/.test(city)) && parts.length >= 4) {
+      const earlier = cityFromRegion(parts[parts.length - 3] || '');
+      if (earlier) city = earlier;
+    }
+    if (city && country) return `${city}, ${country}`;
+    if (country) return country;
+  }
+
+  // Fallback: last segment of the short address.
+  const shortParts = (shortAddress || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return shortParts[shortParts.length - 1] || shortAddress || '';
+}

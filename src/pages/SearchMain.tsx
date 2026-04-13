@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search as SearchIcon, X, Clock, Loader2, Star } from 'lucide-react';
-import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
+import { searchPlacesByText, priceLevelToString, extractCityState, type PlaceResult } from '../lib/places';
 import { cn } from '../lib/utils';
 
 const RECENT_SEARCHES_KEY = 'gourmet-canvas-recent-searches-v2';
@@ -40,18 +40,11 @@ function writeRecentSearches(list: RecentSearch[]) {
   }
 }
 
-function extractLocation(address: string): string {
-  if (!address) return '';
-  const parts = address.split(',').map((s) => s.trim());
-  if (parts.length >= 2) return parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
-  return parts[0] || '';
-}
-
 function placeToRecent(place: PlaceResult): RecentSearch {
   return {
     id: place.id,
     name: place.name,
-    cuisine: extractLocation(place.fullAddress || place.address) || '',
+    cuisine: extractCityState(place.fullAddress || '', place.address || ''),
     price: priceLevelToString(place.priceLevel),
     image: place.photoUrl || '',
     address: place.address || '',
@@ -202,7 +195,7 @@ export const SearchMain: React.FC = () => {
           ) : (
             <ul className="divide-y divide-on-surface/[0.06]">
               {results.map((place) => {
-                const location = extractLocation(place.fullAddress || place.address);
+                const location = extractCityState(place.fullAddress || '', place.address || '');
                 const price = priceLevelToString(place.priceLevel);
                 return (
                   <li key={place.id}>
@@ -262,7 +255,6 @@ export const SearchMain: React.FC = () => {
             </div>
             <ul className="divide-y divide-on-surface/[0.06]">
               {recentSearches.map((r) => {
-                const location = extractLocation(r.address);
                 return (
                   <li key={r.id} className="relative group">
                     <button
@@ -293,7 +285,7 @@ export const SearchMain: React.FC = () => {
                           )}
                         </div>
                         <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                          {location || r.cuisine || 'Restaurant'}
+                          {r.cuisine || 'Restaurant'}
                           {r.price && <><span className="text-on-surface/25 mx-1.5">·</span>{r.price}</>}
                         </p>
                       </div>
