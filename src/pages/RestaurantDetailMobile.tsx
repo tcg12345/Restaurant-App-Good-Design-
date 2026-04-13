@@ -53,7 +53,6 @@ export const RestaurantDetailMobile: React.FC = () => {
   const {
     place, loading, error, navigate,
     photoIndex, setPhotoIndex,
-    hoursOpen, setHoursOpen,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
     priceStr, cuisine,
@@ -67,6 +66,10 @@ export const RestaurantDetailMobile: React.FC = () => {
   const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
+  // Hours expanded by default — it's the most frequently checked info,
+  // so show it open without a tap. Local state so we don't mutate the
+  // shared hook default.
+  const [hoursOpen, setHoursOpen] = useState(true);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   const [sendToChatOpen, setSendToChatOpen] = useState(false);
@@ -218,20 +221,20 @@ export const RestaurantDetailMobile: React.FC = () => {
         <div className="absolute bottom-10 left-5 right-5 z-10 pointer-events-none">
           <h1 className="text-2xl font-serif font-bold text-white leading-tight mb-1.5 drop-shadow-lg">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
+            <span className="text-xs font-semibold text-white/90 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
             {!isHotel && priceStr && (
               <>
                 <span className="text-white/50">·</span>
-                <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{priceStr}</span>
+                <span className="text-xs font-semibold text-white/90 uppercase tracking-wider">{priceStr}</span>
               </>
             )}
             {place.isOpen !== null && (
               <>
                 <span className="text-white/50">·</span>
                 {place.isOpen ? (
-                  <span className="text-[11px] font-semibold text-green-400">Open</span>
+                  <span className="text-xs font-semibold text-green-400">Open</span>
                 ) : (
-                  <span className="text-[11px] font-semibold text-red-400">
+                  <span className="text-xs font-semibold text-red-400">
                     Closed{(() => {
                       const next = getNextOpenTime(place.hours);
                       return next ? ` · Opens ${next}` : '';
@@ -302,7 +305,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
           >
             <Navigation size={18} />
-            <span className="text-[11px] font-medium">Directions</span>
+            <span className="text-xs font-medium">Directions</span>
           </a>
           {place.website ? (
             <a
@@ -312,12 +315,12 @@ export const RestaurantDetailMobile: React.FC = () => {
               className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
             >
               <Globe size={18} />
-              <span className="text-[11px] font-medium">Website</span>
+              <span className="text-xs font-medium">Website</span>
             </a>
           ) : (
             <div className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/8 text-on-surface/30">
               <Globe size={18} />
-              <span className="text-[11px] font-medium">Website</span>
+              <span className="text-xs font-medium">Website</span>
             </div>
           )}
           <button
@@ -325,14 +328,14 @@ export const RestaurantDetailMobile: React.FC = () => {
             className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
           >
             <Images size={18} />
-            <span className="text-[11px] font-medium">Photos</span>
+            <span className="text-xs font-medium">Photos</span>
           </button>
           <button
             onClick={() => setSendToChatOpen(true)}
             className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
           >
             <Send size={18} />
-            <span className="text-[11px] font-medium">Send</span>
+            <span className="text-xs font-medium">Send</span>
           </button>
         </div>
 
@@ -354,7 +357,7 @@ export const RestaurantDetailMobile: React.FC = () => {
               : 'text-on-surface';
             return (
               <>
-                <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-1.5">{primaryLabel}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-1.5">{primaryLabel}</p>
                 <div className="flex items-baseline gap-3">
                   <span className={cn('text-[32px] font-serif font-bold leading-none', primaryColor)}>{primaryScore}</span>
                   <span className="text-sm text-on-surface/50">{primaryCount}</span>
@@ -414,9 +417,9 @@ export const RestaurantDetailMobile: React.FC = () => {
         {isHotel && (
           <section className="mb-8">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">Hotel Dining</h3>
+              <h3 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Hotel Dining</h3>
               {user?.id && (
-                <button onClick={() => setAddDiningOpen(true)} className="text-[11px] font-bold uppercase tracking-wider text-primary active:scale-95 transition-transform">
+                <button onClick={() => setAddDiningOpen(true)} className="text-xs font-bold uppercase tracking-wider text-primary active:scale-95 transition-transform">
                   + Add Option
                 </button>
               )}
@@ -426,7 +429,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-2 -mx-1 px-1">
               {([{ value: 'all' as const, label: 'All' }, { value: 'restaurant' as const, label: 'Restaurants' }, { value: 'breakfast' as const, label: 'Breakfast' }, { value: 'bar' as const, label: 'Bars' }, { value: 'room_service' as const, label: 'Room Service' }, { value: 'pool_bar' as const, label: 'Pool Bar' }, { value: 'rooftop' as const, label: 'Rooftop' }] as const).map((f) => (
                 <button key={f.value} onClick={() => setDiningFilter(f.value)}
-                  className={cn("px-3.5 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap transition-all flex-shrink-0",
+                  className={cn("px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0",
                     diningFilter === f.value ? "bg-primary text-white" : "bg-transparent text-on-surface/50 hover:text-on-surface/70"
                   )}>
                   {f.label}
@@ -437,7 +440,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             {hotelDiningOptions.length === 0 ? (
               <div className="py-8 text-center">
                 <Building2 size={22} className="mx-auto text-on-surface/15 mb-2" />
-                <p className="text-xs text-on-surface/35">No dining options added yet</p>
+                <p className="text-[13px] text-on-surface/35">No dining options added yet</p>
               </div>
             ) : (
               <ul className="divide-y divide-on-surface/[0.06]">
@@ -455,7 +458,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                           <div className="min-w-0 flex-1">
                             <h4 className="font-serif font-bold text-[15px] truncate">{d.restaurant_name}</h4>
                             <p className={cn(
-                              "mt-0.5 text-[10px] font-bold uppercase tracking-[0.15em]",
+                              "mt-0.5 text-xs font-bold uppercase tracking-[0.15em]",
                               d.dining_type === 'restaurant' ? "text-primary/70" :
                               d.dining_type === 'breakfast' ? "text-amber-600" :
                               d.dining_type === 'bar' ? "text-violet-600" :
@@ -484,8 +487,8 @@ export const RestaurantDetailMobile: React.FC = () => {
           <section className="mb-8">
             <div className="flex items-center gap-2 mb-2">
               <Star size={13} className="text-amber-600 fill-amber-600 flex-shrink-0" />
-              <h3 className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-700">Expert Picks</h3>
-              <span className="text-[10px] font-semibold text-on-surface/30">· {expertRecommendations.length}</span>
+              <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-amber-700">Expert Picks</h3>
+              <span className="text-xs font-semibold text-on-surface/30">· {expertRecommendations.length}</span>
             </div>
             <ul className="divide-y divide-on-surface/[0.06]">
               {expertRecommendations.map((rec) => {
@@ -507,13 +510,13 @@ export const RestaurantDetailMobile: React.FC = () => {
                             >
                               {rec.expert_name}
                             </Link>
-                            <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-amber-600">Expert</span>
+                            <span className="text-xs font-bold uppercase tracking-[0.15em] text-amber-600">Expert</span>
                           </div>
                           <p className={cn("text-[13px] mt-1 leading-relaxed text-on-surface/65", isExpanded ? "" : "line-clamp-2")}>{rec.recommendation_text}</p>
                         </div>
                         <div className="flex items-baseline gap-1 flex-shrink-0 pt-0.5">
                           <span className={cn("text-xl font-serif font-bold leading-none", scoreColor)}>{Number(rec.rating).toFixed(1)}</span>
-                          <span className="text-[9px] text-on-surface/30 font-semibold">/10</span>
+                          <span className="text-xs text-on-surface/30 font-semibold">/10</span>
                         </div>
                       </div>
                       <AnimatePresence>
@@ -526,10 +529,10 @@ export const RestaurantDetailMobile: React.FC = () => {
                             className="overflow-hidden"
                           >
                             <div className="pt-3">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-600/70 mb-2">Highlight Dishes</p>
+                              <p className="text-xs font-bold uppercase tracking-[0.15em] text-amber-600/70 mb-2">Highlight Dishes</p>
                               <div className="flex flex-wrap gap-1.5">
                                 {rec.highlight_dishes.map((dish) => (
-                                  <span key={dish} className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
+                                  <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
                                     {dish}
                                   </span>
                                 ))}
@@ -557,7 +560,7 @@ export const RestaurantDetailMobile: React.FC = () => {
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {place.isOpen !== null && (
                   <span className={cn(
-                    "text-[11px] font-bold uppercase tracking-wider",
+                    "text-xs font-bold uppercase tracking-wider",
                     place.isOpen ? 'text-green-600' : 'text-red-500'
                   )}>
                     {place.isOpen ? 'Open' : 'Closed'}
@@ -642,10 +645,10 @@ export const RestaurantDetailMobile: React.FC = () => {
           return (
             <section className="mb-8">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">My Rating Details</h3>
+                <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">My Rating Details</h3>
                 <button
                   onClick={() => openAddRestaurantModal(meta, 'notes')}
-                  className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-primary active:opacity-70"
+                  className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary active:opacity-70"
                 >
                   <Edit3 size={11} /> Edit
                 </button>
@@ -663,12 +666,12 @@ export const RestaurantDetailMobile: React.FC = () => {
                   {/* Tags — flowing inline pills */}
                   {hasTags && (
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
-                        <Tag size={11} /> Tags
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
+                        <Tag size={12} /> Tags
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {myRating.tags.map((t) => (
-                          <span key={t} className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-primary/8 text-primary/80">
+                          <span key={t} className="text-xs font-medium px-2.5 py-1 rounded-full bg-primary/8 text-primary/80">
                             {t}
                           </span>
                         ))}
@@ -679,8 +682,8 @@ export const RestaurantDetailMobile: React.FC = () => {
                   {/* Photos — horizontal scroll strip */}
                   {hasPhotos && (
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
-                        <Image size={11} /> Photos
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
+                        <Image size={12} /> Photos
                       </p>
                       <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3">
                         {myRating.photos.map((p, i) => (
@@ -718,7 +721,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                           <span className="text-on-surface/45 w-16 flex-shrink-0 pt-0.5">With</span>
                           <span className="flex flex-wrap gap-1.5">
                             {myRating.friendIds.map((fid) => (
-                              <span key={fid} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/80">
+                              <span key={fid} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/80">
                                 {friendNames[fid] || fid.slice(0, 8)}
                               </span>
                             ))}
@@ -749,9 +752,9 @@ export const RestaurantDetailMobile: React.FC = () => {
           return (
             <section className="mb-8">
               <div className="flex items-center gap-2 mb-4">
-                <RotateCcw size={12} className="text-on-surface/30 flex-shrink-0" />
-                <h3 className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">Visit History</h3>
-                <span className="text-[10px] text-on-surface/30">· {visitHistory.length + 1} visits</span>
+                <RotateCcw size={13} className="text-on-surface/30 flex-shrink-0" />
+                <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">Visit History</h3>
+                <span className="text-xs text-on-surface/30">· {visitHistory.length + 1} visits</span>
               </div>
 
               <div className="relative">
@@ -763,29 +766,29 @@ export const RestaurantDetailMobile: React.FC = () => {
                   <li className="relative pl-6">
                     <div className={cn("absolute left-0 top-1.5 w-2 h-2 rounded-full ring-4 ring-surface", dotColor(myRating.score))} />
                     <div className="flex items-baseline gap-2 flex-wrap">
-                      <span className={cn("text-[17px] font-serif font-bold leading-none", textColor(myRating.score))}>
+                      <span className={cn("text-[18px] font-serif font-bold leading-none", textColor(myRating.score))}>
                         {myRating.score.toFixed(1)}
                       </span>
-                      <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-primary">Current</span>
+                      <span className="text-xs font-bold uppercase tracking-[0.15em] text-primary">Current</span>
                       {(() => {
                         const prev = visitHistory[0];
                         if (!prev) return null;
                         const diff = myRating.score - prev.score;
-                        if (diff > 0.1) return <span className="inline-flex items-center gap-0.5 text-[11px] text-green-600 font-medium"><TrendingUp size={10} />+{diff.toFixed(1)}</span>;
-                        if (diff < -0.1) return <span className="inline-flex items-center gap-0.5 text-[11px] text-red-500 font-medium"><TrendingDown size={10} />{diff.toFixed(1)}</span>;
-                        return <span className="inline-flex items-center gap-0.5 text-[11px] text-on-surface/35 font-medium"><Minus size={10} />Same</span>;
+                        if (diff > 0.1) return <span className="inline-flex items-center gap-0.5 text-xs text-green-600 font-medium"><TrendingUp size={12} />+{diff.toFixed(1)}</span>;
+                        if (diff < -0.1) return <span className="inline-flex items-center gap-0.5 text-xs text-red-500 font-medium"><TrendingDown size={12} />{diff.toFixed(1)}</span>;
+                        return <span className="inline-flex items-center gap-0.5 text-xs text-on-surface/35 font-medium"><Minus size={12} />Same</span>;
                       })()}
                     </div>
                     {myRating.visitDate && (
-                      <p className="mt-1 text-[11px] text-on-surface/45">
+                      <p className="mt-1 text-[13px] text-on-surface/45">
                         {new Date(myRating.visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                       </p>
                     )}
                     {myRating.notes && (
-                      <p className="mt-1 text-[12px] italic text-on-surface/55 leading-relaxed line-clamp-2">"{myRating.notes}"</p>
+                      <p className="mt-1 text-[13px] italic text-on-surface/55 leading-relaxed line-clamp-2">"{myRating.notes}"</p>
                     )}
                     {myRating.wouldReturn !== undefined && (
-                      <p className="mt-1 text-[10px] font-semibold">
+                      <p className="mt-1 text-xs font-semibold">
                         {myRating.wouldReturn
                           ? <span className="text-green-600">Would return</span>
                           : <span className="text-red-500">Wouldn't return</span>}
@@ -793,7 +796,9 @@ export const RestaurantDetailMobile: React.FC = () => {
                     )}
                   </li>
 
-                  {/* Previous visits — each expandable inline */}
+                  {/* Previous visits — each expandable inline; collapsed rows
+                      still show a 2-line notes preview and first-3 tag chips
+                      so people can skim without tapping. */}
                   {visitHistory.map((visit, idx) => {
                     const isExpanded = expandedVisit === visit.id;
                     const prevVisit = visitHistory[idx + 1];
@@ -806,21 +811,31 @@ export const RestaurantDetailMobile: React.FC = () => {
                           className="w-full text-left active:opacity-70 transition-opacity"
                         >
                           <div className="flex items-baseline gap-2 flex-wrap">
-                            <span className={cn("text-[15px] font-serif font-bold leading-none", textColor(visit.score))}>
+                            <span className={cn("text-[16px] font-serif font-bold leading-none", textColor(visit.score))}>
                               {visit.score.toFixed(1)}
                             </span>
                             {prevVisit && Math.abs(scoreDiff) > 0.1 && (
                               scoreDiff > 0
-                                ? <TrendingUp size={10} className="text-green-500" />
-                                : <TrendingDown size={10} className="text-red-400" />
+                                ? <TrendingUp size={12} className="text-green-500" />
+                                : <TrendingDown size={12} className="text-red-400" />
                             )}
-                            <span className="text-[11px] text-on-surface/45">
+                            <span className="text-[13px] text-on-surface/45">
                               {visit.visit_date ? new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
                             </span>
-                            <ChevronDown size={12} className={cn("ml-auto text-on-surface/25 transition-transform flex-shrink-0", isExpanded && "rotate-180")} />
+                            <ChevronDown size={14} className={cn("ml-auto text-on-surface/25 transition-transform flex-shrink-0", isExpanded && "rotate-180")} />
                           </div>
                           {!isExpanded && visit.notes && (
-                            <p className="mt-1 text-[11px] italic text-on-surface/40 line-clamp-1">"{visit.notes}"</p>
+                            <p className="mt-1 text-[13px] italic text-on-surface/45 leading-relaxed line-clamp-2">"{visit.notes}"</p>
+                          )}
+                          {!isExpanded && visit.tags && visit.tags.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {visit.tags.slice(0, 3).map((t) => (
+                                <span key={t} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/70">{t}</span>
+                              ))}
+                              {visit.tags.length > 3 && (
+                                <span className="text-xs text-on-surface/35 self-center">+{visit.tags.length - 3}</span>
+                              )}
+                            </div>
                           )}
                         </button>
                         <AnimatePresence>
@@ -834,12 +849,12 @@ export const RestaurantDetailMobile: React.FC = () => {
                             >
                               <div className="pt-2 space-y-2">
                                 {visit.notes && (
-                                  <p className="text-[12px] italic text-on-surface/55 leading-relaxed">"{visit.notes}"</p>
+                                  <p className="text-[13px] italic text-on-surface/55 leading-relaxed">"{visit.notes}"</p>
                                 )}
                                 {visit.tags && visit.tags.length > 0 && (
                                   <div className="flex flex-wrap gap-1.5">
                                     {visit.tags.map((t) => (
-                                      <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/75">{t}</span>
+                                      <span key={t} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/75">{t}</span>
                                     ))}
                                   </div>
                                 )}
@@ -850,7 +865,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                                     ))}
                                   </div>
                                 )}
-                                <p className="text-[10px] font-semibold">
+                                <p className="text-xs font-semibold">
                                   {visit.would_return
                                     ? <span className="text-green-600">Would return</span>
                                     : <span className="text-red-500">Wouldn't return</span>}
@@ -868,19 +883,30 @@ export const RestaurantDetailMobile: React.FC = () => {
           );
         })()}
 
-        {/* ── Map — full-bleed with caption, no card wrapper ── */}
+        {/* ── Map — full-bleed with caption, no card wrapper. The map
+            container itself renders mapbox; a transparent overlay button
+            sits above it to catch taps and route to the full /map page
+            (the mapbox instance below stays visible). ── */}
         <section className="mb-8 -mx-3">
-          <div ref={mapContainerRef} className="w-full h-56" />
+          <div className="relative w-full h-64">
+            <div ref={mapContainerRef} className="absolute inset-0" />
+            <button
+              type="button"
+              onClick={() => navigate('/map')}
+              aria-label="Open full map"
+              className="absolute inset-0 z-10 active:bg-on-surface/5 transition-colors"
+            />
+          </div>
           <div className="px-3 pt-3 flex items-center justify-between">
-            <p className="text-[12px] text-on-surface/45 truncate flex-1">{place.address}</p>
+            <p className="text-[13px] text-on-surface/45 truncate flex-1">{place.address}</p>
             <a
               href={mapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-primary flex-shrink-0 ml-3"
+              className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary flex-shrink-0 ml-3"
             >
               Open in Maps
-              <ExternalLink size={11} />
+              <ExternalLink size={12} />
             </a>
           </div>
         </section>
@@ -933,13 +959,13 @@ export const RestaurantDetailMobile: React.FC = () => {
                         </div>
                         <span className={cn("text-lg font-serif font-bold", scoreColor)}>{Number(r.score).toFixed(1)}</span>
                       </div>
-                      {r.notes && <p className="text-xs text-on-surface/50 italic mt-1">"{r.notes}"</p>}
+                      {r.notes && <p className="text-[13px] text-on-surface/50 italic mt-1 leading-relaxed">"{r.notes}"</p>}
                       {r.tags && r.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1.5">
-                          {r.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}
+                          {r.tags.map((t) => <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}
                         </div>
                       )}
-                      {r.visit_date && <p className="text-[10px] text-on-surface/30 mt-1.5">{new Date(r.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>}
+                      {r.visit_date && <p className="text-[13px] text-on-surface/30 mt-1.5">{new Date(r.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>}
                     </div>
                   );
                 })}
@@ -979,9 +1005,9 @@ export const RestaurantDetailMobile: React.FC = () => {
                 ) : (
                   <div className="space-y-1 pt-2">
                     <div className="flex gap-2 mb-3">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 self-center">Sharing:</span>
-                      <span className="text-xs font-semibold text-on-surface/60 truncate">{place.name}</span>
-                      {myRating && <span className="text-[10px] text-green-500 font-semibold self-center">+ Your Review</span>}
+                      <span className="text-xs font-bold uppercase tracking-widest text-on-surface/35 self-center">Sharing:</span>
+                      <span className="text-[13px] font-semibold text-on-surface/60 truncate">{place.name}</span>
+                      {myRating && <span className="text-xs text-green-500 font-semibold self-center">+ Your Review</span>}
                     </div>
                     {conversations.map((conv) => (
                       <button key={conv.id}
@@ -1014,7 +1040,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-on-surface/70 truncate">{conv.name || 'Direct Message'}</p>
-                          <p className="text-[11px] text-on-surface/35">{conv.participantIds.length} participant{conv.participantIds.length !== 1 ? 's' : ''}</p>
+                          <p className="text-[13px] text-on-surface/35">{conv.participantIds.length} participant{conv.participantIds.length !== 1 ? 's' : ''}</p>
                         </div>
                         <Send size={14} className="text-on-surface/25" />
                       </button>
