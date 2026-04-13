@@ -4,10 +4,26 @@ import { MapPin, Star, Users, ChefHat, Compass, ArrowRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom';
 
 const features = [
-  { icon: MapPin, label: 'Discover', desc: 'Find hidden gems and top restaurants near you' },
-  { icon: Star, label: 'Curate', desc: 'Save favorites and build your personal collection' },
-  { icon: Users, label: 'Connect', desc: 'Follow friends and see where they dine' },
-  { icon: ChefHat, label: 'Experts', desc: 'Get recommendations from trusted tastemakers' },
+  {
+    icon: MapPin,
+    label: 'Map your favorite places',
+    desc: 'Pin the spots worth remembering and build your own personal food atlas.',
+  },
+  {
+    icon: Star,
+    label: 'Rate on your own terms',
+    desc: 'Score food, service, and vibe on a 10-point scale that belongs to you.',
+  },
+  {
+    icon: Users,
+    label: 'Follow people you trust',
+    desc: 'See where friends and tastemakers actually eat — no algorithmic guesswork.',
+  },
+  {
+    icon: ChefHat,
+    label: 'Cook restaurant-quality meals',
+    desc: 'Save recipes, plan dinners, and share the dishes you made at home.',
+  },
 ];
 
 export const SignIn: React.FC = () => {
@@ -41,29 +57,27 @@ export const SignIn: React.FC = () => {
           </p>
         </motion.div>
 
-        {/* Feature cards */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2, ease: 'easeOut' }}
-          className="relative z-10 grid grid-cols-2 gap-3 w-full max-w-md mb-10"
-        >
+        {/* Feature blocks — editorial, content-first (no card wrappers) */}
+        <div className="relative z-10 flex flex-col gap-8 w-full max-w-md mb-12">
           {features.map((f, i) => (
             <motion.div
               key={f.label}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: 0.3 + i * 0.1 }}
-              className="bg-white/60 backdrop-blur-sm border border-black/5 rounded-2xl p-4 flex flex-col gap-2"
+              transition={{ duration: 0.5, delay: 0.3 + i * 0.1, ease: 'easeOut' }}
             >
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <f.icon size={20} className="text-primary" />
+              <div className="flex items-start gap-3 mb-1.5">
+                <f.icon size={20} className="text-primary flex-shrink-0 mt-[9px]" strokeWidth={2.25} />
+                <h3 className="font-serif font-bold text-[26px] text-on-surface leading-tight tracking-tight">
+                  {f.label}
+                </h3>
               </div>
-              <p className="text-sm font-semibold text-on-surface">{f.label}</p>
-              <p className="text-xs text-on-surface/50 leading-relaxed">{f.desc}</p>
+              <p className="text-base text-on-surface/55 leading-relaxed font-light">
+                {f.desc}
+              </p>
             </motion.div>
           ))}
-        </motion.div>
+        </div>
 
         {/* Explore compass */}
         <motion.div
