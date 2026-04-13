@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye, Map as MapIcon, ChefHat } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -248,6 +248,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const [filterFriendSearch, setFilterFriendSearch] = useState('');
 
   const [showSearchHere, setShowSearchHere] = useState(false);
+  // Dismissible first-time hint that explains the map-mode tabs. State-only —
+  // resets on every mount so we don't need to plumb anything into storage.
+  const [showModeHint, setShowModeHint] = useState(true);
 
   // Location search
   const [locationSearchOpen, setLocationSearchOpen] = useState(false);
@@ -868,17 +871,13 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       }
     });
 
-    // Show "Search this area" button when user pans the map instead of auto-fetching
+    // Show "Search this area" button immediately on pan-end — no debounce,
+    // we want the pill visible the moment the user stops dragging.
     map.on('moveend', () => {
       if (mapModeRef.current !== 'discover' && mapModeRef.current !== 'hotels') return;
       if (isMarkerSelectedRef.current) return;
-      // Only show button after initial load (places already populated)
-      if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
-      fetchTimeoutRef.current = setTimeout(() => {
-        if (!isMarkerSelectedRef.current && (mapModeRef.current === 'discover' || mapModeRef.current === 'hotels')) {
-          setShowSearchHere(true);
-        }
-      }, 400);
+      if (fetchTimeoutRef.current) { clearTimeout(fetchTimeoutRef.current); fetchTimeoutRef.current = null; }
+      setShowSearchHere(true);
     });
 
     // Click on map background or drag clears popup
@@ -1503,19 +1502,19 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         </button>
       )}
 
-      {/* Search this area button */}
+      {/* Search this area button — floating pill, appears instantly on pan-end */}
       <AnimatePresence>
         {showSearchHere && (mapMode === 'discover' || mapMode === 'hotels') && (
           <motion.button
-            initial={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ type: 'spring', damping: 26, stiffness: 380 }}
             onClick={() => { setShowSearchHere(false); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
-            className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-5 py-2.5 bg-white rounded-full shadow-xl border border-on-surface/10 hover:bg-muted transition-colors"
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2 text-sm font-medium text-on-surface hover:shadow-lg transition-shadow"
           >
             <Search size={15} className={mapMode === 'hotels' ? "text-teal-600" : "text-primary"} />
-            <span className="text-xs font-bold text-on-surface/80">Search this area</span>
+            Search this area
           </motion.button>
         )}
       </AnimatePresence>
@@ -2714,6 +2713,34 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         <>
         {/* Search Bar & Filters — only on discover tab */}
         <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", phoneMode ? "px-3" : "px-6")}>
+          {/* First-time mode hint — dismissible banner above the tabs */}
+          <AnimatePresence initial={false}>
+            {showModeHint && !showSearchInput && (
+              <motion.div
+                key="mode-hint"
+                initial={{ opacity: 0, y: -6, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: 'auto' }}
+                exit={{ opacity: 0, y: -6, height: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="mb-3 flex items-center gap-2.5 rounded-2xl bg-primary/[0.06] border border-primary/15 px-3.5 py-2.5">
+                  <Info size={15} className="text-primary flex-shrink-0" />
+                  <p className="flex-1 text-[12px] font-medium text-on-surface/75 leading-snug">
+                    Tap the tabs below to switch between different map views — your ratings, friends, experts, hotels and more.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowModeHint(false)}
+                    className="w-7 h-7 -mr-1 rounded-full flex items-center justify-center text-on-surface/40 hover:text-on-surface/70 hover:bg-on-surface/[0.05] transition-colors flex-shrink-0"
+                    aria-label="Dismiss hint"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <AnimatePresence mode="wait">
             {showSearchInput ? (
               <motion.form
@@ -2815,22 +2842,23 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                   </button>
                 ))}
 
-                {/* Map mode toggle buttons */}
+                {/* Map mode toggle buttons — active state is a filled pill so
+                    the selected tab is obvious against the map background. */}
                 <button
                   onClick={() => { setMapMode(mapMode === 'myratings' ? 'discover' : 'myratings'); setSelectedListId(null); }}
                   className={cn("flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'myratings' ? "bg-primary/10 border-primary/30 text-primary" : "border-on-surface/10 hover:bg-muted")}
+                    mapMode === 'myratings' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
                 >
-                  <Star size={16} className={mapMode === 'myratings' ? "text-primary" : "text-on-surface/50"} />
+                  <Star size={16} className={mapMode === 'myratings' ? "text-white" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">My Ratings</span>
                 </button>
 
                 <button
                   onClick={() => { setMapMode(mapMode === 'friends' ? 'discover' : 'friends'); setSelectedFriendIds(new Set()); }}
                   className={cn("flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'friends' ? "bg-primary/10 border-primary/30 text-primary" : "border-on-surface/10 hover:bg-muted")}
+                    mapMode === 'friends' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
                 >
-                  <Users size={16} className={mapMode === 'friends' ? "text-primary" : "text-on-surface/50"} />
+                  <Users size={16} className={mapMode === 'friends' ? "text-white" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">Friends{selectedFriendIds.size > 0 ? ` (${selectedFriendIds.size})` : ''}</span>
                 </button>
 
@@ -2838,10 +2866,10 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                   onClick={() => setMapMode(mapMode === 'experts' ? 'discover' : 'experts')}
                   className={cn(
                     "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'experts' ? "bg-primary/10 border-primary/30 text-primary" : "border-on-surface/10 hover:bg-muted"
+                    mapMode === 'experts' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted"
                   )}
                 >
-                  <Star size={16} className={mapMode === 'experts' ? "text-primary fill-primary" : "text-on-surface/50"} />
+                  <Star size={16} className={mapMode === 'experts' ? "text-white fill-white" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">Experts</span>
                 </button>
 
@@ -2849,10 +2877,10 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                   onClick={() => setMapMode(mapMode === 'hotels' ? 'discover' : 'hotels')}
                   className={cn(
                     "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'hotels' ? "bg-teal-600/10 border-teal-600/30 text-teal-700" : "border-on-surface/10 hover:bg-muted"
+                    mapMode === 'hotels' ? "bg-teal-600 border-teal-600 text-white shadow-sm shadow-teal-600/20" : "border-on-surface/10 hover:bg-muted"
                   )}
                 >
-                  <Building2 size={16} className={mapMode === 'hotels' ? "text-teal-600" : "text-on-surface/50"} />
+                  <Building2 size={16} className={mapMode === 'hotels' ? "text-white" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">Hotels</span>
                 </button>
 
@@ -2860,10 +2888,10 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                   onClick={() => setMapMode(mapMode === 'recipes' ? 'discover' : 'recipes')}
                   className={cn(
                     "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'recipes' ? "bg-emerald-600/10 border-emerald-600/30 text-emerald-700" : "border-on-surface/10 hover:bg-muted"
+                    mapMode === 'recipes' ? "bg-emerald-600 border-emerald-600 text-white shadow-sm shadow-emerald-600/20" : "border-on-surface/10 hover:bg-muted"
                   )}
                 >
-                  <ChefHat size={16} className={mapMode === 'recipes' ? "text-emerald-600" : "text-on-surface/50"} />
+                  <ChefHat size={16} className={mapMode === 'recipes' ? "text-white" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">Recipes</span>
                 </button>
               </motion.div>
