@@ -267,16 +267,12 @@ export const Profile: React.FC = () => {
         <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.08] to-surface" />
         <div className="relative px-5 pt-2 pb-6">
           {pendingRequestCount > 0 && (
-            <button
-              type="button"
-              onClick={() => navigate('/circle')}
-              className="w-full mb-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60 text-left"
-            >
+            <div className="w-full mb-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
               <span className="text-xs font-semibold text-amber-900">
                 {pendingRequestCount} friend request{pendingRequestCount !== 1 ? 's' : ''} waiting
               </span>
-              <ChevronRight size={16} className="text-amber-700 flex-shrink-0" />
-            </button>
+              <Heart size={14} className="text-amber-700 flex-shrink-0" />
+            </div>
           )}
 
           <div className="flex items-start gap-4">
@@ -298,14 +294,14 @@ export const Profile: React.FC = () => {
               <p className="text-sm text-on-surface/40">@{username}</p>
 
               <div className="flex items-center gap-4 mt-2.5">
-                <button type="button" onClick={() => navigate('/circle')} className="text-center group">
-                  <span className="text-base font-bold text-on-surface group-hover:text-primary transition-colors">{followers}</span>
+                <div className="text-center">
+                  <span className="text-base font-bold text-on-surface">{followers}</span>
                   <span className="text-[10px] text-on-surface/40 ml-1">followers</span>
-                </button>
-                <button type="button" onClick={() => navigate('/circle')} className="text-center group">
-                  <span className="text-base font-bold text-on-surface group-hover:text-primary transition-colors">{following}</span>
+                </div>
+                <div className="text-center">
+                  <span className="text-base font-bold text-on-surface">{following}</span>
                   <span className="text-[10px] text-on-surface/40 ml-1">following</span>
-                </button>
+                </div>
               </div>
             </div>
           </div>

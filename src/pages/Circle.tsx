@@ -187,7 +187,7 @@ export const Circle: React.FC = () => {
   if (loading) {
     return (
       <div className="pb-32">
-        <TopBar title="Social" />
+        <TopBar title="Social" showBackButton />
         <div className="flex items-center justify-center py-20">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
@@ -197,7 +197,7 @@ export const Circle: React.FC = () => {
 
   return (
     <div className="pb-32">
-      <TopBar title="Social" />
+      <TopBar title="Social" showBackButton />
 
       <main className="px-4">
         {/* ── Pending Requests ── */}
