@@ -25,12 +25,12 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
       layout
       animate={{ opacity: hideBottomNav ? 0 : 1, y: hideBottomNav ? 20 : 0 }}
       className={cn(
-        "fixed left-1/2 glass rounded-full shadow-2xl border border-white/20 z-50 flex items-center justify-center",
+        "fixed left-1/2 glass rounded-full border border-on-surface/[0.06] z-50 flex items-center justify-center",
         hideBottomNav && "pointer-events-none",
         phoneMode ? "bottom-3" : "bottom-6",
         isExpanded
-          ? phoneMode ? "gap-2 px-3 py-3" : "gap-2 px-8 py-4"
-          : phoneMode ? "px-2 py-2" : "px-3 py-3"
+          ? phoneMode ? "gap-2 px-3 py-2" : "gap-2 px-6 py-2"
+          : phoneMode ? "px-2 py-2" : "px-3 py-2"
       )}
       style={{ x: '-50%' }}
       transition={{
@@ -79,20 +79,14 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                     if (!isExpanded && collapsible) setExpanded(true);
                   }}
                   className={cn(
-                    "flex flex-col items-center transition-colors duration-200",
-                    isExpanded
-                      ? phoneMode ? "gap-1 px-1" : "gap-1.5 px-2"
-                      : phoneMode ? "gap-0.5 px-0.5" : "gap-1 px-1",
-                    location.pathname === '/' ? "text-primary" : "text-on-surface/40 hover:text-on-surface/60"
+                    "flex flex-col items-center justify-center gap-1 rounded-full min-w-[44px] min-h-[44px] px-3 py-2 transition-colors duration-200",
+                    location.pathname === '/'
+                      ? "bg-primary/10 text-primary"
+                      : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
                   )}
                 >
-                  <item.icon size={isExpanded ? (phoneMode ? 18 : 22) : (phoneMode ? 16 : 18)} strokeWidth={location.pathname === '/' ? 2.5 : 2} />
-                  <span className={cn(
-                    "font-semibold uppercase",
-                    isExpanded
-                      ? phoneMode ? "text-[8px] tracking-wide" : "text-[10px] tracking-wider"
-                      : phoneMode ? "text-[7px] tracking-wide" : "text-[8px] tracking-wider"
-                  )}>{item.label}</span>
+                  <item.icon size={22} strokeWidth={location.pathname === '/' ? 2.5 : 2} />
+                  <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
                 </button>
               ) : (
                 <NavLink
@@ -104,16 +98,17 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                   }}
                   className={({ isActive }) =>
                     cn(
-                      "flex flex-col items-center transition-colors duration-200",
-                      phoneMode ? "gap-1 px-1" : "gap-1.5 px-2",
-                      isActive ? "text-primary" : "text-on-surface/40 hover:text-on-surface/60"
+                      "flex flex-col items-center justify-center gap-1 rounded-full min-w-[44px] min-h-[44px] px-3 py-2 transition-colors duration-200",
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
                     )
                   }
                 >
                   {({ isActive }) => (
                     <>
-                      <item.icon size={phoneMode ? 18 : 22} strokeWidth={isActive ? 2.5 : 2} />
-                      <span className={cn("font-semibold uppercase", phoneMode ? "text-[8px] tracking-wide" : "text-[10px] tracking-wider")}>{item.label}</span>
+                      <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+                      <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
                     </>
                   )}
                 </NavLink>
