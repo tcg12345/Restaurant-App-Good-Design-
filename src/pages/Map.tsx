@@ -1695,8 +1695,8 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           const sortActive = "bg-primary text-white";
           const sortInactive = "bg-on-surface/5 text-on-surface/50 hover:bg-on-surface/10";
           const sortCls = "px-3.5 py-2 rounded-full text-xs font-semibold transition-all";
-          const chipActive = "border-primary bg-primary/10 text-primary";
-          const chipInactive = "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20";
+          const chipActive = "border-primary bg-primary text-white";
+          const chipInactive = "bg-transparent border-on-surface/10 text-on-surface/70 hover:border-on-surface/25";
           const chipCls = "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border";
 
           const handleReset = () => {
@@ -2877,7 +2877,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         <div className={cn("flex-1 overflow-y-auto no-scrollbar pb-32", phoneMode ? "px-3" : "px-6")}>
           {/* My Ratings tab content */}
           {mapMode === 'myratings' && (
-            <div className="space-y-2.5">
+            <div className="divide-y divide-on-surface/[0.06]">
               {filteredMyRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No rated restaurants yet'}</p></div>
               ) : filteredMyRatings.map((r) => {
@@ -2887,9 +2887,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                 const city = extractCityState(r.address || '', r.address || '');
                 return (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group">
+                  className="flex gap-3 cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors group">
                   {/* Photo thumbnail */}
-                  <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
+                  <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
                     {r.photo_url ? (
                       <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                     ) : (
@@ -2897,13 +2897,14 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                     )}
                   </div>
                   {/* Info */}
-                  <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
-                    <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{r.restaurant_name}</h3>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      {r.cuisine && <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>}
-                      {r.price && <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.price}</span>}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center">
+                    <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{r.restaurant_name}</h3>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {r.cuisine && <span className="text-[10px] font-semibold uppercase tracking-wider text-on-surface/50">{r.cuisine}</span>}
+                      {r.cuisine && r.price && <span className="text-on-surface/20">·</span>}
+                      {r.price && <span className="text-[10px] font-semibold text-on-surface/50">{r.price}</span>}
                     </div>
-                    {city && <p className="text-[10px] text-on-surface/35 mt-1 truncate">{city}</p>}
+                    {city && <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{city}</p>}
                   </div>
                   {/* Score orb */}
                   <div className={cn("w-11 h-11 rounded-full border flex items-center justify-center self-center flex-shrink-0", orbBg)}>
@@ -2917,7 +2918,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
           {/* Friends tab content */}
           {mapMode === 'friends' && (
-            <div className="space-y-2.5">
+            <div className="divide-y divide-on-surface/[0.06]">
               {filteredFriendRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No friend ratings yet'}</p></div>
               ) : filteredFriendRatings.map((r) => {
@@ -2929,9 +2930,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                 const friendInitial = friendName.charAt(0).toUpperCase();
                 return (
                   <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                    className="flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group">
+                    className="flex gap-3 cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors group">
                     {/* Photo thumbnail */}
-                    <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
                       {r.photo_url ? (
                         <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                       ) : (
@@ -2939,15 +2940,16 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       )}
                     </div>
                     {/* Info */}
-                    <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
-                      <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{r.restaurant_name}</h3>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        {r.cuisine && <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>}
-                        {r.price && <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.price}</span>}
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                      <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{r.restaurant_name}</h3>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {r.cuisine && <span className="text-[10px] font-semibold uppercase tracking-wider text-on-surface/50">{r.cuisine}</span>}
+                        {r.cuisine && r.price && <span className="text-on-surface/20">·</span>}
+                        {r.price && <span className="text-[10px] font-semibold text-on-surface/50">{r.price}</span>}
                       </div>
-                      <div className="flex items-center gap-1 mt-1">
+                      <div className="flex items-center gap-1 mt-0.5">
                         <span className="w-4 h-4 rounded-full bg-primary/10 text-[8px] font-bold text-primary flex items-center justify-center flex-shrink-0">{friendInitial}</span>
-                        <span className="text-[10px] text-on-surface/40 truncate">{friendName}</span>
+                        <span className="text-[11px] text-on-surface/40 truncate">{friendName}</span>
                       </div>
                     </div>
                     {/* Score orb */}
@@ -2962,7 +2964,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
           {/* Experts tab content */}
           {mapMode === 'experts' && (
-            <div className="space-y-2.5">
+            <div className="divide-y divide-on-surface/[0.06]">
               {filteredExpertRatings.length === 0 ? (
                 <div className="text-center py-8"><p className="text-sm text-on-surface/40">{activeFilterCount > 0 ? 'No results match your filters' : 'No expert ratings yet'}</p></div>
               ) : filteredExpertRatings.map((r) => {
@@ -2973,9 +2975,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                 const orbText = s >= 8 ? 'text-green-700' : s >= 5 ? 'text-amber-700' : 'text-red-600';
                 return (
                 <div key={r.id} onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group">
+                  className="flex gap-3 cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors group">
                   {/* Photo thumbnail */}
-                  <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
+                  <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5 self-center">
                     {r.photo_url ? (
                       <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                     ) : (
@@ -2983,15 +2985,16 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                     )}
                   </div>
                   {/* Info */}
-                  <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
-                    <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{r.restaurant_name}</h3>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      {r.cuisine && <span className="text-[9px] font-bold uppercase tracking-wider text-primary/70 bg-primary/5 px-1.5 py-0.5 rounded-full">{r.cuisine}</span>}
-                      {r.price && <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{r.price}</span>}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center">
+                    <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{r.restaurant_name}</h3>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {r.cuisine && <span className="text-[10px] font-semibold uppercase tracking-wider text-on-surface/50">{r.cuisine}</span>}
+                      {r.cuisine && r.price && <span className="text-on-surface/20">·</span>}
+                      {r.price && <span className="text-[10px] font-semibold text-on-surface/50">{r.price}</span>}
                     </div>
-                    <div className="flex items-center gap-1 mt-1">
-                      <Star size={8} className="fill-amber-500 text-amber-500 flex-shrink-0" />
-                      <span className="text-[10px] font-semibold text-amber-600 truncate">{expName}</span>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Star size={9} className="fill-amber-500 text-amber-500 flex-shrink-0" />
+                      <span className="text-[11px] font-semibold text-amber-600 truncate">{expName}</span>
                     </div>
                   </div>
                   {/* Score orb */}
@@ -3017,19 +3020,19 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
               <p className="text-xs text-on-surface/30 mt-1">{activeFilterCount > 0 ? 'Try adjusting your filters' : 'Try moving the map to a different area'}</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="divide-y divide-on-surface/[0.06]">
               {filteredHotelPlaces.map((place) => {
                 const cityState = extractCityState(place.fullAddress, place.address);
                 return (
                   <div
                     key={place.id}
                     className={cn(
-                      "flex gap-3 group cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 transition-all hover:shadow-md",
-                      selectedMarker === place.id && "ring-2 ring-teal-500/20"
+                      "flex gap-3 group cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors",
+                      selectedMarker === place.id && "bg-teal-500/5"
                     )}
                     onClick={() => navigate(`/restaurant/${place.id}`)}
                   >
-                    <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-muted self-center relative">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-muted self-center relative">
                       {place.photoUrl ? (
                         <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
@@ -3038,19 +3041,17 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                         </div>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                      <div>
-                        <h3 className="font-serif font-bold text-sm leading-snug truncate">{place.name}</h3>
-                        <p className="text-[10px] text-teal-700 font-semibold uppercase tracking-wider mt-0.5">Hotel</p>
-                        {place.rating > 0 && (
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <Star size={11} className="fill-teal-600 text-teal-600" />
-                            <span className="text-xs font-bold text-teal-700">{place.rating.toFixed(1)}</span>
-                            <span className="text-[11px] text-on-surface/40 ml-0.5">({place.userRatingCount})</span>
-                          </div>
-                        )}
-                        <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
-                      </div>
+                    <div className="flex-1 min-w-0 flex flex-col justify-center">
+                      <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{place.name}</h3>
+                      <p className="text-[10px] text-teal-700 font-semibold uppercase tracking-wider mt-0.5">Hotel</p>
+                      {place.rating > 0 && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <Star size={11} className="fill-teal-600 text-teal-600" />
+                          <span className="text-xs font-bold text-teal-700">{place.rating.toFixed(1)}</span>
+                          <span className="text-[11px] text-on-surface/40 ml-0.5">({place.userRatingCount})</span>
+                        </div>
+                      )}
+                      <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
                     </div>
                   </div>
                 );
@@ -3074,7 +3075,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                 </p>
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="divide-y divide-on-surface/[0.06]">
                 {friendRecipes.map((meal) => {
                   const profile = recipeAuthorProfiles[meal.userId];
                   const authorName = profile?.display_name || profile?.username || 'Friend';
@@ -3088,34 +3089,33 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                     <button
                       key={`${meal.userId}-${meal.id}`}
                       onClick={() => navigate(`/meal/${meal.userId}/${meal.id}`)}
-                      className="w-full flex gap-3 cursor-pointer rounded-2xl p-2 bg-white shadow-sm border border-on-surface/6 hover:shadow-md transition-all group text-left"
+                      className="w-full flex gap-3 cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors group text-left"
                     >
-                      <div className="w-[72px] h-[72px] rounded-xl overflow-hidden flex-shrink-0 bg-emerald-50 self-center">
+                      <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-emerald-50 self-center">
                         {cover ? (
                           <img src={cover} alt={meal.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-emerald-300">
-                            <ChefHat size={24} />
+                            <ChefHat size={22} />
                           </div>
                         )}
                       </div>
-                      <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
-                        <h3 className="font-serif font-bold text-[13px] leading-snug truncate">{meal.name}</h3>
-                        <div className="flex items-center gap-1.5 mt-1">
+                      <div className="flex-1 min-w-0 flex flex-col justify-center">
+                        <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{meal.name}</h3>
+                        <div className="flex items-center gap-1.5 mt-0.5">
                           {totalLabel && (
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/80 bg-emerald-50 px-1.5 py-0.5 rounded-full">
-                              {totalLabel}
-                            </span>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700/80">{totalLabel}</span>
                           )}
+                          {totalLabel && meal.difficulty && <span className="text-on-surface/20">·</span>}
                           {meal.difficulty && (
-                            <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{meal.difficulty}</span>
+                            <span className="text-[10px] font-semibold text-on-surface/50">{meal.difficulty}</span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1 mt-1">
+                        <div className="flex items-center gap-1 mt-0.5">
                           <span className="w-4 h-4 rounded-full bg-emerald-100 text-[8px] font-bold text-emerald-700 flex items-center justify-center flex-shrink-0">
                             {authorInitial}
                           </span>
-                          <span className="text-[10px] text-on-surface/40 truncate">{authorName}</span>
+                          <span className="text-[11px] text-on-surface/40 truncate">{authorName}</span>
                         </div>
                       </div>
                       <div className="self-center flex-shrink-0">
@@ -3173,23 +3173,21 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           <h2 className="text-sm font-serif font-bold">Results</h2>
                           <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
                         </div>
-                        <div className="space-y-3">
+                        <div className="divide-y divide-on-surface/[0.06]">
                           {places.map((place) => {
                             const cityState = extractCityState(place.fullAddress, place.address);
                             const cuisine = getCuisineLabel(place.types);
                             const wishlisted = isWishlisted(place.id);
                             return (
-                              <div key={place.id} className={cn("flex gap-3 group cursor-pointer rounded-2xl p-2.5 bg-white shadow-sm border border-on-surface/5 transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => navigate(`/restaurant/${place.id}`)}>
-                                <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-muted self-center relative">
+                              <div key={place.id} className={cn("flex gap-3 group cursor-pointer py-3 hover:bg-on-surface/[0.02] transition-colors", selectedMarker === place.id && "bg-primary/[0.04]")} onClick={() => navigate(`/restaurant/${place.id}`)}>
+                                <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-muted self-center relative">
                                   {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={20} className="text-on-surface/20" /></div>}
                                 </div>
-                                <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                                  <div>
-                                    <h3 className="font-serif font-bold text-sm leading-snug truncate">{place.name}</h3>
-                                    <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
-                                    {place.rating > 0 && <div className="flex items-center gap-1 mt-0.5"><Star size={11} className="fill-primary text-primary" /><span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>{place.priceLevel > 0 && <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}</div>}
-                                    <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
-                                  </div>
+                                <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                  <h3 className="font-serif font-bold text-[14px] leading-snug truncate">{place.name}</h3>
+                                  <p className="text-[10px] text-primary/70 font-semibold uppercase tracking-wider mt-0.5">{cuisine}</p>
+                                  {place.rating > 0 && <div className="flex items-center gap-1 mt-0.5"><Star size={11} className="fill-primary text-primary" /><span className="text-xs font-bold text-primary">{place.rating.toFixed(1)}</span>{place.priceLevel > 0 && <span className="text-[11px] font-semibold text-on-surface/40 ml-0.5">· {priceLevelToString(place.priceLevel)}</span>}</div>}
+                                  <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
                                 </div>
                                 <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
                                   <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
