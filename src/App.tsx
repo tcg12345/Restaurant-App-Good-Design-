@@ -40,7 +40,7 @@ import { ChatProvider } from './contexts/ChatContext';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
-  const isMapPage = location.pathname === '/';
+  const isMapPage = location.pathname === '/map';
   const showBottomNav = !['/onboarding', '/messages'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
@@ -113,7 +113,8 @@ const AppContent: React.FC = () => {
       >
         <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
           <Routes location={location}>
-            <Route path="/" element={<Map />} />
+            <Route path="/" element={<Map mode="home" />} />
+            <Route path="/map" element={<Map mode="map" />} />
             <Route path="/auth" element={<Navigate to="/" replace />} />
             <Route path="/circle" element={<Circle />} />
             <Route path="/search" element={<Search />} />
