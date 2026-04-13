@@ -40,6 +40,7 @@ type SortOption = 'recent' | 'highest' | 'lowest';
 
 export const FollowingFeed: React.FC = () => {
   const { user } = useAuth();
+  const { setHideBottomNav } = useSettings();
   const navigate = useNavigate();
 
   const [ratings, setRatings] = useState<CommunityRating[]>(() =>
@@ -65,6 +66,13 @@ export const FollowingFeed: React.FC = () => {
   // Infinite scroll chunk pointer
   const [visibleCount, setVisibleCount] = useState(CHUNK_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Hide the bottom nav while the filter sheet is open so the Apply/Reset
+  // footer isn't overlapped by the floating nav pill.
+  useEffect(() => {
+    setHideBottomNav(filtersOpen);
+    return () => setHideBottomNav(false);
+  }, [filtersOpen, setHideBottomNav]);
 
   // Fetch friend ratings (no Google API — all data comes from community_ratings rows)
   useEffect(() => {
@@ -312,18 +320,18 @@ export const FollowingFeed: React.FC = () => {
                     onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                     className="w-full flex items-center gap-3 p-2.5 rounded-2xl bg-white/60 backdrop-blur-sm border border-on-surface/8 hover:bg-white/85 transition-colors text-left"
                   >
-                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-on-surface/5 flex-shrink-0">
-                      {r.photo_url ? (
+                    <div className="w-16 h-16 rounded-xl overflow-hidden bg-on-surface/5 flex-shrink-0 relative flex items-center justify-center">
+                      <SearchIcon size={18} className="text-on-surface/20" />
+                      {r.photo_url && (
                         <img
                           src={r.photo_url}
-                          alt={r.restaurant_name}
-                          className="w-full h-full object-cover"
+                          alt=""
+                          className="absolute inset-0 w-full h-full object-cover"
                           loading="lazy"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).style.display = 'none';
+                          }}
                         />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <SearchIcon size={18} className="text-on-surface/20" />
-                        </div>
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
