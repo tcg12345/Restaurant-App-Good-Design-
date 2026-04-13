@@ -349,8 +349,8 @@ export const FollowingFeed: React.FC = () => {
                       {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
                     </p>
                     {profile && (
-                      <p className="text-[11px] text-on-surface/40 mt-1 truncate">
-                        via {profile.display_name || profile.username}
+                      <p className="text-sm text-on-surface/50 mt-1.5 truncate">
+                        via <span className="font-semibold text-on-surface/75">{profile.display_name || profile.username}</span>
                       </p>
                     )}
                   </button>
