@@ -2539,9 +2539,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           <Clock size={15} className="text-on-surface/35" />
                           <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recently Viewed</h3>
                         </div>
-                        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
                           {recentViews.slice(0, 8).map((place) => (
-                            <div key={place.id} className="flex-shrink-0 w-32 relative group">
+                            <div key={place.id} className="flex-shrink-0 w-32 relative group snap-start">
                               <button
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeRecentView(place.id); }}
                                 className="absolute top-1 right-1 z-10 w-5 h-5 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
@@ -2634,7 +2634,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                     <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                   </div>
                   <div
-                    className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1"
+                    className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
                     onScroll={(e) => {
                       const el = e.currentTarget;
                       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
@@ -2644,7 +2644,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
                       return (
-                        <div key={place.id} className="flex-shrink-0 w-44 group cursor-pointer" onClick={() => navigate(`/restaurant/${place.id}`)}>
+                        <div key={place.id} className="flex-shrink-0 w-44 group cursor-pointer snap-start" onClick={() => navigate(`/restaurant/${place.id}`)}>
                           <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
                             {(place as any).photoUrl ? (
                               <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
@@ -3243,12 +3243,12 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                         <h2 className="text-base font-serif font-bold">Nearby Restaurants</h2>
                         <span className="text-on-surface/40 text-[10px] font-bold uppercase tracking-widest">{places.length} found</span>
                       </div>
-                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
                         {places.map((place) => {
                           const cuisine = getCuisineLabel(place.types);
                           const wishlisted = isWishlisted(place.id);
                           return (
-                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => { setSelectedPlace(place); setSelectedMarker(place.id); setSheetState('peek'); mapRef.current?.easeTo({ center: [place.lng, place.lat], duration: 500 }); }}>
+                            <div key={place.id} className={cn("flex-shrink-0 w-40 group cursor-pointer rounded-2xl bg-white shadow-sm border border-on-surface/5 overflow-hidden transition-all hover:shadow-md snap-start", selectedMarker === place.id && "ring-2 ring-primary/20")} onClick={() => { setSelectedPlace(place); setSelectedMarker(place.id); setSheetState('peek'); mapRef.current?.easeTo({ center: [place.lng, place.lat], duration: 500 }); }}>
                               <div className="w-full h-28 overflow-hidden relative">
                                 {place.photoUrl ? <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" /> : <div className="h-full w-full flex items-center justify-center bg-on-surface/5"><MapPinned size={24} className="text-on-surface/15" /></div>}
                                 <div className="absolute top-1.5 right-1.5 flex gap-1">
@@ -3293,7 +3293,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                         <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                       </div>
                       <div
-                        className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1"
+                        className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
                         onScroll={(e) => {
                           const el = e.currentTarget;
                           if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
@@ -3303,7 +3303,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           const cuisine = getCuisineLabel((place as any).types || []);
                           const wishlisted = isWishlisted(place.id);
                           return (
-                            <div key={place.id} className="flex-shrink-0 w-40 group cursor-pointer" onClick={() => navigate(`/restaurant/${place.id}`)}>
+                            <div key={place.id} className="flex-shrink-0 w-40 group cursor-pointer snap-start" onClick={() => navigate(`/restaurant/${place.id}`)}>
                               <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
                                 {(place as any).photoUrl ? (
                                   <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />

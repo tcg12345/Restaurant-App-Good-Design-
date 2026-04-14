@@ -353,14 +353,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   useEffect(() => {
     if (!userId || !supabaseConfigured) {
       if (!supabaseConfigured) console.warn('[Supabase] Not configured — data will only be in localStorage');
-      if (!userId) console.log('[Supabase] No user signed in');
       return;
     }
 
     // Check if localStorage belongs to a different user — if so, clear it
     const storedUserId = localStorage.getItem('gourmad-user-id');
     if (storedUserId && storedUserId !== userId) {
-      console.log('[Supabase] Different user detected, clearing local cache');
       localStorage.removeItem(STORAGE_KEY_RATINGS);
       localStorage.removeItem(STORAGE_KEY_LISTS);
       localStorage.removeItem(STORAGE_KEY_WISHLIST);
@@ -381,7 +379,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     localStorage.setItem('gourmad-user-id', userId);
 
     let cancelled = false;
-    console.log('[Supabase] Loading cloud data for user:', userId);
 
     (async () => {
       const cloud = await loadUserData(userId);
@@ -401,7 +398,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           try {
             const communityRows = await getUserRatings(userId);
             if (communityRows.length > 0) {
-              console.log('[Supabase] Recovering', communityRows.length, 'ratings from community_ratings');
               recoveredRatings = communityRows.map((r) => ({
                 restaurantId: r.restaurant_id,
                 name: r.restaurant_name,
@@ -489,18 +485,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews));
         }
 
-        console.log('[Supabase] Loaded user data:', cloudRatings.length, 'ratings,', cloudLists.length, 'lists,', cloudWishlist.length, 'wishlist,', cloudRecentViews.length, 'recent views');
-
         // If we used local fallback data (cloud was empty but local had content), or lists were reconciled, save back to cloud
         const finalLists = listsChanged ? reconciledLists : cloudLists;
         if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || homeMealsUsedLocalFallback) {
-          console.log('[Supabase] Syncing data to cloud' + (listsChanged ? ' (lists reconciled)' : homeMealsUsedLocalFallback ? ' (home meals fallback)' : ' (local fallback)'));
           await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMeta, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
         }
 
         // Sync all ratings to community_ratings (ensures they're visible on user profiles)
         if (cloudRatings.length > 0) {
-          console.log('[Supabase] Syncing', cloudRatings.length, 'ratings to community_ratings...');
           for (const r of cloudRatings) {
             publishCommunityRating(userId, r.restaurantId, {
               name: r.name, score: r.score, notes: r.notes,
@@ -515,7 +507,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
       } else {
         // No cloud row exists — keep any existing local data and push it to cloud
-        console.log('[Supabase] No cloud row found for user, preserving local data');
         const localRatings = migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, []));
         const localLists = migrateLists(loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS));
         const localWishlist = migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, []));

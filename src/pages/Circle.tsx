@@ -253,7 +253,7 @@ export const Circle: React.FC = () => {
               + Add
             </button>
           </div>
-          <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
+          <div className="h-px bg-on-surface/[0.06] -mx-4 mb-4" />
 
           {friends.length === 0 ? (
             <EmptyState
@@ -271,11 +271,11 @@ export const Circle: React.FC = () => {
               }}
             />
           ) : (
-            <div className="flex gap-4 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
+            <div className="flex gap-4 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
               {/* Add button as first item */}
               <button
                 onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); setAddSuccess(null); }}
-                className="flex flex-col items-center gap-1.5 flex-shrink-0"
+                className="flex flex-col items-center gap-1.5 flex-shrink-0 snap-start"
               >
                 <div className="w-14 h-14 rounded-full border-2 border-dashed border-primary/30 flex items-center justify-center bg-primary/5">
                   <UserPlus size={18} className="text-primary/50" />
@@ -288,7 +288,7 @@ export const Circle: React.FC = () => {
                 const initial = (profile?.display_name || 'U').charAt(0).toUpperCase();
                 return (
                   <Link key={f.friend_id} to={`/user/${profile?.username || f.friend_id}`}
-                    className="flex flex-col items-center gap-1.5 flex-shrink-0 group">
+                    className="flex flex-col items-center gap-1.5 flex-shrink-0 group snap-start">
                     <div className="relative">
                       <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center border-2 border-white shadow-sm group-hover:shadow-md transition-shadow">
                         <span className="text-lg font-serif font-bold text-primary/60">{initial}</span>
@@ -328,7 +328,7 @@ export const Circle: React.FC = () => {
               <span className="text-xs font-bold text-on-surface/25">{expertProfiles.length}</span>
             </div>
           </div>
-          <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
+          <div className="h-px bg-on-surface/[0.06] -mx-4 mb-4" />
 
           {expertsLoading ? (
             <div className="flex gap-3 overflow-x-hidden pb-2">
@@ -342,13 +342,13 @@ export const Circle: React.FC = () => {
               description="Expert reviewers will appear here once they join."
             />
           ) : (
-            <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-4 px-4">
+            <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-4 px-4 snap-x snap-mandatory">
               {expertProfiles.map((expert) => {
                 const isFollowed = expertFollowedIds.has(expert.user_id);
                 const rCount = expertRatingCounts[expert.user_id] || 0;
                 const fCount = expertFollowerCounts[expert.user_id] || 0;
                 return (
-                  <div key={expert.user_id} className="flex-shrink-0 w-44">
+                  <div key={expert.user_id} className="flex-shrink-0 w-44 snap-start">
                     {/* Square image card with gradient overlay — no border */}
                     <Link
                       to={`/user/${expert.username}`}
@@ -405,7 +405,7 @@ export const Circle: React.FC = () => {
               )}
             </div>
           </div>
-          <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
+          <div className="h-px bg-on-surface/[0.06] -mx-4 mb-4" />
 
           {activity.length === 0 ? (
             <EmptyState
@@ -486,7 +486,7 @@ export const Circle: React.FC = () => {
               <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">From Your Circle</h2>
             </div>
           </div>
-          <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
+          <div className="h-px bg-on-surface/[0.06] -mx-4 mb-4" />
           <CircleActivity />
         </section>
       </main>

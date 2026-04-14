@@ -120,7 +120,6 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
       return false;
     }
 
-    console.log('[Supabase] Saved all user data');
     return true;
   } catch (err) {
     console.error('[Supabase] saveUserData exception:', err);

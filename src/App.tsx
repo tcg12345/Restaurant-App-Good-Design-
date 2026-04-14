@@ -112,25 +112,41 @@ const AppContent: React.FC = () => {
         }
       >
         <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
-          <Routes location={location}>
-            <Route path="/" element={<Map mode="home" />} />
-            <Route path="/map" element={<Map mode="map" />} />
-            <Route path="/auth" element={<Navigate to="/" replace />} />
-            <Route path="/circle" element={<Circle />} />
-            <Route path="/search" element={<Search />} />
-            <Route path="/search/main" element={<SearchMain />} />
-            <Route path="/experts" element={<Experts />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/pantry" element={<Pantry />} />
-            <Route path="/restaurant/:id" element={<RestaurantDetail />} />
-            <Route path="/onboarding" element={<Onboarding />} />
-            <Route path="/import" element={<ImportRestaurants />} />
-            <Route path="/recipe/:id" element={<RecipeDetail />} />
-            <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
-            <Route path="/user/:username" element={<UserProfile />} />
-            <Route path="/messages" element={<Messages />} />
-            <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
-          </Routes>
+          {/*
+            Route-level fade+slide transition. AnimatePresence with mode="wait"
+            so the outgoing page finishes its exit before the incoming one
+            mounts — keeps scroll reset clean. Transition intentionally brief
+            (~180ms) so navigation still feels instant.
+          */}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={location.pathname}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+            >
+              <Routes location={location}>
+                <Route path="/" element={<Map mode="home" />} />
+                <Route path="/map" element={<Map mode="map" />} />
+                <Route path="/auth" element={<Navigate to="/" replace />} />
+                <Route path="/circle" element={<Circle />} />
+                <Route path="/search" element={<Search />} />
+                <Route path="/search/main" element={<SearchMain />} />
+                <Route path="/experts" element={<Experts />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/pantry" element={<Pantry />} />
+                <Route path="/restaurant/:id" element={<RestaurantDetail />} />
+                <Route path="/onboarding" element={<Onboarding />} />
+                <Route path="/import" element={<ImportRestaurants />} />
+                <Route path="/recipe/:id" element={<RecipeDetail />} />
+                <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
+                <Route path="/user/:username" element={<UserProfile />} />
+                <Route path="/messages" element={<Messages />} />
+                <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
+              </Routes>
+            </motion.div>
+          </AnimatePresence>
         </div>
         <AnimatePresence>
           {showBottomNav && (

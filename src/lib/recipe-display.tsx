@@ -350,7 +350,7 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
         </div>
       )}
 
-      <ul className="divide-y divide-on-surface/6">
+      <ul className="divide-y divide-on-surface/[0.06]">
         {ingredients.map((ing, i) => {
           const isChecked = checked.has(i);
           const scaledAmount = ing.amount ? scaleQuantity(ing.amount, ratio) : '';
@@ -405,7 +405,7 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
 export const RecipeDirectionsList: React.FC<{ steps: string[] }> = ({ steps }) => {
   if (steps.length === 0) return null;
   return (
-    <ol className="divide-y divide-on-surface/6">
+    <ol className="divide-y divide-on-surface/[0.06]">
       {steps.map((step, i) => {
         const timerMinutes = extractStepMinutes(step);
         return (
@@ -454,7 +454,7 @@ interface RecipeReviewListProps {
 export const RecipeReviewList: React.FC<RecipeReviewListProps> = ({ reviews, profiles, currentUserId, renderRating }) => {
   if (reviews.length === 0) return null;
   return (
-    <ul className="divide-y divide-on-surface/8">
+    <ul className="divide-y divide-on-surface/[0.06]">
       {reviews.map((r) => {
         const profile = profiles[r.userId];
         const name = profile?.display_name

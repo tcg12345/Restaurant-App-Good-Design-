@@ -312,7 +312,7 @@ export const SearchMain: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleSelectResult(place)}
-                        className="w-full flex gap-4 py-4 text-left group active:scale-[0.99] transition-transform"
+                        className="w-full flex gap-4 py-4 px-2 -mx-2 rounded-xl text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05]"
                       >
                         <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
                           {place.photoUrl ? (
@@ -373,7 +373,7 @@ export const SearchMain: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleRecentClick(r)}
-                    className="w-full flex items-center gap-3 py-3.5 pr-10 text-left"
+                    className="w-full flex items-center gap-3 py-3.5 pr-10 pl-2 -ml-2 rounded-lg text-left transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05]"
                   >
                     <SearchIcon size={15} className="text-on-surface/35 flex-shrink-0" />
                     <span className="flex-1 text-[15px] text-on-surface truncate">{r.name}</span>

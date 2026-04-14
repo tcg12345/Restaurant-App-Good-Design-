@@ -57,12 +57,19 @@
   margin-bottom: 1rem;
 }
 
-.scrollbar-hide {
+.scrollbar-hide,
+.no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
-.scrollbar-hide::-webkit-scrollbar {
+.scrollbar-hide::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* Standard list-row highlight reused across Circle, SearchMain, feeds. */
+.list-row-hover {
+  @apply transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05];
 }
 
 @keyframes user-pulse {

@@ -685,12 +685,12 @@ export const RestaurantDetailMobile: React.FC = () => {
                       <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
                         <Image size={12} /> Photos
                       </p>
-                      <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3">
+                      <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 snap-x snap-mandatory">
                         {myRating.photos.map((p, i) => (
                           <img
                             key={i}
                             src={p.url}
-                            className="w-24 h-24 rounded-xl object-cover flex-shrink-0"
+                            className="w-24 h-24 rounded-xl object-cover flex-shrink-0 snap-start"
                             referrerPolicy="no-referrer"
                           />
                         ))}
@@ -859,9 +859,9 @@ export const RestaurantDetailMobile: React.FC = () => {
                                   </div>
                                 )}
                                 {visit.photos && visit.photos.length > 0 && (
-                                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar snap-x snap-mandatory">
                                     {visit.photos.slice(0, 6).map((p, i) => (
-                                      <img key={i} src={p.url} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                                      <img key={i} src={p.url} className="w-16 h-16 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
                                     ))}
                                   </div>
                                 )}

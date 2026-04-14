@@ -1096,7 +1096,7 @@ const AddHotelBreakfastModal: React.FC<{
                       <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
                     </div>
                   ) : (
-                    <div className="divide-y divide-on-surface/8">
+                    <div className="divide-y divide-on-surface/[0.06]">
                       {photos.map((photo, idx) => (
                         <div key={idx} className="flex gap-3 px-5 py-4">
                           <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">

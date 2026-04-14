@@ -224,8 +224,6 @@ export async function searchNearbyRestaurants(
 
   const textQueries = ['popular restaurants'];
 
-  console.log('[Places] multi-query request:', lat, lng, radiusMeters, hasLocation ? `(restricted to ${locationName})` : '');
-
   // When location is set, restrict text queries to the area; otherwise just bias
   const locationParam = hasLocation
     ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: bigRadius } } }
@@ -264,7 +262,6 @@ export async function searchNearbyRestaurants(
   ]);
 
   const combined = [nearbyRes, ...textResults].flat();
-  console.log('[Places] total raw results:', combined.length);
   return deduplicatePlaces(combined);
 }
 
@@ -302,8 +299,6 @@ async function searchWithFilters(
     if (priceLevels) {
       body.priceLevels = priceLevels;
     }
-
-    console.log('[Places] filtered textSearch:', cuisine, priceLevels || 'any price');
 
     const res = await fetch(`${BASE_URL}/places:searchText`, {
       method: 'POST',
@@ -384,8 +379,6 @@ export async function searchPlacesByText(
     ...locationParam,
   };
 
-  console.log('[Places] textSearch request:', query, shouldRestrict ? '(restricted)' : '(biased)', 'radius:', radiusMeters);
-
   const headers = {
     'Content-Type': 'application/json',
     'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
@@ -410,10 +403,7 @@ export async function searchPlacesByText(
 
   // Merge: exact name matches first (higher relevance), then broad results
   const merged = [...foodExact, ...broadPlaces];
-  const result = deduplicatePlaces(merged);
-
-  console.log('[Places] textSearch results — exact:', foodExact.length, 'broad:', broadPlaces.length, 'merged:', result.length);
-  return result;
+  return deduplicatePlaces(merged);
 }
 
 export async function searchHotels(
@@ -432,8 +422,6 @@ export async function searchHotels(
       },
     },
   };
-
-  console.log('[Places] hotelSearch request:', query);
 
   const res = await fetch(`${BASE_URL}/places:searchText`, {
     method: 'POST',
@@ -463,11 +451,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
   // Check cache first
   const cached = placeDetailsCache.get(placeId);
   if (cached && Date.now() - cached.ts < DETAIL_CACHE_TTL) {
-    console.log('[Places] getPlaceDetails (cached):', placeId);
     return cached.data;
   }
-
-  console.log('[Places] getPlaceDetails:', placeId);
 
   const res = await fetch(`${BASE_URL}/places/${placeId}`, {
     method: 'GET',
