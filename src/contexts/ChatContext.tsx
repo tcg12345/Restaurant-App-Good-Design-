@@ -59,6 +59,7 @@ interface ChatContextValue {
   getConversation: (id: string) => Conversation | undefined;
   findDirectConversation: (friendId: string) => Conversation | undefined;
   deleteConversation: (id: string) => void;
+  renameConversation: (id: string, name: string) => void;
   markRead: (conversationId: string) => void;
   unreadCount: number;
   getUnreadForConversation: (conversationId: string) => number;
@@ -203,6 +204,17 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   }, [syncToCloud, readTimestamps]);
 
+  const renameConversation = useCallback((id: string, name: string) => {
+    const trimmed = name.trim();
+    setConversations((prev) => {
+      const next = prev.map((c) =>
+        c.id === id ? { ...c, name: trimmed || undefined } : c
+      );
+      syncToCloud(next, readTimestamps);
+      return next;
+    });
+  }, [syncToCloud, readTimestamps]);
+
   const markRead = useCallback((conversationId: string) => {
     setReadTimestamps((prev) => {
       const next = { ...prev, [conversationId]: Date.now() };
@@ -229,7 +241,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <ChatContext.Provider value={{
       conversations, createConversation, sendMessage, getConversation,
-      findDirectConversation, deleteConversation, markRead,
+      findDirectConversation, deleteConversation, renameConversation, markRead,
       unreadCount, getUnreadForConversation,
     }}>
       {children}

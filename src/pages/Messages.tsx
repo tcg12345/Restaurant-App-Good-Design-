@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, Send, Search, X, Users, Check, MessageCircle, ChevronRight, Star, MapPin, Trash2, Share2, ChefHat, Clock } from 'lucide-react';
+import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, Share2, ChefHat, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,109 +9,141 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useNavigate } from 'react-router-dom';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 
-/* ── Restaurant Share Card ── */
+/* ── Restaurant Share Card (iMessage-style rich preview) ── */
 const RestaurantShareCard: React.FC<{
   restaurant: SharedRestaurant;
+  isMe: boolean;
+  hasTextAbove: boolean;
   onClick?: () => void;
-}> = ({ restaurant, onClick }) => {
-  const scoreColor = (restaurant.score ?? 0) >= 8 ? 'text-green-500' : (restaurant.score ?? 0) >= 5 ? 'text-yellow-500' : 'text-red-400';
+}> = ({ restaurant, isMe, hasTextAbove, onClick }) => {
+  // Color tokens adapt to bubble side
+  const scoreColor = isMe
+    ? 'text-white'
+    : (restaurant.score ?? 0) >= 8 ? 'text-green-600' : (restaurant.score ?? 0) >= 5 ? 'text-yellow-600' : 'text-red-500';
+  const titleCls = isMe ? 'text-white' : 'text-on-surface';
+  const subCls = isMe ? 'text-white/75' : 'text-on-surface/50';
+  const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
+  const tagCls = isMe ? 'bg-white/18 text-white/95' : 'bg-primary/8 text-primary';
 
   return (
-    <button onClick={onClick} className="w-full max-w-[280px] bg-white border border-on-surface/10 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all text-left">
+    <button
+      onClick={onClick}
+      className={cn(
+        "block w-full max-w-[280px] overflow-hidden text-left active:scale-[0.985] transition-transform",
+        // Match bubble corner shape (flat top if text sits above)
+        hasTextAbove ? "rounded-b-2xl" : "rounded-2xl",
+        isMe
+          ? cn("bg-primary", hasTextAbove ? "" : "rounded-br-md")
+          : cn("bg-on-surface/[0.06]", hasTextAbove ? "" : "rounded-bl-md")
+      )}
+    >
       {restaurant.image && (
-        <div className="w-full h-28 overflow-hidden">
+        <div className="w-full aspect-[5/3] overflow-hidden bg-black/5">
           <img src={restaurant.image} alt={restaurant.name} className="w-full h-full object-cover" />
         </div>
       )}
-      <div className="p-3">
+      <div className="px-3.5 py-2.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-on-surface/80 truncate">{restaurant.name}</p>
+            <p className={cn("text-sm font-semibold truncate leading-snug", titleCls)}>{restaurant.name}</p>
             <div className="flex items-center gap-1.5 mt-0.5">
-              {restaurant.cuisine && <span className="text-[11px] text-on-surface/40">{restaurant.cuisine}</span>}
-              {restaurant.price && <span className="text-[11px] text-on-surface/30">{restaurant.price}</span>}
+              {restaurant.cuisine && <span className={cn("text-[11px]", subCls)}>{restaurant.cuisine}</span>}
+              {restaurant.price && <span className={cn("text-[11px]", faintCls)}>{restaurant.price}</span>}
             </div>
           </div>
           {restaurant.isReview && restaurant.score !== undefined && (
-            <div className="flex-shrink-0 text-right">
+            <div className="flex-shrink-0 text-right leading-none pl-1">
               <span className={cn("text-lg font-serif font-bold tabular-nums", scoreColor)}>{restaurant.score.toFixed(1)}</span>
-              <p className="text-[8px] text-on-surface/30 font-medium">/10</p>
+              <p className={cn("text-[9px] font-medium", faintCls)}>/10</p>
             </div>
           )}
         </div>
         {restaurant.address && (
           <div className="flex items-center gap-1 mt-1.5">
-            <MapPin size={10} className="text-on-surface/25 flex-shrink-0" />
-            <span className="text-[10px] text-on-surface/35 truncate">{restaurant.address}</span>
+            <MapPin size={10} className={cn("flex-shrink-0", faintCls)} />
+            <span className={cn("text-[11px] truncate", subCls)}>{restaurant.address}</span>
           </div>
         )}
         {restaurant.isReview && restaurant.notes && (
-          <p className="text-[11px] text-on-surface/40 mt-1.5 line-clamp-2 leading-relaxed">"{restaurant.notes}"</p>
+          <p className={cn("text-[12px] mt-1.5 line-clamp-2 leading-relaxed italic", subCls)}>"{restaurant.notes}"</p>
         )}
         {restaurant.isReview && restaurant.tags && restaurant.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1.5">
             {restaurant.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="px-1.5 py-0.5 bg-primary/5 text-primary text-[9px] font-semibold rounded-full">{tag}</span>
+              <span key={tag} className={cn("px-1.5 py-0.5 text-[10px] font-semibold rounded-full", tagCls)}>{tag}</span>
             ))}
           </div>
         )}
-        <div className="flex items-center gap-1 mt-2 text-primary">
-          <span className="text-[10px] font-semibold">{restaurant.isReview ? 'View Review' : 'View Details'}</span>
-          <ChevronRight size={10} />
-        </div>
       </div>
     </button>
   );
 };
 
-/* ── Recipe Share Card ── */
+/* ── Recipe Share Card (iMessage-style rich preview) ── */
 const RecipeShareCard: React.FC<{
   recipe: SharedRecipe;
+  isMe: boolean;
+  hasTextAbove: boolean;
   onClick?: () => void;
-}> = ({ recipe, onClick }) => {
+}> = ({ recipe, isMe, hasTextAbove, onClick }) => {
   const totalLabel = recipe.totalTime && recipe.totalTime > 0
     ? (recipe.totalTime < 60 ? `${recipe.totalTime}m` : `${Math.floor(recipe.totalTime / 60)}h ${recipe.totalTime % 60 ? `${recipe.totalTime % 60}m` : ''}`.trim())
     : '';
+
+  const titleCls = isMe ? 'text-white' : 'text-on-surface';
+  const subCls = isMe ? 'text-white/75' : 'text-on-surface/50';
+  const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
+  const accentCls = isMe ? 'text-white/90' : 'text-emerald-700';
+  const pillCls = isMe ? 'bg-white/18 text-white/95' : 'bg-emerald-100 text-emerald-700/85';
+  const neutralPillCls = isMe ? 'bg-white/12 text-white/80' : 'bg-on-surface/5 text-on-surface/50';
+
   return (
-    <button onClick={onClick} className="w-full max-w-[280px] bg-gradient-to-br from-emerald-50/60 to-white border border-emerald-200/50 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all text-left">
+    <button
+      onClick={onClick}
+      className={cn(
+        "block w-full max-w-[280px] overflow-hidden text-left active:scale-[0.985] transition-transform",
+        hasTextAbove ? "rounded-b-2xl" : "rounded-2xl",
+        isMe
+          ? cn("bg-primary", hasTextAbove ? "" : "rounded-br-md")
+          : cn("bg-on-surface/[0.06]", hasTextAbove ? "" : "rounded-bl-md")
+      )}
+    >
       {recipe.image && (
-        <div className="w-full h-28 overflow-hidden">
+        <div className="w-full aspect-[5/3] overflow-hidden bg-black/5">
           <img src={recipe.image} alt={recipe.name} className="w-full h-full object-cover" />
         </div>
       )}
-      <div className="p-3">
+      <div className="px-3.5 py-2.5">
         <div className="flex items-center gap-1.5 mb-1">
-          <ChefHat size={12} className="text-emerald-600" />
-          <span className="text-[10px] font-semibold text-emerald-700/70 uppercase tracking-wider">{recipe.authorName}&rsquo;s recipe</span>
+          <ChefHat size={12} className={accentCls} />
+          <span className={cn("text-[10px] font-semibold uppercase tracking-wider", accentCls)}>
+            {recipe.authorName}&rsquo;s recipe
+          </span>
         </div>
-        <p className="text-sm font-serif font-bold text-on-surface/85 truncate">{recipe.name}</p>
+        <p className={cn("text-sm font-serif font-bold truncate leading-snug", titleCls)}>{recipe.name}</p>
         {recipe.description && (
-          <p className="text-[11px] text-on-surface/45 mt-0.5 line-clamp-1 leading-snug italic">{recipe.description}</p>
+          <p className={cn("text-[12px] mt-0.5 line-clamp-1 leading-snug italic", subCls)}>{recipe.description}</p>
         )}
         <div className="flex items-center flex-wrap gap-1.5 mt-2">
           {totalLabel && (
-            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700/80 bg-emerald-100 px-1.5 py-0.5 rounded-full">
+            <span className={cn("inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full", pillCls)}>
               <Clock size={9} /> {totalLabel}
             </span>
           )}
           {recipe.difficulty && (
-            <span className="text-[9px] font-semibold text-on-surface/40 bg-on-surface/5 px-1.5 py-0.5 rounded-full">{recipe.difficulty}</span>
+            <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full", neutralPillCls)}>{recipe.difficulty}</span>
           )}
           {(recipe.ingredientCount ?? 0) > 0 && (
-            <span className="text-[9px] text-on-surface/40">{recipe.ingredientCount} ingredients</span>
+            <span className={cn("text-[10px]", faintCls)}>{recipe.ingredientCount} ingredients</span>
           )}
         </div>
         {recipe.tags && recipe.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1.5">
             {recipe.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[9px] font-semibold rounded-full">{tag}</span>
+              <span key={tag} className={cn("px-1.5 py-0.5 text-[10px] font-semibold rounded-full", neutralPillCls)}>{tag}</span>
             ))}
           </div>
         )}
-        <div className="flex items-center gap-1 mt-2 text-emerald-600">
-          <span className="text-[10px] font-semibold">View Recipe</span>
-          <ChevronRight size={10} />
-        </div>
       </div>
     </button>
   );
@@ -386,13 +418,48 @@ const NewChatSheet: React.FC<{
   );
 };
 
+/* ── Read-receipt helpers ── */
+type ReceiptStatus = 'sent' | 'delivered' | 'read';
+
+// TODO(backend): replace with real per-message delivery/read status from Supabase
+// realtime message_receipts table or presence. For now every outgoing message is
+// reported as "sent" so the progression UI is ready without lying about state.
+const getReceiptStatus = (_messageId: string): ReceiptStatus => 'sent';
+
+const MessageReceipt: React.FC<{ status: ReceiptStatus }> = ({ status }) => {
+  const label = status === 'read' ? 'Read' : status === 'delivered' ? 'Delivered' : 'Sent';
+  const tone = status === 'read' ? 'text-primary' : 'text-on-surface/35';
+  return (
+    <div className={cn("flex items-center gap-1 mt-1 px-1", tone)}>
+      {status === 'sent'
+        ? <Check size={11} className="stroke-[2.5]" />
+        : <CheckCheck size={12} className="stroke-[2.5]" />
+      }
+      <span className="text-[11px] font-medium">{label}</span>
+    </div>
+  );
+};
+
+/* ── Typing Indicator (animated three-dot bubble) ── */
+const TypingIndicator: React.FC = () => (
+  <div className="flex justify-start">
+    <div className="bg-on-surface/[0.06] rounded-2xl rounded-bl-md px-3.5 py-2.5">
+      <div className="flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-on-surface/45 animate-pulse [animation-duration:1.2s]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-on-surface/45 animate-pulse [animation-duration:1.2s] [animation-delay:150ms]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-on-surface/45 animate-pulse [animation-duration:1.2s] [animation-delay:300ms]" />
+      </div>
+    </div>
+  </div>
+);
+
 /* ── Chat View (individual conversation) ── */
 const ChatView: React.FC<{
   conversation: Conversation;
   profiles: Record<string, UserProfile>;
   onBack: () => void;
 }> = ({ conversation, profiles, onBack }) => {
-  const { sendMessage, markRead, deleteConversation } = useChat();
+  const { sendMessage, markRead, deleteConversation, renameConversation } = useChat();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [text, setText] = useState('');
@@ -402,6 +469,15 @@ const ChatView: React.FC<{
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Group-chat rename banner state
+  const isUnnamedGroup = conversation.isGroup && (!conversation.name || conversation.name === 'Group Chat');
+  const [groupNameDraft, setGroupNameDraft] = useState('');
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // TODO(backend): replace with real typing presence from Supabase realtime or pusher.
+  // For now we keep the local state wired up so the component is ready.
+  const [isOtherTyping] = useState(false);
+
   useEffect(() => {
     markRead(conversation.id);
   }, [conversation.id, conversation.messages.length, markRead]);
@@ -410,7 +486,22 @@ const ChatView: React.FC<{
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [conversation.messages.length]);
+  }, [conversation.messages.length, isOtherTyping]);
+
+  // Index of the last message sent by the current user (for read receipts)
+  const lastSentIndex = useMemo(() => {
+    for (let i = conversation.messages.length - 1; i >= 0; i--) {
+      if (conversation.messages[i].senderId === user?.id) return i;
+    }
+    return -1;
+  }, [conversation.messages, user?.id]);
+
+  const handleSaveGroupName = () => {
+    const trimmed = groupNameDraft.trim();
+    if (!trimmed) { setBannerDismissed(true); return; }
+    renameConversation(conversation.id, trimmed);
+    setGroupNameDraft('');
+  };
 
   const handleSend = () => {
     if (!text.trim() && !pendingShare) return;
@@ -488,6 +579,52 @@ const ChatView: React.FC<{
         )}
       </AnimatePresence>
 
+      {/* Group-chat naming banner (unnamed group chats only) */}
+      <AnimatePresence>
+        {isUnnamedGroup && !bannerDismissed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden flex-shrink-0"
+          >
+            <div className="bg-primary/[0.04] border-b border-primary/15 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <Users size={13} className="text-primary flex-shrink-0" />
+                  <p className="text-[12px] font-semibold text-primary/90 flex-shrink-0">Name this group</p>
+                  <input
+                    type="text"
+                    value={groupNameDraft}
+                    onChange={(e) => setGroupNameDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSaveGroupName(); } }}
+                    placeholder="e.g. Weekend brunch crew"
+                    maxLength={40}
+                    className="flex-1 min-w-0 bg-transparent text-[13px] font-medium text-on-surface placeholder:text-on-surface/30 focus:outline-none"
+                  />
+                </div>
+                {groupNameDraft.trim() ? (
+                  <button
+                    onClick={handleSaveGroupName}
+                    className="px-3 h-7 text-[11px] font-bold text-white bg-primary rounded-full flex-shrink-0 active:scale-95 transition-transform"
+                  >
+                    Save
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setBannerDismissed(true)}
+                    className="p-1 text-primary/50 hover:text-primary/80 transition-colors flex-shrink-0"
+                    aria-label="Dismiss"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-3">
         {conversation.messages.length === 0 && (
@@ -502,6 +639,9 @@ const ChatView: React.FC<{
           const showSender = conversation.isGroup && !isMe;
           const prevMsg = idx > 0 ? conversation.messages[idx - 1] : null;
           const showTimestamp = !prevMsg || (msg.timestamp - prevMsg.timestamp) > 300000; // 5 min gap
+          const hasShared = !!(msg.sharedRestaurant || msg.sharedRecipe);
+          const hasText = !!msg.text;
+          const isLastSent = idx === lastSentIndex;
 
           return (
             <React.Fragment key={msg.id}>
@@ -514,26 +654,35 @@ const ChatView: React.FC<{
                 </div>
               )}
               <div className={cn("flex", isMe ? "justify-end" : "justify-start")}>
-                <div className={cn("max-w-[80%]", isMe ? "items-end" : "items-start")}>
+                <div className={cn("max-w-[80%] flex flex-col", isMe ? "items-end" : "items-start")}>
                   {showSender && (
                     <p className="text-[10px] font-semibold text-on-surface/40 mb-0.5 px-1">{getParticipantName(msg.senderId)}</p>
                   )}
-                  {(msg.sharedRestaurant || msg.sharedRecipe) ? (
-                    <div className={cn("rounded-2xl overflow-hidden", isMe ? "rounded-br-md" : "rounded-bl-md")}>
-                      {msg.text && (
-                        <div className={cn("px-3.5 py-2 text-sm", isMe ? "bg-primary text-white" : "bg-on-surface/[0.06] text-on-surface/80")}>
+                  {hasShared ? (
+                    <div className={cn("flex flex-col", isMe ? "items-end" : "items-start")}>
+                      {hasText && (
+                        <div className={cn(
+                          "px-3.5 py-2 text-sm leading-relaxed rounded-2xl mb-1",
+                          isMe
+                            ? "bg-primary text-white rounded-br-md"
+                            : "bg-on-surface/[0.06] text-on-surface rounded-bl-md"
+                        )}>
                           {msg.text}
                         </div>
                       )}
                       {msg.sharedRestaurant && (
                         <RestaurantShareCard
                           restaurant={msg.sharedRestaurant}
+                          isMe={isMe}
+                          hasTextAbove={false}
                           onClick={() => handleRestaurantClick(msg.sharedRestaurant!)}
                         />
                       )}
                       {msg.sharedRecipe && (
                         <RecipeShareCard
                           recipe={msg.sharedRecipe}
+                          isMe={isMe}
+                          hasTextAbove={false}
                           onClick={() => navigate(`/meal/${msg.sharedRecipe!.authorId}/${msg.sharedRecipe!.mealId}`)}
                         />
                       )}
@@ -542,16 +691,22 @@ const ChatView: React.FC<{
                     <div className={cn("px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed",
                       isMe
                         ? "bg-primary text-white rounded-br-md"
-                        : "bg-on-surface/[0.06] text-on-surface/80 rounded-bl-md"
+                        : "bg-on-surface/[0.06] text-on-surface rounded-bl-md"
                     )}>
                       {msg.text}
                     </div>
+                  )}
+                  {/* Read receipt under the last sent message */}
+                  {isMe && isLastSent && (
+                    <MessageReceipt status={getReceiptStatus(msg.id)} />
                   )}
                 </div>
               </div>
             </React.Fragment>
           );
         })}
+        {/* Typing indicator (other participant) */}
+        {isOtherTyping && <TypingIndicator />}
       </div>
 
       {/* Pending share preview */}
@@ -772,13 +927,13 @@ export const Messages: React.FC = () => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <p className={cn("text-sm font-semibold truncate", unread > 0 ? "text-on-surface" : "text-on-surface/70")}>{getConversationTitle(conv)}</p>
-                      <span className="text-[10px] text-on-surface/30 flex-shrink-0">{formatTime(conv.lastMessageAt)}</span>
+                      <p className={cn("text-[15px] font-semibold truncate", unread > 0 ? "text-on-surface" : "text-on-surface/75")}>{getConversationTitle(conv)}</p>
+                      <span className={cn("text-[11px] flex-shrink-0", unread > 0 ? "text-primary font-semibold" : "text-on-surface/35")}>{formatTime(conv.lastMessageAt)}</span>
                     </div>
                     <div className="flex items-center justify-between gap-2 mt-0.5">
-                      <p className={cn("text-xs truncate", unread > 0 ? "text-on-surface/60 font-medium" : "text-on-surface/35")}>{getLastMessage(conv)}</p>
+                      <p className={cn("text-[13px] truncate leading-snug", unread > 0 ? "text-on-surface/70 font-medium" : "text-on-surface/40")}>{getLastMessage(conv)}</p>
                       {unread > 0 && (
-                        <span className="min-w-[18px] h-[18px] px-1 bg-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="min-w-[20px] h-[20px] px-1.5 bg-primary text-white text-[11px] font-bold rounded-full flex items-center justify-center flex-shrink-0 shadow-sm shadow-primary/25">
                           {unread}
                         </span>
                       )}
