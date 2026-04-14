@@ -8,10 +8,11 @@
  * UI concerns and do NOT change the user's saved data.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Clock, X, ChevronLeft, ChevronRight, Check, Minus, Plus } from 'lucide-react';
 import { cn } from './utils';
+import { useRecipes } from '../contexts/RecipesContext';
 
 /** Formats a minute total as a short "X hr Y min" string. */
 export const formatDuration = (minutes: number): string => {
@@ -248,5 +249,333 @@ export const PhotoLightbox: React.FC<{
         </div>
       </motion.div>
     </AnimatePresence>
+  );
+};
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Editorial recipe building blocks shared by RecipeDetail (own recipes) and
+   MealRecipePage (friends' published meals). All flat — no card containers,
+   relying on type weight + thin dividers for structure so both pages feel
+   like a printed cookbook page rather than a stack of widgets.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/** A single label/value pair for the horizontal quick-info row. */
+export type QuickInfoItem = { label: string; value: string };
+
+/**
+ * Magazine-style recipe metadata row — values stacked over uppercase labels,
+ * each cell separated by a thin vertical divider. No background or border on
+ * the row itself; the dividers and typography do the work.
+ */
+export const RecipeQuickInfoRow: React.FC<{ items: QuickInfoItem[]; className?: string }> = ({ items, className }) => {
+  if (items.length === 0) return null;
+  return (
+    <div className={cn("flex items-stretch", className)}>
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className="flex-1 min-w-0 px-3 first:pl-0 last:pr-0 border-l border-on-surface/10 first:border-l-0 text-center first:text-left last:text-right"
+        >
+          <p className="font-serif font-bold text-[18px] leading-tight text-on-surface tabular-nums whitespace-nowrap">
+            {item.value}
+          </p>
+          <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mt-0.5">
+            {item.label}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+/** Lightweight ingredient shape both data sources can satisfy. */
+export type RecipeIngredientLite = { name: string; amount?: string; unit?: string };
+
+interface RecipeIngredientListProps {
+  /** Stable key (recipe / meal id) used to scope the checkbox state. */
+  recipeKey: string;
+  ingredients: RecipeIngredientLite[];
+  /** Optional servings stepper. Provide base + scale and the component handles math. */
+  servings?: {
+    base: number;
+    scale: number;
+    onScaleChange: (scale: number) => void;
+  };
+}
+
+/**
+ * Flat ingredient list with a checkbox column and bold quantities. No outer
+ * card — uses thin dividers to separate rows. Checkbox state lives in
+ * RecipesContext so it survives in-session navigation.
+ */
+export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ recipeKey, ingredients, servings }) => {
+  const { getCheckedIngredients, toggleIngredientCheck } = useRecipes();
+  const checked = getCheckedIngredients(recipeKey);
+  const ratio = servings?.scale ?? 1;
+
+  if (ingredients.length === 0) return null;
+
+  const displayServings = servings ? Math.max(1, Math.round(servings.base * servings.scale)) : 0;
+
+  return (
+    <div>
+      {servings && (
+        <div className="flex items-center justify-between gap-3 pb-3 mb-1 border-b border-on-surface/8">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mb-0.5">Scale for</p>
+            <p className="text-sm font-semibold text-on-surface tabular-nums">
+              {displayServings} serving{displayServings !== 1 ? 's' : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 bg-on-surface/[0.04] border border-on-surface/10 rounded-full">
+            <button
+              type="button"
+              onClick={() => servings.onScaleChange(Math.max(0.25, (displayServings - 1) / servings.base))}
+              disabled={displayServings <= 1}
+              className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface disabled:opacity-30 transition-colors"
+              aria-label="Decrease servings"
+            >
+              <Minus size={14} />
+            </button>
+            <div className="w-9 text-center text-sm font-semibold tabular-nums">{displayServings}</div>
+            <button
+              type="button"
+              onClick={() => servings.onScaleChange((displayServings + 1) / servings.base)}
+              className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface transition-colors"
+              aria-label="Increase servings"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <ul className="divide-y divide-on-surface/6">
+        {ingredients.map((ing, i) => {
+          const isChecked = checked.has(i);
+          const scaledAmount = ing.amount ? scaleQuantity(ing.amount, ratio) : '';
+          return (
+            <li key={i}>
+              <label className={cn(
+                "flex items-baseline gap-3 py-3 cursor-pointer group transition-opacity",
+                isChecked && "opacity-40",
+              )}>
+                <span className="flex items-center flex-shrink-0 translate-y-[2px]">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggleIngredientCheck(recipeKey, i)}
+                    className="sr-only peer"
+                  />
+                  <span className={cn(
+                    "w-[20px] h-[20px] rounded border-2 flex items-center justify-center transition-all",
+                    isChecked
+                      ? "bg-emerald-500 border-emerald-500 text-white"
+                      : "border-on-surface/20 group-hover:border-on-surface/40",
+                  )}>
+                    {isChecked && <Check size={13} strokeWidth={3} />}
+                  </span>
+                </span>
+                <span className={cn(
+                  "flex-1 text-[15px] leading-[1.6] text-on-surface/80",
+                  isChecked && "line-through",
+                )}>
+                  {(scaledAmount || ing.unit) && (
+                    <span className="font-semibold text-on-surface tabular-nums">
+                      {scaledAmount}{ing.unit ? ` ${ing.unit}` : ''}
+                      {ing.name ? ' ' : ''}
+                    </span>
+                  )}
+                  <span className="text-on-surface/70">{ing.name}</span>
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+};
+
+/**
+ * Editorial directions list: "Step N" eyebrow label over body text, separated
+ * by hairline dividers. No card per step. Auto-injects a StepTimer when the
+ * step text contains a recognised duration.
+ */
+export const RecipeDirectionsList: React.FC<{ steps: string[] }> = ({ steps }) => {
+  if (steps.length === 0) return null;
+  return (
+    <ol className="divide-y divide-on-surface/6">
+      {steps.map((step, i) => {
+        const timerMinutes = extractStepMinutes(step);
+        return (
+          <li key={i} className="py-5 first:pt-0 last:pb-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-600 mb-1.5">
+              Step {i + 1}
+            </p>
+            <p className="text-[16px] leading-[1.7] text-on-surface/85 whitespace-pre-wrap">
+              {step}
+            </p>
+            {timerMinutes !== null && (
+              <div className="mt-2">
+                <StepTimer minutes={timerMinutes} />
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+};
+
+/** Minimal review shape both data sources can satisfy. */
+export type ReviewListItem = {
+  id: string;
+  userId: string;
+  rating: number;
+  notes?: string;
+  photo?: string;
+  createdAt?: string;
+};
+
+interface RecipeReviewListProps {
+  reviews: ReviewListItem[];
+  profiles: Record<string, { display_name?: string; username?: string } | undefined>;
+  currentUserId?: string | null;
+  /** Page-supplied rating renderer (stars vs numeric vs whatever else). */
+  renderRating?: (rating: number) => React.ReactNode;
+}
+
+/**
+ * Flat review list — no per-review cards. Bold inline name + date header, the
+ * page-supplied rating sits on the right, and review text wraps below.
+ * Hairline dividers between entries.
+ */
+export const RecipeReviewList: React.FC<RecipeReviewListProps> = ({ reviews, profiles, currentUserId, renderRating }) => {
+  if (reviews.length === 0) return null;
+  return (
+    <ul className="divide-y divide-on-surface/8">
+      {reviews.map((r) => {
+        const profile = profiles[r.userId];
+        const name = profile?.display_name
+          || profile?.username
+          || (r.userId === currentUserId ? 'You' : 'Anonymous');
+        const date = r.createdAt
+          ? new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : '';
+        return (
+          <li key={r.id} className="py-4 first:pt-0 last:pb-0">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-sm font-semibold text-on-surface">{name}</span>
+              {date && (
+                <>
+                  <span className="text-on-surface/30">·</span>
+                  <span className="text-xs text-on-surface/45">{date}</span>
+                </>
+              )}
+              {renderRating && <div className="ml-auto">{renderRating(r.rating)}</div>}
+            </div>
+            {r.notes && (
+              <p className="text-[14px] text-on-surface/70 leading-[1.6] whitespace-pre-wrap">
+                {r.notes}
+              </p>
+            )}
+            {r.photo && (
+              <img src={r.photo} alt="" className="mt-2 w-full rounded-xl object-cover max-h-48" />
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+};
+
+interface RecipeMobileSectionNavProps {
+  sections: { id: string; label: string }[];
+  /** Sticky offset from top — used when there's a fixed header above. */
+  topOffset?: number;
+}
+
+/**
+ * Sticky horizontal section navigation for mobile recipe pages. Highlights
+ * the current section using IntersectionObserver as the user scrolls and
+ * auto-scrolls the active pill into view.
+ */
+export const RecipeMobileSectionNav: React.FC<RecipeMobileSectionNavProps> = ({ sections, topOffset = 0 }) => {
+  const [activeId, setActiveId] = useState<string>(sections[0]?.id ?? '');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Re-seed the active id whenever the section list changes shape so we don't
+  // get stuck pointing at a stale section after data loads.
+  useEffect(() => {
+    if (sections.length === 0) return;
+    if (!sections.find((s) => s.id === activeId)) setActiveId(sections[0].id);
+  }, [sections, activeId]);
+
+  useEffect(() => {
+    if (sections.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActiveId(visible[0].target.id);
+      },
+      { rootMargin: `-${topOffset + 60}px 0px -55% 0px`, threshold: 0 },
+    );
+    sections.forEach((s) => {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, [sections, topOffset]);
+
+  // Keep the active pill in view as it changes.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !activeId) return;
+    const activeBtn = container.querySelector<HTMLButtonElement>(`[data-section-id="${activeId}"]`);
+    if (!activeBtn) return;
+    const containerRect = container.getBoundingClientRect();
+    const btnRect = activeBtn.getBoundingClientRect();
+    if (btnRect.left < containerRect.left || btnRect.right > containerRect.right) {
+      activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }, [activeId]);
+
+  if (sections.length === 0) return null;
+
+  return (
+    <div
+      className="sticky z-20 bg-surface/95 backdrop-blur-md border-b border-on-surface/8"
+      style={{ top: topOffset }}
+    >
+      <div ref={containerRef} className="flex gap-1 px-4 py-2 overflow-x-auto scrollbar-hide">
+        {sections.map((s) => {
+          const isActive = s.id === activeId;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              data-section-id={s.id}
+              onClick={() => {
+                const el = document.getElementById(s.id);
+                if (!el) return;
+                const elTop = el.getBoundingClientRect().top + window.scrollY - topOffset - 56;
+                window.scrollTo({ top: elTop, behavior: 'smooth' });
+              }}
+              className={cn(
+                "px-3.5 py-1.5 rounded-full text-[12px] font-semibold whitespace-nowrap transition-colors",
+                isActive
+                  ? "bg-on-surface text-surface"
+                  : "text-on-surface/55 hover:text-on-surface hover:bg-on-surface/5",
+              )}
+            >
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 };

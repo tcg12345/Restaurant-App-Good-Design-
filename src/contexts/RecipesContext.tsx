@@ -54,6 +54,13 @@ interface RecipesContextValue {
   openRecipeModal: (recipe?: Recipe) => void;
   closeRecipeModal: () => void;
 
+  // Transient UI state — ingredient checkboxes keyed by a stable recipe key.
+  // Lives only in memory so navigating away and back within a session
+  // preserves the checkmarks; a hard refresh clears them.
+  getCheckedIngredients: (recipeKey: string) => ReadonlySet<number>;
+  toggleIngredientCheck: (recipeKey: string, idx: number) => void;
+  clearIngredientChecks: (recipeKey: string) => void;
+
   // Loading
   loading: boolean;
 }
@@ -77,6 +84,10 @@ function saveToStorage(key: string, value: unknown) {
 
 /* ── Context ── */
 
+// Stable empty-set sentinel so getCheckedIngredients returns referential
+// equality across renders for recipes with no checks yet.
+const EMPTY_INGREDIENT_SET: ReadonlySet<number> = new Set<number>();
+
 const RecipesContext = createContext<RecipesContextValue | null>(null);
 
 export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -97,6 +108,10 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
   // Modal state
   const [recipeModalOpen, setRecipeModalOpen] = useState(false);
   const [recipeModalData, setRecipeModalData] = useState<Recipe | null>(null);
+
+  // Transient ingredient checkbox state — preserved across navigation
+  // within a session, never written to storage.
+  const [checkedIngredients, setCheckedIngredients] = useState<Record<string, Set<number>>>({});
 
   // ── Load user's recipes from cloud on sign-in ──
   useEffect(() => {
@@ -228,6 +243,32 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
     setRecipeModalData(null);
   }, []);
 
+  // ── Ingredient check state ──
+
+  const getCheckedIngredients = useCallback(
+    (recipeKey: string): ReadonlySet<number> => checkedIngredients[recipeKey] ?? EMPTY_INGREDIENT_SET,
+    [checkedIngredients],
+  );
+
+  const toggleIngredientCheck = useCallback((recipeKey: string, idx: number) => {
+    setCheckedIngredients((prev) => {
+      const current = prev[recipeKey] ?? new Set<number>();
+      const next = new Set(current);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return { ...prev, [recipeKey]: next };
+    });
+  }, []);
+
+  const clearIngredientChecks = useCallback((recipeKey: string) => {
+    setCheckedIngredients((prev) => {
+      if (!(recipeKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[recipeKey];
+      return next;
+    });
+  }, []);
+
   // ── Provider value ──
 
   const value: RecipesContextValue = {
@@ -236,6 +277,7 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
     fetchPublicRecipes, fetchExpertRecipes, fetchFriendRecipes,
     getReviewsForRecipe, getMyReviews, upsertReview, deleteReview: deleteReviewFn,
     recipeModalOpen, recipeModalData, openRecipeModal, closeRecipeModal,
+    getCheckedIngredients, toggleIngredientCheck, clearIngredientChecks,
     loading,
   };
 
