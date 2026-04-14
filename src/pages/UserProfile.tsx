@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, ChefHat, UtensilsCrossed, Crown } from 'lucide-react';
+import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, ChefHat, UtensilsCrossed, Crown, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -442,11 +442,11 @@ export const UserProfile: React.FC = () => {
           {userId && userId !== profile.user_id && (
             <div className="mt-3">
               {isFollowing ? (
-                <span className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-on-surface/5 border border-on-surface/10 text-xs font-semibold text-on-surface/50">
+                <span className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-on-surface/[0.06] text-xs font-semibold text-on-surface/55">
                   <Check size={13} /> Following
                 </span>
               ) : followSent ? (
-                <span className="px-4 py-2 rounded-full bg-on-surface/5 border border-on-surface/10 text-xs font-semibold text-on-surface/50">Request Sent</span>
+                <span className="px-4 py-2 rounded-full bg-on-surface/[0.06] text-xs font-semibold text-on-surface/55">Request Sent</span>
               ) : (
                 <button onClick={handleFollow} className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-primary text-white text-xs font-semibold">
                   <UserPlus size={13} /> {profile.is_public ? 'Follow' : 'Send Request'}
@@ -459,25 +459,36 @@ export const UserProfile: React.FC = () => {
         {/* Content */}
         {canView ? (
           <>
-            {/* Shared restaurants */}
+            {/* Shared restaurants — In Common */}
             {sharedRestaurants.length > 0 && (
-              <section className="mb-5">
-                <div className="flex items-center gap-2 mb-2">
+              <section className="mb-5 -mx-3">
+                <div className="flex items-center gap-2 mb-2.5 px-3">
                   <Users size={14} className="text-primary" />
                   <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">In Common ({sharedRestaurants.length})</h3>
                 </div>
-                <div className="flex gap-2 overflow-x-auto pb-1 -mx-3 px-3 scrollbar-hide">
-                  {sharedRestaurants.slice(0, 10).map((r) => (
-                    <Link key={r.id || r.restaurant_id} to={`/restaurant/${r.restaurant_id}`} className="flex-shrink-0 w-28">
-                      <div className="bg-white rounded-xl border border-on-surface/8 p-2 text-center">
-                        <p className="text-xs font-semibold truncate">{r.restaurant_name}</p>
-                        <div className="flex items-center justify-center gap-1 mt-0.5">
-                          <span className={cn("text-xs font-bold", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
-                          <span className="text-[9px] text-on-surface/30">/ 10</span>
+                <div className="flex gap-2.5 overflow-x-auto pb-2 px-3 scrollbar-hide snap-x snap-mandatory">
+                  {sharedRestaurants.slice(0, 10).map((r) => {
+                    const photo = (photosByRestaurant[r.restaurant_id] || [])[0]?.url;
+                    return (
+                      <Link key={r.id || r.restaurant_id} to={`/restaurant/${r.restaurant_id}`} className="flex-shrink-0 w-32 snap-start group">
+                        <div className="relative aspect-square rounded-2xl overflow-hidden bg-on-surface/[0.05]">
+                          {photo ? (
+                            <img src={photo} alt="" className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.05]" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center text-on-surface/15 font-serif text-4xl font-bold">{r.restaurant_name.charAt(0)}</div>
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+                          <div className="absolute inset-x-0 bottom-0 p-2.5">
+                            <p className="text-white text-[12px] font-bold leading-tight drop-shadow-sm line-clamp-2">{r.restaurant_name}</p>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <Star size={9} className="fill-white text-white" />
+                              <span className="text-white/95 text-[10px] font-semibold tabular-nums">{Number(r.score).toFixed(1)}</span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </Link>
-                  ))}
+                      </Link>
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -485,15 +496,15 @@ export const UserProfile: React.FC = () => {
             {/* Search bar + filters button */}
             <div className="flex gap-2 mb-3">
               <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/25" />
                 <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search restaurants..."
-                  className="w-full bg-white rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium border border-on-surface/8 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  className="w-full bg-on-surface/[0.04] rounded-full py-2 pl-9 pr-9 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06] transition-colors" />
                 {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30"><X size={14} /></button>}
               </div>
               <button onClick={() => setFiltersOpen(true)}
-                className={cn("px-3 rounded-xl border flex items-center gap-1.5 flex-shrink-0 transition-colors",
-                  activeFilterCount > 0 ? "bg-primary/10 border-primary/20 text-primary" : "bg-white border-on-surface/8 text-on-surface/40")}>
+                className={cn("px-3.5 rounded-full flex items-center gap-1.5 flex-shrink-0 transition-colors",
+                  activeFilterCount > 0 ? "bg-primary/10 text-primary" : "bg-on-surface/[0.04] text-on-surface/40 hover:bg-on-surface/[0.06]")}>
                 <SlidersHorizontal size={14} />
                 {activeFilterCount > 0 && <span className="w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">{activeFilterCount}</span>}
               </button>
@@ -503,8 +514,8 @@ export const UserProfile: React.FC = () => {
             {userLists.length > 0 && (
               <div className="relative mb-3">
                 <button onClick={() => setListDropdownOpen(!listDropdownOpen)}
-                  className={cn("flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all border w-full justify-between",
-                    selectedListId ? "bg-primary/10 text-primary border-primary/20" : "bg-white text-on-surface/50 border-on-surface/8")}>
+                  className={cn("flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-all w-full justify-between",
+                    selectedListId ? "bg-primary/10 text-primary" : "bg-on-surface/[0.04] text-on-surface/50 hover:bg-on-surface/[0.06]")}>
                   <span>{selectedListName ? `${userLists.find(l => l.id === selectedListId)?.emoji} ${selectedListName}` : 'All Restaurants'}</span>
                   <div className="flex items-center gap-1">
                     {selectedListId && <span onClick={(e) => { e.stopPropagation(); setSelectedListId(null); setListDropdownOpen(false); }}><X size={12} /></span>}
@@ -514,7 +525,7 @@ export const UserProfile: React.FC = () => {
                 {listDropdownOpen && (
                   <>
                     <div className="fixed inset-0 z-30" onClick={() => setListDropdownOpen(false)} />
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-on-surface/10 z-40 max-h-48 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-surface rounded-2xl shadow-xl shadow-on-surface/10 z-40 max-h-48 overflow-y-auto py-1">
                       <button onClick={() => { setSelectedListId(null); setListDropdownOpen(false); }}
                         className={cn("w-full text-left px-3.5 py-2.5 text-xs font-medium hover:bg-on-surface/5 transition-colors",
                           !selectedListId ? "text-primary bg-primary/5" : "text-on-surface/70")}>
@@ -551,31 +562,32 @@ export const UserProfile: React.FC = () => {
               {isWishlistSelected ? `${filteredWishlist.length} wishlisted` : `${filteredRatings.length} restaurant${filteredRatings.length !== 1 ? 's' : ''}`}
             </p>
 
-            {/* Wishlist items (when wishlist selected) */}
+            {/* Wishlist items (when wishlist selected) — flat divider list */}
             {isWishlistSelected && (
-              <div className="space-y-2 pb-20">
+              <ul className="-mx-3 pb-20">
                 {filteredWishlist.length === 0 ? (
-                  <div className="text-center py-12"><p className="text-sm text-on-surface/30">No wishlist items</p></div>
+                  <li className="text-center py-12"><p className="text-sm text-on-surface/30">No wishlist items</p></li>
                 ) : (
                   filteredWishlist.map((w) => (
-                    <Link key={w.restaurantId} to={`/restaurant/${w.restaurantId}`} className="block">
-                      <div className="bg-white rounded-xl border border-on-surface/8 px-3 py-2.5 active:scale-[0.99] transition-transform">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <h3 className="font-serif font-bold text-sm truncate">{w.name}</h3>
-                            <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">
-                              {w.cuisine}{w.price ? ` · ${w.price}` : ''}
-                              {w.address && ` · ${w.address.split(',').slice(-1)[0]?.trim()}`}
-                            </p>
-                          </div>
-                          <span className="text-xs text-red-400 flex-shrink-0">❤️</span>
+                    <li key={w.restaurantId} className="border-b border-on-surface/[0.06]">
+                      <Link to={`/restaurant/${w.restaurantId}`}
+                        className="flex items-center gap-3.5 px-3 py-3.5 active:bg-on-surface/[0.02] transition-colors">
+                        <div className="w-14 h-14 rounded-lg bg-rose-50/70 flex items-center justify-center flex-shrink-0">
+                          <Heart size={20} className="text-rose-400 fill-rose-100" />
                         </div>
-                        {w.notes && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-1">"{w.notes}"</p>}
-                      </div>
-                    </Link>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-serif font-bold text-[15px] truncate leading-snug">{w.name}</h3>
+                          <p className="text-[12px] text-on-surface/45 truncate mt-1">
+                            {w.cuisine}{w.price ? ` · ${w.price}` : ''}
+                            {w.address && ` · ${w.address.split(',').slice(-1)[0]?.trim()}`}
+                          </p>
+                          {w.notes && <p className="text-[11px] text-on-surface/35 italic mt-0.5 line-clamp-1">&ldquo;{w.notes}&rdquo;</p>}
+                        </div>
+                      </Link>
+                    </li>
                   ))
                 )}
-              </div>
+              </ul>
             )}
 
             {/* Ratings list — flat rows with dividers, thumbnail flush left, score right */}
@@ -670,43 +682,42 @@ export const UserProfile: React.FC = () => {
             </ul>
             )}
 
-            {/* Home Cooking section */}
+            {/* Home Cooking section — flat divider rows */}
             {canView && publicHomeMeals.length > 0 && (
-              <section className="mb-5 mt-3">
-                <div className="flex items-center gap-2 mb-3">
+              <section className="mb-5 mt-4 -mx-3">
+                <div className="flex items-center gap-2 mb-2 px-3">
                   <ChefHat size={14} className="text-emerald-600" />
                   <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Home Cooking ({publicHomeMeals.length})</h3>
                 </div>
-                <div className="space-y-2">
+                <ul>
                   {publicHomeMeals.map((meal) => {
                     const coverUrl = getMealCoverUrl(meal);
                     return (
-                    <div key={meal.id} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
-                      {coverUrl && (
-                        <img src={coverUrl} alt={meal.name} className="w-full aspect-[16/9] object-cover" />
-                      )}
-                      <div className="px-3 py-2.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <h4 className="font-serif font-bold text-sm truncate">{meal.name}</h4>
-                            <p className="text-[10px] text-on-surface/40">
+                      <li key={meal.id} className="border-b border-on-surface/[0.06]">
+                        <div className="flex items-center gap-3.5 px-3 py-3.5 active:bg-on-surface/[0.02] transition-colors">
+                          <div className="w-14 h-14 rounded-lg overflow-hidden bg-emerald-50/70 flex-shrink-0 flex items-center justify-center">
+                            {coverUrl ? (
+                              <img src={coverUrl} alt={meal.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <ChefHat size={18} className="text-emerald-500/60" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-serif font-bold text-[15px] truncate leading-snug">{meal.name}</h4>
+                            <p className="text-[12px] text-on-surface/45 truncate mt-1">
                               {new Date(meal.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                               {meal.dishes.length > 0 && (
-                                <> · <UtensilsCrossed size={9} className="inline -mt-0.5" /> {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</>
+                                <> · <UtensilsCrossed size={10} className="inline -mt-0.5" /> {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</>
                               )}
                             </p>
+                            {meal.description && <p className="text-[11px] text-on-surface/35 italic mt-0.5 line-clamp-1">&ldquo;{meal.description}&rdquo;</p>}
                           </div>
-                          <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
+                          <span className={cn("text-2xl font-serif font-bold leading-none tabular-nums flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
                         </div>
-                        {meal.description && <p className="text-[10px] text-on-surface/40 italic mt-1 line-clamp-2">&ldquo;{meal.description}&rdquo;</p>}
-                        {meal.tags.length > 0 && (
-                          <div className="flex gap-1 mt-1">{meal.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600">{t}</span>)}</div>
-                        )}
-                      </div>
-                    </div>
+                      </li>
                     );
                   })}
-                </div>
+                </ul>
               </section>
             )}
 
