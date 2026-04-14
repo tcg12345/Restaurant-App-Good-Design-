@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search as SearchIcon, X, Clock, Loader2, Star, ArrowUpLeft } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, type PlaceResult } from '../lib/places';
 import { cn } from '../lib/utils';
+import { LoadingSkeletonList } from '../components/LoadingSkeleton';
+import { EmptyState } from '../components/EmptyState';
 
 const RECENT_SEARCHES_KEY = 'gourmet-canvas-recent-searches-v2';
 const MAX_RECENT = 10;
@@ -263,10 +265,10 @@ export const SearchMain: React.FC = () => {
                 preferences, and neighborhood history for richer suggestions. */}
             {matchingRecents.length > 0 && (
               <section className="mb-4 pt-2">
-                <p className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em] mb-1">
+                <p className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em] mb-1">
                   From your history
                 </p>
-                <ul className="divide-y divide-on-surface/10">
+                <ul className="divide-y divide-on-surface/[0.06]">
                   {matchingRecents.map((r) => (
                     <li key={`suggest-${r.id}`}>
                       <button
@@ -290,16 +292,13 @@ export const SearchMain: React.FC = () => {
             )}
 
             {loading && results.length === 0 ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 size={22} className="text-primary/50 animate-spin" />
-                <span className="ml-3 text-sm text-on-surface/50 font-medium">Finding restaurants...</span>
-              </div>
+              <LoadingSkeletonList count={5} variant="list-item" className="divide-y divide-on-surface/[0.06]" />
             ) : results.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <SearchIcon size={32} className="text-on-surface/15 mb-3" />
-                <p className="text-sm font-medium text-on-surface/40">No restaurants found</p>
-                <p className="text-xs text-on-surface/30 mt-1">Try a different search</p>
-              </div>
+              <EmptyState
+                icon={<SearchIcon size={48} />}
+                heading="No restaurants found"
+                description="Try a different search."
+              />
             ) : (
               <ul className="divide-y divide-on-surface/[0.06]">
                 {results.map((place) => {
@@ -358,17 +357,17 @@ export const SearchMain: React.FC = () => {
             <div className="flex items-center justify-between mb-2 mt-2">
               <div className="flex items-center gap-2">
                 <Clock size={13} className="text-on-surface/40" />
-                <h2 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">Recent Searches</h2>
+                <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Recent Searches</h2>
               </div>
               <button
                 type="button"
                 onClick={handleClearAll}
-                className="text-[10px] font-bold text-primary uppercase tracking-wider"
+                className="text-xs font-bold text-primary uppercase tracking-wider"
               >
                 Clear All
               </button>
             </div>
-            <ul className="divide-y divide-on-surface/10 border-y border-on-surface/10">
+            <ul className="divide-y divide-on-surface/[0.06] border-y border-on-surface/[0.06]">
               {recentSearches.map((r) => (
                 <li key={r.id} className="relative">
                   <button
@@ -399,11 +398,11 @@ export const SearchMain: React.FC = () => {
             </ul>
           </section>
         ) : (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <SearchIcon size={32} className="text-on-surface/15 mb-3" />
-            <p className="text-sm font-medium text-on-surface/40">Search for a restaurant</p>
-            <p className="text-xs text-on-surface/30 mt-1">Recent picks will appear here</p>
-          </div>
+          <EmptyState
+            icon={<SearchIcon size={48} />}
+            heading="Search for a restaurant"
+            description="Recent picks will appear here."
+          />
         )}
       </main>
     </div>

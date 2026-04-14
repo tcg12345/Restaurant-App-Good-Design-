@@ -15,6 +15,7 @@ import {
 } from '../lib/supabase-community';
 import { getMealCoverUrl } from '../lib/recipe-display';
 import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
+import { EmptyState } from './EmptyState';
 
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
@@ -264,7 +265,7 @@ export const SocialFeed: React.FC = () => {
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
           </span>
           {typeof count === 'number' && count > 0 && (
-            <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 bg-on-surface/5 px-2 py-0.5 rounded-full">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 bg-on-surface/5 px-2 py-0.5 rounded-full">
               {count}
             </span>
           )}
@@ -307,24 +308,18 @@ export const SocialFeed: React.FC = () => {
     <section className="mb-8">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
       {feedMode === 'experts' ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="w-14 h-14 rounded-full bg-on-surface/5 flex items-center justify-center mb-3">
-            <Star size={24} className="text-amber-400 fill-amber-400" />
-          </div>
-          <p className="text-sm font-semibold text-on-surface/50">Expert Picks</p>
-          <p className="text-xs text-on-surface/35 mt-1">Coming soon</p>
-        </div>
+        <EmptyState
+          icon={<Star size={48} className="fill-amber-400 text-amber-400" />}
+          heading="Expert Picks"
+          description="Coming soon."
+        />
       ) : feedMode === 'recipes' ? (
         recipesSorted.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center mb-3">
-              <ChefHat size={24} className="text-emerald-400" />
-            </div>
-            <p className="text-sm font-semibold text-on-surface/50">No recipes yet</p>
-            <p className="text-xs text-on-surface/35 mt-1 max-w-[240px]">
-              When your friends publish a recipe, it will show up here so you can try it and leave a rating.
-            </p>
-          </div>
+          <EmptyState
+            icon={<ChefHat size={48} />}
+            heading="No recipes yet"
+            description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
+          />
         ) : (
           <ul className="divide-y divide-on-surface/[0.06]">
             {recipesSorted.map((m) => {
@@ -341,7 +336,7 @@ export const SocialFeed: React.FC = () => {
                     </Link>
                     <div className="flex-1 min-w-0">
                       <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-bold hover:text-primary">{getName(m.userId)}</Link>
-                      <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
+                      <p className="text-[11px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
@@ -386,7 +381,7 @@ export const SocialFeed: React.FC = () => {
                               )} />
                             ))}
                           </div>
-                          <span className="text-[11px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
+                          <span className="text-sm text-on-surface/50 font-bold tabular-nums">{summary.average.toFixed(1)}</span>
                         </div>
                       )}
                     </div>
@@ -426,7 +421,7 @@ export const SocialFeed: React.FC = () => {
                   </Link>
                   <div className="flex-1 min-w-0">
                     <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-bold hover:text-primary">{getName(m.userId)}</Link>
-                    <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
+                    <p className="text-[11px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
                   </div>
                 </div>
 
@@ -464,7 +459,7 @@ export const SocialFeed: React.FC = () => {
                             )} />
                           ))}
                         </div>
-                        <span className="text-[11px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
+                        <span className="text-sm text-on-surface/50 font-bold tabular-nums">{summary.average.toFixed(1)}</span>
                       </div>
                     )}
                   </div>
@@ -509,9 +504,9 @@ export const SocialFeed: React.FC = () => {
               </Link>
               <div className="flex-1 min-w-0">
                 <Link to={`/user/${getUsername(r.user_id)}`} className="text-sm font-bold hover:text-primary">{getName(r.user_id)}</Link>
-                <p className="text-[10px] text-on-surface/40 font-medium uppercase tracking-wider">
+                <p className="text-[11px] text-on-surface/40 font-medium uppercase tracking-wider">
                   {profiles[r.user_id]?.is_expert
-                    ? <span className="inline-flex items-center gap-1 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
+                    ? <span className="inline-flex items-center gap-1 text-amber-600 font-bold"><Star size={10} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
                     : <>Rated · {timeAgo(r.created_at)}</>}
                 </p>
               </div>
@@ -612,7 +607,10 @@ export const SocialFeed: React.FC = () => {
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                   <div className="mt-3 pt-3 border-t border-on-surface/[0.06] space-y-3">
                     {commentsLoading ? (
-                      <div className="text-center py-2"><div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
+                      <div className="space-y-2 py-1">
+                        <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-4/5" />
+                        <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-3/5" />
+                      </div>
                     ) : comments.length === 0 ? (
                       <p className="text-[12px] text-on-surface/40 py-1">No comments yet — be the first!</p>
                     ) : (

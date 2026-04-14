@@ -7,6 +7,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { getFriends, sendFriendRequest, followPublicAccount, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, getExpertProfiles, getUserRatings, getFollowCounts, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { Link } from 'react-router-dom';
 import { CircleActivity } from '../components/CircleActivity';
+import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
+import { EmptyState } from '../components/EmptyState';
 
 export const Circle: React.FC = () => {
   const { user, refreshPendingRequests } = useAuth();
@@ -188,9 +190,9 @@ export const Circle: React.FC = () => {
     return (
       <div className="pb-32">
         <TopBar title="Social" showBackButton />
-        <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
+        <main className="px-4 pt-4">
+          <LoadingSkeletonList count={4} variant="list-item" />
+        </main>
       </div>
     );
   }
@@ -242,26 +244,32 @@ export const Circle: React.FC = () => {
         <section className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <h2 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">My Friends</h2>
-              <span className="text-[10px] font-bold text-on-surface/25">·</span>
-              <span className="text-[10px] font-bold text-on-surface/25">{friends.length}</span>
+              <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">My Friends</h2>
+              <span className="text-xs font-bold text-on-surface/25">·</span>
+              <span className="text-xs font-bold text-on-surface/25">{friends.length}</span>
             </div>
             <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); setAddSuccess(null); }}
-              className="text-[10px] font-bold text-primary uppercase tracking-wider">
+              className="text-xs font-bold text-primary uppercase tracking-wider">
               + Add
             </button>
           </div>
           <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
 
           {friends.length === 0 ? (
-            <div className="flex flex-col items-center py-10">
-              <Users size={22} className="text-on-surface/15 mb-2.5" />
-              <p className="text-xs font-medium text-on-surface/35">No friends yet</p>
-              <button onClick={() => { setAddSheetOpen(true); setSearchQuery(''); setSearchResults([]); loadSuggestions(); }}
-                className="mt-2.5 inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
-                <UserPlus size={11} /> Find Friends
-              </button>
-            </div>
+            <EmptyState
+              icon={<Users size={48} />}
+              heading="No friends yet"
+              description="Follow friends to see their ratings and favorite spots."
+              action={{
+                label: 'Find Friends',
+                onClick: () => {
+                  setAddSheetOpen(true);
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  loadSuggestions();
+                },
+              }}
+            />
           ) : (
             <div className="flex gap-4 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
               {/* Add button as first item */}
@@ -272,7 +280,7 @@ export const Circle: React.FC = () => {
                 <div className="w-14 h-14 rounded-full border-2 border-dashed border-primary/30 flex items-center justify-center bg-primary/5">
                   <UserPlus size={18} className="text-primary/50" />
                 </div>
-                <span className="text-[9px] font-bold text-primary/60 uppercase tracking-wider">Add</span>
+                <span className="text-[11px] font-bold text-primary/60 uppercase tracking-wider">Add</span>
               </button>
 
               {friends.map((f) => {
@@ -302,7 +310,7 @@ export const Circle: React.FC = () => {
                       )}
                     </div>
                     <div className="text-center w-16">
-                      <p className="text-[10px] font-semibold truncate leading-tight">{profile?.display_name || 'User'}</p>
+                      <p className="text-[11px] font-semibold truncate leading-tight">{profile?.display_name || 'User'}</p>
                     </div>
                   </Link>
                 );
@@ -315,25 +323,24 @@ export const Circle: React.FC = () => {
         <section className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <h2 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">Experts</h2>
-              <span className="text-[10px] font-bold text-on-surface/25">·</span>
-              <span className="text-[10px] font-bold text-on-surface/25">{expertProfiles.length}</span>
+              <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Experts</h2>
+              <span className="text-xs font-bold text-on-surface/25">·</span>
+              <span className="text-xs font-bold text-on-surface/25">{expertProfiles.length}</span>
             </div>
           </div>
           <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
 
           {expertsLoading ? (
-            <div className="flex items-center justify-center py-6">
-              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div className="flex gap-3 overflow-x-hidden pb-2">
+              <LoadingSkeleton variant="card" className="w-44 flex-shrink-0" />
+              <LoadingSkeleton variant="card" className="w-44 flex-shrink-0" />
             </div>
           ) : expertProfiles.length === 0 ? (
-            <div className="flex items-center gap-3 py-4">
-              <Crown size={18} className="text-amber-400 flex-shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-on-surface/50">No experts yet</p>
-                <p className="text-[11px] text-on-surface/35 mt-0.5">Expert reviewers will appear here once they join</p>
-              </div>
-            </div>
+            <EmptyState
+              icon={<Crown size={48} />}
+              heading="No experts yet"
+              description="Expert reviewers will appear here once they join."
+            />
           ) : (
             <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-4 px-4">
               {expertProfiles.map((expert) => {
@@ -356,7 +363,7 @@ export const Circle: React.FC = () => {
                       <div className="absolute bottom-3 left-3 right-3 text-white">
                         <div className="flex items-center gap-1 mb-1">
                           <Crown size={11} className="text-amber-400" />
-                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/70">Expert</p>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/70">Expert</p>
                         </div>
                         <h3 className="font-serif text-lg font-bold leading-tight truncate">{expert.display_name}</h3>
                         <p className="text-[11px] font-medium text-white/75 mt-0.5">
@@ -389,11 +396,11 @@ export const Circle: React.FC = () => {
         <section className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <h2 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">Activity</h2>
+              <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Activity</h2>
               {activity.length > 0 && (
                 <>
-                  <span className="text-[10px] font-bold text-on-surface/25">·</span>
-                  <span className="text-[10px] font-bold text-on-surface/25">{activity.length}</span>
+                  <span className="text-xs font-bold text-on-surface/25">·</span>
+                  <span className="text-xs font-bold text-on-surface/25">{activity.length}</span>
                 </>
               )}
             </div>
@@ -401,11 +408,11 @@ export const Circle: React.FC = () => {
           <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
 
           {activity.length === 0 ? (
-            <div className="flex flex-col items-center py-10">
-              <Star size={22} className="text-on-surface/15 mb-2.5" />
-              <p className="text-xs font-medium text-on-surface/35">No activity yet</p>
-              <p className="text-[11px] text-on-surface/30 mt-1">Ratings from your friends will show up here</p>
-            </div>
+            <EmptyState
+              icon={<Star size={48} />}
+              heading="No activity yet"
+              description="Ratings from your friends will show up here."
+            />
           ) : (
             <ul className="divide-y divide-on-surface/[0.06]">
               {activity.map((r) => {
@@ -476,7 +483,7 @@ export const Circle: React.FC = () => {
         <section>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <h2 className="text-[10px] font-bold text-on-surface/40 uppercase tracking-[0.15em]">From Your Circle</h2>
+              <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">From Your Circle</h2>
             </div>
           </div>
           <div className="h-px bg-on-surface/6 -mx-4 mb-4" />
@@ -535,17 +542,17 @@ export const Circle: React.FC = () => {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold truncate">{u.display_name}</p>
-                        <p className="text-[10px] text-on-surface/35">@{u.username}</p>
+                        <p className="text-xs text-on-surface/40">@{u.username}</p>
                       </div>
                       <button onClick={() => handleAddFriend(u.user_id, u.display_name, u.is_public)}
-                        className="px-3 py-1.5 bg-primary text-white text-[10px] font-semibold rounded-lg">
+                        className="px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg">
                         {u.is_public ? "Follow" : "Send Request"}
                       </button>
                     </div>
                   ))
                 ) : !searchQuery.trim() && suggestions.length > 0 ? (
                   <>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2 px-1">Suggested</p>
+                    <p className="text-xs font-bold uppercase tracking-widest text-on-surface/40 mb-2 px-1">Suggested</p>
                     {suggestions.map((u) => (
                       <div key={u.user_id} className="flex items-center gap-3 bg-white rounded-xl border border-on-surface/8 px-3 py-2.5">
                         <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -553,10 +560,10 @@ export const Circle: React.FC = () => {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold truncate">{u.display_name}</p>
-                          <p className="text-[10px] text-on-surface/35">@{u.username}</p>
+                          <p className="text-xs text-on-surface/40">@{u.username}</p>
                         </div>
                         <button onClick={() => handleAddFriend(u.user_id, u.display_name, u.is_public)}
-                          className="px-3 py-1.5 bg-primary text-white text-[10px] font-semibold rounded-lg">
+                          className="px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-lg">
                           {u.is_public ? "Follow" : "Send Request"}
                         </button>
                       </div>

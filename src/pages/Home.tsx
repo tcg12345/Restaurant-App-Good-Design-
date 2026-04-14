@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { CircleActivity } from '../components/CircleActivity';
-import { Search, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles, Building2 } from 'lucide-react';
+import { LoadingSkeletonList } from '../components/LoadingSkeleton';
+import { EmptyState } from '../components/EmptyState';
+import { Search, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles, Building2, SearchX } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
@@ -757,9 +759,9 @@ export const Home: React.FC = () => {
                           <span className="text-sm font-semibold text-on-surface">Current Location</span>
                         </button>
                         {locationLoading && locationQuery.trim() && (
-                          <div className="flex items-center gap-3 px-5 py-4">
-                            <Loader2 size={16} className="text-on-surface/30 animate-spin" />
-                            <span className="text-sm text-on-surface/40">Searching...</span>
+                          <div className="px-5 py-4 space-y-2">
+                            <div className="animate-pulse bg-on-surface/[0.06] rounded h-4 w-3/5" />
+                            <div className="animate-pulse bg-on-surface/[0.06] rounded h-4 w-2/5" />
                           </div>
                         )}
                         {!locationLoading && locationResults.map((loc) => (
@@ -828,16 +830,13 @@ export const Home: React.FC = () => {
                 {/* Results */}
                 <div className={cn(!phoneMode && "ml-9")}>
                   {isLoading ? (
-                    <div className="flex items-center justify-center py-16">
-                      <Loader2 size={24} className={cn("animate-spin", activeFilter === 'Hotels' ? "text-teal-600" : "text-primary")} />
-                      <span className="ml-3 text-sm text-on-surface/50 font-medium">{activeFilter === 'Hotels' ? 'Finding hotels...' : 'Finding restaurants...'}</span>
-                    </div>
+                    <LoadingSkeletonList count={6} variant="card" />
                   ) : places.length === 0 && (searchQuery.trim() || activeFilter) ? (
-                    <div className="text-center py-16">
-                      {activeFilter === 'Hotels' ? <Building2 size={32} className="mx-auto text-on-surface/15 mb-3" /> : null}
-                      <p className="text-on-surface/40 text-sm font-medium">{activeFilter === 'Hotels' ? 'No hotels found' : 'No restaurants found'}</p>
-                      <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
-                    </div>
+                    <EmptyState
+                      icon={activeFilter === 'Hotels' ? <Building2 size={48} /> : <SearchX size={48} />}
+                      heading={activeFilter === 'Hotels' ? 'No hotels found' : 'No restaurants found'}
+                      description="Try a different search or filter."
+                    />
                   ) : places.length === 0 ? (
                     <div className="space-y-8">
                       {/* Recommendations */}
@@ -847,10 +846,7 @@ export const Home: React.FC = () => {
                             <Sparkles size={15} className="text-primary/60" />
                             <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                           </div>
-                          <div className="flex items-center justify-center py-8">
-                            <Loader2 size={20} className="text-primary/40 animate-spin" />
-                            <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
-                          </div>
+                          <LoadingSkeletonList count={4} variant="card" />
                         </section>
                       ) : recommendations.length > 0 ? (
                         <section>
