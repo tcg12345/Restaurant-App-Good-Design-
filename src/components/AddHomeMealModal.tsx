@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, GripVertical, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -12,6 +12,20 @@ const HOME_COOKING_TAGS = [
   'Healthy', 'Indulgent', 'Breakfast', 'Lunch', 'Dinner', 'Dessert',
   'Snack', 'Brunch', 'BBQ', 'One-Pot', 'Slow Cooker', 'Air Fryer',
 ];
+
+// Standardized difficulty palette shared across all three recipe modals:
+// Easy → green, Medium → amber, Hard → red.
+const DIFFICULTY_COLORS: Record<'Easy' | 'Medium' | 'Hard', string> = {
+  Easy: 'border-green-200 bg-green-50 text-green-700',
+  Medium: 'border-amber-200 bg-amber-50 text-amber-700',
+  Hard: 'border-red-200 bg-red-50 text-red-700',
+};
+
+// Per-line outcome of the bulk ingredient parser. Rendered with a green Check
+// (success) or red X (error) so the user can see exactly which lines made it.
+type BulkResult =
+  | { line: string; status: 'success'; ingredient: RecipeIngredient }
+  | { line: string; status: 'error'; message: string };
 
 // Unit definitions — the dropdown always shows the plural (canonical) form.
 // Aliases cover common user spellings including mistyped/long forms so the
@@ -274,7 +288,7 @@ export const AddHomeMealModal: React.FC = () => {
   const [bulkIngredientsText, setBulkIngredientsText] = useState('');
   const [editingIngredientIdx, setEditingIngredientIdx] = useState<number | null>(null);
   const [ingredientError, setIngredientError] = useState<string | null>(null);
-  const [bulkErrors, setBulkErrors] = useState<string[]>([]);
+  const [bulkResults, setBulkResults] = useState<BulkResult[]>([]);
   const [newStep, setNewStep] = useState('');
 
   // Dish editing state
@@ -287,7 +301,7 @@ export const AddHomeMealModal: React.FC = () => {
   const [recipeSearch, setRecipeSearch] = useState('');
 
   const [tagSearch, setTagSearch] = useState('');
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
   const [page, setPage] = useState<Page>('main');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -332,8 +346,9 @@ export const AddHomeMealModal: React.FC = () => {
       setBulkIngredientsText('');
       setEditingIngredientIdx(null);
       setIngredientError(null);
-      setBulkErrors([]);
+      setBulkResults([]);
       setNewStep('');
+      setSelectedPhotoIdx(null);
       setEditingDishId(null);
       setDishName('');
       setDishDescription('');
@@ -457,29 +472,30 @@ export const AddHomeMealModal: React.FC = () => {
     const lines = bulkIngredientsText.split('\n');
     const parsedIngredients: RecipeIngredient[] = [];
     const remainingLines: string[] = [];
-    const errors: string[] = [];
-    lines.forEach((line, idx) => {
+    const results: BulkResult[] = [];
+    lines.forEach((line) => {
       const trimmed = line.trim();
       if (!trimmed) return;
       const parsed = parseIngredientLine(trimmed);
       if (!parsed || (!parsed.name && !parsed.amount)) {
-        errors.push(`Line ${idx + 1}: couldn't parse "${trimmed}".`);
+        results.push({ line: trimmed, status: 'error', message: "Couldn't parse line." });
         remainingLines.push(line);
         return;
       }
-      const result = buildIngredient(parsed.name, parsed.amount, parsed.unit);
-      if (!result.ok) {
-        errors.push(`Line ${idx + 1}: ${result.error} ("${trimmed}")`);
+      const built = buildIngredient(parsed.name, parsed.amount, parsed.unit);
+      if (!built.ok) {
+        results.push({ line: trimmed, status: 'error', message: built.error });
         remainingLines.push(line);
         return;
       }
-      parsedIngredients.push(result.ingredient);
+      parsedIngredients.push(built.ingredient);
+      results.push({ line: trimmed, status: 'success', ingredient: built.ingredient });
     });
     if (parsedIngredients.length > 0) {
       setIngredients((prev) => [...prev, ...parsedIngredients]);
     }
     setBulkIngredientsText(remainingLines.join('\n'));
-    setBulkErrors(errors);
+    setBulkResults(results);
   };
 
   const removeIngredient = (idx: number) => {
@@ -532,7 +548,10 @@ export const AddHomeMealModal: React.FC = () => {
     e.target.value = '';
   };
 
-  const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  const removePhoto = (idx: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
+    setSelectedPhotoIdx((cur) => (cur === null ? null : cur === idx ? null : cur > idx ? cur - 1 : cur));
+  };
   const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
   const togglePhotoFavorite = (idx: number) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, isFavorite: !p.isFavorite } : p));
   const movePhoto = (from: number, to: number) => {
@@ -855,7 +874,7 @@ export const AddHomeMealModal: React.FC = () => {
                             className={cn(
                               "flex-1 py-1.5 rounded-full text-[11px] font-semibold border transition-all",
                               difficulty === d
-                                ? "border-yellow-300 bg-yellow-50 text-yellow-700"
+                                ? DIFFICULTY_COLORS[d]
                                 : "border-on-surface/10 bg-on-surface/[0.02] text-on-surface/50 hover:border-on-surface/20",
                             )}
                           >
@@ -1168,7 +1187,7 @@ export const AddHomeMealModal: React.FC = () => {
                     {/* Mode toggle — hidden while editing an existing ingredient */}
                     {editingIngredientIdx === null && (
                       <div className="flex gap-2 mb-4 p-1 bg-on-surface/[0.04] rounded-xl">
-                        <button onClick={() => { setIngredientMode('single'); setBulkErrors([]); }}
+                        <button onClick={() => { setIngredientMode('single'); setBulkResults([]); }}
                           className={cn("flex-1 py-2 rounded-lg text-xs font-semibold transition-all",
                             ingredientMode === 'single' ? "bg-white text-on-surface shadow-sm" : "text-on-surface/40"
                           )}>
@@ -1275,71 +1294,113 @@ export const AddHomeMealModal: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      /* Bulk paste form */
-                      <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
-                        <p className="text-[11px] text-on-surface/45 mb-2 leading-relaxed">
+                      /* Bulk paste form — flat, per-line feedback */
+                      <div className="mb-5 space-y-3">
+                        <p className="text-[11px] text-on-surface/45 leading-relaxed">
                           Paste one ingredient per line as <span className="font-semibold">amount unit name</span>.
                           Amounts must be numbers; units get auto-corrected.
                         </p>
                         <textarea value={bulkIngredientsText}
-                          onChange={(e) => { setBulkIngredientsText(e.target.value); if (bulkErrors.length) setBulkErrors([]); }}
+                          onChange={(e) => { setBulkIngredientsText(e.target.value); if (bulkResults.length) setBulkResults([]); }}
                           placeholder={'2 cups flour\n1 tsp salt\n3 eggs\n1/2 cup milk'}
                           rows={6} autoFocus
-                          className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none mb-3 font-mono leading-relaxed" />
-                        {bulkErrors.length > 0 && (
-                          <div className="mb-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
-                            <p className="text-[11px] font-bold text-red-700 mb-1">
-                              {bulkErrors.length} line{bulkErrors.length !== 1 ? 's' : ''} need{bulkErrors.length === 1 ? 's' : ''} editing:
-                            </p>
-                            <ul className="space-y-0.5">
-                              {bulkErrors.map((err, i) => (
-                                <li key={i} className="text-[11px] text-red-600 leading-snug">{err}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
+                          className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none font-mono leading-relaxed placeholder:text-on-surface/30" />
+
+                        {/* Per-line outcome: green check for success, red X for errors */}
+                        {bulkResults.length > 0 && (() => {
+                          const okCount = bulkResults.filter((r) => r.status === 'success').length;
+                          const errCount = bulkResults.length - okCount;
+                          return (
+                            <div className="rounded-xl bg-on-surface/[0.03] border border-on-surface/[0.06] overflow-hidden">
+                              <div className="px-3 py-2 flex items-center gap-3 border-b border-on-surface/[0.06]">
+                                {okCount > 0 && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700">
+                                    <Check size={12} strokeWidth={3} />{okCount} added
+                                  </span>
+                                )}
+                                {errCount > 0 && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600">
+                                    <X size={12} strokeWidth={3} />{errCount} need editing
+                                  </span>
+                                )}
+                              </div>
+                              <ul className="divide-y divide-on-surface/[0.06]">
+                                {bulkResults.map((r, i) => (
+                                  <li key={i} className="flex items-start gap-2.5 px-3 py-2">
+                                    <span className={cn(
+                                      "flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center mt-0.5",
+                                      r.status === 'success' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600",
+                                    )}>
+                                      {r.status === 'success' ? <Check size={10} strokeWidth={3} /> : <X size={10} strokeWidth={3} />}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className={cn(
+                                        "text-[12px] font-mono leading-snug break-words",
+                                        r.status === 'success' ? "text-on-surface/70" : "text-red-600",
+                                      )}>
+                                        {r.line}
+                                      </p>
+                                      {r.status === 'error' && (
+                                        <p className="text-[10px] text-red-500/80 leading-snug mt-0.5">{r.message}</p>
+                                      )}
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          );
+                        })()}
+
                         <button onClick={addBulkIngredients} disabled={!bulkIngredientsText.trim()}
-                          className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
-                          <Plus size={14} className="inline mr-1" />Add All
+                          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-primary/10 text-primary text-xs font-semibold disabled:opacity-40 transition-colors hover:bg-primary/15">
+                          <Plus size={14} />Add All
                         </button>
                       </div>
                     )}
 
-                    {/* Ingredient list — rows are tappable to edit */}
+                    {/* Ingredient list — flat numbered rows, tap to edit */}
                     {ingredients.length === 0 ? (
                       <div className="text-center py-10">
                         <Hash size={28} className="mx-auto text-on-surface/15 mb-2" />
                         <p className="text-sm text-on-surface/30">No ingredients yet</p>
                       </div>
                     ) : (
-                      <div className="space-y-2">
+                      <>
                         <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1.5">
                           Added ({ingredients.length}) · tap to edit
                         </p>
-                        {ingredients.map((ing, idx) => (
-                          <div key={idx}
-                            className={cn(
-                              "flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors",
-                              editingIngredientIdx === idx
-                                ? "bg-primary/5 border-primary/25"
-                                : "bg-white border-on-surface/8 hover:border-on-surface/15"
-                            )}
-                          >
-                            <button onClick={() => startEditIngredient(idx)}
-                              className="flex-1 min-w-0 text-left">
-                              <p className="text-sm font-medium text-on-surface/80 truncate">{ing.name}</p>
-                              {(ing.amount || ing.unit) && (
-                                <p className="text-[11px] text-on-surface/40">{displayAmount(ing.amount)} {ing.unit}</p>
-                              )}
-                            </button>
-                            <button onClick={() => removeIngredient(idx)}
-                              className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors flex-shrink-0"
-                              aria-label="Remove ingredient">
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                        <ol className="divide-y divide-on-surface/[0.06] border-t border-on-surface/[0.06]">
+                          {ingredients.map((ing, idx) => {
+                            const amt = [displayAmount(ing.amount), ing.unit].filter(Boolean).join(' ');
+                            const isEditing = editingIngredientIdx === idx;
+                            return (
+                              <li key={idx} className={cn(
+                                "flex items-start gap-3 py-3 leading-[1.6] transition-colors",
+                                isEditing && "bg-primary/[0.04]",
+                              )}>
+                                <span className="w-6 text-[13px] font-semibold text-on-surface/40 tabular-nums text-right flex-shrink-0 pt-[1px]">{idx + 1}.</span>
+                                <button
+                                  type="button"
+                                  onClick={() => startEditIngredient(idx)}
+                                  className="flex-1 min-w-0 text-left"
+                                >
+                                  <p className="text-[15px] text-on-surface/80">
+                                    {amt && <span className="font-bold text-on-surface/90">{amt} </span>}
+                                    <span className="font-normal">{ing.name}</span>
+                                  </p>
+                                </button>
+                                <button
+                                  onClick={() => removeIngredient(idx)}
+                                  className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0"
+                                  aria-label="Remove ingredient"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </>
                     )}
                   </div>
                   <BottomBtn
@@ -1360,36 +1421,38 @@ export const AddHomeMealModal: React.FC = () => {
               {page === 'steps' && (
                 <SubPage key="steps" onBack={() => setPage('main')} title="Steps">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
-                    {/* Add step form */}
-                    <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
+                    {/* Add step form — flat */}
+                    <div className="mb-6 space-y-2">
                       <textarea value={newStep} onChange={(e) => setNewStep(e.target.value)}
-                        placeholder={`Step ${steps.length + 1}: What to do...`}
+                        placeholder={`Step ${steps.length + 1} — What to do...`}
                         rows={4} autoFocus
-                        className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none mb-3" />
+                        className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none placeholder:text-on-surface/30" />
                       <button onClick={addStep} disabled={!newStep.trim()}
-                        className="w-full py-2.5 rounded-xl text-sm font-semibold text-primary/50 border border-on-surface/10 hover:text-primary hover:border-primary/30 transition-all disabled:opacity-30">
-                        <Plus size={14} className="inline mr-1" />Add Step
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-primary/10 text-primary text-xs font-semibold disabled:opacity-40 transition-colors hover:bg-primary/15">
+                        <Plus size={14} />Add Step
                       </button>
                     </div>
 
-                    {/* Steps list */}
+                    {/* Steps list — editorial "Step N" labels, no card chrome */}
                     {steps.length === 0 ? (
                       <div className="text-center py-10">
                         <FileText size={28} className="mx-auto text-on-surface/15 mb-2" />
                         <p className="text-sm text-on-surface/30">No steps yet</p>
                       </div>
                     ) : (
-                      <div className="space-y-2">
+                      <ol className="space-y-5">
                         {steps.map((step, idx) => (
-                          <div key={idx} className="flex items-start gap-3 px-3 py-2.5 bg-white border border-on-surface/8 rounded-xl">
-                            <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{idx + 1}</span>
-                            <p className="flex-1 text-sm text-on-surface/70 leading-relaxed">{step}</p>
-                            <button onClick={() => removeStep(idx)} className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors flex-shrink-0">
+                          <li key={idx} className="flex gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary mb-1">Step {idx + 1}</p>
+                              <p className="text-[15px] text-on-surface/80 leading-[1.6] whitespace-pre-wrap">{step}</p>
+                            </div>
+                            <button onClick={() => removeStep(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
                               <X size={14} />
                             </button>
-                          </div>
+                          </li>
                         ))}
-                      </div>
+                      </ol>
                     )}
                   </div>
                   <BottomBtn label="Done" onClick={() => setPage('main')} />
@@ -1453,49 +1516,91 @@ export const AddHomeMealModal: React.FC = () => {
                         <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
                       </div>
                     ) : (
-                      <div className="divide-y divide-on-surface/8">
-                        {photos.map((photo, idx) => (
-                          <div key={idx} className="flex gap-3 px-5 py-4">
-                            <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
-                              <img src={photo.url} alt="" className="w-full h-full object-cover" />
-                              <button onClick={() => removePhoto(idx)}
-                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
-                                <X size={10} className="text-white" />
+                      <>
+                        {/* Edge-to-edge 3-column grid */}
+                        <div className="grid grid-cols-3 gap-0.5">
+                          {photos.map((photo, idx) => {
+                            const selected = selectedPhotoIdx === idx;
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => setSelectedPhotoIdx(selected ? null : idx)}
+                                className="group relative aspect-square overflow-hidden rounded-md bg-on-surface/5"
+                              >
+                                <img src={photo.url} alt="" className="w-full h-full object-cover" />
+                                {photo.isFavorite && (
+                                  <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-black/55 flex items-center justify-center">
+                                    <Star size={10} className="text-white" fill="white" />
+                                  </div>
+                                )}
+                                {selected && (
+                                  <div className="absolute inset-0 ring-2 ring-inset ring-primary rounded-md pointer-events-none" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}
+                                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                                  aria-label="Remove photo"
+                                >
+                                  <X size={10} className="text-white" strokeWidth={2.5} />
+                                </button>
                               </button>
-                            </div>
-                            <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                              <input
-                                type="text"
-                                value={photo.caption}
-                                onChange={(e) => updatePhotoCaption(idx, e.target.value)}
-                                placeholder="What's this?"
-                                className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full"
-                              />
-                              <button onClick={() => togglePhotoFavorite(idx)}
-                                className={cn("flex items-center gap-2 mt-2 text-xs font-medium transition-colors",
-                                  photo.isFavorite ? "text-primary" : "text-on-surface/35"
-                                )}>
-                                <span className="text-on-surface/40">Mark as favorite:</span>
-                                <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
-                                  photo.isFavorite ? "bg-primary border-primary text-white" : "border-on-surface/20"
-                                )}>
-                                  {photo.isFavorite && <Star size={10} fill="white" />}
-                                </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Inline edit panel for the selected photo */}
+                        {selectedPhotoIdx !== null && photos[selectedPhotoIdx] && (
+                          <div className="px-5 py-4 border-t border-on-surface/6 mt-0.5 space-y-3">
+                            <input
+                              type="text"
+                              value={photos[selectedPhotoIdx].caption}
+                              onChange={(e) => updatePhotoCaption(selectedPhotoIdx, e.target.value)}
+                              placeholder="Add a caption..."
+                              className="w-full bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
+                            />
+                            <div className="flex items-center justify-between gap-3">
+                              <button
+                                type="button"
+                                onClick={() => togglePhotoFavorite(selectedPhotoIdx)}
+                                className={cn(
+                                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold border transition-colors",
+                                  photos[selectedPhotoIdx].isFavorite
+                                    ? "border-primary/30 bg-primary/10 text-primary"
+                                    : "border-on-surface/10 bg-on-surface/[0.04] text-on-surface/50 hover:border-on-surface/20",
+                                )}
+                              >
+                                <Star size={12} fill={photos[selectedPhotoIdx].isFavorite ? "currentColor" : "none"} />
+                                {photos[selectedPhotoIdx].isFavorite ? 'Favorite' : 'Mark favorite'}
                               </button>
-                            </div>
-                            <div className="flex items-start pt-1 flex-shrink-0">
-                              <div className="text-on-surface/20 cursor-grab active:cursor-grabbing p-1"
-                                onPointerDown={() => setDragIdx(idx)}
-                                onPointerUp={() => {
-                                  if (dragIdx !== null && dragIdx !== idx) movePhoto(dragIdx, idx);
-                                  setDragIdx(null);
-                                }}>
-                                <GripVertical size={18} />
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] text-on-surface/40 font-semibold mr-1">
+                                  {selectedPhotoIdx + 1} / {photos.length}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={selectedPhotoIdx === 0}
+                                  onClick={() => { movePhoto(selectedPhotoIdx, selectedPhotoIdx - 1); setSelectedPhotoIdx(selectedPhotoIdx - 1); }}
+                                  className="p-2 rounded-lg bg-on-surface/[0.04] text-on-surface/60 disabled:opacity-30 hover:bg-on-surface/[0.08] transition-colors"
+                                  aria-label="Move left"
+                                >
+                                  <ChevronLeft size={15} />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={selectedPhotoIdx === photos.length - 1}
+                                  onClick={() => { movePhoto(selectedPhotoIdx, selectedPhotoIdx + 1); setSelectedPhotoIdx(selectedPhotoIdx + 1); }}
+                                  className="p-2 rounded-lg bg-on-surface/[0.04] text-on-surface/60 disabled:opacity-30 hover:bg-on-surface/[0.08] transition-colors"
+                                  aria-label="Move right"
+                                >
+                                  <ChevronRight size={15} />
+                                </button>
                               </div>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        )}
+                      </>
                     )}
                   </div>
                   <BottomBtn label={hasPhotos ? `Done (${photos.length})` : 'Done'} onClick={() => setPage('main')} />

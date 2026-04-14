@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, Camera, Trash2, Search, GripVertical, Star, Clock, Users, ChefHat, Globe, Lock, Tag, Image, StickyNote, Timer, Hash } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, Camera, Search, Clock, Users, Globe, Lock, Tag, Image, StickyNote, Timer, Hash } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeStep } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -17,7 +17,13 @@ const RECIPE_TAGS = [
 
 const DIFFICULTIES: Recipe['difficulty'][] = ['easy', 'medium', 'hard'];
 const DIFFICULTY_LABELS: Record<Recipe['difficulty'], string> = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
-const DIFFICULTY_COLORS: Record<Recipe['difficulty'], string> = { easy: 'text-green-600 bg-green-50 border-green-200', medium: 'text-yellow-600 bg-yellow-50 border-yellow-200', hard: 'text-red-600 bg-red-50 border-red-200' };
+// Standardized difficulty palette shared across all three recipe modals:
+// Easy → green, Medium → amber, Hard → red.
+const DIFFICULTY_COLORS: Record<Recipe['difficulty'], string> = {
+  easy: 'text-green-700 bg-green-50 border-green-200',
+  medium: 'text-amber-700 bg-amber-50 border-amber-200',
+  hard: 'text-red-700 bg-red-50 border-red-200',
+};
 
 type Page = 'main' | 'ingredients' | 'steps' | 'photos' | 'tags';
 
@@ -48,7 +54,7 @@ export const RecipeModal: React.FC = () => {
   const [ingUnit, setIngUnit] = useState('');
   const [stepText, setStepText] = useState('');
   const [tagSearch, setTagSearch] = useState('');
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
   const [page, setPage] = useState<Page>('main');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -73,6 +79,7 @@ export const RecipeModal: React.FC = () => {
       setIngName(''); setIngAmount(''); setIngUnit('');
       setStepText('');
       setTagSearch('');
+      setSelectedPhotoIdx(null);
       setPage('main');
       setConfirmDelete(false);
     }
@@ -132,7 +139,10 @@ export const RecipeModal: React.FC = () => {
     e.target.value = '';
   };
 
-  const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  const removePhoto = (idx: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
+    setSelectedPhotoIdx((cur) => (cur === null ? null : cur === idx ? null : cur > idx ? cur - 1 : cur));
+  };
   const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
   const movePhoto = (from: number, to: number) => {
     setPhotos((prev) => {
@@ -402,49 +412,53 @@ export const RecipeModal: React.FC = () => {
               )}
 
               {/* ═══════════ INGREDIENTS ═══════════ */}
+              {/* TODO: This modal does not support bulk-paste parsing (amount unit name per line)
+                  — AddHomeMealModal has that feature and this one should eventually share it. */}
               {page === 'ingredients' && (
                 <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
-                    {/* Add ingredient form */}
-                    <div className="mb-4 p-3 bg-white border border-on-surface/10 rounded-2xl space-y-2.5">
+                    {/* Add ingredient form — flat inputs, no card chrome */}
+                    <div className="mb-5 space-y-2">
                       <input type="text" value={ingName} onChange={(e) => setIngName(e.target.value)}
                         placeholder="Ingredient name" autoFocus
-                        className="w-full bg-on-surface/3 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        className="w-full bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
                         onKeyDown={(e) => e.key === 'Enter' && addIngredient()} />
                       <div className="flex gap-2">
                         <input type="text" value={ingAmount} onChange={(e) => setIngAmount(e.target.value)}
-                          placeholder="Amount" className="flex-1 bg-on-surface/3 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          placeholder="Amount" className="flex-1 bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
                         <input type="text" value={ingUnit} onChange={(e) => setIngUnit(e.target.value)}
-                          placeholder="Unit (cups, g...)" className="flex-1 bg-on-surface/3 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          placeholder="Unit (cups, g…)" className="flex-1 bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
                       </div>
                       <button onClick={addIngredient} disabled={!ingName.trim()}
-                        className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-primary/10 text-primary text-xs font-semibold disabled:opacity-40 transition-colors hover:bg-primary/15">
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-primary/10 text-primary text-xs font-semibold disabled:opacity-40 transition-colors hover:bg-primary/15">
                         <Plus size={14} /> Add Ingredient
                       </button>
                     </div>
 
-                    {/* Ingredient list */}
+                    {/* Ingredient list — flat numbered rows with generous line-height */}
                     {ingredients.length === 0 ? (
                       <div className="text-center py-8">
                         <Hash size={24} className="mx-auto text-on-surface/15 mb-2" />
                         <p className="text-sm text-on-surface/30">No ingredients yet</p>
                       </div>
                     ) : (
-                      <div className="space-y-1.5">
-                        {ingredients.map((ing, idx) => (
-                          <div key={idx} className="flex items-center gap-3 px-3 py-2.5 bg-white border border-on-surface/8 rounded-xl">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-on-surface/80 truncate">{ing.name}</p>
-                              {(ing.amount || ing.unit) && (
-                                <p className="text-[11px] text-on-surface/40">{[ing.amount, ing.unit].filter(Boolean).join(' ')}</p>
-                              )}
-                            </div>
-                            <button onClick={() => removeIngredient(idx)} className="p-1 text-on-surface/20 hover:text-red-400 transition-colors">
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                      <ol className="divide-y divide-on-surface/[0.06] border-t border-on-surface/[0.06]">
+                        {ingredients.map((ing, idx) => {
+                          const amt = [ing.amount, ing.unit].filter(Boolean).join(' ');
+                          return (
+                            <li key={idx} className="flex items-start gap-3 py-3 leading-[1.6]">
+                              <span className="w-6 text-[13px] font-semibold text-on-surface/40 tabular-nums text-right flex-shrink-0 pt-[1px]">{idx + 1}.</span>
+                              <p className="flex-1 min-w-0 text-[15px] text-on-surface/80">
+                                {amt && <span className="font-bold text-on-surface/90">{amt} </span>}
+                                <span className="font-normal">{ing.name}</span>
+                              </p>
+                              <button onClick={() => removeIngredient(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
+                                <X size={14} />
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ol>
                     )}
                   </div>
                   <BottomBtn label={hasIngredients ? `Done (${ingredients.length})` : 'Done'} onClick={() => setPage('main')} />
@@ -455,37 +469,37 @@ export const RecipeModal: React.FC = () => {
               {page === 'steps' && (
                 <SubPage key="steps" onBack={() => setPage('main')} title="Steps">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
-                    {/* Add step form */}
-                    <div className="mb-4 p-3 bg-white border border-on-surface/10 rounded-2xl space-y-2.5">
+                    {/* Add step form — flat inputs, no card chrome */}
+                    <div className="mb-5 space-y-2">
                       <textarea value={stepText} onChange={(e) => setStepText(e.target.value)}
-                        placeholder={`Step ${steps.length + 1}: What to do...`} rows={3}
-                        className="w-full bg-on-surface/3 rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed" />
+                        placeholder={`Step ${steps.length + 1}: What to do…`} rows={3}
+                        className="w-full bg-on-surface/[0.04] rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed placeholder:text-on-surface/30" />
                       <button onClick={addStep} disabled={!stepText.trim()}
-                        className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-primary/10 text-primary text-xs font-semibold disabled:opacity-40 transition-colors hover:bg-primary/15">
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-primary/10 text-primary text-xs font-semibold disabled:opacity-40 transition-colors hover:bg-primary/15">
                         <Plus size={14} /> Add Step
                       </button>
                     </div>
 
-                    {/* Step list */}
+                    {/* Step list — editorial "Step N" labels, no card chrome */}
                     {steps.length === 0 ? (
                       <div className="text-center py-8">
                         <StickyNote size={24} className="mx-auto text-on-surface/15 mb-2" />
                         <p className="text-sm text-on-surface/30">No steps yet</p>
                       </div>
                     ) : (
-                      <div className="space-y-2">
+                      <ol className="space-y-5">
                         {steps.map((step, idx) => (
-                          <div key={idx} className="flex gap-3 px-3 py-3 bg-white border border-on-surface/8 rounded-xl">
-                            <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <span className="text-[11px] font-bold text-primary">{step.order}</span>
+                          <li key={idx} className="flex gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary mb-1">Step {step.order}</p>
+                              <p className="text-[15px] text-on-surface/80 leading-[1.6] whitespace-pre-wrap">{step.text}</p>
                             </div>
-                            <p className="text-sm font-medium text-on-surface/70 flex-1 leading-relaxed">{step.text}</p>
-                            <button onClick={() => removeStep(idx)} className="p-1 text-on-surface/20 hover:text-red-400 transition-colors flex-shrink-0">
+                            <button onClick={() => removeStep(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
                               <X size={14} />
                             </button>
-                          </div>
+                          </li>
                         ))}
-                      </div>
+                      </ol>
                     )}
                   </div>
                   <BottomBtn label={hasSteps ? `Done (${steps.length})` : 'Done'} onClick={() => setPage('main')} />
@@ -535,7 +549,7 @@ export const RecipeModal: React.FC = () => {
 
               {/* ═══════════ PHOTOS ═══════════ */}
               {page === 'photos' && (
-                <SubPage key="photos" onBack={() => setPage('main')} title="Photos" rightAction={
+                <SubPage key="photos" onBack={() => { setPage('main'); setSelectedPhotoIdx(null); }} title="Photos" rightAction={
                   <button onClick={() => fileInputRef.current?.click()} className="text-xs font-semibold text-primary">
                     Add More
                   </button>
@@ -549,36 +563,78 @@ export const RecipeModal: React.FC = () => {
                         <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
                       </div>
                     ) : (
-                      <div className="divide-y divide-on-surface/8">
-                        {photos.map((photo, idx) => (
-                          <div key={idx} className="flex gap-3 px-5 py-4">
-                            <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
-                              <img src={photo.url} alt="" className="w-full h-full object-cover" />
-                              <button onClick={() => removePhoto(idx)}
-                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
-                                <X size={10} className="text-white" />
+                      <>
+                        <div className="grid grid-cols-3 gap-0.5">
+                          {photos.map((photo, idx) => {
+                            const isSelected = selectedPhotoIdx === idx;
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => setSelectedPhotoIdx(isSelected ? null : idx)}
+                                className={cn(
+                                  "group relative aspect-square overflow-hidden rounded-md cursor-pointer",
+                                  isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-surface z-10"
+                                )}
+                              >
+                                <img src={photo.url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}
+                                  aria-label="Delete photo"
+                                  className={cn(
+                                    "absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center transition-opacity hover:bg-red-500",
+                                    isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                  )}
+                                >
+                                  <X size={12} className="text-white" strokeWidth={2.5} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {selectedPhotoIdx !== null && photos[selectedPhotoIdx] && (
+                          <div className="px-5 pt-4 pb-2 mt-0.5 border-t border-on-surface/[0.06] space-y-3">
+                            <input
+                              type="text"
+                              value={photos[selectedPhotoIdx].caption}
+                              onChange={(e) => updatePhotoCaption(selectedPhotoIdx, e.target.value)}
+                              placeholder="Add a caption…"
+                              className="w-full bg-on-surface/[0.04] rounded-full px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
+                            />
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => {
+                                  if (selectedPhotoIdx > 0) {
+                                    movePhoto(selectedPhotoIdx, selectedPhotoIdx - 1);
+                                    setSelectedPhotoIdx(selectedPhotoIdx - 1);
+                                  }
+                                }}
+                                disabled={selectedPhotoIdx === 0}
+                                aria-label="Move left"
+                                className="w-9 h-9 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/60 disabled:opacity-30 hover:bg-on-surface/[0.08] transition-colors"
+                              >
+                                <ChevronLeft size={16} />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (selectedPhotoIdx < photos.length - 1) {
+                                    movePhoto(selectedPhotoIdx, selectedPhotoIdx + 1);
+                                    setSelectedPhotoIdx(selectedPhotoIdx + 1);
+                                  }
+                                }}
+                                disabled={selectedPhotoIdx === photos.length - 1}
+                                aria-label="Move right"
+                                className="w-9 h-9 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/60 disabled:opacity-30 hover:bg-on-surface/[0.08] transition-colors"
+                              >
+                                <ChevronRight size={16} />
                               </button>
                             </div>
-                            <div className="flex-1 min-w-0 flex flex-col justify-center py-0.5">
-                              <input type="text" value={photo.caption} onChange={(e) => updatePhotoCaption(idx, e.target.value)}
-                                placeholder="Caption..." className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full" />
-                            </div>
-                            <div className="flex items-start pt-1 flex-shrink-0">
-                              <div className="text-on-surface/20 cursor-grab active:cursor-grabbing p-1"
-                                onPointerDown={() => setDragIdx(idx)}
-                                onPointerUp={() => {
-                                  if (dragIdx !== null && dragIdx !== idx) movePhoto(dragIdx, idx);
-                                  setDragIdx(null);
-                                }}>
-                                <GripVertical size={18} />
-                              </div>
-                            </div>
                           </div>
-                        ))}
-                      </div>
+                        )}
+                      </>
                     )}
                   </div>
-                  <BottomBtn label={hasPhotos ? `Done (${photos.length})` : 'Done'} onClick={() => setPage('main')} />
+                  <BottomBtn label={hasPhotos ? `Done (${photos.length})` : 'Done'} onClick={() => { setPage('main'); setSelectedPhotoIdx(null); }} />
                 </SubPage>
               )}
             </AnimatePresence>
