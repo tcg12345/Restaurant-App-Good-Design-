@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -271,14 +271,14 @@ export const RatingModal: React.FC = () => {
                       </div>
                     </div>
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Add details</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        <DetailBtn icon={<StickyNote size={17} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
-                        <DetailBtn icon={<DollarSign size={17} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
-                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
-                        <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
-                        <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
-                        <DetailBtn icon={<Users size={17} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} />
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1">Add details</p>
+                      <div>
+                        <DetailRow icon={<StickyNote size={20} />} label="Notes" value={hasNotes ? notes : undefined} onClick={() => setPage('notes')} />
+                        <DetailRow icon={<DollarSign size={20} />} label="Price" value={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
+                        <DetailRow icon={<CalendarDays size={20} />} label="Date" value={dateLabel} onClick={() => setPage('date')} />
+                        <DetailRow icon={<Tag size={20} />} label="Tags" value={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
+                        <DetailRow icon={<Image size={20} />} label="Photos" value={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
+                        <DetailRow icon={<Users size={20} />} label="Friends" value={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} />
                       </div>
                     </div>
                   </div>
@@ -338,33 +338,33 @@ export const RatingModal: React.FC = () => {
 
               {page === 'tags' && (
                 <SubPage key="tags" onBack={() => { setPage('main'); setTagSearch(''); }} title="Tags">
-                  <div className="px-5 pt-4 pb-2 flex-shrink-0">
+                  <div className="px-5 pt-4 pb-3 flex-shrink-0">
                     <div className="relative">
-                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                      <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
                       <input type="text" value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags..."
-                        className="w-full bg-white border border-on-surface/10 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                        className="w-full bg-on-surface/[0.04] rounded-full pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
                     </div>
-                    {hasTags && (
-                      <div className="flex flex-wrap gap-1.5 mt-2.5">
-                        {selectedTags.map((tag) => (
-                          <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
-                            {tag}<button onClick={() => toggleTag(tag)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3" onTouchMove={(e) => e.stopPropagation()}>
-                    {filteredTags.map((tag) => {
-                      const sel = selectedTags.includes(tag);
-                      return (
-                        <button key={tag} onClick={() => toggleTag(tag)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors", sel ? "bg-primary/3" : "hover:bg-on-surface/3")}>
-                          <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0", sel ? "bg-primary border-primary text-white" : "border-on-surface/20")}>{sel && <Check size={12} strokeWidth={3} />}</div>
-                          <span className={cn("text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{tag}</span>
-                        </button>
-                      );
-                    })}
+                    <div className="flex flex-wrap gap-2">
+                      {filteredTags.map((tag) => {
+                        const sel = selectedTags.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            onClick={() => toggleTag(tag)}
+                            className={cn(
+                              "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+                              sel
+                                ? "bg-primary text-white"
+                                : "border border-on-surface/15 text-on-surface/70 hover:border-on-surface/25"
+                            )}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
                     {filteredTags.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No tags match "{tagSearch}"</p>}
                   </div>
                   <BottomBtn label={hasTags ? `Done (${selectedTags.length})` : 'Done'} onClick={() => { setPage('main'); setTagSearch(''); }} />
@@ -464,16 +464,17 @@ export const RatingModal: React.FC = () => {
   );
 };
 
-const DetailBtn: React.FC<{
-  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
-}> = ({ icon, label, active, sub, onClick }) => (
-  <button onClick={onClick}
-    className={cn("flex flex-col items-center gap-1 p-2.5 rounded-2xl border transition-all",
-      active ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
-    )}>
-    <span className={active ? "text-primary" : "text-on-surface/30"}>{icon}</span>
-    <span className={cn("text-[10px] font-semibold", active ? "text-primary" : "text-on-surface/40")}>{label}</span>
-    {sub && <span className="text-[9px] text-primary/60 line-clamp-1 w-full text-center">{sub}</span>}
+const DetailRow: React.FC<{
+  icon: React.ReactNode; label: string; value?: string; onClick: () => void;
+}> = ({ icon, label, value, onClick }) => (
+  <button
+    onClick={onClick}
+    className="w-full flex items-center gap-3.5 py-3.5 border-b border-on-surface/[0.06] last:border-b-0 text-left active:bg-on-surface/[0.02] transition-colors"
+  >
+    <span className="text-on-surface/45 flex-shrink-0">{icon}</span>
+    <span className="flex-1 text-[16px] font-medium text-on-surface/85">{label}</span>
+    {value && <span className="text-[14px] text-on-surface/45 truncate max-w-[150px]">{value}</span>}
+    <ChevronRight size={16} className="text-on-surface/25 flex-shrink-0" />
   </button>
 );
 
