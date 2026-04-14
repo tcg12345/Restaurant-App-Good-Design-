@@ -4,7 +4,7 @@ import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Images, Users, UserCircle, Share2, Heart,
-  StickyNote, DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw,
+  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
@@ -53,7 +53,6 @@ export const RestaurantDetailMobile: React.FC = () => {
   const {
     place, loading, error, navigate,
     photoIndex, setPhotoIndex,
-    hoursOpen, setHoursOpen,
     galleryOpen, setGalleryOpen,
     mapContainerRef,
     priceStr, cuisine,
@@ -67,7 +66,10 @@ export const RestaurantDetailMobile: React.FC = () => {
   const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
-  const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
+  // Hours expanded by default — it's the most frequently checked info,
+  // so show it open without a tap. Local state so we don't mutate the
+  // shared hook default.
+  const [hoursOpen, setHoursOpen] = useState(true);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   const [sendToChatOpen, setSendToChatOpen] = useState(false);
@@ -219,20 +221,20 @@ export const RestaurantDetailMobile: React.FC = () => {
         <div className="absolute bottom-10 left-5 right-5 z-10 pointer-events-none">
           <h1 className="text-2xl font-serif font-bold text-white leading-tight mb-1.5 drop-shadow-lg">{place.name}</h1>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
+            <span className="text-xs font-semibold text-white/90 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
             {!isHotel && priceStr && (
               <>
                 <span className="text-white/50">·</span>
-                <span className="text-[11px] font-semibold text-white/90 uppercase tracking-wider">{priceStr}</span>
+                <span className="text-xs font-semibold text-white/90 uppercase tracking-wider">{priceStr}</span>
               </>
             )}
             {place.isOpen !== null && (
               <>
                 <span className="text-white/50">·</span>
                 {place.isOpen ? (
-                  <span className="text-[11px] font-semibold text-green-400">Open</span>
+                  <span className="text-xs font-semibold text-green-400">Open</span>
                 ) : (
-                  <span className="text-[11px] font-semibold text-red-400">
+                  <span className="text-xs font-semibold text-red-400">
                     Closed{(() => {
                       const next = getNextOpenTime(place.hours);
                       return next ? ` · Opens ${next}` : '';
@@ -303,7 +305,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
           >
             <Navigation size={18} />
-            <span className="text-[11px] font-medium">Directions</span>
+            <span className="text-xs font-medium">Directions</span>
           </a>
           {place.website ? (
             <a
@@ -313,12 +315,12 @@ export const RestaurantDetailMobile: React.FC = () => {
               className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
             >
               <Globe size={18} />
-              <span className="text-[11px] font-medium">Website</span>
+              <span className="text-xs font-medium">Website</span>
             </a>
           ) : (
             <div className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/8 text-on-surface/30">
               <Globe size={18} />
-              <span className="text-[11px] font-medium">Website</span>
+              <span className="text-xs font-medium">Website</span>
             </div>
           )}
           <button
@@ -326,129 +328,109 @@ export const RestaurantDetailMobile: React.FC = () => {
             className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
           >
             <Images size={18} />
-            <span className="text-[11px] font-medium">Photos</span>
+            <span className="text-xs font-medium">Photos</span>
           </button>
           <button
             onClick={() => setSendToChatOpen(true)}
             className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
           >
             <Send size={18} />
-            <span className="text-[11px] font-medium">Send</span>
+            <span className="text-xs font-medium">Send</span>
           </button>
         </div>
 
-        {/* Ratings — Google, Friends/Breakfast, Community */}
-        <section className="mb-7 space-y-3">
-          {isHotel && (
-            <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1">Food Ratings</p>
-          )}
-          {/* Google */}
-          <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
-            <div className="flex items-center gap-4">
-              <div className="text-center flex-shrink-0">
-                <p className="text-3xl font-serif font-bold leading-none">{place.rating}</p>
-                <div className="flex gap-0.5 justify-center mt-1.5">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star key={s} size={12} className={s <= Math.round(place.rating) ? 'fill-primary text-primary' : 'text-on-surface/15'} />
-                  ))}
+        {/* ── Ratings — flowing inline stats, no cards ──
+            The primary rating is the community score (if any) or the Google
+            score as a fallback, shown as large serif text directly under the
+            hero. Secondary sources flow below as a muted single line, and
+            Friends remains tappable to open the detail sheet. */}
+        <section className="mb-8">
+          {(() => {
+            const hasCommunity = communityStats.totalRatings > 0;
+            const primaryScore = hasCommunity ? communityStats.avgScore.toFixed(1) : String(place.rating);
+            const primaryCount = hasCommunity
+              ? `avg from ${communityStats.totalRatings} ${communityStats.totalRatings === 1 ? 'rating' : 'ratings'}`
+              : `from ${formatReviewCount(place.userRatingCount)} Google reviews`;
+            const primaryLabel = hasCommunity ? (isHotel ? 'Breakfast' : 'Community') : 'Google';
+            const primaryColor = hasCommunity
+              ? (isHotel ? 'text-amber-600' : 'text-on-surface')
+              : 'text-on-surface';
+            return (
+              <>
+                <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-1.5">{primaryLabel}</p>
+                <div className="flex items-baseline gap-3">
+                  <span className={cn('text-[32px] font-serif font-bold leading-none', primaryColor)}>{primaryScore}</span>
+                  <span className="text-sm text-on-surface/50">{primaryCount}</span>
                 </div>
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-on-surface">Google Reviews</p>
-                <p className="text-xs text-on-surface/50 mt-0.5">{formatReviewCount(place.userRatingCount)} ratings</p>
-              </div>
-            </div>
-          </div>
+              </>
+            );
+          })()}
 
-          {/* Friends — hidden for hotels */}
-          {!isHotel && (
-            <button onClick={() => friendsStats.totalRatings > 0 && setShowFriendsDetail(true)}
-              className="w-full bg-white rounded-2xl p-4 border border-on-surface/8 text-left">
-              <div className="flex items-center gap-4">
-                {friendsStats.totalRatings > 0 ? (
-                  <div className="text-center flex-shrink-0">
-                    <p className="text-3xl font-serif font-bold leading-none text-primary">{friendsStats.avgScore.toFixed(1)}</p>
-                    <p className="text-[10px] text-on-surface/35 font-medium mt-0.5">/ 10</p>
-                  </div>
-                ) : (
-                  <div className="text-center flex-shrink-0 w-14">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-                      <UserCircle size={20} className="text-primary/50" />
-                    </div>
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-on-surface">Friends</p>
-                  <p className="text-xs text-on-surface/45 mt-0.5">
-                    {friendsStats.totalRatings > 0 ? `${friendsStats.totalRatings} friend rating${friendsStats.totalRatings !== 1 ? 's' : ''} · Tap to view` : 'No friends have rated this place yet'}
-                  </p>
-                </div>
-                {friendsStats.totalRatings > 0 && <ChevronRight size={16} className="text-on-surface/30 flex-shrink-0" />}
+          {/* Secondary sources — inline single line with dividers */}
+          {(() => {
+            const hasCommunity = communityStats.totalRatings > 0;
+            const secondary: React.ReactNode[] = [];
+            // If Community is the primary, surface Google as secondary
+            if (hasCommunity) {
+              secondary.push(
+                <span key="google" className="inline-flex items-baseline gap-1.5">
+                  <Star size={12} className="fill-primary text-primary self-center" />
+                  <span className="font-serif font-bold text-on-surface">{place.rating}</span>
+                  <span className="text-on-surface/45">Google ({formatReviewCount(place.userRatingCount)})</span>
+                </span>
+              );
+            }
+            if (!isHotel && friendsStats.totalRatings > 0) {
+              secondary.push(
+                <button
+                  key="friends"
+                  type="button"
+                  onClick={() => setShowFriendsDetail(true)}
+                  className="inline-flex items-baseline gap-1.5 text-primary hover:text-primary/80 transition-colors"
+                >
+                  <span className="font-serif font-bold">{friendsStats.avgScore.toFixed(1)}</span>
+                  <span>from {friendsStats.totalRatings} friend{friendsStats.totalRatings === 1 ? '' : 's'}</span>
+                  <ChevronRight size={12} className="self-center" />
+                </button>
+              );
+            }
+            if (secondary.length === 0) return null;
+            return (
+              <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px]">
+                {secondary.map((node, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 && <span className="text-on-surface/20">·</span>}
+                    {node}
+                  </React.Fragment>
+                ))}
               </div>
-            </button>
-          )}
+            );
+          })()}
 
-          {/* Breakfast rating — only for hotels with community ratings */}
-          {isHotel && communityStats.totalRatings > 0 && (
-            <div className="bg-white rounded-2xl p-4 border border-amber-200/50">
-              <div className="flex items-center gap-4">
-                <div className="text-center flex-shrink-0">
-                  <p className="text-3xl font-serif font-bold leading-none text-amber-600">{communityStats.avgScore.toFixed(1)}</p>
-                  <p className="text-[10px] text-on-surface/35 font-medium mt-0.5">/ 10</p>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-on-surface">Breakfast</p>
-                  <p className="text-xs text-on-surface/45 mt-0.5">{communityStats.totalRatings} rating{communityStats.totalRatings !== 1 ? 's' : ''} from members</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Community — hidden for hotels (shown as Breakfast above) */}
-          {!isHotel && (
-            <div className="bg-white rounded-2xl p-4 border border-on-surface/8">
-              <div className="flex items-center gap-4">
-                {communityStats.totalRatings > 0 ? (
-                  <div className="text-center flex-shrink-0">
-                    <p className="text-3xl font-serif font-bold leading-none text-violet-600">{communityStats.avgScore.toFixed(1)}</p>
-                    <p className="text-[10px] text-on-surface/35 font-medium mt-0.5">/ 10</p>
-                  </div>
-                ) : (
-                  <div className="text-center flex-shrink-0 w-14">
-                    <div className="w-10 h-10 rounded-full bg-violet-50 flex items-center justify-center mx-auto">
-                      <Users size={20} className="text-violet-400" />
-                    </div>
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-on-surface">Community</p>
-                  <p className="text-xs text-on-surface/45 mt-0.5">
-                    {communityStats.totalRatings > 0 ? `${communityStats.totalRatings} rating${communityStats.totalRatings !== 1 ? 's' : ''} from the community` : 'No community ratings yet'}
-                  </p>
-                </div>
-              </div>
-            </div>
+          {/* Empty states — only when there's literally nothing else to show */}
+          {!isHotel && friendsStats.totalRatings === 0 && communityStats.totalRatings === 0 && (
+            <p className="mt-3 text-[13px] text-on-surface/45">No community or friend ratings yet · be the first</p>
           )}
         </section>
 
-        {/* Hotel Dining */}
+        {/* ── Hotel Dining — flat list with dividers, no per-row cards ── */}
         {isHotel && (
-          <section className="mb-7">
+          <section className="mb-8">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-on-surface/70 uppercase tracking-wider">Hotel Dining</h3>
+              <h3 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Hotel Dining</h3>
               {user?.id && (
-                <button onClick={() => setAddDiningOpen(true)} className="text-xs font-semibold text-primary active:scale-95 transition-transform">
+                <button onClick={() => setAddDiningOpen(true)} className="text-xs font-bold uppercase tracking-wider text-primary active:scale-95 transition-transform">
                   + Add Option
                 </button>
               )}
             </div>
 
-            {/* Category filter pills */}
-            <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3">
+            {/* Category filter pills — transparent inactive, filled active */}
+            <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-2 -mx-1 px-1">
               {([{ value: 'all' as const, label: 'All' }, { value: 'restaurant' as const, label: 'Restaurants' }, { value: 'breakfast' as const, label: 'Breakfast' }, { value: 'bar' as const, label: 'Bars' }, { value: 'room_service' as const, label: 'Room Service' }, { value: 'pool_bar' as const, label: 'Pool Bar' }, { value: 'rooftop' as const, label: 'Rooftop' }] as const).map((f) => (
                 <button key={f.value} onClick={() => setDiningFilter(f.value)}
-                  className={cn("px-3.5 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap border transition-all flex-shrink-0",
-                    diningFilter === f.value ? "bg-primary/10 border-primary/25 text-primary" : "bg-white border-on-surface/10 text-on-surface/50"
+                  className={cn("px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0",
+                    diningFilter === f.value ? "bg-primary text-white" : "bg-transparent text-on-surface/50 hover:text-on-surface/70"
                   )}>
                   {f.label}
                 </button>
@@ -456,356 +438,476 @@ export const RestaurantDetailMobile: React.FC = () => {
             </div>
 
             {hotelDiningOptions.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-on-surface/8 p-6 text-center">
-                <Building2 size={24} className="mx-auto text-on-surface/15 mb-2" />
-                <p className="text-xs text-on-surface/35">No dining options added yet</p>
+              <div className="py-8 text-center">
+                <Building2 size={22} className="mx-auto text-on-surface/15 mb-2" />
+                <p className="text-[13px] text-on-surface/35">No dining options added yet</p>
               </div>
             ) : (
-              <div className="space-y-2">
+              <ul className="divide-y divide-on-surface/[0.06]">
                 {hotelDiningOptions
                   .filter((d) => diningFilter === 'all' || d.dining_type === diningFilter)
                   .map((d) => {
                     const score = diningRatings[d.restaurant_place_id];
                     return (
-                      <div key={d.id} onClick={() => navigate(`/restaurant/${d.restaurant_place_id}`)}
-                        className="bg-white rounded-2xl border border-on-surface/8 p-3.5 active:scale-[0.99] transition-transform cursor-pointer">
-                        <div className="flex items-start justify-between gap-2">
+                      <li key={d.id}>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/restaurant/${d.restaurant_place_id}`)}
+                          className="w-full flex items-start justify-between gap-3 py-3 text-left active:scale-[0.995] transition-transform"
+                        >
                           <div className="min-w-0 flex-1">
-                            <h4 className="font-serif font-bold text-sm truncate">{d.restaurant_name}</h4>
-                            <span className={cn(
-                              "inline-block mt-1 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full",
-                              d.dining_type === 'restaurant' ? "bg-primary/8 text-primary/70" :
-                              d.dining_type === 'breakfast' ? "bg-amber-50 text-amber-600" :
-                              d.dining_type === 'bar' ? "bg-violet-50 text-violet-600" :
-                              d.dining_type === 'rooftop' ? "bg-sky-50 text-sky-600" :
-                              "bg-on-surface/5 text-on-surface/50"
+                            <h4 className="font-serif font-bold text-[15px] truncate">{d.restaurant_name}</h4>
+                            <p className={cn(
+                              "mt-0.5 text-xs font-bold uppercase tracking-[0.15em]",
+                              d.dining_type === 'restaurant' ? "text-primary/70" :
+                              d.dining_type === 'breakfast' ? "text-amber-600" :
+                              d.dining_type === 'bar' ? "text-violet-600" :
+                              d.dining_type === 'rooftop' ? "text-sky-600" :
+                              "text-on-surface/50"
                             )}>
                               {d.dining_type.replace('_', ' ')}
-                            </span>
+                            </p>
                           </div>
                           {score != null && (
-                            <span className={cn("text-lg font-serif font-bold flex-shrink-0", score >= 8 ? 'text-green-600' : score >= 5 ? 'text-yellow-600' : 'text-red-500')}>
+                            <span className={cn("text-lg font-serif font-bold flex-shrink-0 pt-0.5", score >= 8 ? 'text-green-600' : score >= 5 ? 'text-yellow-600' : 'text-red-500')}>
                               {score.toFixed(1)}
                             </span>
                           )}
-                        </div>
-                      </div>
+                        </button>
+                      </li>
                     );
                   })}
-              </div>
+              </ul>
             )}
           </section>
         )}
 
-        {/* Expert Picks */}
+        {/* ── Expert Picks — flat list with dividers, no per-item cards ── */}
         {expertRecommendations.length > 0 && (
-          <section className="mb-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">
-                <Star size={13} className="text-amber-600 fill-amber-600" />
-              </div>
-              <h3 className="text-sm font-serif font-bold text-on-surface">Expert Picks</h3>
-              <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">{expertRecommendations.length}</span>
+          <section className="mb-8">
+            <div className="flex items-center gap-2 mb-2">
+              <Star size={13} className="text-amber-600 fill-amber-600 flex-shrink-0" />
+              <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-amber-700">Expert Picks</h3>
+              <span className="text-xs font-semibold text-on-surface/30">· {expertRecommendations.length}</span>
             </div>
-            <div className="space-y-3">
+            <ul className="divide-y divide-on-surface/[0.06]">
               {expertRecommendations.map((rec) => {
                 const isExpanded = expandedExpertId === rec.id;
                 const scoreColor = Number(rec.rating) >= 8 ? 'text-green-600' : Number(rec.rating) >= 5 ? 'text-yellow-600' : 'text-red-500';
                 return (
-                  <motion.div
-                    key={rec.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-white rounded-2xl border border-amber-200/60 overflow-hidden"
-                  >
+                  <li key={rec.id}>
                     <button
                       onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
-                      className="w-full px-4 py-3.5 active:bg-amber-50/50 transition-colors"
+                      className="w-full py-3.5 text-left active:bg-on-surface/[0.02] transition-colors"
                     >
                       <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                          <UserCircle size={18} className="text-amber-600" />
-                        </div>
-                        <div className="flex-1 min-w-0 text-left">
-                          <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <Link
                               to={`/user/${rec.expert_username}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="text-sm font-semibold text-on-surface hover:text-primary truncate"
+                              className="text-[15px] font-serif font-bold text-on-surface hover:text-primary truncate"
                             >
                               {rec.expert_name}
                             </Link>
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full flex-shrink-0">Expert</span>
+                            <span className="text-xs font-bold uppercase tracking-[0.15em] text-amber-600">Expert</span>
                           </div>
-                          <p className={cn("text-sm mt-1", isExpanded ? "" : "line-clamp-2", "text-on-surface/60")}>{rec.recommendation_text}</p>
+                          <p className={cn("text-[13px] mt-1 leading-relaxed text-on-surface/65", isExpanded ? "" : "line-clamp-2")}>{rec.recommendation_text}</p>
                         </div>
-                        <div className="flex flex-col items-center flex-shrink-0 ml-1">
-                          <span className={cn("text-xl font-serif font-bold", scoreColor)}>{Number(rec.rating).toFixed(1)}</span>
-                          <span className="text-[8px] text-on-surface/30 font-semibold uppercase">/ 10</span>
+                        <div className="flex items-baseline gap-1 flex-shrink-0 pt-0.5">
+                          <span className={cn("text-xl font-serif font-bold leading-none", scoreColor)}>{Number(rec.rating).toFixed(1)}</span>
+                          <span className="text-xs text-on-surface/30 font-semibold">/10</span>
                         </div>
                       </div>
-                    </button>
-                    <AnimatePresence>
-                      {isExpanded && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden"
-                        >
-                          {rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
-                            <div className="px-4 pb-3 pt-0.5">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600/70 mb-2">Highlight Dishes</p>
+                      <AnimatePresence>
+                        {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="pt-3">
+                              <p className="text-xs font-bold uppercase tracking-[0.15em] text-amber-600/70 mb-2">Highlight Dishes</p>
                               <div className="flex flex-wrap gap-1.5">
                                 {rec.highlight_dishes.map((dish) => (
-                                  <span key={dish} className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200/50">
+                                  <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
                                     {dish}
                                   </span>
                                 ))}
                               </div>
                             </div>
-                          )}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </section>
         )}
 
-        {/* Hours */}
+        {/* ── Hours — flat accordion, no card wrapper ── */}
         {place.hours.length > 0 && (
-          <section className="mb-3">
-            <div className="bg-white rounded-2xl border border-on-surface/8">
-              <button
-                onClick={() => setHoursOpen(!hoursOpen)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.02] transition-colors"
-              >
-                <Clock size={18} className="text-on-surface/40 flex-shrink-0" />
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  {place.isOpen !== null && (
-                    <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${place.isOpen ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
-                      {place.isOpen ? 'Open' : 'Closed'}
-                    </span>
-                  )}
-                  <span className="text-sm text-on-surface/60 truncate">{getTodayHours(place.hours)}</span>
-                </div>
-                <ChevronDown size={16} className={`text-on-surface/30 flex-shrink-0 transition-transform duration-200 ${hoursOpen ? 'rotate-180' : ''}`} />
-              </button>
-              <AnimatePresence>
-                {hoursOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-4 pb-3 pl-11 space-y-1.5">
-                      {place.hours.map((line, i) => {
-                        const [day, ...timeParts] = line.split(': ');
-                        const time = timeParts.join(': ');
-                        const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                        const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
-                        return (
-                          <div key={i} className={`flex justify-between text-sm ${isToday ? 'font-medium text-on-surface' : 'text-on-surface/45'}`}>
-                            <span>{day}</span>
-                            <span>{time}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
+          <section className="mb-8">
+            <button
+              onClick={() => setHoursOpen(!hoursOpen)}
+              className="w-full flex items-center gap-3 py-1 text-left active:opacity-70 transition-opacity"
+            >
+              <Clock size={16} className="text-on-surface/40 flex-shrink-0" />
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {place.isOpen !== null && (
+                  <span className={cn(
+                    "text-xs font-bold uppercase tracking-wider",
+                    place.isOpen ? 'text-green-600' : 'text-red-500'
+                  )}>
+                    {place.isOpen ? 'Open' : 'Closed'}
+                  </span>
                 )}
-              </AnimatePresence>
-            </div>
+                <span className="text-[13px] text-on-surface/60 truncate">· {getTodayHours(place.hours)}</span>
+              </div>
+              <ChevronDown size={15} className={cn("text-on-surface/30 flex-shrink-0 transition-transform duration-200", hoursOpen && "rotate-180")} />
+            </button>
+            <AnimatePresence>
+              {hoursOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <div className="pt-3 pl-7 space-y-1.5">
+                    {place.hours.map((line, i) => {
+                      const [day, ...timeParts] = line.split(': ');
+                      const time = timeParts.join(': ');
+                      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+                      const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
+                      return (
+                        <div key={i} className={cn("flex justify-between text-[13px]", isToday ? 'font-semibold text-on-surface' : 'text-on-surface/45')}>
+                          <span>{day}</span>
+                          <span>{time}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </section>
         )}
 
-        {/* Contact & Address */}
-        <section className="mb-7">
-          <div className="bg-white rounded-2xl border border-on-surface/8 divide-y divide-on-surface/6">
+        {/* ── Contact & Address — flat divider rows, no card wrapper ── */}
+        <section className="mb-8">
+          <ul className="divide-y divide-on-surface/[0.06]">
             {place.phone && (
-              <a href={`tel:${place.phone}`} className="flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.02] transition-colors">
-                <Phone size={18} className="text-on-surface/40 flex-shrink-0" />
-                <span className="text-sm text-on-surface/70">{place.phone}</span>
-              </a>
+              <li>
+                <a href={`tel:${place.phone}`} className="flex items-center gap-3 py-3 active:opacity-70 transition-opacity">
+                  <Phone size={16} className="text-on-surface/40 flex-shrink-0" />
+                  <span className="text-[13px] text-on-surface/70">{place.phone}</span>
+                </a>
+              </li>
             )}
-
             {place.website && (
-              <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.02] transition-colors">
-                <Globe size={18} className="text-on-surface/40 flex-shrink-0" />
-                <span className="text-sm text-on-surface/70 truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
-              </a>
+              <li>
+                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 active:opacity-70 transition-opacity">
+                  <Globe size={16} className="text-on-surface/40 flex-shrink-0" />
+                  <span className="text-[13px] text-on-surface/70 truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
+                </a>
+              </li>
             )}
-
-            <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.02] transition-colors">
-              <MapPin size={18} className="text-on-surface/40 flex-shrink-0" />
-              <span className="text-sm text-on-surface/70 flex-1">{place.address}</span>
-              <Navigation size={14} className="text-primary flex-shrink-0" />
-            </a>
-          </div>
+            <li>
+              <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 active:opacity-70 transition-opacity">
+                <MapPin size={16} className="text-on-surface/40 flex-shrink-0" />
+                <span className="text-[13px] text-on-surface/70 flex-1">{place.address}</span>
+                <Navigation size={13} className="text-primary flex-shrink-0" />
+              </a>
+            </li>
+          </ul>
         </section>
 
-        {/* My Rating details */}
+        {/* ── My Rating Details — flowing vertical layout, no cards ──
+            Notes render as full-width italic text, tags as inline wrap
+            pills, photos as a horizontal scroll strip, and secondary
+            facts (date/price/friends) as plain labeled lines. A single
+            edit button in the header opens the add-rating modal. */}
         {myRating && place && (() => {
           const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.address };
-          const details = [
-            { key: 'notes', icon: <StickyNote size={16} />, label: 'Notes', hasContent: !!myRating.notes, content: myRating.notes ? <p className="text-xs text-on-surface/60 italic">"{myRating.notes}"</p> : null },
-            ...(!isHotel ? [{ key: 'price', icon: <DollarSign size={16} />, label: 'Price', hasContent: !!myRating.price, content: myRating.price ? <p className="text-xs text-on-surface/60">{myRating.price}</p> : null }] : []),
-            { key: 'date', icon: <CalendarDays size={16} />, label: 'Visit Date', hasContent: !!myRating.visitDate, content: myRating.visitDate ? <p className="text-xs text-on-surface/60">{new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p> : null },
-            { key: 'tags', icon: <Tag size={16} />, label: 'Tags', hasContent: myRating.tags?.length > 0, content: myRating.tags?.length > 0 ? <div className="flex flex-wrap gap-1">{myRating.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>)}</div> : null },
-            { key: 'photos', icon: <Image size={16} />, label: 'Photos', hasContent: myRating.photos?.length > 0, content: myRating.photos?.length > 0 ? <div className="grid grid-cols-4 gap-1 rounded-lg overflow-hidden">{myRating.photos.slice(0, 4).map((p, i) => <img key={i} src={p.url} className="aspect-square object-cover" referrerPolicy="no-referrer" />)}</div> : null },
-            ...(!isHotel ? [{ key: 'friends', icon: <Users size={16} />, label: 'Went With', hasContent: (myRating.friendIds?.length || 0) > 0, content: (myRating.friendIds?.length || 0) > 0 ? <div className="flex flex-wrap gap-1.5">{myRating.friendIds.map((fid) => <span key={fid} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{friendNames[fid] || fid.slice(0, 8)}</span>)}</div> : null }] : []),
-          ];
+          const hasNotes = !!myRating.notes;
+          const hasTags = (myRating.tags?.length || 0) > 0;
+          const hasPhotos = (myRating.photos?.length || 0) > 0;
+          const hasDate = !!myRating.visitDate;
+          const hasPrice = !isHotel && !!myRating.price;
+          const hasFriends = !isHotel && (myRating.friendIds?.length || 0) > 0;
+          const hasAny = hasNotes || hasTags || hasPhotos || hasDate || hasPrice || hasFriends;
           return (
-            <section className="mb-7 space-y-1.5">
-              {details.map((d) => (
-                <div key={d.key} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
-                  <button onClick={() => setExpandedDetail(expandedDetail === d.key ? null : d.key)}
-                    className="w-full flex items-center gap-3 px-3.5 py-3.5 text-left">
-                    <span className={d.hasContent ? 'text-primary' : 'text-on-surface/30'}>{d.icon}</span>
-                    <span className={cn("flex-1 text-xs font-semibold", d.hasContent ? 'text-on-surface/70' : 'text-on-surface/40')}>{d.label}</span>
-                    {d.hasContent && <span className="text-[9px] text-primary font-medium">Added</span>}
-                    <ChevronDown size={14} className={cn("text-on-surface/20 transition-transform", expandedDetail === d.key && "rotate-180")} />
-                  </button>
-                  <AnimatePresence>
-                    {expandedDetail === d.key && (
-                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                        <div className="px-3.5 pb-3 pt-1 border-t border-on-surface/5">
-                          {d.hasContent ? (
-                            <div>
-                              <div className="mb-2">{d.content}</div>
-                              <button onClick={() => openAddRestaurantModal(meta, d.key)}
-                                className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70">
-                                <Edit3 size={11} /> Edit
-                              </button>
-                            </div>
-                          ) : (
-                            <div>
-                              <p className="text-xs text-on-surface/30 mb-2">Nothing added yet</p>
-                              <button onClick={() => openAddRestaurantModal(meta, d.key)}
-                                className="flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70">
-                                + Add {d.label}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+            <section className="mb-8">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">My Rating Details</h3>
+                <button
+                  onClick={() => openAddRestaurantModal(meta, 'notes')}
+                  className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary active:opacity-70"
+                >
+                  <Edit3 size={11} /> Edit
+                </button>
+              </div>
+
+              {hasAny ? (
+                <div className="space-y-5">
+                  {/* Notes — full-width italic text */}
+                  {hasNotes && (
+                    <p className="text-[15px] leading-relaxed italic text-on-surface/75 font-serif">
+                      "{myRating.notes}"
+                    </p>
+                  )}
+
+                  {/* Tags — flowing inline pills */}
+                  {hasTags && (
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
+                        <Tag size={12} /> Tags
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {myRating.tags.map((t) => (
+                          <span key={t} className="text-xs font-medium px-2.5 py-1 rounded-full bg-primary/8 text-primary/80">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Photos — horizontal scroll strip */}
+                  {hasPhotos && (
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
+                        <Image size={12} /> Photos
+                      </p>
+                      <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 snap-x snap-mandatory">
+                        {myRating.photos.map((p, i) => (
+                          <img
+                            key={i}
+                            src={p.url}
+                            className="w-24 h-24 rounded-xl object-cover flex-shrink-0 snap-start"
+                            referrerPolicy="no-referrer"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Date / Price / Friends — plain labeled lines */}
+                  {(hasDate || hasPrice || hasFriends) && (
+                    <ul className="space-y-2.5">
+                      {hasDate && (
+                        <li className="flex items-center gap-3 text-[13px]">
+                          <CalendarDays size={14} className="text-on-surface/35 flex-shrink-0" />
+                          <span className="text-on-surface/45 w-16 flex-shrink-0">Visited</span>
+                          <span className="text-on-surface/75">{new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
+                        </li>
+                      )}
+                      {hasPrice && (
+                        <li className="flex items-center gap-3 text-[13px]">
+                          <DollarSign size={14} className="text-on-surface/35 flex-shrink-0" />
+                          <span className="text-on-surface/45 w-16 flex-shrink-0">Price</span>
+                          <span className="text-on-surface/75">{myRating.price}</span>
+                        </li>
+                      )}
+                      {hasFriends && (
+                        <li className="flex items-start gap-3 text-[13px]">
+                          <Users size={14} className="text-on-surface/35 flex-shrink-0 mt-0.5" />
+                          <span className="text-on-surface/45 w-16 flex-shrink-0 pt-0.5">With</span>
+                          <span className="flex flex-wrap gap-1.5">
+                            {myRating.friendIds.map((fid) => (
+                              <span key={fid} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/80">
+                                {friendNames[fid] || fid.slice(0, 8)}
+                              </span>
+                            ))}
+                          </span>
+                        </li>
+                      )}
+                    </ul>
+                  )}
                 </div>
-              ))}
+              ) : (
+                <p className="text-[13px] text-on-surface/35">No personal details added yet · tap Edit to add notes, tags, photos</p>
+              )}
             </section>
           );
         })()}
 
-        {/* Visit History Timeline */}
-        {myRating && visitHistory.length > 0 && place && (
-          <section className="mb-7">
-            <div className="flex items-center gap-2 mb-3 px-1">
-              <RotateCcw size={14} className="text-on-surface/30" />
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30">Visit History</h3>
-              <span className="text-[10px] text-on-surface/20 font-medium">{visitHistory.length + 1} visits</span>
-            </div>
-
-            {/* Current rating - highlighted */}
-            <div className="relative pl-6 mb-1">
-              <div className="absolute left-[9px] top-3 bottom-0 w-0.5 bg-on-surface/8" />
-              <div className="absolute left-0 top-2.5 w-[19px] h-[19px] rounded-full bg-primary flex items-center justify-center z-10">
-                <Star size={10} className="text-white fill-white" />
+        {/* ── Visit History Timeline — minimal 8px dots + 1px rail ──
+            The score-coded dot sits on a thin vertical line that connects
+            all visits; each row is just bold score + muted date with an
+            optional italic notes line, no card wrapper. Tapping a row
+            expands inline detail (tags + photos + would-return). */}
+        {myRating && visitHistory.length > 0 && place && (() => {
+          // Helper to pick dot colors consistently with the score colors
+          const dotColor = (score: number) =>
+            score >= 8 ? 'bg-green-500' : score >= 5 ? 'bg-yellow-500' : 'bg-red-500';
+          const textColor = (score: number) =>
+            score >= 8 ? 'text-green-600' : score >= 5 ? 'text-yellow-600' : 'text-red-500';
+          return (
+            <section className="mb-8">
+              <div className="flex items-center gap-2 mb-4">
+                <RotateCcw size={13} className="text-on-surface/30 flex-shrink-0" />
+                <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">Visit History</h3>
+                <span className="text-xs text-on-surface/30">· {visitHistory.length + 1} visits</span>
               </div>
-              <div className="bg-primary/[0.04] border border-primary/15 rounded-xl p-3.5">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={cn("text-lg font-serif font-bold", myRating.score >= 8 ? "text-green-600" : myRating.score >= 5 ? "text-yellow-600" : "text-red-500")}>{myRating.score.toFixed(1)}</span>
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded">Current</span>
-                  {visitHistory.length > 0 && (() => {
-                    const prev = visitHistory[0];
-                    const diff = myRating.score - prev.score;
-                    if (diff > 0.1) return <span className="flex items-center gap-0.5 text-[10px] text-green-600 font-medium"><TrendingUp size={10} />+{diff.toFixed(1)}</span>;
-                    if (diff < -0.1) return <span className="flex items-center gap-0.5 text-[10px] text-red-500 font-medium"><TrendingDown size={10} />{diff.toFixed(1)}</span>;
-                    return <span className="flex items-center gap-0.5 text-[10px] text-on-surface/30 font-medium"><Minus size={10} />Same</span>;
-                  })()}
-                </div>
-                {myRating.visitDate && <p className="text-[11px] text-on-surface/45">{new Date(myRating.visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>}
-                {myRating.notes && <p className="text-[11px] text-on-surface/50 italic mt-1 line-clamp-2">"{myRating.notes}"</p>}
-                {myRating.wouldReturn !== undefined && (
-                  <p className="text-[10px] mt-1 font-medium">{myRating.wouldReturn ? <span className="text-green-600">Would return</span> : <span className="text-red-500">Wouldn't return</span>}</p>
-                )}
-              </div>
-            </div>
 
-            {/* Previous visits */}
-            {visitHistory.map((visit, idx) => {
-              const isExpanded = expandedVisit === visit.id;
-              const prevVisit = visitHistory[idx + 1];
-              const scoreDiff = prevVisit ? visit.score - prevVisit.score : 0;
-              return (
-                <div key={visit.id} className="relative pl-6 mb-1">
-                  {idx < visitHistory.length - 1 && <div className="absolute left-[9px] top-3 bottom-0 w-0.5 bg-on-surface/8" />}
-                  <div className={cn("absolute left-[3px] top-2.5 w-[13px] h-[13px] rounded-full border-2 z-10",
-                    visit.score >= 8 ? "border-green-400 bg-green-50" : visit.score >= 5 ? "border-yellow-400 bg-yellow-50" : "border-red-400 bg-red-50")} />
-                  <button onClick={() => setExpandedVisit(isExpanded ? null : visit.id)}
-                    className="w-full text-left bg-white border border-on-surface/8 rounded-xl p-3 active:bg-on-surface/[0.02] transition-colors">
-                    <div className="flex items-center gap-2">
-                      <span className={cn("text-sm font-serif font-bold", visit.score >= 8 ? "text-green-600" : visit.score >= 5 ? "text-yellow-600" : "text-red-500")}>{visit.score.toFixed(1)}</span>
-                      {prevVisit && Math.abs(scoreDiff) > 0.1 && (
-                        scoreDiff > 0
-                          ? <TrendingUp size={10} className="text-green-500" />
-                          : <TrendingDown size={10} className="text-red-400" />
-                      )}
-                      <span className="flex-1 text-[11px] text-on-surface/40">
-                        {visit.visit_date ? new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
+              <div className="relative">
+                {/* Single thin rail connecting all dots */}
+                <div className="absolute left-[3.5px] top-2 bottom-2 w-px bg-on-surface/10" />
+
+                <ul className="space-y-5">
+                  {/* Current rating — slightly emphasized dot, no card */}
+                  <li className="relative pl-6">
+                    <div className={cn("absolute left-0 top-1.5 w-2 h-2 rounded-full ring-4 ring-surface", dotColor(myRating.score))} />
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className={cn("text-[18px] font-serif font-bold leading-none", textColor(myRating.score))}>
+                        {myRating.score.toFixed(1)}
                       </span>
-                      <ChevronDown size={12} className={cn("text-on-surface/20 transition-transform", isExpanded && "rotate-180")} />
+                      <span className="text-xs font-bold uppercase tracking-[0.15em] text-primary">Current</span>
+                      {(() => {
+                        const prev = visitHistory[0];
+                        if (!prev) return null;
+                        const diff = myRating.score - prev.score;
+                        if (diff > 0.1) return <span className="inline-flex items-center gap-0.5 text-xs text-green-600 font-medium"><TrendingUp size={12} />+{diff.toFixed(1)}</span>;
+                        if (diff < -0.1) return <span className="inline-flex items-center gap-0.5 text-xs text-red-500 font-medium"><TrendingDown size={12} />{diff.toFixed(1)}</span>;
+                        return <span className="inline-flex items-center gap-0.5 text-xs text-on-surface/35 font-medium"><Minus size={12} />Same</span>;
+                      })()}
                     </div>
-                    {!isExpanded && visit.notes && <p className="text-[10px] text-on-surface/35 italic mt-1 line-clamp-1">"{visit.notes}"</p>}
-                  </button>
-                  <AnimatePresence>
-                    {isExpanded && (
-                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                        <div className="bg-white border border-t-0 border-on-surface/8 rounded-b-xl px-3 pb-3 -mt-1 pt-2 space-y-1.5">
-                          {visit.notes && <p className="text-[11px] text-on-surface/50 italic">"{visit.notes}"</p>}
-                          {visit.tags && visit.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {visit.tags.map((t) => <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-on-surface/5 text-on-surface/40 font-medium">{t}</span>)}
-                            </div>
-                          )}
-                          {visit.photos && visit.photos.length > 0 && (
-                            <div className="flex gap-1 overflow-x-auto no-scrollbar">
-                              {visit.photos.slice(0, 4).map((p, i) => <img key={i} src={p.url} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />)}
-                            </div>
-                          )}
-                          <p className="text-[10px] font-medium">{visit.would_return ? <span className="text-green-600">Would return</span> : <span className="text-red-500">Wouldn't return</span>}</p>
-                        </div>
-                      </motion.div>
+                    {myRating.visitDate && (
+                      <p className="mt-1 text-[13px] text-on-surface/45">
+                        {new Date(myRating.visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                      </p>
                     )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
-          </section>
-        )}
+                    {myRating.notes && (
+                      <p className="mt-1 text-[13px] italic text-on-surface/55 leading-relaxed line-clamp-2">"{myRating.notes}"</p>
+                    )}
+                    {myRating.wouldReturn !== undefined && (
+                      <p className="mt-1 text-xs font-semibold">
+                        {myRating.wouldReturn
+                          ? <span className="text-green-600">Would return</span>
+                          : <span className="text-red-500">Wouldn't return</span>}
+                      </p>
+                    )}
+                  </li>
 
-        {/* Map */}
-        <section className="mb-8">
-          <div className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
-            <div ref={mapContainerRef} className="w-full h-48" />
-            <div className="px-4 py-3 flex items-center justify-between">
-              <p className="text-xs text-on-surface/45">{place.address}</p>
-              <a
-                href={mapsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-primary font-medium flex-shrink-0 ml-3"
-              >
-                Open in Maps
-                <ExternalLink size={12} />
-              </a>
-            </div>
+                  {/* Previous visits — each expandable inline; collapsed rows
+                      still show a 2-line notes preview and first-3 tag chips
+                      so people can skim without tapping. */}
+                  {visitHistory.map((visit, idx) => {
+                    const isExpanded = expandedVisit === visit.id;
+                    const prevVisit = visitHistory[idx + 1];
+                    const scoreDiff = prevVisit ? visit.score - prevVisit.score : 0;
+                    return (
+                      <li key={visit.id} className="relative pl-6">
+                        <div className={cn("absolute left-0 top-1.5 w-2 h-2 rounded-full ring-4 ring-surface", dotColor(visit.score))} />
+                        <button
+                          onClick={() => setExpandedVisit(isExpanded ? null : visit.id)}
+                          className="w-full text-left active:opacity-70 transition-opacity"
+                        >
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className={cn("text-[16px] font-serif font-bold leading-none", textColor(visit.score))}>
+                              {visit.score.toFixed(1)}
+                            </span>
+                            {prevVisit && Math.abs(scoreDiff) > 0.1 && (
+                              scoreDiff > 0
+                                ? <TrendingUp size={12} className="text-green-500" />
+                                : <TrendingDown size={12} className="text-red-400" />
+                            )}
+                            <span className="text-[13px] text-on-surface/45">
+                              {visit.visit_date ? new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
+                            </span>
+                            <ChevronDown size={14} className={cn("ml-auto text-on-surface/25 transition-transform flex-shrink-0", isExpanded && "rotate-180")} />
+                          </div>
+                          {!isExpanded && visit.notes && (
+                            <p className="mt-1 text-[13px] italic text-on-surface/45 leading-relaxed line-clamp-2">"{visit.notes}"</p>
+                          )}
+                          {!isExpanded && visit.tags && visit.tags.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {visit.tags.slice(0, 3).map((t) => (
+                                <span key={t} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/70">{t}</span>
+                              ))}
+                              {visit.tags.length > 3 && (
+                                <span className="text-xs text-on-surface/35 self-center">+{visit.tags.length - 3}</span>
+                              )}
+                            </div>
+                          )}
+                        </button>
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="pt-2 space-y-2">
+                                {visit.notes && (
+                                  <p className="text-[13px] italic text-on-surface/55 leading-relaxed">"{visit.notes}"</p>
+                                )}
+                                {visit.tags && visit.tags.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {visit.tags.map((t) => (
+                                      <span key={t} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/75">{t}</span>
+                                    ))}
+                                  </div>
+                                )}
+                                {visit.photos && visit.photos.length > 0 && (
+                                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+                                    {visit.photos.slice(0, 6).map((p, i) => (
+                                      <img key={i} src={p.url} className="w-16 h-16 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
+                                    ))}
+                                  </div>
+                                )}
+                                <p className="text-xs font-semibold">
+                                  {visit.would_return
+                                    ? <span className="text-green-600">Would return</span>
+                                    : <span className="text-red-500">Wouldn't return</span>}
+                                </p>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </section>
+          );
+        })()}
+
+        {/* ── Map — full-bleed with caption, no card wrapper. The map
+            container itself renders mapbox; a transparent overlay button
+            sits above it to catch taps and route to the full /map page
+            (the mapbox instance below stays visible). ── */}
+        <section className="mb-8 -mx-3">
+          <div className="relative w-full h-64">
+            <div ref={mapContainerRef} className="absolute inset-0" />
+            <button
+              type="button"
+              onClick={() => navigate('/map')}
+              aria-label="Open full map"
+              className="absolute inset-0 z-10 active:bg-on-surface/5 transition-colors"
+            />
+          </div>
+          <div className="px-3 pt-3 flex items-center justify-between">
+            <p className="text-[13px] text-on-surface/45 truncate flex-1">{place.address}</p>
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary flex-shrink-0 ml-3"
+            >
+              Open in Maps
+              <ExternalLink size={12} />
+            </a>
           </div>
         </section>
       </main>
@@ -857,13 +959,13 @@ export const RestaurantDetailMobile: React.FC = () => {
                         </div>
                         <span className={cn("text-lg font-serif font-bold", scoreColor)}>{Number(r.score).toFixed(1)}</span>
                       </div>
-                      {r.notes && <p className="text-xs text-on-surface/50 italic mt-1">"{r.notes}"</p>}
+                      {r.notes && <p className="text-[13px] text-on-surface/50 italic mt-1 leading-relaxed">"{r.notes}"</p>}
                       {r.tags && r.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1.5">
-                          {r.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}
+                          {r.tags.map((t) => <span key={t} className="text-xs px-2 py-0.5 rounded-full bg-primary/8 text-primary/60">{t}</span>)}
                         </div>
                       )}
-                      {r.visit_date && <p className="text-[10px] text-on-surface/30 mt-1.5">{new Date(r.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>}
+                      {r.visit_date && <p className="text-[13px] text-on-surface/30 mt-1.5">{new Date(r.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>}
                     </div>
                   );
                 })}
@@ -903,9 +1005,9 @@ export const RestaurantDetailMobile: React.FC = () => {
                 ) : (
                   <div className="space-y-1 pt-2">
                     <div className="flex gap-2 mb-3">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 self-center">Sharing:</span>
-                      <span className="text-xs font-semibold text-on-surface/60 truncate">{place.name}</span>
-                      {myRating && <span className="text-[10px] text-green-500 font-semibold self-center">+ Your Review</span>}
+                      <span className="text-xs font-bold uppercase tracking-widest text-on-surface/35 self-center">Sharing:</span>
+                      <span className="text-[13px] font-semibold text-on-surface/60 truncate">{place.name}</span>
+                      {myRating && <span className="text-xs text-green-500 font-semibold self-center">+ Your Review</span>}
                     </div>
                     {conversations.map((conv) => (
                       <button key={conv.id}
@@ -938,7 +1040,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-on-surface/70 truncate">{conv.name || 'Direct Message'}</p>
-                          <p className="text-[11px] text-on-surface/35">{conv.participantIds.length} participant{conv.participantIds.length !== 1 ? 's' : ''}</p>
+                          <p className="text-[13px] text-on-surface/35">{conv.participantIds.length} participant{conv.participantIds.length !== 1 ? 's' : ''}</p>
                         </div>
                         <Send size={14} className="text-on-surface/25" />
                       </button>

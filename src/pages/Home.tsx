@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { TopBar } from '../components/TopBar';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { CircleActivity } from '../components/CircleActivity';
-import { Search, Loader2, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles, Building2 } from 'lucide-react';
+import { LoadingSkeletonList } from '../components/LoadingSkeleton';
+import { EmptyState } from '../components/EmptyState';
+import { Search, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles, Building2, SearchX } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
@@ -217,6 +219,7 @@ export const Home: React.FC = () => {
     setHideBottomNav(show);
   }, [setHideBottomNav]);
   const [showAllResults, setShowAllResults] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState<SortOption>(ss?.sortBy || 'popularity');
   const [selectedPrice, setSelectedPrice] = useState(ss?.selectedPrice || 0);
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>(ss?.selectedCuisines || []);
@@ -459,6 +462,67 @@ export const Home: React.FC = () => {
     clearSearchState();
   };
 
+  // Remove a single cuisine chip and re-fetch server-side results
+  const handleRemoveCuisine = useCallback(async (type: string) => {
+    const next = selectedCuisines.filter((c) => c !== type);
+    setSelectedCuisines(next);
+    setIsLoading(true);
+    try {
+      const results = await searchNearbyRestaurants(userLat, userLng, 2000, next, selectedPrice, locationLabel || undefined);
+      setRawPlaces(results);
+    } catch (err) {
+      console.error('Filter search failed:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedCuisines, userLat, userLng, selectedPrice, locationLabel]);
+
+  const handleClearAllFilters = useCallback(() => {
+    setSortBy('popularity');
+    setSelectedPrice(0);
+    setSelectedCuisines([]);
+    if (activeFilter) {
+      handleFilterClick(activeFilter);
+    }
+  }, [activeFilter, handleFilterClick]);
+
+  // Build dismissible filter chips (quick filter + cuisines + price + sort)
+  const activeFilterChips = useMemo(() => {
+    const chips: { key: string; label: string; onClear: () => void }[] = [];
+    if (activeFilter) {
+      chips.push({
+        key: `quick:${activeFilter}`,
+        label: activeFilter,
+        onClear: () => handleFilterClick(activeFilter),
+      });
+    }
+    for (const type of selectedCuisines) {
+      const cuisine = CUISINE_TYPES.find((c) => c.type === type);
+      chips.push({
+        key: `cuisine:${type}`,
+        label: cuisine?.label || type,
+        onClear: () => handleRemoveCuisine(type),
+      });
+    }
+    if (selectedPrice > 0) {
+      const priceLabel = PRICE_LEVELS.find((p) => p.value === selectedPrice)?.label;
+      chips.push({
+        key: `price:${selectedPrice}`,
+        label: priceLabel || `$${selectedPrice}`,
+        onClear: () => setSelectedPrice(0),
+      });
+    }
+    if (sortBy !== 'popularity') {
+      const sortLabel = SORT_OPTIONS.find((o) => o.value === sortBy)?.label;
+      chips.push({
+        key: `sort:${sortBy}`,
+        label: sortLabel || sortBy,
+        onClear: () => setSortBy('popularity'),
+      });
+    }
+    return chips;
+  }, [activeFilter, selectedCuisines, selectedPrice, sortBy, handleFilterClick, handleRemoveCuisine]);
+
   return (
     <>
       {/* ═══════════════════════════════════════════
@@ -515,17 +579,35 @@ export const Home: React.FC = () => {
                     <h2 className="text-lg font-serif font-bold">Your Top Rated</h2>
                     <Link to="/pantry" className="text-xs font-semibold text-primary">See All</Link>
                   </div>
-                  <div className="flex gap-3 overflow-x-auto pb-2 -mx-3 px-3 scrollbar-hide">
+                  <div className="flex gap-3 overflow-x-auto pb-2 -mx-3 px-3 scrollbar-hide snap-x snap-mandatory">
                     {[...ratings].sort((a, b) => b.score - a.score).slice(0, 8).map((r) => (
-                      <Link key={r.restaurantId} to={`/restaurant/${r.restaurantId}`} className="flex-shrink-0 w-32 group">
-                        <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
-                          {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
-                          : <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{r.name.charAt(0)}</div>}
-                        </div>
-                        <p className="text-xs font-semibold truncate leading-tight">{r.name}</p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span className={cn("text-[10px] font-bold", r.score >= 8 ? "text-green-600" : r.score >= 5 ? "text-yellow-600" : "text-red-500")}>{r.score.toFixed(1)}</span>
-                          <span className="text-[10px] text-on-surface/30">/ 10</span>
+                      <Link
+                        key={r.restaurantId}
+                        to={`/restaurant/${r.restaurantId}`}
+                        className="flex-shrink-0 snap-start group"
+                      >
+                        <div className="relative w-44 aspect-[3/4] rounded-2xl overflow-hidden bg-muted">
+                          {r.image ? (
+                            <img
+                              src={r.image}
+                              alt={r.name}
+                              className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="absolute inset-0 flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-5xl font-bold">
+                              {r.name.charAt(0)}
+                            </div>
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+                          <div className="absolute inset-x-0 bottom-0 p-3">
+                            <p className="text-white text-sm font-bold leading-tight drop-shadow-sm line-clamp-2">{r.name}</p>
+                            <div className="flex items-center gap-1 mt-1">
+                              <Star size={11} className="fill-white text-white" />
+                              <span className="text-white/95 text-[11px] font-semibold">{r.score.toFixed(1)}</span>
+                              <span className="text-white/60 text-[11px]">/ 10</span>
+                            </div>
+                          </div>
                         </div>
                       </Link>
                     ))}
@@ -677,9 +759,9 @@ export const Home: React.FC = () => {
                           <span className="text-sm font-semibold text-on-surface">Current Location</span>
                         </button>
                         {locationLoading && locationQuery.trim() && (
-                          <div className="flex items-center gap-3 px-5 py-4">
-                            <Loader2 size={16} className="text-on-surface/30 animate-spin" />
-                            <span className="text-sm text-on-surface/40">Searching...</span>
+                          <div className="px-5 py-4 space-y-2">
+                            <div className="animate-pulse bg-on-surface/[0.06] rounded h-4 w-3/5" />
+                            <div className="animate-pulse bg-on-surface/[0.06] rounded h-4 w-2/5" />
                           </div>
                         )}
                         {!locationLoading && locationResults.map((loc) => (
@@ -701,16 +783,16 @@ export const Home: React.FC = () => {
                 </AnimatePresence>
 
                 {/* Quick filters */}
-                <div className={cn("flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-4 mt-3", !phoneMode && "ml-9")}>
+                <div className={cn("flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-3 mt-3", !phoneMode && "ml-9")}>
                   {QUICK_FILTERS.map((filter) => (
                     <button
                       key={filter}
                       onClick={() => handleFilterClick(filter)}
                       className={cn(
-                        "whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-all",
+                        "whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-colors",
                         activeFilter === filter
-                          ? 'bg-primary text-white'
-                          : 'bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.08]',
+                          ? 'bg-primary text-white border border-primary'
+                          : 'bg-transparent border border-on-surface/10 text-on-surface/70 hover:border-on-surface/25',
                       )}
                     >
                       {filter}
@@ -718,19 +800,43 @@ export const Home: React.FC = () => {
                   ))}
                 </div>
 
+                {/* Active filter chips — show what's filtered, each dismissible */}
+                {activeFilterChips.length > 0 && (
+                  <div className={cn("flex flex-wrap gap-2 mb-4", !phoneMode && "ml-9")}>
+                    {activeFilterChips.map((chip) => (
+                      <button
+                        key={chip.key}
+                        onClick={chip.onClear}
+                        className="group inline-flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/15 transition-colors"
+                        aria-label={`Clear ${chip.label} filter`}
+                      >
+                        <span>{chip.label}</span>
+                        <span className="w-4 h-4 rounded-full bg-primary/20 group-hover:bg-primary/30 flex items-center justify-center transition-colors">
+                          <X size={10} strokeWidth={3} />
+                        </span>
+                      </button>
+                    ))}
+                    {activeFilterChips.length > 1 && (
+                      <button
+                        onClick={handleClearAllFilters}
+                        className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold text-on-surface/50 hover:text-on-surface/80 transition-colors"
+                      >
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Results */}
                 <div className={cn(!phoneMode && "ml-9")}>
                   {isLoading ? (
-                    <div className="flex items-center justify-center py-16">
-                      <Loader2 size={24} className={cn("animate-spin", activeFilter === 'Hotels' ? "text-teal-600" : "text-primary")} />
-                      <span className="ml-3 text-sm text-on-surface/50 font-medium">{activeFilter === 'Hotels' ? 'Finding hotels...' : 'Finding restaurants...'}</span>
-                    </div>
+                    <LoadingSkeletonList count={6} variant="card" />
                   ) : places.length === 0 && (searchQuery.trim() || activeFilter) ? (
-                    <div className="text-center py-16">
-                      {activeFilter === 'Hotels' ? <Building2 size={32} className="mx-auto text-on-surface/15 mb-3" /> : null}
-                      <p className="text-on-surface/40 text-sm font-medium">{activeFilter === 'Hotels' ? 'No hotels found' : 'No restaurants found'}</p>
-                      <p className="text-on-surface/30 text-xs mt-1">Try a different search or filter</p>
-                    </div>
+                    <EmptyState
+                      icon={activeFilter === 'Hotels' ? <Building2 size={48} /> : <SearchX size={48} />}
+                      heading={activeFilter === 'Hotels' ? 'No hotels found' : 'No restaurants found'}
+                      description="Try a different search or filter."
+                    />
                   ) : places.length === 0 ? (
                     <div className="space-y-8">
                       {/* Recommendations */}
@@ -740,10 +846,7 @@ export const Home: React.FC = () => {
                             <Sparkles size={15} className="text-primary/60" />
                             <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                           </div>
-                          <div className="flex items-center justify-center py-8">
-                            <Loader2 size={20} className="text-primary/40 animate-spin" />
-                            <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
-                          </div>
+                          <LoadingSkeletonList count={4} variant="card" />
                         </section>
                       ) : recommendations.length > 0 ? (
                         <section>
@@ -779,21 +882,35 @@ export const Home: React.FC = () => {
                             <Star size={15} className="text-primary/60 fill-primary/60" />
                             <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Your Top Rated</h3>
                           </div>
-                          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1">
+                          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
                             {topRated.map((r) => (
-                              <Link key={r.restaurantId} to={`/restaurant/${r.restaurantId}`}
-                                className="flex-shrink-0 w-32 group">
-                                <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
+                              <Link
+                                key={r.restaurantId}
+                                to={`/restaurant/${r.restaurantId}`}
+                                className="flex-shrink-0 snap-start group"
+                              >
+                                <div className="relative w-44 aspect-[3/4] rounded-2xl overflow-hidden bg-muted">
                                   {r.image ? (
-                                    <img src={r.image} alt={r.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                    <img
+                                      src={r.image}
+                                      alt={r.name}
+                                      className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                      referrerPolicy="no-referrer"
+                                    />
                                   ) : (
-                                    <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{r.name.charAt(0)}</div>
+                                    <div className="absolute inset-0 flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-5xl font-bold">
+                                      {r.name.charAt(0)}
+                                    </div>
                                   )}
-                                </div>
-                                <p className="text-xs font-semibold truncate leading-tight">{r.name}</p>
-                                <div className="flex items-center gap-1 mt-0.5">
-                                  <span className={cn("text-[10px] font-bold", r.score >= 8 ? "text-green-600" : r.score >= 5 ? "text-yellow-600" : "text-red-500")}>{r.score.toFixed(1)}</span>
-                                  <span className="text-[10px] text-on-surface/30">/ 10</span>
+                                  <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+                                  <div className="absolute inset-x-0 bottom-0 p-3">
+                                    <p className="text-white text-sm font-bold leading-tight drop-shadow-sm line-clamp-2">{r.name}</p>
+                                    <div className="flex items-center gap-1 mt-1">
+                                      <Star size={11} className="fill-white text-white" />
+                                      <span className="text-white/95 text-[11px] font-semibold">{r.score.toFixed(1)}</span>
+                                      <span className="text-white/60 text-[11px]">/ 10</span>
+                                    </div>
+                                  </div>
                                 </div>
                               </Link>
                             ))}
@@ -818,40 +935,133 @@ export const Home: React.FC = () => {
                       <>
                         <div className="flex items-center justify-between mb-4">
                           <h2 className="text-lg font-serif font-bold">Results</h2>
-                          <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">
-                            {places.length} found
-                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-on-surface/40 text-xs font-bold uppercase tracking-widest">
+                              {places.length} found
+                            </span>
+                            <div className="flex items-center gap-0.5 rounded-full bg-on-surface/[0.04] p-0.5">
+                              <button
+                                onClick={() => setViewMode('grid')}
+                                aria-label="Grid view"
+                                aria-pressed={viewMode === 'grid'}
+                                className={cn(
+                                  "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                                  viewMode === 'grid'
+                                    ? "bg-white text-primary shadow-sm"
+                                    : "text-on-surface/40 hover:text-on-surface/60",
+                                )}
+                              >
+                                <Grid size={14} />
+                              </button>
+                              <button
+                                onClick={() => setViewMode('list')}
+                                aria-label="List view"
+                                aria-pressed={viewMode === 'list'}
+                                className={cn(
+                                  "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                                  viewMode === 'list'
+                                    ? "bg-white text-primary shadow-sm"
+                                    : "text-on-surface/40 hover:text-on-surface/60",
+                                )}
+                              >
+                                <List size={14} />
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                        <div className={cn("grid gap-x-3 sm:gap-x-4 gap-y-6 sm:gap-y-7", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
-                          {visiblePlaces.map((place) => {
-                            const props = placeToCardProps(place);
-                            const placeIsHotel = hotelIds.has(place.id) || place.types?.includes('hotel') || place.types?.includes('lodging');
-                            return (
-                              <RestaurantCard
-                                key={place.id}
-                                {...props}
-                                isHotel={placeIsHotel}
-                                isWishlisted={isWishlisted(place.id)}
-                                onAdd={() => openAddRestaurantModal({
-                                  id: place.id,
-                                  name: place.name,
-                                  image: props.image,
-                                  cuisine: props.cuisine,
-                                  price: props.price,
-                                  address: place.address,
-                                })}
-                                onHeart={() => openWishlistModal({
-                                  id: place.id,
-                                  name: place.name,
-                                  image: props.image,
-                                  cuisine: props.cuisine,
-                                  price: props.price,
-                                  address: place.address,
-                                })}
-                              />
-                            );
-                          })}
-                        </div>
+                        {viewMode === 'grid' ? (
+                          <div className={cn("grid gap-x-3 sm:gap-x-4 gap-y-6 sm:gap-y-7", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5")}>
+                            {visiblePlaces.map((place) => {
+                              const props = placeToCardProps(place);
+                              const placeIsHotel = hotelIds.has(place.id) || place.types?.includes('hotel') || place.types?.includes('lodging');
+                              return (
+                                <RestaurantCard
+                                  key={place.id}
+                                  {...props}
+                                  isHotel={placeIsHotel}
+                                  isWishlisted={isWishlisted(place.id)}
+                                  onAdd={() => openAddRestaurantModal({
+                                    id: place.id,
+                                    name: place.name,
+                                    image: props.image,
+                                    cuisine: props.cuisine,
+                                    price: props.price,
+                                    address: place.address,
+                                  })}
+                                  onHeart={() => openWishlistModal({
+                                    id: place.id,
+                                    name: place.name,
+                                    image: props.image,
+                                    cuisine: props.cuisine,
+                                    price: props.price,
+                                    address: place.address,
+                                  })}
+                                />
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-on-surface/[0.06] border-y border-on-surface/[0.06]">
+                            {visiblePlaces.map((place) => {
+                              const props = placeToCardProps(place);
+                              const placeIsHotel = hotelIds.has(place.id) || place.types?.includes('hotel') || place.types?.includes('lodging');
+                              const wishlisted = isWishlisted(place.id);
+                              return (
+                                <Link
+                                  key={place.id}
+                                  to={`/restaurant/${place.id}`}
+                                  className="flex items-center gap-4 py-4 group"
+                                >
+                                  <div className="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/[0.05]">
+                                    <img
+                                      src={props.image}
+                                      alt={place.name}
+                                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <h3 className="font-serif text-[17px] font-bold text-on-surface line-clamp-1 leading-tight">
+                                        {place.name}
+                                      </h3>
+                                      <div className={cn("flex items-center gap-0.5 flex-shrink-0 pt-0.5", placeIsHotel ? "text-teal-600" : "text-primary")}>
+                                        <Star size={13} className={cn(placeIsHotel ? "fill-teal-600" : "fill-primary")} />
+                                        <span className="text-sm font-bold">{props.rating}</span>
+                                      </div>
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                                      {props.cuisine}
+                                      {props.price && <span className="text-on-surface/25 mx-1.5">·</span>}
+                                      {props.price}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      openWishlistModal({
+                                        id: place.id,
+                                        name: place.name,
+                                        image: props.image,
+                                        cuisine: props.cuisine,
+                                        price: props.price,
+                                        address: place.address,
+                                      });
+                                    }}
+                                    aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                                    className={cn(
+                                      "flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full transition-colors",
+                                      wishlisted ? "text-red-500" : "text-on-surface/30 hover:text-on-surface/60",
+                                    )}
+                                  >
+                                    <Heart size={18} className={cn(wishlisted && "fill-red-500")} />
+                                  </button>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
                         {hasMore && (
                           <button
                             onClick={() => setShowAllResults(!showAllResults)}

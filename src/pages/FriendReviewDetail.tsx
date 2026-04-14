@@ -99,11 +99,12 @@ export const FriendReviewDetail: React.FC = () => {
         const r = data as CommunityRating;
         setRating(r);
 
-        const [profs, photos, likesData, counts] = await Promise.all([
+        const [profs, photos, likesData, counts, initialComments] = await Promise.all([
           getProfilesByIds([r.user_id]),
           getCommunityPhotos(r.restaurant_id),
           userId ? getLikesForRatings(userId, [r.id]) : Promise.resolve({ likes: { [r.id]: 0 } as Record<string, number>, userLiked: new Set<string>() }),
           getCommentCounts([r.id]),
+          getComments(r.id),
         ]);
         if (cancelled) return;
         setAuthor(profs[r.user_id] || null);
@@ -111,6 +112,12 @@ export const FriendReviewDetail: React.FC = () => {
         setLikeCount(likesData.likes[r.id] || 0);
         setLiked(likesData.userLiked.has(r.id));
         setCommentCount(counts[r.id] || 0);
+        setComments(initialComments);
+        if (initialComments.length > 0) {
+          const commentUserIds = [...new Set(initialComments.map((c) => c.user_id))];
+          const commentProfs = await getProfilesByIds(commentUserIds);
+          if (!cancelled) setCommentProfiles(commentProfs);
+        }
       } catch (err) {
         console.error('[FriendReviewDetail] load failed:', err);
         if (!cancelled) setRating(null);
@@ -211,7 +218,7 @@ export const FriendReviewDetail: React.FC = () => {
         </div>
       </div>
 
-      {/* Hero */}
+      {/* Hero — score-matched gradient overlay; tap to cycle photos */}
       <div className="relative w-full aspect-[16/10] bg-on-surface/5 overflow-hidden">
         {heroSrc ? (
           <img
@@ -227,18 +234,21 @@ export const FriendReviewDetail: React.FC = () => {
         )}
         <div className={cn("absolute inset-0 bg-gradient-to-t", scoreGradient(score))} />
         {hasPhotos && userPhotos.length > 1 && (
-          <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
-            {userPhotos.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setHeroIdx(i)}
-                className={cn("h-1.5 rounded-full transition-all",
-                  i === heroIdx ? "w-6 bg-white" : "w-1.5 bg-white/50"
-                )}
-                aria-label={`View photo ${i + 1}`}
-              />
-            ))}
-          </div>
+          <>
+            {/* Tap-to-advance overlay */}
+            <button
+              type="button"
+              onClick={() => setHeroIdx((i) => (i + 1) % userPhotos.length)}
+              className="absolute inset-0 cursor-pointer"
+              aria-label={`Next photo (${heroIdx + 1} of ${userPhotos.length})`}
+            />
+            {/* Fraction counter */}
+            <div className="absolute bottom-3 right-3 pointer-events-none px-2.5 py-1 rounded-full bg-black/55 backdrop-blur-md">
+              <span className="text-[12px] font-semibold text-white tabular-nums tracking-tight">
+                {heroIdx + 1} / {userPhotos.length}
+              </span>
+            </div>
+          </>
         )}
       </div>
 
@@ -312,13 +322,13 @@ export const FriendReviewDetail: React.FC = () => {
         </div>
       </div>
 
-      {/* Notes */}
+      {/* Notes — editorial quote: floating accent bar + quotation mark, no card */}
       {rating.notes && (
         <div className="px-4 pt-6">
-          <div className="relative bg-white rounded-2xl border border-on-surface/8 shadow-sm p-5 pl-6">
-            <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl bg-primary" />
-            <span className="absolute -top-2 left-4 font-serif text-4xl text-primary/30 leading-none select-none">&ldquo;</span>
-            <p className="font-serif italic text-sm text-on-surface/75 leading-relaxed whitespace-pre-wrap">{rating.notes}</p>
+          <div className="relative pl-5">
+            <div className="absolute left-0 top-1 bottom-1 w-[3px] rounded-full bg-primary/70" />
+            <span className="absolute -top-3 left-3 font-serif text-5xl text-primary/25 leading-none select-none pointer-events-none">&ldquo;</span>
+            <p className="font-serif italic text-[15px] text-on-surface/75 leading-relaxed whitespace-pre-wrap pt-1">{rating.notes}</p>
           </div>
         </div>
       )}
@@ -334,24 +344,24 @@ export const FriendReviewDetail: React.FC = () => {
         </div>
       )}
 
-      {/* Photos grid */}
+      {/* Photos — open horizontal scroll, no card wrapper */}
       {hasPhotos && (
         <div className="pt-6">
           <div className="px-4 mb-3 flex items-center justify-between">
             <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Photos</h3>
-            <span className="text-[10px] text-on-surface/40 font-medium">{userPhotos.length}</span>
+            <span className="text-[10px] text-on-surface/40 font-medium tabular-nums">{userPhotos.length}</span>
           </div>
-          <div className="flex gap-2 overflow-x-auto no-scrollbar px-4 pb-2">
+          <div className="flex gap-2 overflow-x-auto no-scrollbar px-4 pb-2 snap-x snap-mandatory">
             {userPhotos.map((p, i) => (
               <button
                 key={p.id}
                 onClick={() => setLightbox(i)}
-                className="flex-shrink-0 w-48 group"
+                className="flex-shrink-0 w-48 group snap-start text-left"
               >
-                <div className="w-48 h-48 rounded-xl overflow-hidden bg-on-surface/5 ring-1 ring-on-surface/5">
-                  <img src={p.url} alt={p.caption || ''} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                <div className="w-48 h-48 rounded-2xl overflow-hidden bg-on-surface/[0.05]">
+                  <img src={p.url} alt={p.caption || ''} className="w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500" referrerPolicy="no-referrer" />
                 </div>
-                {p.caption && <p className="text-[11px] text-on-surface/60 mt-1.5 line-clamp-2 leading-snug text-left">{p.caption}</p>}
+                {p.caption && <p className="text-[11px] text-on-surface/55 mt-1.5 line-clamp-2 leading-snug">{p.caption}</p>}
               </button>
             ))}
           </div>
@@ -361,25 +371,68 @@ export const FriendReviewDetail: React.FC = () => {
       {/* Divider */}
       <div className="mx-4 my-6 h-px bg-on-surface/8" />
 
-      {/* Like + Comment */}
-      <div className="px-4 flex items-center gap-5">
+      {/* Like + Comment — 24px icons, 44x44 tap targets */}
+      <div className="px-2 flex items-center gap-1">
         <button
           onClick={handleLike}
-          className={cn("flex items-center gap-1.5 transition-colors", liked ? "text-red-500" : "text-on-surface/50 hover:text-red-500")}
+          aria-label={liked ? 'Unlike review' : 'Like review'}
+          className={cn(
+            "min-w-[44px] h-[44px] px-3 inline-flex items-center gap-2 rounded-full transition-colors",
+            liked ? "text-red-500" : "text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]",
+          )}
         >
-          <Heart size={20} className={liked ? 'fill-red-500' : ''} />
-          <span className="text-sm font-semibold">{likeCount}</span>
+          <Heart size={24} className={liked ? 'fill-red-500' : ''} />
+          <span className="text-[15px] font-semibold tabular-nums">{likeCount}</span>
         </button>
         <button
           onClick={handleToggleComments}
-          className={cn("flex items-center gap-1.5 transition-colors", commentsOpen ? "text-primary" : "text-on-surface/50 hover:text-primary")}
+          aria-label="Toggle comments"
+          className={cn(
+            "min-w-[44px] h-[44px] px-3 inline-flex items-center gap-2 rounded-full transition-colors",
+            commentsOpen ? "text-primary" : "text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04]",
+          )}
         >
-          <MessageSquare size={20} />
-          <span className="text-sm font-semibold">{commentCount}</span>
+          <MessageSquare size={24} />
+          <span className="text-[15px] font-semibold tabular-nums">{commentCount}</span>
         </button>
       </div>
 
-      {/* Comments */}
+      {/* Inline comment preview — first 2 comments + "View all" toggle */}
+      {!commentsOpen && comments.length > 0 && (
+        <div className="px-4 pt-3 space-y-3">
+          {comments.slice(0, 2).map((c) => {
+            const cColor = avatarColor(c.user_id);
+            const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
+            return (
+              <div key={c.id} className="flex gap-2.5">
+                <div className={cn("w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", cColor.bg)}>
+                  <span className={cn("text-[11px] font-serif font-bold", cColor.text)}>{cInitial}</span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] leading-relaxed">
+                    <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">
+                      {commentProfiles[c.user_id]?.display_name || 'User'}
+                    </Link>{' '}
+                    <span className="text-on-surface/65">{c.text}</span>
+                  </p>
+                  <p className="text-[11px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
+                </div>
+              </div>
+            );
+          })}
+          {commentCount > 2 && (
+            <button
+              type="button"
+              onClick={handleToggleComments}
+              className="text-[13px] font-semibold text-primary/80 hover:text-primary ml-[38px]"
+            >
+              View all {commentCount} comments
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Comments — expanded view with full list + input */}
       <AnimatePresence initial={false}>
         {commentsOpen && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
@@ -399,13 +452,13 @@ export const FriendReviewDetail: React.FC = () => {
                           <span className={cn("text-[11px] font-serif font-bold", cColor.text)}>{cInitial}</span>
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs leading-relaxed">
-                            <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/75 hover:text-primary">
+                          <p className="text-[13px] leading-relaxed">
+                            <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">
                               {commentProfiles[c.user_id]?.display_name || 'User'}
                             </Link>{' '}
-                            <span className="text-on-surface/60">{c.text}</span>
+                            <span className="text-on-surface/65">{c.text}</span>
                           </p>
-                          <p className="text-[10px] text-on-surface/30 mt-0.5">{timeAgo(c.created_at)}</p>
+                          <p className="text-[11px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
                         </div>
                       </div>
                     );
@@ -418,15 +471,16 @@ export const FriendReviewDetail: React.FC = () => {
                   value={newComment}
                   onChange={(e) => setNewComment(e.target.value)}
                   placeholder="Write a comment..."
-                  className="flex-1 bg-on-surface/5 rounded-xl py-2.5 px-3.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/20"
+                  className="flex-1 bg-on-surface/5 rounded-full py-2.5 px-4 text-[13px] focus:outline-none focus:bg-on-surface/[0.08] transition-colors"
                   onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
                 />
                 <button
                   onClick={handleAddComment}
                   disabled={!newComment.trim()}
-                  className="p-2.5 text-primary disabled:text-on-surface/15 rounded-xl hover:bg-primary/5 transition-colors"
+                  aria-label="Post comment"
+                  className="w-11 h-11 flex items-center justify-center text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
                 >
-                  <Send size={16} />
+                  <Send size={18} />
                 </button>
               </div>
             </div>

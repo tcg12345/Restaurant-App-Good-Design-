@@ -94,14 +94,19 @@ const CreateListSheet: React.FC<{
   const [mode, setMode] = useState<'browse' | 'custom'>('browse');
   const [customName, setCustomName] = useState('');
   const [customEmoji, setCustomEmoji] = useState('📋');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const existingNamesLower = useMemo(() => new Set(existingListNames.map((n) => n.toLowerCase())), [existingListNames]);
 
   const filteredPresets = useMemo(() => {
-    if (!search.trim()) return PRESET_LISTS;
-    const q = search.toLowerCase();
-    return PRESET_LISTS.filter((p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
-  }, [search]);
+    let list = PRESET_LISTS;
+    if (selectedCategory) list = list.filter((p) => p.category === selectedCategory);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter((p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
+    }
+    return list;
+  }, [search, selectedCategory]);
 
   const groupedPresets = useMemo(() => {
     const groups: Record<string, PresetList[]> = {};
@@ -114,7 +119,7 @@ const CreateListSheet: React.FC<{
 
   const handleSelectPreset = (preset: PresetList) => { onCreate(preset.name, preset.emoji, preset.type); handleClose(); };
   const handleCreateCustom = () => { if (!customName.trim()) return; onCreate(customName.trim(), customEmoji); handleClose(); };
-  const handleClose = () => { setSearch(''); setMode('browse'); setCustomName(''); setCustomEmoji('📋'); onClose(); };
+  const handleClose = () => { setSearch(''); setMode('browse'); setCustomName(''); setCustomEmoji('📋'); setSelectedCategory(null); onClose(); };
 
   return (
     <AnimatePresence>
@@ -143,6 +148,28 @@ const CreateListSheet: React.FC<{
                       className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
                   </div>
                 </div>
+                {/* Category tab row */}
+                <div className="pb-3 flex-shrink-0">
+                  <div className="flex gap-1 overflow-x-auto px-5 scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
+                    <button
+                      onClick={() => setSelectedCategory(null)}
+                      className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap flex-shrink-0 transition-colors",
+                        selectedCategory === null ? "bg-primary text-white" : "bg-transparent text-on-surface/50 hover:text-on-surface/70")}
+                    >
+                      All
+                    </button>
+                    {PRESET_CATEGORIES.map((cat) => (
+                      <button
+                        key={cat}
+                        onClick={() => setSelectedCategory(cat)}
+                        className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap flex-shrink-0 transition-colors",
+                          selectedCategory === cat ? "bg-primary text-white" : "bg-transparent text-on-surface/50 hover:text-on-surface/70")}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="px-5 pb-3 space-y-2">
                   <button onClick={() => setMode('custom')} className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-primary/20 text-primary hover:bg-primary/5 transition-all">
                     <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center"><Edit3 size={16} /></div>
@@ -169,17 +196,17 @@ const CreateListSheet: React.FC<{
                     </div>
                   ) : (
                     PRESET_CATEGORIES.filter((cat) => groupedPresets[cat]).map((category) => (
-                      <div key={category} className="mb-4">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30 mb-2 px-1">{category}</p>
-                        <div className="space-y-1.5">
+                      <div key={category} className="mb-6">
+                        <h3 className="font-serif font-bold text-base text-on-surface/80 mb-2 px-1">{category}</h3>
+                        <div className="divide-y divide-on-surface/[0.06]">
                           {groupedPresets[category].map((preset) => {
                             const alreadyExists = existingNamesLower.has(preset.name.toLowerCase());
                             return (
                               <button key={preset.name} onClick={() => !alreadyExists && handleSelectPreset(preset)} disabled={alreadyExists}
-                                className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left",
-                                  alreadyExists ? "bg-on-surface/3 border-on-surface/5 opacity-50 cursor-not-allowed" : "bg-white border-on-surface/8 hover:border-primary/30 hover:bg-primary/3 active:bg-primary/5")}>
+                                className={cn("w-full flex items-center gap-3 py-3 px-1 transition-colors text-left",
+                                  alreadyExists ? "opacity-40 cursor-not-allowed" : "hover:bg-on-surface/[0.03] active:bg-primary/5")}>
                                 <span className="text-xl flex-shrink-0">{preset.emoji}</span>
-                                <span className="text-sm font-medium flex-1 truncate">{preset.name}</span>
+                                <span className="text-sm font-medium flex-1 truncate text-on-surface">{preset.name}</span>
                                 {alreadyExists ? <span className="text-[10px] text-on-surface/30 font-medium flex-shrink-0">Added</span> : <Plus size={16} className="text-on-surface/20 flex-shrink-0" />}
                               </button>
                             );
@@ -401,38 +428,74 @@ const RestaurantRow: React.FC<{
 
   if (dismissed) return null;
 
+  // Total width for swipe-revealed action buttons (Edit + Delete side by side)
+  const hasEdit = !!onEdit;
+  const hasRemove = !!onRemove;
+  const actionCount = (hasEdit ? 1 : 0) + (hasRemove ? 1 : 0);
+  const revealWidth = actionCount * 64;
+
   return (
     <div className="relative">
-      {/* Swipe-to-delete red background — only visible while swiping */}
-      {onRemove && (swiped || isDragging) && (
-        <div className="absolute inset-y-1 right-0 w-24 bg-red-500 flex items-center justify-center rounded-2xl">
-          <Trash2 size={18} className="text-white" />
+      {/* Swipe-revealed action buttons (underneath) — Edit + Delete */}
+      {phoneMode && actionCount > 0 && (swiped || isDragging) && (
+        <div
+          className="absolute inset-y-0 right-0 flex items-stretch"
+          style={{ width: revealWidth }}
+        >
+          {hasEdit && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setSwiped(false); onEdit?.(); }}
+              className="w-16 flex flex-col items-center justify-center gap-0.5 bg-blue-500 text-white active:bg-blue-600 transition-colors"
+              aria-label="Edit"
+            >
+              <Edit3 size={16} />
+              <span className="text-[10px] font-semibold">Edit</span>
+            </button>
+          )}
+          {hasRemove && (
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+              className="w-16 flex flex-col items-center justify-center gap-0.5 bg-red-500 text-white active:bg-red-600 transition-colors"
+              aria-label="Delete"
+            >
+              <Trash2 size={16} />
+              <span className="text-[10px] font-semibold">Delete</span>
+            </button>
+          )}
         </div>
       )}
 
       <motion.div
-        drag={onRemove ? 'x' : false}
-        dragConstraints={{ left: -150, right: 0 }}
+        drag={phoneMode && actionCount > 0 ? 'x' : false}
+        dragConstraints={{ left: -revealWidth - 20, right: 0 }}
         dragElastic={0.1}
         onDragStart={() => setIsDragging(true)}
         onDragEnd={(_: any, info: any) => {
           setTimeout(() => setIsDragging(false), 50);
-          if (info.offset.x < -120) handleDelete();
-          else if (info.offset.x < -50) setSwiped(true);
+          if (info.offset.x < -revealWidth / 2) setSwiped(true);
           else setSwiped(false);
         }}
-        animate={{ x: swiped ? -80 : 0 }}
+        animate={{ x: swiped ? -revealWidth : 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
         style={{ touchAction: 'pan-y' }}
         className="relative z-10 bg-surface"
       >
-        <Link to={`/restaurant/${restaurantId}`} className="block group" onClick={(e) => { if (isDragging || swiped) e.preventDefault(); }}>
-          <div className="flex gap-4 py-3.5 active:scale-[0.99] transition-transform">
-            <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+        <Link
+          to={`/restaurant/${restaurantId}`}
+          className="block group"
+          onClick={(e) => {
+            if (isDragging || swiped) {
+              e.preventDefault();
+              if (swiped) setSwiped(false);
+            }
+          }}
+        >
+          <div className="flex items-center gap-3 py-3 active:scale-[0.99] transition-transform">
+            <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
               {image ? (
                 <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
               ) : (
-                <span className="text-2xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
+                <span className="text-xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
               )}
             </div>
             <div className={cn("flex-1 min-w-0 flex flex-col justify-center")}>
@@ -502,16 +565,6 @@ const RestaurantRow: React.FC<{
         </Link>
       </motion.div>
 
-      {/* Swipe action button */}
-      {swiped && onRemove && (
-        <button
-          onClick={handleDelete}
-          className="absolute right-0 top-1 bottom-1 w-20 bg-red-500 flex items-center justify-center rounded-2xl z-0"
-        >
-          <Trash2 size={18} className="text-white" />
-        </button>
-      )}
-
       {/* Desktop delete confirmation */}
       {confirmDelete && (
         <div className="absolute inset-0 z-20 bg-surface/95 backdrop-blur-sm rounded-2xl flex items-center justify-center gap-3">
@@ -535,12 +588,12 @@ const WishlistRow: React.FC<{
   onRemove?: () => void;
 }> = ({ restaurantId, name, image, cuisine, price, notes, onRemove }) => {
   return (
-    <div className="flex items-start gap-4 py-3.5 group">
-      <Link to={`/restaurant/${restaurantId}`} className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block">
+    <div className="flex items-start gap-3 py-3 group">
+      <Link to={`/restaurant/${restaurantId}`} className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block">
         {image ? (
           <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
         ) : (
-          <span className="text-2xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
+          <span className="text-xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
         )}
       </Link>
       <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
@@ -1043,7 +1096,7 @@ const AddHotelBreakfastModal: React.FC<{
                       <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
                     </div>
                   ) : (
-                    <div className="divide-y divide-on-surface/8">
+                    <div className="divide-y divide-on-surface/[0.06]">
                       {photos.map((photo, idx) => (
                         <div key={idx} className="flex gap-3 px-5 py-4">
                           <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
@@ -2319,85 +2372,82 @@ const TripsTab: React.FC<{
         )}
 
         {/* ── Night-by-night itinerary ── */}
-        <div className="space-y-3 mb-8">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30 px-1">Itinerary</p>
+        <div className="mb-8">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/30 px-1 mb-3">Itinerary</p>
 
-          {Array.from({ length: nights }).map((_, nightIdx) => {
-            const nightRestaurants = selectedTrip.restaurants
-              .filter((r) => r.night === nightIdx)
-              .sort((a, b) => (MEAL_ORDER[a.mealType] || 0) - (MEAL_ORDER[b.mealType] || 0));
+          <div className="flex flex-col gap-6">
+            {Array.from({ length: nights }).map((_, nightIdx) => {
+              const nightRestaurants = selectedTrip.restaurants
+                .filter((r) => r.night === nightIdx)
+                .sort((a, b) => (MEAL_ORDER[a.mealType] || 0) - (MEAL_ORDER[b.mealType] || 0));
 
-            const nightDateStr = getNightDate(selectedTrip.startDate, nightIdx);
+              const nightDateStr = getNightDate(selectedTrip.startDate, nightIdx);
 
-            return (
-              <div key={nightIdx} className="bg-white rounded-2xl border border-on-surface/[0.06] shadow-sm overflow-hidden">
-                <div className="flex items-center gap-4 px-4 py-3.5">
-                  {/* Left: night number + date */}
-                  <div className="flex-shrink-0 w-12 text-center">
-                    <p className="text-xl font-serif font-bold text-on-surface leading-none">{nightIdx + 1}</p>
-                    <p className="text-[8px] font-semibold uppercase tracking-wider text-on-surface/30 mt-1">Night</p>
+              return (
+                <div key={nightIdx}>
+                  {/* Flat bold header: "Night N — Date" + Add */}
+                  <div className="flex items-baseline gap-2 mb-3 px-1">
+                    <h3 className="font-serif font-bold text-lg text-on-surface leading-none">Night {nightIdx + 1}</h3>
+                    <span className="text-on-surface/25 text-sm">—</span>
+                    <span className="text-sm text-on-surface/50 font-medium truncate">{nightDateStr}</span>
+                    <div className="flex-1" />
+                    <button
+                      onClick={() => { setAddNightIndex(nightIdx); setAddNightSheetOpen(true); }}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/[0.06] text-primary hover:bg-primary/[0.12] transition-colors flex-shrink-0"
+                    >
+                      <Plus size={12} />
+                      <span className="text-[11px] font-semibold">Add</span>
+                    </button>
                   </div>
-                  <div className="h-8 w-px bg-on-surface/[0.06]" />
-                  {/* Right: date + content */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-on-surface/50">{nightDateStr}</p>
-                    {nightRestaurants.length === 0 && (
-                      <p className="text-[11px] text-on-surface/25 italic mt-0.5">No restaurants planned</p>
-                    )}
-                  </div>
-                  {/* Add button */}
-                  <button
-                    onClick={() => { setAddNightIndex(nightIdx); setAddNightSheetOpen(true); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/[0.06] text-primary hover:bg-primary/[0.12] transition-colors flex-shrink-0"
-                  >
-                    <Plus size={13} />
-                    <span className="text-[11px] font-semibold">Add</span>
-                  </button>
-                </div>
 
-                {/* Restaurant cards within this night */}
-                {nightRestaurants.length > 0 && (
-                  <div className="border-t border-on-surface/[0.05] divide-y divide-on-surface/[0.05]">
-                    {nightRestaurants.map((r) => (
-                      <div key={`${r.restaurantId}-${r.night}`}
-                        className={cn("flex items-center gap-3 px-4 py-3", r.status === 'skipped' && "opacity-40")}
-                      >
-                        {r.image ? (
-                          <img src={r.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-11 h-11 rounded-lg bg-on-surface/[0.04] flex items-center justify-center flex-shrink-0 text-base">🍽️</div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className={cn("text-[13px] font-semibold truncate", r.status === 'skipped' && "line-through")}>{r.name}</p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className={cn("px-1.5 py-px rounded text-[8px] font-bold uppercase tracking-wide", MEAL_COLORS[r.mealType] || 'bg-gray-100 text-gray-600')}>{r.mealType}</span>
-                            {r.reservationTime && <span className="text-[10px] text-on-surface/35">{r.reservationTime}</span>}
+                  {/* Flat meal list — no card, no borders, just gap-3 spacing */}
+                  {nightRestaurants.length === 0 ? (
+                    <p className="text-[11px] text-on-surface/25 italic px-1">No restaurants planned</p>
+                  ) : (
+                    <div className="flex flex-col gap-3 px-1">
+                      {nightRestaurants.map((r) => (
+                        <div
+                          key={`${r.restaurantId}-${r.night}`}
+                          className={cn("flex items-center gap-3", r.status === 'skipped' && "opacity-40")}
+                        >
+                          {/* Left-aligned colored meal pill */}
+                          <span
+                            className={cn(
+                              "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide flex-shrink-0 min-w-[58px] text-center",
+                              MEAL_COLORS[r.mealType] || 'bg-gray-100 text-gray-600'
+                            )}
+                          >
+                            {r.mealType}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className={cn("text-sm font-semibold text-on-surface truncate", r.status === 'skipped' && "line-through")}>{r.name}</p>
+                            {r.reservationTime && <p className="text-[11px] text-on-surface/40 mt-0.5">{r.reservationTime}</p>}
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {r.status === 'planned' && (
+                              <button onClick={() => updateTripRestaurant(selectedTrip.id, r.restaurantId, r.night, { status: 'completed' })}
+                                className="w-7 h-7 rounded-full bg-green-50 flex items-center justify-center text-green-500 hover:bg-green-100 transition-colors">
+                                <Check size={13} />
+                              </button>
+                            )}
+                            {r.status === 'completed' && (
+                              <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center">
+                                <Check size={13} className="text-green-600" />
+                              </div>
+                            )}
+                            <button onClick={() => removeRestaurantFromTrip(selectedTrip.id, r.restaurantId, r.night)}
+                              className="w-6 h-6 rounded-full flex items-center justify-center text-on-surface/15 hover:text-red-400 hover:bg-red-50 transition-colors">
+                              <X size={11} />
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          {r.status === 'planned' && (
-                            <button onClick={() => updateTripRestaurant(selectedTrip.id, r.restaurantId, r.night, { status: 'completed' })}
-                              className="w-7 h-7 rounded-full bg-green-50 flex items-center justify-center text-green-500 hover:bg-green-100 transition-colors">
-                              <Check size={13} />
-                            </button>
-                          )}
-                          {r.status === 'completed' && (
-                            <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center">
-                              <Check size={13} className="text-green-600" />
-                            </div>
-                          )}
-                          <button onClick={() => removeRestaurantFromTrip(selectedTrip.id, r.restaurantId, r.night)}
-                            className="w-6 h-6 rounded-full flex items-center justify-center text-on-surface/15 hover:text-red-400 hover:bg-red-50 transition-colors">
-                            <X size={11} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* ── Share ── */}
@@ -3735,7 +3785,6 @@ export const Pantry: React.FC = () => {
   const sortLabels: Record<string, string> = { recent: 'Recent', highest: 'Highest', lowest: 'Lowest', added: 'Date Added', custom: 'Custom' };
 
   // Main search
-  const [mainSearchOpen, setMainSearchOpen] = useState(false);
   const [mainSearchQuery, setMainSearchQuery] = useState('');
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -3948,11 +3997,6 @@ export const Pantry: React.FC = () => {
                   <Download size={16} className="text-on-surface/40" />
                   <span className="text-sm font-medium text-on-surface/70">Export JSON</span>
                 </button>
-                <button onClick={() => { setMoreMenuOpen(false); setMainSearchOpen(true); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
-                  <Search size={16} className="text-on-surface/40" />
-                  <span className="text-sm font-medium text-on-surface/70">Search</span>
-                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -4006,44 +4050,71 @@ export const Pantry: React.FC = () => {
           />
         ) : (
           <>
-            {/* ── Horizontal list row ── */}
+            {/* ── Always-visible main search bar ── */}
+            <div className="mb-4">
+              <div className="relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+                <input
+                  type="text"
+                  value={mainSearchQuery}
+                  onChange={(e) => setMainSearchQuery(e.target.value)}
+                  placeholder="Search by name, cuisine, location..."
+                  className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+                />
+                {mainSearchQuery && (
+                  <button
+                    onClick={() => setMainSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                    aria-label="Clear search"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* ── Horizontal list row — flat transparent pills.
+                Background fills, shadows and borders removed for a
+                lighter content-first feel; the icons keep their brand
+                tint so Wishlist/Trips/Home Cooking stay recognizable
+                in a scan. The pill row itself has no outer border. */}
             <div className="mb-4">
               <div
                 ref={listScrollRef}
-                className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 -mx-3 px-3"
+                className="flex gap-1 overflow-x-auto scrollbar-hide pb-1 -mx-3 px-3"
                 style={{ WebkitOverflowScrolling: 'touch' }}
               >
                 {/* Wishlist pill — always first, not deletable */}
                 <button
                   onClick={() => setSelectedList({ id: '__wishlist__', name: 'Wishlist', emoji: '❤️', restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId), createdAt: 0 } as CustomList)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-red-50 rounded-full border border-red-200 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
                 >
-                  <span className="text-sm">❤️</span>
-                  <span className="text-xs font-semibold text-red-500 whitespace-nowrap">Wishlist</span>
-                  <span className="text-[10px] text-red-400 font-medium">{regularWishlist.length}</span>
+                  <Heart size={14} className="text-red-400 fill-red-400" />
+                  <span className="text-sm font-semibold whitespace-nowrap">Wishlist</span>
+                  <span className="text-xs text-on-surface/35 font-medium">{regularWishlist.length}</span>
                 </button>
 
                 {/* Trips pill — only shown when trips exist */}
                 {trips.length > 0 && (
                   <button
                     onClick={() => setShowTrips(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-primary/5 rounded-full border border-primary/20 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
                   >
-                    <Plane size={13} className="text-primary" />
-                    <span className="text-xs font-semibold text-primary whitespace-nowrap">Trips</span>
-                    <span className="text-[10px] text-primary/60 font-medium">{trips.length}</span>
+                    <Plane size={14} className="text-primary" />
+                    <span className="text-sm font-semibold whitespace-nowrap">Trips</span>
+                    <span className="text-xs text-on-surface/35 font-medium">{trips.length}</span>
                   </button>
                 )}
 
                 {/* Home Cooking pill */}
                 <button
                   onClick={() => setShowHomeCooking(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 rounded-full border border-emerald-200 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
                 >
-                  <ChefHat size={13} className="text-emerald-600" />
-                  <span className="text-xs font-semibold text-emerald-700 whitespace-nowrap">Home Cooking</span>
+                  <ChefHat size={14} className="text-emerald-600" />
+                  <span className="text-sm font-semibold whitespace-nowrap">Home Cooking</span>
                   {homeMeals.length > 0 && (
-                    <span className="text-[10px] text-emerald-500 font-medium">{homeMeals.length}</span>
+                    <span className="text-xs text-on-surface/35 font-medium">{homeMeals.length}</span>
                   )}
                 </button>
 
@@ -4053,11 +4124,11 @@ export const Pantry: React.FC = () => {
                     <button
                       key={list.id}
                       onClick={() => setSelectedList(list)}
-                      className="flex items-center gap-1.5 px-3.5 py-2 bg-white rounded-full border border-on-surface/10 shadow-sm hover:shadow-md transition-all flex-shrink-0"
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
                     >
                       <span className="text-sm">{list.emoji}</span>
-                      <span className="text-xs font-semibold text-on-surface/70 whitespace-nowrap">{list.name}</span>
-                      <span className="text-[10px] text-on-surface/30 font-medium">{total}</span>
+                      <span className="text-sm font-semibold whitespace-nowrap">{list.name}</span>
+                      <span className="text-xs text-on-surface/35 font-medium">{total}</span>
                     </button>
                   );
                 })}
@@ -4065,10 +4136,10 @@ export const Pantry: React.FC = () => {
                 {/* Create new list pill */}
                 <button
                   onClick={() => setCreateSheetOpen(true)}
-                  className="flex items-center gap-1 px-3 py-2 rounded-full border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all flex-shrink-0"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/40 hover:text-primary transition-colors flex-shrink-0"
                 >
                   <Plus size={14} />
-                  <span className="text-xs font-semibold whitespace-nowrap">New List</span>
+                  <span className="text-sm font-semibold whitespace-nowrap">New List</span>
                 </button>
               </div>
             </div>
@@ -4162,30 +4233,10 @@ export const Pantry: React.FC = () => {
                   </p>
                 )}
                 <div className="ml-auto flex items-center gap-2">
-                  <button onClick={() => setMainSearchOpen(!mainSearchOpen)}
-                    className={cn("p-1.5 rounded-lg transition-colors", mainSearchOpen ? "text-primary bg-primary/10" : "text-on-surface/30 hover:text-on-surface/50")}>
-                    <Search size={15} />
-                  </button>
                   <ViewModeToggle mode={effectiveViewMode} onChange={setViewMode} />
                 </div>
               </div>
             )}
-
-            {/* Main search bar */}
-            <AnimatePresence>
-              {mainSearchOpen && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-3">
-                  <div className="relative">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                    <input type="text" value={mainSearchQuery} onChange={(e) => setMainSearchQuery(e.target.value)} placeholder="Search by name, cuisine, location..."
-                      autoFocus className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                    {mainSearchQuery && (
-                      <button onClick={() => setMainSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30"><X size={14} /></button>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
 
             {/* ── Restaurant list ── */}
             {regularRatingsCount === 0 && regularWishlist.length === 0 ? (

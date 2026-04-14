@@ -16,10 +16,31 @@
   body {
     @apply bg-surface text-on-surface font-sans;
   }
-  
+
   h1, h2, h3, h4, h5, h6 {
     @apply font-serif;
   }
+}
+
+/* ==========================================================================
+   Content-first redesign: static card wrappers removed in favor of spacing
+   and typography. Use .card-interactive only for tappable items.
+   ========================================================================== */
+
+.divider-subtle {
+  border-bottom: 1px solid rgba(30, 27, 26, 0.06);
+}
+
+.content-flow > * + * {
+  margin-top: 32px;
+}
+
+.text-floor {
+  font-size: max(12px, 1em);
+}
+
+.card-interactive {
+  @apply bg-white/80 backdrop-blur-sm rounded-xl border border-on-surface/8 shadow-sm;
 }
 
 .glass {
@@ -36,12 +57,19 @@
   margin-bottom: 1rem;
 }
 
-.scrollbar-hide {
+.scrollbar-hide,
+.no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
-.scrollbar-hide::-webkit-scrollbar {
+.scrollbar-hide::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* Standard list-row highlight reused across Circle, SearchMain, feeds. */
+.list-row-hover {
+  @apply transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05];
 }
 
 @keyframes user-pulse {

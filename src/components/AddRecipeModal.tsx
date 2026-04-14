@@ -1,9 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, Tag, Image, Search, Hash, FileText, Lock, Clock, Flame, Users, GripVertical, Trash2 } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, Tag, Image, Search, Hash, FileText, Lock, Clock, Flame, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type Recipe, type RecipeIngredient, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+
+// Standardized difficulty palette shared across all three recipe modals:
+// Easy → green, Medium → amber, Hard → red.
+const DIFFICULTY_COLORS: Record<Recipe['difficulty'], string> = {
+  Easy: 'text-green-700 bg-green-50 border-green-200',
+  Medium: 'text-amber-700 bg-amber-50 border-amber-200',
+  Hard: 'text-red-700 bg-red-50 border-red-200',
+};
 
 const RECIPE_TAGS = [
   'Quick & Easy', 'Weeknight', 'Comfort Food', 'Vegetarian', 'Vegan',
@@ -44,6 +52,7 @@ export const AddRecipeModal: React.FC = () => {
   const [newIngredientUnit, setNewIngredientUnit] = useState('');
   const [newStep, setNewStep] = useState('');
   const [tagSearch, setTagSearch] = useState('');
+  const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
   const [page, setPage] = useState<Page>('main');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -90,6 +99,7 @@ export const AddRecipeModal: React.FC = () => {
       setNewIngredientUnit('');
       setNewStep('');
       setTagSearch('');
+      setSelectedPhotoIdx(null);
     }
   }, [addRecipeModalOpen, existing]);
 
@@ -161,7 +171,19 @@ export const AddRecipeModal: React.FC = () => {
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
 
-  const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  const removePhoto = (idx: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
+    setSelectedPhotoIdx((cur) => (cur === null ? null : cur === idx ? null : cur > idx ? cur - 1 : cur));
+  };
+  const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
+  const movePhoto = (from: number, to: number) => {
+    setPhotos((prev) => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
 
   const filteredTags = useMemo(() => {
     if (!tagSearch.trim()) return RECIPE_TAGS;
@@ -320,14 +342,14 @@ export const AddRecipeModal: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Difficulty */}
+                      {/* Difficulty — Easy/Medium/Hard → green/amber/red */}
                       <div className="mb-4">
                         <span className="text-[10px] font-semibold text-on-surface/45 mb-1.5 block">Difficulty</span>
                         <div className="flex gap-2">
                           {(['Easy', 'Medium', 'Hard'] as const).map((d) => (
                             <button key={d} onClick={() => setDifficulty(d)}
-                              className={cn("flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all",
-                                difficulty === d ? "border-yellow-300 bg-yellow-50 text-yellow-700" : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
+                              className={cn("flex-1 py-2 rounded-xl text-xs font-bold border transition-all",
+                                difficulty === d ? DIFFICULTY_COLORS[d] : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20"
                               )}>{d}</button>
                           ))}
                         </div>
@@ -415,50 +437,54 @@ export const AddRecipeModal: React.FC = () => {
               )}
 
               {/* ═══════════ INGREDIENTS ═══════════ */}
+              {/* TODO: This modal does not support bulk-paste parsing (amount unit name per line)
+                  — AddHomeMealModal has that feature and this one should eventually share it. */}
               {page === 'ingredients' && (
                 <SubPage key="ingredients" onBack={() => setPage('main')} title="Ingredients">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
-                    {/* Add ingredient form */}
-                    <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
+                    {/* Add ingredient form — flat inputs */}
+                    <div className="mb-5 space-y-2">
                       <input type="text" value={newIngredientName} onChange={(e) => setNewIngredientName(e.target.value)}
                         placeholder="Ingredient name"
-                        className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5" />
-                      <div className="flex gap-2.5 mb-3">
+                        className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
+                      <div className="flex gap-2">
                         <input type="text" value={newIngredientAmount} onChange={(e) => setNewIngredientAmount(e.target.value)}
                           placeholder="Amount"
-                          className="flex-1 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          className="flex-1 bg-on-surface/[0.04] rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
                         <input type="text" value={newIngredientUnit} onChange={(e) => setNewIngredientUnit(e.target.value)}
-                          placeholder="Unit (cups, g...)"
-                          className="flex-1 bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                          placeholder="Unit (cups, g…)"
+                          className="flex-1 bg-on-surface/[0.04] rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
                       </div>
                       <button onClick={addIngredient} disabled={!newIngredientName.trim()}
-                        className="w-full py-2.5 rounded-xl text-sm font-semibold text-accent/50 border border-on-surface/10 hover:text-accent hover:border-accent/30 transition-all disabled:opacity-30">
-                        <Plus size={14} className="inline mr-1" />Add Ingredient
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-primary/10 text-primary text-xs font-semibold disabled:opacity-40 transition-colors hover:bg-primary/15">
+                        <Plus size={14} />Add Ingredient
                       </button>
                     </div>
 
-                    {/* Ingredient list */}
+                    {/* Ingredient list — flat numbered rows with generous line-height */}
                     {ingredients.length === 0 ? (
                       <div className="text-center py-10">
                         <Hash size={28} className="mx-auto text-on-surface/15 mb-2" />
                         <p className="text-sm text-on-surface/30">No ingredients yet</p>
                       </div>
                     ) : (
-                      <div className="space-y-2">
-                        {ingredients.map((ing, idx) => (
-                          <div key={idx} className="flex items-center gap-3 px-3 py-2.5 bg-white border border-on-surface/8 rounded-xl">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-on-surface/80 truncate">{ing.name}</p>
-                              {(ing.amount || ing.unit) && (
-                                <p className="text-[11px] text-on-surface/40">{ing.amount} {ing.unit}</p>
-                              )}
-                            </div>
-                            <button onClick={() => removeIngredient(idx)} className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors">
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                      <ol className="divide-y divide-on-surface/[0.06] border-t border-on-surface/[0.06]">
+                        {ingredients.map((ing, idx) => {
+                          const amt = [ing.amount, ing.unit].filter(Boolean).join(' ');
+                          return (
+                            <li key={idx} className="flex items-start gap-3 py-3 leading-[1.6]">
+                              <span className="w-6 text-[13px] font-semibold text-on-surface/40 tabular-nums text-right flex-shrink-0 pt-[1px]">{idx + 1}.</span>
+                              <p className="flex-1 min-w-0 text-[15px] text-on-surface/80">
+                                {amt && <span className="font-bold text-on-surface/90">{amt} </span>}
+                                <span className="font-normal">{ing.name}</span>
+                              </p>
+                              <button onClick={() => removeIngredient(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove ingredient">
+                                <X size={14} />
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ol>
                     )}
                   </div>
                   <BottomBtn label="Done" onClick={() => setPage('main')} />
@@ -469,36 +495,38 @@ export const AddRecipeModal: React.FC = () => {
               {page === 'steps' && (
                 <SubPage key="steps" onBack={() => setPage('main')} title="Steps">
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4" onTouchMove={(e) => e.stopPropagation()}>
-                    {/* Add step form */}
-                    <div className="bg-on-surface/[0.03] border border-on-surface/8 rounded-2xl p-4 mb-5">
+                    {/* Add step form — flat */}
+                    <div className="mb-6 space-y-2">
                       <textarea value={newStep} onChange={(e) => setNewStep(e.target.value)}
-                        placeholder={`Step ${steps.length + 1}: What to do...`}
+                        placeholder={`Step ${steps.length + 1} — What to do...`}
                         rows={4}
-                        className="w-full bg-white border border-on-surface/10 rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none mb-3" />
+                        className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none placeholder:text-on-surface/30" />
                       <button onClick={addStep} disabled={!newStep.trim()}
-                        className="w-full py-2.5 rounded-xl text-sm font-semibold text-accent/50 border border-on-surface/10 hover:text-accent hover:border-accent/30 transition-all disabled:opacity-30">
-                        <Plus size={14} className="inline mr-1" />Add Step
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-primary/10 text-primary text-xs font-semibold disabled:opacity-40 transition-colors hover:bg-primary/15">
+                        <Plus size={14} />Add Step
                       </button>
                     </div>
 
-                    {/* Steps list */}
+                    {/* Steps list — editorial "Step N" labels, no card chrome */}
                     {steps.length === 0 ? (
                       <div className="text-center py-10">
                         <FileText size={28} className="mx-auto text-on-surface/15 mb-2" />
                         <p className="text-sm text-on-surface/30">No steps yet</p>
                       </div>
                     ) : (
-                      <div className="space-y-2">
+                      <ol className="space-y-5">
                         {steps.map((step, idx) => (
-                          <div key={idx} className="flex items-start gap-3 px-3 py-2.5 bg-white border border-on-surface/8 rounded-xl">
-                            <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{idx + 1}</span>
-                            <p className="flex-1 text-sm text-on-surface/70 leading-relaxed">{step}</p>
-                            <button onClick={() => removeStep(idx)} className="p-1.5 text-on-surface/25 hover:text-red-400 transition-colors flex-shrink-0">
+                          <li key={idx} className="flex gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary mb-1">Step {idx + 1}</p>
+                              <p className="text-[15px] text-on-surface/80 leading-[1.6] whitespace-pre-wrap">{step}</p>
+                            </div>
+                            <button onClick={() => removeStep(idx)} className="p-1 -mr-1 text-on-surface/25 hover:text-red-500 transition-colors flex-shrink-0" aria-label="Remove step">
                               <X size={14} />
                             </button>
-                          </div>
+                          </li>
                         ))}
-                      </div>
+                      </ol>
                     )}
                   </div>
                   <BottomBtn label="Done" onClick={() => setPage('main')} />
@@ -518,26 +546,73 @@ export const AddRecipeModal: React.FC = () => {
                         <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
                       </div>
                     ) : (
-                      <div className="divide-y divide-on-surface/8">
-                        {photos.map((photo, idx) => (
-                          <div key={idx} className="flex gap-3 px-5 py-4">
-                            <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
-                              <img src={photo.url} alt="" className="w-full h-full object-cover" />
-                              <button onClick={() => removePhoto(idx)}
-                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
-                                <X size={10} className="text-white" />
+                      <>
+                        {/* Edge-to-edge 3-column grid */}
+                        <div className="grid grid-cols-3 gap-0.5">
+                          {photos.map((photo, idx) => {
+                            const selected = selectedPhotoIdx === idx;
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => setSelectedPhotoIdx(selected ? null : idx)}
+                                className="group relative aspect-square overflow-hidden rounded-md bg-on-surface/5"
+                              >
+                                <img src={photo.url} alt="" className="w-full h-full object-cover" />
+                                {selected && (
+                                  <div className="absolute inset-0 ring-2 ring-inset ring-primary rounded-md pointer-events-none" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}
+                                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                                  aria-label="Remove photo"
+                                >
+                                  <X size={10} className="text-white" strokeWidth={2.5} />
+                                </button>
                               </button>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <input type="text" value={photo.caption} onChange={(e) => {
-                                setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption: e.target.value } : p));
-                              }}
-                                placeholder="Add a caption..."
-                                className="w-full bg-on-surface/5 rounded-lg px-3 py-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary/20" />
+                            );
+                          })}
+                        </div>
+
+                        {/* Inline edit panel for the selected photo */}
+                        {selectedPhotoIdx !== null && photos[selectedPhotoIdx] && (
+                          <div className="px-5 py-4 border-t border-on-surface/6 mt-0.5 space-y-3">
+                            <input
+                              type="text"
+                              value={photos[selectedPhotoIdx].caption}
+                              onChange={(e) => updatePhotoCaption(selectedPhotoIdx, e.target.value)}
+                              placeholder="Add a caption..."
+                              className="w-full bg-on-surface/[0.04] rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
+                            />
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] text-on-surface/40 font-semibold">
+                                Photo {selectedPhotoIdx + 1} of {photos.length}
+                              </span>
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={selectedPhotoIdx === 0}
+                                  onClick={() => { movePhoto(selectedPhotoIdx, selectedPhotoIdx - 1); setSelectedPhotoIdx(selectedPhotoIdx - 1); }}
+                                  className="p-2 rounded-lg bg-on-surface/[0.04] text-on-surface/60 disabled:opacity-30 hover:bg-on-surface/[0.08] transition-colors"
+                                  aria-label="Move left"
+                                >
+                                  <ChevronLeft size={15} />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={selectedPhotoIdx === photos.length - 1}
+                                  onClick={() => { movePhoto(selectedPhotoIdx, selectedPhotoIdx + 1); setSelectedPhotoIdx(selectedPhotoIdx + 1); }}
+                                  className="p-2 rounded-lg bg-on-surface/[0.04] text-on-surface/60 disabled:opacity-30 hover:bg-on-surface/[0.08] transition-colors"
+                                  aria-label="Move right"
+                                >
+                                  <ChevronRight size={15} />
+                                </button>
+                              </div>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        )}
+                      </>
                     )}
                   </div>
                   <BottomBtn label={hasPhotos ? `Done (${photos.length})` : 'Done'} onClick={() => setPage('main')} />

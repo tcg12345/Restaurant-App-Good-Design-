@@ -1,8 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, ArrowRight, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+
+type PasswordStrength = { score: 0 | 1 | 2 | 3 | 4; label: string; color: string };
+
+// Lightweight password strength heuristic: length + character-class diversity.
+// Score caps at 4 so the indicator bar fills in four discrete steps.
+function getPasswordStrength(password: string): PasswordStrength {
+  if (!password) return { score: 0, label: '', color: '' };
+  let raw = 0;
+  if (password.length >= 6) raw++;
+  if (password.length >= 10) raw++;
+  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) raw++;
+  if (/\d/.test(password)) raw++;
+  if (/[^A-Za-z0-9]/.test(password)) raw++;
+  const score = Math.min(raw, 4) as 0 | 1 | 2 | 3 | 4;
+  const meta: Record<0 | 1 | 2 | 3 | 4, { label: string; color: string }> = {
+    0: { label: '', color: '' },
+    1: { label: 'Weak', color: 'bg-red-500' },
+    2: { label: 'Fair', color: 'bg-orange-500' },
+    3: { label: 'Good', color: 'bg-yellow-500' },
+    4: { label: 'Strong', color: 'bg-green-500' },
+  };
+  return { score, ...meta[score] };
+}
 
 export const Auth: React.FC = () => {
   const { signIn, signUp } = useAuth();
@@ -15,6 +38,8 @@ export const Auth: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,10 +161,34 @@ export const Auth: React.FC = () => {
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/50 transition-colors"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>
+
+          {/* Password strength indicator (sign up only) */}
+          {isSignUpMode && password.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-center gap-3 px-2 -mt-1"
+              aria-live="polite"
+            >
+              <div className="flex-1 h-1 rounded-full bg-on-surface/[0.06] overflow-hidden">
+                <motion.div
+                  initial={false}
+                  animate={{ width: `${passwordStrength.score * 25}%` }}
+                  transition={{ duration: 0.25, ease: 'easeOut' }}
+                  className={`h-full rounded-full ${passwordStrength.color}`}
+                />
+              </div>
+              <span className="text-xs font-semibold text-on-surface/55 w-[44px] text-right flex-shrink-0">
+                {passwordStrength.label}
+              </span>
+            </motion.div>
+          )}
 
           {/* Confirm password (sign up only) */}
           {isSignUpMode && (

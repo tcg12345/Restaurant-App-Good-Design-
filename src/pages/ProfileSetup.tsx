@@ -77,8 +77,9 @@ export const ProfileSetup: React.FC = () => {
             <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
           </div>
           <button type="button" onClick={() => setIsPublic(!isPublic)}
-            className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
-            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[1.125rem]' : 'left-[0.125rem]'}`} />
+            aria-label={isPublic ? 'Make profile private' : 'Make profile public'}
+            className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
+            <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
           </button>
         </div>
 
@@ -89,8 +90,9 @@ export const ProfileSetup: React.FC = () => {
             <p className="text-[11px] text-on-surface/40">{isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}</p>
           </div>
           <button type="button" onClick={() => setIsExpert(!isExpert)}
-            className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}>
-            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all ${isExpert ? 'left-[1.125rem]' : 'left-[0.125rem]'}`} />
+            aria-label={isExpert ? 'Switch to regular account' : 'Switch to expert account'}
+            className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}>
+            <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isExpert ? 'left-[18px]' : 'left-0.5'}`} />
           </button>
         </div>
 

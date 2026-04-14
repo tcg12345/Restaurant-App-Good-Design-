@@ -2,19 +2,18 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { TopBar } from '../components/TopBar';
 import {
-  Settings, LogOut, X, User, AtSign, Check, ChevronRight, Smartphone, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
+  Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, List as ListIcon, ChefHat, ExternalLink, Users, Crown, Sparkles, TrendingUp, Search, Globe, EyeOff,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useRecipes } from '../contexts/RecipesContext';
-import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../lib/supabase-community';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 
-type SettingsPage = 'main' | 'account';
+type SettingsPage = 'main' | 'edit' | 'account';
 type ProfileTab = 'overview' | 'ratings' | 'lists' | 'wishlist' | 'cooking';
 
 const scoreColor = (s: number) => (s >= 8 ? 'text-emerald-600' : s >= 5 ? 'text-amber-600' : 'text-rose-500');
@@ -64,11 +63,8 @@ export const Profile: React.FC = () => {
   const homeMeals = Array.isArray(listsCtx.homeMeals) ? listsCtx.homeMeals : [];
   const { myRecipes: rawMyRecipes } = useRecipes();
   const myRecipes = Array.isArray(rawMyRecipes) ? rawMyRecipes : [];
-  const { phoneMode, togglePhoneMode } = useSettings();
-
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
-  const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
 
   const [editName, setEditName] = useState('');
@@ -112,13 +108,18 @@ export const Profile: React.FC = () => {
     return () => { cancelled = true; };
   }, [user?.id, profile?.is_expert]);
 
-  const openEditProfile = () => {
+  const resetEditFields = () => {
     setEditName(profile?.display_name || '');
     setEditUsername(profile?.username || '');
     setEditBio(profile?.bio || '');
     setEditError('');
     setEditSuccess(false);
-    setEditProfileOpen(true);
+  };
+
+  const openEditProfile = () => {
+    resetEditFields();
+    setSettingsPage('edit');
+    setSettingsOpen(true);
   };
 
   const openSettings = () => {
@@ -147,7 +148,7 @@ export const Profile: React.FC = () => {
     if (result.success) {
       setEditSuccess(true);
       await refreshProfile();
-      setTimeout(() => setEditProfileOpen(false), 800);
+      setTimeout(() => setSettingsPage('main'), 800);
     } else {
       setEditError(result.error || 'Failed to save');
     }
@@ -363,54 +364,56 @@ export const Profile: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="px-5 pb-5">
-        <div className="grid grid-cols-4 gap-px rounded-2xl bg-on-surface/8 overflow-hidden border border-on-surface/8">
-          <div className="bg-white text-center py-3.5">
-            <p className="text-lg font-serif font-bold text-on-surface">{ratings.length}</p>
-            <p className="text-[9px] font-semibold text-on-surface/40 mt-0.5">Rated</p>
-          </div>
-          <div className="bg-white text-center py-3.5">
-            <p className="text-lg font-serif font-bold text-on-surface">{avgScore != null ? avgScore.toFixed(1) : '—'}</p>
-            <p className="text-[9px] font-semibold text-on-surface/40 mt-0.5">Avg</p>
-          </div>
-          <div className="bg-white text-center py-3.5">
-            <p className="text-lg font-serif font-bold text-on-surface">{wishlist.length}</p>
-            <p className="text-[9px] font-semibold text-on-surface/40 mt-0.5">Wishlist</p>
-          </div>
-          <div className="bg-white text-center py-3.5">
-            <p className="text-lg font-serif font-bold text-on-surface">{uniqueCities || '—'}</p>
-            <p className="text-[9px] font-semibold text-on-surface/40 mt-0.5">Cities</p>
-          </div>
+      {/* Stats row — open, card-less against the hero gradient */}
+      <div className="px-5 pb-6">
+        <div className="flex items-start justify-between gap-2">
+          {[
+            { value: String(ratings.length), label: 'Rated' },
+            { value: avgScore != null ? avgScore.toFixed(1) : '—', label: 'Avg score' },
+            { value: String(wishlist.length), label: 'Wishlist' },
+            { value: uniqueCities ? String(uniqueCities) : '—', label: 'Cities' },
+          ].map((stat) => (
+            <div key={stat.label} className="flex-1 min-w-0">
+              <p className="text-[30px] font-serif font-bold text-on-surface leading-none tabular-nums">{stat.value}</p>
+              <p className="text-[12px] font-medium text-on-surface/45 mt-1.5 truncate">{stat.label}</p>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-on-surface/8 mb-1">
-        <div className="flex overflow-x-auto scrollbar-hide px-5">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveTab(t.id)}
-              className={cn(
-                'relative flex-shrink-0 px-4 pb-2.5 pt-1 text-xs font-semibold transition-colors',
-                activeTab === t.id
-                  ? 'text-on-surface'
-                  : 'text-on-surface/40 hover:text-on-surface/60',
-              )}
-            >
-              {t.label}
-              {t.count != null && t.id !== 'overview' && (
-                <span className={cn('ml-1 tabular-nums', activeTab === t.id ? 'text-on-surface/60' : 'text-on-surface/30')}>
-                  {t.count}
+      {/* Tabs — larger 14px text, filled underline indicator, scrolls on overflow */}
+      <div className="border-b border-on-surface/[0.08] mb-1">
+        <div className="flex overflow-x-auto scrollbar-hide px-4 gap-1">
+          {tabs.map((t) => {
+            const isActive = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTab(t.id)}
+                className={cn(
+                  'relative flex-shrink-0 px-3 pt-2 pb-3 text-[14px] font-semibold transition-colors whitespace-nowrap',
+                  isActive ? 'text-on-surface' : 'text-on-surface/40 hover:text-on-surface/60',
+                )}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  {t.label}
+                  {t.count != null && t.id !== 'overview' && (
+                    <span className={cn('text-[12px] tabular-nums font-semibold', isActive ? 'text-on-surface/55' : 'text-on-surface/30')}>
+                      {t.count}
+                    </span>
+                  )}
                 </span>
-              )}
-              {activeTab === t.id && (
-                <motion.div layoutId="profileTab" className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-primary" />
-              )}
-            </button>
-          ))}
+                {isActive && (
+                  <motion.div
+                    layoutId="profileTab"
+                    className="absolute bottom-0 left-1.5 right-1.5 h-[3px] rounded-full bg-primary"
+                    transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -471,41 +474,44 @@ export const Profile: React.FC = () => {
               </section>
             )}
 
-            {/* Standouts */}
+            {/* Top Rated — immersive full-bleed scroller (matches Home page) */}
             {topRated.length > 0 && (
-              <section>
-                <div className="flex items-center justify-between mb-2.5">
-                  <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">Standouts</h3>
+              <section className="-mx-5">
+                <div className="flex items-center justify-between mb-3 px-5">
+                  <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">Top Rated</h3>
                   <button type="button" onClick={() => setActiveTab('ratings')} className="text-[11px] font-semibold text-primary">
                     See all
                   </button>
                 </div>
-                <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
-                  {topRated.slice(0, 6).map((r) => (
+                <div className="flex gap-3 overflow-x-auto pb-2 px-5 scrollbar-hide snap-x snap-mandatory">
+                  {topRated.slice(0, 8).map((r) => (
                     <Link
                       key={r.restaurantId}
                       to={`/restaurant/${r.restaurantId}`}
-                      className="flex-shrink-0 w-[135px] group"
+                      className="flex-shrink-0 snap-start group"
                     >
-                      <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-on-surface/[0.05] relative">
+                      <div className="relative w-44 aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
                         {r.image ? (
-                          <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                          <img
+                            src={r.image}
+                            alt={r.name}
+                            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.05]"
+                            referrerPolicy="no-referrer"
+                          />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-on-surface/15">
-                            <MapPin size={22} />
+                          <div className="absolute inset-0 flex items-center justify-center bg-on-surface/[0.05] text-on-surface/20 font-serif text-5xl font-bold">
+                            {r.name.charAt(0)}
                           </div>
                         )}
-                        <span
-                          className={cn(
-                            'absolute top-1.5 right-1.5 text-[11px] font-serif font-bold px-2 py-0.5 rounded-full bg-black/30 backdrop-blur-md text-white',
-                          )}
-                        >
-                          {formatScore(r.score)}
-                        </span>
-                      </div>
-                      <div className="pt-2">
-                        <p className="text-[12px] font-bold truncate leading-tight">{r.name}</p>
-                        <p className="text-[10px] text-on-surface/40 truncate mt-0.5 uppercase tracking-wider">{r.cuisine}</p>
+                        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+                        <div className="absolute inset-x-0 bottom-0 p-3">
+                          <p className="text-white text-sm font-bold leading-tight drop-shadow-sm line-clamp-2">{r.name}</p>
+                          <div className="flex items-center gap-1 mt-1">
+                            <Star size={11} className="fill-white text-white" />
+                            <span className="text-white/95 text-[11px] font-semibold tabular-nums">{formatScore(r.score)}</span>
+                            <span className="text-white/60 text-[11px]">/ 10</span>
+                          </div>
+                        </div>
                       </div>
                     </Link>
                   ))}
@@ -599,37 +605,45 @@ export const Profile: React.FC = () => {
             {filteredSortedRatings.length === 0 ? (
               <p className="text-sm text-on-surface/40 text-center py-10">No ratings match your search.</p>
             ) : (
-              <ul className="divide-y divide-on-surface/[0.06]">
-                {filteredSortedRatings.map((r) => (
-                  <li key={r.restaurantId}>
-                    <Link
-                      to={`/restaurant/${r.restaurantId}`}
-                      className="flex items-center gap-4 py-3 group"
-                    >
-                      <div className="w-14 h-14 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
-                        {r.image ? (
-                          <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-                            <MapPin size={18} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{r.name}</p>
-                        <p className="text-[11px] text-on-surface/40 truncate mt-0.5">
-                          {r.cuisine}
-                          {r.price && ` · ${r.price}`}
-                          {r.address && ` · ${cityFromAddress(r.address) || r.address.split(',').pop()?.trim()}`}
-                        </p>
-                      </div>
-                      <div className="text-right flex-shrink-0 flex items-center gap-1.5">
-                        {r.wouldReturn && <TrendingUp size={12} className="text-emerald-500" />}
-                        <span className={cn('text-lg font-serif font-bold', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
+              <ul className="-mx-5">
+                {filteredSortedRatings.map((r) => {
+                  const visitLabel = r.visitDate
+                    ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : '';
+                  const city = r.address ? cityFromAddress(r.address) || r.address.split(',').pop()?.trim() : '';
+                  return (
+                    <li key={r.restaurantId} className="border-b border-on-surface/[0.06] last:border-b-0">
+                      <Link
+                        to={`/restaurant/${r.restaurantId}`}
+                        className="flex items-center gap-3.5 px-5 py-3.5 group active:bg-on-surface/[0.02] transition-colors"
+                      >
+                        <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+                          {r.image ? (
+                            <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-on-surface/20">
+                              <MapPin size={18} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[15px] font-semibold truncate leading-snug">{r.name}</p>
+                          <p className="text-[12px] text-on-surface/45 truncate mt-1">
+                            {visitLabel}
+                            {r.cuisine && `${visitLabel ? ' · ' : ''}${r.cuisine}`}
+                            {city && ` · ${city}`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0 pl-1">
+                          {r.wouldReturn && <TrendingUp size={13} className="text-emerald-500" />}
+                          <span className={cn('text-2xl font-serif font-bold leading-none tabular-nums', scoreColor(numericScore(r.score)))}>
+                            {formatScore(r.score)}
+                          </span>
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
@@ -775,100 +789,7 @@ export const Profile: React.FC = () => {
         )}
       </main>
 
-      {/* Edit Profile Sheet */}
-      <AnimatePresence>
-        {editProfileOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]"
-              onClick={() => setEditProfileOpen(false)}
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="fixed inset-x-0 bottom-0 z-[60] bg-surface rounded-t-3xl max-h-[80vh] flex flex-col overflow-hidden"
-            >
-              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
-              <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
-                <h3 className="font-serif font-bold text-lg">Edit Profile</h3>
-                <button
-                  type="button"
-                  onClick={() => setEditProfileOpen(false)}
-                  className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center"
-                >
-                  <X size={16} className="text-on-surface/60" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Display Name</p>
-                  <div className="relative">
-                    <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Username</p>
-                  <div className="relative">
-                    <AtSign size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                    <input
-                      type="text"
-                      value={editUsername}
-                      onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                      className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      autoCapitalize="off"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Bio</p>
-                  <div className="relative">
-                    <FileText size={16} className="absolute left-3 top-3 text-on-surface/30" />
-                    <textarea
-                      value={editBio}
-                      onChange={(e) => setEditBio(e.target.value)}
-                      rows={3}
-                      maxLength={150}
-                      placeholder="Tell people about yourself..."
-                      className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                    />
-                  </div>
-                  <p className="text-[10px] text-on-surface/30 text-right mt-0.5">{editBio.length}/150</p>
-                </div>
-                {editError && <p className="text-xs text-red-500">{editError}</p>}
-                {editSuccess && (
-                  <div className="flex items-center gap-1.5 text-green-600">
-                    <Check size={14} />
-                    <span className="text-xs font-semibold">Saved!</span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={handleSaveProfile}
-                  disabled={editSaving}
-                  className="w-full py-3 bg-primary text-white rounded-2xl text-sm font-semibold disabled:opacity-60"
-                >
-                  {editSaving ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Settings Sheet */}
+      {/* Settings Sheet — unified: main, edit profile, account sub-pages */}
       <AnimatePresence>
         {settingsOpen && (
           <>
@@ -884,10 +805,7 @@ export const Profile: React.FC = () => {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className={cn(
-                'fixed inset-x-0 bottom-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden',
-                phoneMode ? 'h-[92vh]' : 'max-h-[80vh]',
-              )}
+              className="fixed inset-x-0 bottom-0 z-[60] bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden"
             >
               <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
                 <div className="w-10 h-1 rounded-full bg-on-surface/15" />
@@ -915,6 +833,21 @@ export const Profile: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
+                          resetEditFields();
+                          setSettingsPage('edit');
+                        }}
+                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
+                      >
+                        <Edit3 size={18} className="text-on-surface/40" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">Edit Profile</p>
+                          <p className="text-[11px] text-on-surface/35">Name, username, bio</p>
+                        </div>
+                        <ChevronRight size={16} className="text-on-surface/20" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
                           setSettingsPage('account');
                           setAccountMsg('');
                           setAccountError('');
@@ -928,24 +861,6 @@ export const Profile: React.FC = () => {
                           <p className="text-[11px] text-on-surface/35">Email, password, delete account</p>
                         </div>
                         <ChevronRight size={16} className="text-on-surface/20" />
-                      </button>
-                      <div className="border-t border-on-surface/6 my-2" />
-                      <button
-                        type="button"
-                        onClick={togglePhoneMode}
-                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
-                      >
-                        <Smartphone size={18} className="text-on-surface/40" />
-                        <span className="flex-1 text-sm font-medium">Phone View</span>
-                        <div
-                          className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${phoneMode ? 'bg-primary' : 'bg-on-surface/15'}`}
-                        >
-                          <motion.div
-                            className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md"
-                            animate={{ left: phoneMode ? '1.125rem' : '0.125rem' }}
-                            transition={{ type: 'spring', damping: 20, stiffness: 350 }}
-                          />
-                        </div>
                       </button>
                       <button
                         type="button"
@@ -985,6 +900,79 @@ export const Profile: React.FC = () => {
                       >
                         <LogOut size={18} className="text-red-400" />
                         <span className="text-sm font-medium text-red-500">Sign Out</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+                {settingsPage === 'edit' && (
+                  <motion.div
+                    key="edit"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    className="flex flex-col flex-1 overflow-hidden"
+                  >
+                    <div className="flex items-center gap-3 px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
+                      <button type="button" onClick={() => setSettingsPage('main')} className="p-1 text-on-surface/40">
+                        <ArrowLeft size={20} />
+                      </button>
+                      <h3 className="font-serif font-bold text-lg">Edit Profile</h3>
+                    </div>
+                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Display Name</p>
+                        <div className="relative">
+                          <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Username</p>
+                        <div className="relative">
+                          <AtSign size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                          <input
+                            type="text"
+                            value={editUsername}
+                            onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            autoCapitalize="off"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">Bio</p>
+                        <div className="relative">
+                          <FileText size={16} className="absolute left-3 top-3 text-on-surface/30" />
+                          <textarea
+                            value={editBio}
+                            onChange={(e) => setEditBio(e.target.value)}
+                            rows={3}
+                            maxLength={150}
+                            placeholder="Tell people about yourself..."
+                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                          />
+                        </div>
+                        <p className="text-[11px] text-on-surface/40 text-right mt-1 tabular-nums">{editBio.length}/150 characters</p>
+                      </div>
+                      {editError && <p className="text-xs text-red-500">{editError}</p>}
+                      {editSuccess && (
+                        <div className="flex items-center gap-1.5 text-green-600">
+                          <Check size={14} />
+                          <span className="text-xs font-semibold">Saved!</span>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleSaveProfile}
+                        disabled={editSaving}
+                        className="w-full py-3 bg-primary text-white rounded-2xl text-sm font-semibold disabled:opacity-60"
+                      >
+                        {editSaving ? 'Saving...' : 'Save Changes'}
                       </button>
                     </div>
                   </motion.div>

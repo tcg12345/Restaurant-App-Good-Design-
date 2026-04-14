@@ -318,15 +318,16 @@ export const FollowingFeed: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                    className="w-full flex items-center gap-4 py-3.5 text-left group"
+                    className="block w-full py-5 text-left group"
                   >
-                    <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 relative flex items-center justify-center">
-                      <SearchIcon size={20} className="text-on-surface/20" />
+                    {/* Full-width cover image */}
+                    <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3 relative flex items-center justify-center">
+                      <SearchIcon size={32} className="text-on-surface/20" />
                       {r.photo_url && (
                         <img
                           src={r.photo_url}
                           alt=""
-                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
                           loading="lazy"
                           onError={(e) => {
                             (e.currentTarget as HTMLImageElement).style.display = 'none';
@@ -334,25 +335,24 @@ export const FollowingFeed: React.FC = () => {
                         />
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-3">
-                        <h4 className="font-serif text-[15px] font-bold text-on-surface leading-snug line-clamp-2">
-                          {r.restaurant_name}
-                        </h4>
-                        <span className="flex items-center gap-0.5 text-xs font-bold text-primary flex-shrink-0 pt-0.5">
-                          <Star size={12} className="fill-primary" />
-                          {score.toFixed(1)}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                        {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
-                      </p>
-                      {profile && (
-                        <p className="text-[11px] text-on-surface/40 mt-1 truncate">
-                          via {profile.display_name || profile.username}
-                        </p>
-                      )}
+                    {/* Details below image */}
+                    <div className="flex items-start justify-between gap-3">
+                      <h4 className="font-serif text-[17px] font-bold text-on-surface leading-snug line-clamp-2 flex-1 min-w-0">
+                        {r.restaurant_name}
+                      </h4>
+                      <span className="flex items-center gap-0.5 text-sm font-bold text-primary flex-shrink-0 pt-0.5">
+                        <Star size={14} className="fill-primary" />
+                        {score.toFixed(1)}
+                      </span>
                     </div>
+                    <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                      {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
+                    </p>
+                    {profile && (
+                      <p className="text-sm text-on-surface/50 mt-1.5 truncate">
+                        via <span className="font-semibold text-on-surface/75">{profile.display_name || profile.username}</span>
+                      </p>
+                    )}
                   </button>
                 </li>
               );

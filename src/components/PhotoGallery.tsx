@@ -142,12 +142,12 @@ export const PhotoGallery: React.FC<{
           {!searchQuery.trim() && !activeDish && dishGroups.length > 0 && (
             <div className="pb-5">
               <h3 className="text-sm font-serif font-bold text-on-surface px-5 pb-3">Popular dishes</h3>
-              <div className="flex gap-3 overflow-x-auto no-scrollbar px-5">
+              <div className="flex gap-3 overflow-x-auto no-scrollbar px-5 snap-x snap-mandatory">
                 {dishGroups.map((group) => (
                   <button
                     key={group.dish}
                     onClick={() => setActiveDish(group.dish)}
-                    className="flex-shrink-0 w-36 text-left"
+                    className="flex-shrink-0 w-36 text-left snap-start"
                   >
                     <div className="rounded-xl overflow-hidden aspect-[4/3] mb-2">
                       <img

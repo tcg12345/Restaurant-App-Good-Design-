@@ -12,7 +12,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Clock, Flame, Users, Hash, FileText, Star, Check, Share2 } from 'lucide-react';
+import { ArrowLeft, Star, Check, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
@@ -31,13 +31,15 @@ import {
   formatDuration,
   formatDurationCompact,
   getMealCoverUrl,
-  scaleQuantity,
-  extractStepMinutes,
-  StepTimer,
   PhotoLightbox,
+  RecipeQuickInfoRow,
+  RecipeIngredientList,
+  RecipeDirectionsList,
+  RecipeReviewList,
+  RecipeMobileSectionNav,
+  type QuickInfoItem,
+  type ReviewListItem,
 } from '../lib/recipe-display';
-
-const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
 
 export const MealRecipePage: React.FC = () => {
   const { userId: authorId = '', mealId = '' } = useParams<{ userId: string; mealId: string }>();
@@ -66,8 +68,9 @@ export const MealRecipePage: React.FC = () => {
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
 
   // ── Transient recipe-page UI state (display-only) ──
+  // Ingredient checkbox state lives in RecipesContext now (keyed by `meal-${id}`)
+  // so it survives in-session navigation away and back to the recipe page.
   const [servingsScale, setServingsScale] = useState(1);
-  const [checkedIngredients, setCheckedIngredients] = useState<Set<number>>(new Set());
   const [lightboxPhotoIdx, setLightboxPhotoIdx] = useState<number | null>(null);
 
   // Load the meal and author profile.
@@ -148,14 +151,6 @@ export const MealRecipePage: React.FC = () => {
     return () => { cancelled = true; };
   }, [meal, currentUserId]);
 
-  const toggleCheckedIngredient = (idx: number) => {
-    setCheckedIngredients((prev) => {
-      const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx); else next.add(idx);
-      return next;
-    });
-  };
-
   const summary = useMemo(() => summarizeReviews(reviews), [reviews]);
 
   const handleSubmitReview = async () => {
@@ -231,9 +226,9 @@ export const MealRecipePage: React.FC = () => {
   // Desktop cover image derives from coverPhoto → first photo.
   const coverUrl = getMealCoverUrl(meal);
 
-  // Servings scaling.
+  // Servings scaling — the shared RecipeIngredientList handles the math; we
+  // just pass it the base servings + the current scale.
   const baseServings = meal.servings && meal.servings > 0 ? meal.servings : 4;
-  const displayServings = Math.max(1, Math.round(baseServings * servingsScale));
 
   const jumpTargets: { id: string; label: string }[] = [
     ...(hasIngredients ? [{ id: 'ingredients', label: 'Ingredients' }] : []),
@@ -313,151 +308,50 @@ export const MealRecipePage: React.FC = () => {
     </header>
   );
 
-  // Stat cards. On phone we stack as a 2-col grid with a compact duration
-  // format ("2h 45m") and nowrap values so nothing ever wraps to a new line
-  // or overflows a cell. Desktop keeps the wider 5-col grid.
+  // Magazine metadata row — flat, no card. Compact durations on phone so the
+  // values never wrap, longer "2 hr 45 min" formatting on desktop.
   const durationLabel = (m: number) => phoneMode ? formatDurationCompact(m) : formatDuration(m);
-  const statCells: { key: string; icon: React.ReactNode; label: string; value: string }[] = [];
-  if ((meal.prepTime ?? 0) > 0) {
-    statCells.push({ key: 'prep', icon: <Clock size={12} className="text-on-surface/40" />, label: 'Prep', value: durationLabel(meal.prepTime ?? 0) });
-  }
-  if ((meal.cookTime ?? 0) > 0) {
-    statCells.push({ key: 'cook', icon: <Flame size={12} className="text-on-surface/40" />, label: 'Cook', value: durationLabel(meal.cookTime ?? 0) });
-  }
+  const quickInfoItems: QuickInfoItem[] = [];
+  if ((meal.prepTime ?? 0) > 0) quickInfoItems.push({ label: 'Prep', value: durationLabel(meal.prepTime ?? 0) });
+  if ((meal.cookTime ?? 0) > 0) quickInfoItems.push({ label: 'Cook', value: durationLabel(meal.cookTime ?? 0) });
   if (totalTime > 0 && (meal.prepTime ?? 0) > 0 && (meal.cookTime ?? 0) > 0) {
-    statCells.push({ key: 'total', icon: <Clock size={12} className="text-on-surface/40" />, label: 'Total', value: durationLabel(totalTime) });
+    quickInfoItems.push({ label: 'Total', value: durationLabel(totalTime) });
   }
-  if ((meal.servings ?? 0) > 0) {
-    statCells.push({ key: 'serves', icon: <Users size={12} className="text-on-surface/40" />, label: 'Serves', value: String(meal.servings) });
-  }
+  if ((meal.servings ?? 0) > 0) quickInfoItems.push({ label: 'Serves', value: String(meal.servings) });
   if (meal.difficulty) {
-    statCells.push({ key: 'difficulty', icon: <Star size={12} className="text-amber-500 fill-amber-500" />, label: 'Difficulty', value: meal.difficulty });
+    quickInfoItems.push({ label: 'Level', value: meal.difficulty.charAt(0).toUpperCase() + meal.difficulty.slice(1) });
   }
 
-  const statCardsBlock = statCells.length > 0 ? (
-    <div className={cn(
-      "grid gap-px bg-on-surface/8 rounded-2xl overflow-hidden border border-on-surface/8",
-      phoneMode ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5",
-    )}>
-      {statCells.map((c) => (
-        <div key={c.key} className="bg-white px-4 py-3 min-w-0">
-          <div className="flex items-center gap-1.5 mb-1">
-            {c.icon}
-            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium truncate">{c.label}</p>
-          </div>
-          <p className="font-serif font-bold text-lg text-on-surface leading-tight whitespace-nowrap truncate">{c.value}</p>
-        </div>
-      ))}
+  const statCardsBlock = quickInfoItems.length > 0 ? (
+    <div className="py-4 border-y border-on-surface/8">
+      <RecipeQuickInfoRow items={quickInfoItems} />
     </div>
   ) : null;
 
   const ingredientsBlock = hasIngredients ? (
-    <section id="ingredients">
-      <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
-        <div className="flex items-baseline justify-between gap-3 mb-4">
-          <h2 className="font-serif font-bold text-2xl text-on-surface">Ingredients</h2>
-          <span className="text-[11px] text-on-surface/40 font-medium">
-            {meal.ingredients!.length} item{meal.ingredients!.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-on-surface/6">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mb-0.5">Scale for</p>
-            <p className="text-sm font-semibold text-on-surface tabular-nums">
-              {displayServings} serving{displayServings !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 bg-on-surface/[0.04] border border-on-surface/10 rounded-full">
-            <button
-              type="button"
-              onClick={() => setServingsScale(Math.max(0.25, (displayServings - 1) / baseServings))}
-              disabled={displayServings <= 1}
-              className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface disabled:opacity-30 transition-colors text-lg"
-              aria-label="Decrease servings"
-            >−</button>
-            <div className="w-9 text-center text-sm font-semibold tabular-nums">{displayServings}</div>
-            <button
-              type="button"
-              onClick={() => setServingsScale((displayServings + 1) / baseServings)}
-              className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface transition-colors text-lg"
-              aria-label="Increase servings"
-            >+</button>
-          </div>
-        </div>
-
-        <ul className="space-y-0.5">
-          {meal.ingredients!.map((ing, i) => {
-            const isChecked = checkedIngredients.has(i);
-            const scaledAmount = ing.amount ? scaleQuantity(ing.amount, servingsScale) : '';
-            return (
-              <li key={i}>
-                <label className={cn(
-                  "flex items-baseline gap-3 py-2.5 cursor-pointer group transition-colors",
-                  isChecked && "opacity-40",
-                )}>
-                  <span className="flex items-center flex-shrink-0 translate-y-[2px]">
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => toggleCheckedIngredient(i)}
-                      className="sr-only peer"
-                    />
-                    <span className={cn(
-                      "w-[20px] h-[20px] rounded border-2 flex items-center justify-center transition-all",
-                      isChecked
-                        ? "bg-emerald-500 border-emerald-500 text-white"
-                        : "border-on-surface/20 group-hover:border-on-surface/40",
-                    )}>
-                      {isChecked && <Check size={13} strokeWidth={3} />}
-                    </span>
-                  </span>
-                  <span className={cn(
-                    "flex-1 text-[15px] sm:text-[15px] leading-[1.6] text-on-surface/80",
-                    isChecked && "line-through",
-                  )}>
-                    {(scaledAmount || ing.unit) && (
-                      <span className="font-semibold text-on-surface tabular-nums">
-                        {scaledAmount}{ing.unit ? ` ${ing.unit}` : ''}
-                        {ing.name ? ' ' : ''}
-                      </span>
-                    )}
-                    <span className="text-on-surface/70">{ing.name}</span>
-                  </span>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
+    <section id="ingredients" className="scroll-mt-20">
+      <div className="flex items-baseline justify-between gap-3 mb-4">
+        <h2 className="font-serif font-bold text-2xl text-on-surface">Ingredients</h2>
+        <span className="text-[11px] text-on-surface/40 font-medium">
+          {meal.ingredients!.length} item{meal.ingredients!.length !== 1 ? 's' : ''}
+        </span>
       </div>
+      <RecipeIngredientList
+        recipeKey={`meal-${meal.id}`}
+        ingredients={meal.ingredients!}
+        servings={{
+          base: baseServings,
+          scale: servingsScale,
+          onScaleChange: setServingsScale,
+        }}
+      />
     </section>
   ) : null;
 
   const directionsBlock = hasSteps ? (
-    <section id="directions">
-      <div className="bg-white rounded-2xl border border-on-surface/8 p-5 sm:p-6">
-        <h2 className="font-serif font-bold text-2xl text-on-surface mb-5">Directions</h2>
-        <ol className="space-y-5">
-          {meal.steps!.map((step, i) => {
-            const timerMinutes = extractStepMinutes(step);
-            return (
-              <li key={i} className="border-b border-on-surface/6 last:border-0 pb-5 last:pb-0">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-600 mb-1.5">
-                  Step {i + 1}
-                </p>
-                <p className="text-[16px] leading-[1.7] text-on-surface/85 whitespace-pre-wrap">
-                  {step}
-                </p>
-                {timerMinutes !== null && (
-                  <div className="mt-2">
-                    <StepTimer minutes={timerMinutes} />
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      </div>
+    <section id="directions" className="scroll-mt-20">
+      <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Directions</h2>
+      <RecipeDirectionsList steps={meal.steps!} />
     </section>
   ) : null;
 
@@ -562,8 +456,16 @@ export const MealRecipePage: React.FC = () => {
     </section>
   );
 
+  const reviewListItems: ReviewListItem[] = reviews.map((r) => ({
+    id: r.id,
+    userId: r.userId,
+    rating: r.rating,
+    notes: r.notes,
+    createdAt: r.createdAt,
+  }));
+
   const reviewsBlock = (
-    <section>
+    <section id="reviews" className="scroll-mt-20">
       <h2 className="font-serif font-bold text-xl text-on-surface mb-3">
         {summary.count > 0 ? `Reviews (${summary.count})` : 'Reviews'}
       </h2>
@@ -574,39 +476,36 @@ export const MealRecipePage: React.FC = () => {
           Be the first to rate this recipe.
         </p>
       ) : (
-        <div className="space-y-3">
-          {reviews.map((r) => {
-            const reviewerName = reviewerProfiles[r.userId]?.display_name
-              || reviewerProfiles[r.userId]?.username
-              || (r.userId === currentUserId ? 'You' : 'Someone');
-            return (
-              <div key={r.id} className="bg-white rounded-2xl border border-on-surface/8 p-4">
-                <div className="flex items-center justify-between gap-3 mb-2">
-                  <p className="text-sm font-semibold text-on-surface">{reviewerName}</p>
-                  <div className="flex gap-0.5">
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <Star
-                        key={n}
-                        size={13}
-                        className={cn(
-                          n <= r.rating ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
-                        )}
-                      />
-                    ))}
-                  </div>
-                </div>
-                {r.notes && (
-                  <p className="text-[13px] text-on-surface/70 leading-relaxed whitespace-pre-wrap">
-                    {r.notes}
-                  </p>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <RecipeReviewList
+          reviews={reviewListItems}
+          profiles={reviewerProfiles}
+          currentUserId={currentUserId}
+          renderRating={(rating) => (
+            <div className="flex gap-0.5">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <Star
+                  key={n}
+                  size={13}
+                  className={cn(
+                    n <= rating ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                  )}
+                />
+              ))}
+            </div>
+          )}
+        />
       )}
     </section>
   );
+
+  // Mobile section nav targets — same set as desktop jumpTargets but tuned to
+  // the editorial section IDs we wire onto each block.
+  const mobileSections: { id: string; label: string }[] = [
+    ...(hasIngredients ? [{ id: 'ingredients', label: 'Ingredients' }] : []),
+    ...(hasSteps ? [{ id: 'directions', label: 'Directions' }] : []),
+    ...(meal.description ? [{ id: 'notes', label: 'Notes' }] : []),
+    { id: 'reviews', label: 'Reviews' },
+  ];
 
   // ── Phone layout: single stacked column, NYT Cooking style ──
   if (phoneMode) {
@@ -631,15 +530,18 @@ export const MealRecipePage: React.FC = () => {
           <button
             type="button"
             onClick={() => setLightboxPhotoIdx(0)}
-            className="block w-full overflow-hidden relative mt-2 mb-5"
+            className="block w-full overflow-hidden relative mt-2"
             aria-label="Open photo gallery"
           >
             <img src={coverUrl} alt={meal.name} className="w-full aspect-[4/3] object-cover" />
           </button>
         )}
 
+        {/* Sticky section nav (sticks to top once scrolled past the hero) */}
+        <RecipeMobileSectionNav sections={mobileSections} />
+
         {/* Stacked content */}
-        <div className="px-5 space-y-8">
+        <div className="px-5 pt-6 space-y-8">
           {titleBlock}
           {statCardsBlock}
           {ingredientsBlock}

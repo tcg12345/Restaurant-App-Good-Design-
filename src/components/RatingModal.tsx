@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -34,7 +34,7 @@ export const RatingModal: React.FC = () => {
 
   const [page, setPage] = useState<Page>('main');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (ratingModalOpen && ratingModalRestaurant) {
@@ -55,6 +55,7 @@ export const RatingModal: React.FC = () => {
       setListDropdownOpen(false);
       setTagSearch('');
       setFriendSearch('');
+      setSelectedPhotoIdx(null);
     }
   }, [ratingModalOpen, ratingModalRestaurant]);
 
@@ -98,7 +99,10 @@ export const RatingModal: React.FC = () => {
     e.target.value = '';
   };
 
-  const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  const removePhoto = (idx: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
+    setSelectedPhotoIdx((cur) => (cur === null ? null : cur === idx ? null : cur > idx ? cur - 1 : cur));
+  };
   const updatePhotoCaption = (idx: number, caption: string) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, caption } : p));
   const togglePhotoFavorite = (idx: number) => setPhotos((prev) => prev.map((p, i) => i === idx ? { ...p, isFavorite: !p.isFavorite } : p));
   const movePhoto = (from: number, to: number) => {
@@ -248,8 +252,8 @@ export const RatingModal: React.FC = () => {
                     <div className="flex flex-col items-center pt-3 sm:pt-5">
                       <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
                         <div className="text-center">
-                          <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
-                          <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
+                          <div className={cn("text-[44px] sm:text-[56px] leading-none font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
+                          <div className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30 mt-1">out of 10</div>
                         </div>
                       </div>
                       <div className="w-full max-w-[260px] mb-1.5">
@@ -271,14 +275,14 @@ export const RatingModal: React.FC = () => {
                       </div>
                     </div>
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Add details</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        <DetailBtn icon={<StickyNote size={17} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
-                        <DetailBtn icon={<DollarSign size={17} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
-                        <DetailBtn icon={<CalendarDays size={17} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
-                        <DetailBtn icon={<Tag size={17} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
-                        <DetailBtn icon={<Image size={17} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
-                        <DetailBtn icon={<Users size={17} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} />
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1">Add details</p>
+                      <div>
+                        <DetailRow icon={<StickyNote size={20} />} label="Notes" value={hasNotes ? notes : undefined} onClick={() => setPage('notes')} />
+                        <DetailRow icon={<DollarSign size={20} />} label="Price" value={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
+                        <DetailRow icon={<CalendarDays size={20} />} label="Date" value={dateLabel} onClick={() => setPage('date')} />
+                        <DetailRow icon={<Tag size={20} />} label="Tags" value={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
+                        <DetailRow icon={<Image size={20} />} label="Photos" value={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
+                        <DetailRow icon={<Users size={20} />} label="Friends" value={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} />
                       </div>
                     </div>
                   </div>
@@ -338,33 +342,33 @@ export const RatingModal: React.FC = () => {
 
               {page === 'tags' && (
                 <SubPage key="tags" onBack={() => { setPage('main'); setTagSearch(''); }} title="Tags">
-                  <div className="px-5 pt-4 pb-2 flex-shrink-0">
+                  <div className="px-5 pt-4 pb-3 flex-shrink-0">
                     <div className="relative">
-                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                      <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
                       <input type="text" value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags..."
-                        className="w-full bg-white border border-on-surface/10 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                        className="w-full bg-on-surface/[0.04] rounded-full pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
                     </div>
-                    {hasTags && (
-                      <div className="flex flex-wrap gap-1.5 mt-2.5">
-                        {selectedTags.map((tag) => (
-                          <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
-                            {tag}<button onClick={() => toggleTag(tag)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3" onTouchMove={(e) => e.stopPropagation()}>
-                    {filteredTags.map((tag) => {
-                      const sel = selectedTags.includes(tag);
-                      return (
-                        <button key={tag} onClick={() => toggleTag(tag)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors", sel ? "bg-primary/3" : "hover:bg-on-surface/3")}>
-                          <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0", sel ? "bg-primary border-primary text-white" : "border-on-surface/20")}>{sel && <Check size={12} strokeWidth={3} />}</div>
-                          <span className={cn("text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{tag}</span>
-                        </button>
-                      );
-                    })}
+                    <div className="flex flex-wrap gap-2">
+                      {filteredTags.map((tag) => {
+                        const sel = selectedTags.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            onClick={() => toggleTag(tag)}
+                            className={cn(
+                              "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+                              sel
+                                ? "bg-primary text-white"
+                                : "border border-on-surface/15 text-on-surface/70 hover:border-on-surface/25"
+                            )}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
                     {filteredTags.length === 0 && <p className="text-center py-8 text-sm text-on-surface/30">No tags match "{tagSearch}"</p>}
                   </div>
                   <BottomBtn label={hasTags ? `Done (${selectedTags.length})` : 'Done'} onClick={() => { setPage('main'); setTagSearch(''); }} />
@@ -372,7 +376,7 @@ export const RatingModal: React.FC = () => {
               )}
 
               {page === 'photos' && (
-                <SubPage key="photos" onBack={() => setPage('main')} title="Photos" rightAction={
+                <SubPage key="photos" onBack={() => { setPage('main'); setSelectedPhotoIdx(null); }} title="Photos" rightAction={
                   <button onClick={() => fileInputRef.current?.click()} className="text-xs font-semibold text-primary">Add More</button>
                 }>
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" onTouchMove={(e) => e.stopPropagation()}>
@@ -382,72 +386,118 @@ export const RatingModal: React.FC = () => {
                         <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-primary text-sm font-semibold">Add Photos</button>
                       </div>
                     ) : (
-                      <div className="divide-y divide-on-surface/8">
-                        {photos.map((photo, idx) => (
-                          <div key={idx} className="flex gap-3 px-5 py-4">
-                            <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 relative">
-                              <img src={photo.url} alt="" className="w-full h-full object-cover" />
-                              <button onClick={() => removePhoto(idx)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center">
-                                <X size={10} className="text-white" />
-                              </button>
-                            </div>
-                            <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                              <input type="text" value={photo.caption} onChange={(e) => updatePhotoCaption(idx, e.target.value)} placeholder="What's this?"
-                                className="text-sm font-medium text-on-surface/70 placeholder:text-on-surface/30 border-none outline-none bg-transparent w-full" />
-                              <button onClick={() => togglePhotoFavorite(idx)}
-                                className={cn("flex items-center gap-2 mt-2 text-xs font-medium transition-colors", photo.isFavorite ? "text-primary" : "text-on-surface/35")}>
-                                <span className="text-on-surface/40">Mark as a favorite dish:</span>
-                                <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
-                                  photo.isFavorite ? "bg-primary border-primary text-white" : "border-on-surface/20"
-                                )}>{photo.isFavorite && <Star size={10} fill="white" />}</div>
-                              </button>
-                            </div>
-                            <div className="flex items-start pt-1 flex-shrink-0">
-                              <div className="text-on-surface/20 cursor-grab active:cursor-grabbing p-1"
-                                onPointerDown={() => setDragIdx(idx)}
-                                onPointerUp={() => { if (dragIdx !== null && dragIdx !== idx) movePhoto(dragIdx, idx); setDragIdx(null); }}>
-                                <GripVertical size={18} />
+                      <>
+                        <div className="grid grid-cols-3 gap-0.5">
+                          {photos.map((photo, idx) => {
+                            const isSelected = selectedPhotoIdx === idx;
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => setSelectedPhotoIdx(isSelected ? null : idx)}
+                                className={cn(
+                                  "group relative aspect-square overflow-hidden rounded-md cursor-pointer",
+                                  isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-surface z-10"
+                                )}
+                              >
+                                <img src={photo.url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                                {photo.isFavorite && (
+                                  <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                                    <Star size={11} className="text-yellow-400 fill-yellow-400" />
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}
+                                  aria-label="Delete photo"
+                                  className={cn(
+                                    "absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center transition-opacity hover:bg-red-500",
+                                    isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                  )}
+                                >
+                                  <X size={12} className="text-white" strokeWidth={2.5} />
+                                </button>
                               </div>
+                            );
+                          })}
+                        </div>
+                        {selectedPhotoIdx !== null && photos[selectedPhotoIdx] && (
+                          <div className="px-5 pt-4 pb-2 mt-0.5 border-t border-on-surface/[0.06] space-y-3">
+                            <input
+                              type="text"
+                              value={photos[selectedPhotoIdx].caption}
+                              onChange={(e) => updatePhotoCaption(selectedPhotoIdx, e.target.value)}
+                              placeholder="Add a caption…"
+                              className="w-full bg-on-surface/[0.04] rounded-full px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30"
+                            />
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => togglePhotoFavorite(selectedPhotoIdx)}
+                                className={cn(
+                                  "flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-full text-xs font-semibold transition-colors",
+                                  photos[selectedPhotoIdx].isFavorite
+                                    ? "bg-primary text-white"
+                                    : "bg-on-surface/[0.04] text-on-surface/65 hover:bg-on-surface/[0.08]"
+                                )}
+                              >
+                                <Star size={13} className={photos[selectedPhotoIdx].isFavorite ? "fill-white" : ""} />
+                                {photos[selectedPhotoIdx].isFavorite ? 'Favorite dish' : 'Mark as favorite'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (selectedPhotoIdx > 0) {
+                                    movePhoto(selectedPhotoIdx, selectedPhotoIdx - 1);
+                                    setSelectedPhotoIdx(selectedPhotoIdx - 1);
+                                  }
+                                }}
+                                disabled={selectedPhotoIdx === 0}
+                                aria-label="Move left"
+                                className="w-9 h-9 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/60 disabled:opacity-30 hover:bg-on-surface/[0.08] transition-colors"
+                              >
+                                <ChevronLeft size={16} />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (selectedPhotoIdx < photos.length - 1) {
+                                    movePhoto(selectedPhotoIdx, selectedPhotoIdx + 1);
+                                    setSelectedPhotoIdx(selectedPhotoIdx + 1);
+                                  }
+                                }}
+                                disabled={selectedPhotoIdx === photos.length - 1}
+                                aria-label="Move right"
+                                className="w-9 h-9 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/60 disabled:opacity-30 hover:bg-on-surface/[0.08] transition-colors"
+                              >
+                                <ChevronRight size={16} />
+                              </button>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        )}
+                      </>
                     )}
                   </div>
-                  <BottomBtn label={hasPhotos ? `Done (${photos.length})` : 'Done'} onClick={() => setPage('main')} />
+                  <BottomBtn label={hasPhotos ? `Done (${photos.length})` : 'Done'} onClick={() => { setPage('main'); setSelectedPhotoIdx(null); }} />
                 </SubPage>
               )}
 
               {page === 'friends' && (
                 <SubPage key="friends" onBack={() => { setPage('main'); setFriendSearch(''); }} title="Went With">
-                  <div className="px-5 pt-4 pb-2 flex-shrink-0">
+                  <div className="px-5 pt-4 pb-3 flex-shrink-0">
                     <div className="relative">
-                      <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                      <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
                       <input type="text" value={friendSearch} onChange={(e) => setFriendSearch(e.target.value)} placeholder="Search friends..."
-                        className="w-full bg-white border border-on-surface/10 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                        className="w-full bg-on-surface/[0.04] rounded-full pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-on-surface/30" />
                     </div>
-                    {hasFriends && (
-                      <div className="flex flex-wrap gap-1.5 mt-2.5">
-                        {selectedFriends.map((name) => (
-                          <span key={name} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
-                            {name}<button onClick={() => toggleFriend(name)} className="text-primary/40 hover:text-primary"><X size={11} /></button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3" onTouchMove={(e) => e.stopPropagation()}>
-                    <p className="text-[10px] text-on-surface/30 mb-3 px-1">Select friends who joined you</p>
                     {filteredFriends.map((name) => {
                       const sel = selectedFriends.includes(name);
                       return (
                         <button key={name} onClick={() => toggleFriend(name)}
-                          className={cn("w-full flex items-center gap-3 px-3 py-3 border-b border-on-surface/5 text-left transition-colors", sel ? "bg-primary/3" : "hover:bg-on-surface/3")}>
-                          <div className="w-8 h-8 rounded-full bg-on-surface/8 flex items-center justify-center text-xs font-bold text-on-surface/40 flex-shrink-0">
+                          className="w-full flex items-center gap-3 py-3 border-b border-on-surface/[0.06] last:border-b-0 text-left transition-colors active:bg-on-surface/[0.02]">
+                          <div className="w-8 h-8 rounded-full bg-on-surface/[0.08] flex items-center justify-center text-[11px] font-bold text-on-surface/55 flex-shrink-0">
                             {name.split(' ').map((n) => n[0]).join('')}
                           </div>
-                          <span className={cn("flex-1 text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{name}</span>
-                          {sel && <Check size={16} className="text-primary flex-shrink-0" />}
+                          <span className={cn("flex-1 text-[15px] font-medium", sel ? "text-primary" : "text-on-surface/80")}>{name}</span>
+                          {sel && <Check size={18} className="text-primary flex-shrink-0" strokeWidth={2.5} />}
                         </button>
                       );
                     })}
@@ -464,16 +514,17 @@ export const RatingModal: React.FC = () => {
   );
 };
 
-const DetailBtn: React.FC<{
-  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void;
-}> = ({ icon, label, active, sub, onClick }) => (
-  <button onClick={onClick}
-    className={cn("flex flex-col items-center gap-1 p-2.5 rounded-2xl border transition-all",
-      active ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15"
-    )}>
-    <span className={active ? "text-primary" : "text-on-surface/30"}>{icon}</span>
-    <span className={cn("text-[10px] font-semibold", active ? "text-primary" : "text-on-surface/40")}>{label}</span>
-    {sub && <span className="text-[9px] text-primary/60 line-clamp-1 w-full text-center">{sub}</span>}
+const DetailRow: React.FC<{
+  icon: React.ReactNode; label: string; value?: string; onClick: () => void;
+}> = ({ icon, label, value, onClick }) => (
+  <button
+    onClick={onClick}
+    className="w-full flex items-center gap-3.5 py-3.5 border-b border-on-surface/[0.06] last:border-b-0 text-left active:bg-on-surface/[0.02] transition-colors"
+  >
+    <span className="text-on-surface/45 flex-shrink-0">{icon}</span>
+    <span className="flex-1 text-[16px] font-medium text-on-surface/85">{label}</span>
+    {value && <span className="text-[14px] text-on-surface/45 truncate max-w-[150px]">{value}</span>}
+    <ChevronRight size={16} className="text-on-surface/25 flex-shrink-0" />
   </button>
 );
 

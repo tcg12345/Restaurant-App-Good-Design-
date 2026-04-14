@@ -15,6 +15,7 @@ import {
 } from '../lib/supabase-community';
 import { getMealCoverUrl } from '../lib/recipe-display';
 import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
+import { EmptyState } from './EmptyState';
 
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
@@ -264,7 +265,7 @@ export const SocialFeed: React.FC = () => {
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
           </span>
           {typeof count === 'number' && count > 0 && (
-            <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 bg-on-surface/5 px-2 py-0.5 rounded-full">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 bg-on-surface/5 px-2 py-0.5 rounded-full">
               {count}
             </span>
           )}
@@ -287,13 +288,10 @@ export const SocialFeed: React.FC = () => {
                   <div className="h-2 w-16 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 </div>
               </div>
-              <div className="flex gap-4">
-                <div className="w-24 h-24 rounded-2xl bg-on-surface/[0.05] animate-pulse flex-shrink-0" />
-                <div className="flex-1 space-y-2 pt-1">
-                  <div className="h-3 w-3/4 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                  <div className="h-2.5 w-1/2 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                  <div className="h-2 w-full rounded-full bg-on-surface/[0.05] animate-pulse" />
-                </div>
+              <div className="w-full aspect-[16/10] rounded-lg bg-on-surface/[0.05] animate-pulse mb-3" />
+              <div className="space-y-2">
+                <div className="h-3 w-3/4 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                <div className="h-2.5 w-1/2 rounded-full bg-on-surface/[0.05] animate-pulse" />
               </div>
             </li>
           ))}
@@ -310,24 +308,18 @@ export const SocialFeed: React.FC = () => {
     <section className="mb-8">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
       {feedMode === 'experts' ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="w-14 h-14 rounded-full bg-on-surface/5 flex items-center justify-center mb-3">
-            <Star size={24} className="text-amber-400 fill-amber-400" />
-          </div>
-          <p className="text-sm font-semibold text-on-surface/50">Expert Picks</p>
-          <p className="text-xs text-on-surface/35 mt-1">Coming soon</p>
-        </div>
+        <EmptyState
+          icon={<Star size={48} className="fill-amber-400 text-amber-400" />}
+          heading="Expert Picks"
+          description="Coming soon."
+        />
       ) : feedMode === 'recipes' ? (
         recipesSorted.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center mb-3">
-              <ChefHat size={24} className="text-emerald-400" />
-            </div>
-            <p className="text-sm font-semibold text-on-surface/50">No recipes yet</p>
-            <p className="text-xs text-on-surface/35 mt-1 max-w-[240px]">
-              When your friends publish a recipe, it will show up here so you can try it and leave a rating.
-            </p>
-          </div>
+          <EmptyState
+            icon={<ChefHat size={48} />}
+            heading="No recipes yet"
+            description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
+          />
         ) : (
           <ul className="divide-y divide-on-surface/[0.06]">
             {recipesSorted.map((m) => {
@@ -344,7 +336,7 @@ export const SocialFeed: React.FC = () => {
                     </Link>
                     <div className="flex-1 min-w-0">
                       <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-bold hover:text-primary">{getName(m.userId)}</Link>
-                      <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
+                      <p className="text-[11px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
@@ -361,47 +353,45 @@ export const SocialFeed: React.FC = () => {
                     onClick={() => openFriendRecipe(m)}
                     className="block w-full text-left group"
                   >
-                    <div className="flex gap-4">
-                      <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
-                        {getMealCoverUrl(m) ? (
-                          <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <ChefHat size={28} className="text-emerald-400" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0 flex flex-col justify-center">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{m.name}</h3>
-                            <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                              {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                              {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
-                            </p>
-                          </div>
-                          {summary && summary.count > 0 && (
-                            <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
-                              <div className="flex gap-0.5">
-                                {[1, 2, 3, 4, 5].map((n) => (
-                                  <Star key={n} size={11} className={cn(
-                                    n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
-                                  )} />
-                                ))}
-                              </div>
-                              <span className="text-[10px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
-                            </div>
-                          )}
+                    {/* Full-width cover image */}
+                    <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                      {getMealCoverUrl(m) ? (
+                        <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <ChefHat size={40} className="text-emerald-400" />
                         </div>
-                        {m.tags.length > 0 && (
-                          <div className="flex gap-1 mt-1.5 flex-wrap">
-                            {m.tags.slice(0, 3).map((t) => (
-                              <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
+                      )}
+                    </div>
+                    {/* Details below image */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-2">{m.name}</h3>
+                        <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                          {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
+                        </p>
+                      </div>
+                      {summary && summary.count > 0 && (
+                        <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
+                          <div className="flex gap-0.5">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star key={n} size={12} className={cn(
+                                n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                              )} />
                             ))}
                           </div>
-                        )}
-                      </div>
+                          <span className="text-sm text-on-surface/50 font-bold tabular-nums">{summary.average.toFixed(1)}</span>
+                        </div>
+                      )}
                     </div>
+                    {m.tags.length > 0 && (
+                      <div className="flex gap-1.5 mt-2 flex-wrap">
+                        {m.tags.slice(0, 3).map((t) => (
+                          <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
+                        ))}
+                      </div>
+                    )}
                     {m.description && (
                       <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
                         &ldquo;{m.description}&rdquo;
@@ -431,7 +421,7 @@ export const SocialFeed: React.FC = () => {
                   </Link>
                   <div className="flex-1 min-w-0">
                     <Link to={`/user/${getUsername(m.userId)}`} className="text-sm font-bold hover:text-primary">{getName(m.userId)}</Link>
-                    <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
+                    <p className="text-[11px] text-emerald-700/80 font-bold uppercase tracking-wider">Cooked at home · {mealTimeAgo}</p>
                   </div>
                 </div>
 
@@ -441,47 +431,45 @@ export const SocialFeed: React.FC = () => {
                   onClick={() => openFriendRecipe(m)}
                   className="block w-full text-left group"
                 >
-                  <div className="flex gap-4">
-                    <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
-                      {getMealCoverUrl(m) ? (
-                        <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <ChefHat size={28} className="text-emerald-400" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 flex flex-col justify-center">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{m.name}</h3>
-                          <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                            {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
-                          </p>
-                        </div>
-                        {summary && summary.count > 0 && (
-                          <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
-                            <div className="flex gap-0.5">
-                              {[1, 2, 3, 4, 5].map((n) => (
-                                <Star key={n} size={11} className={cn(
-                                  n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
-                                )} />
-                              ))}
-                            </div>
-                            <span className="text-[10px] text-on-surface/40 font-bold">{summary.average.toFixed(1)}</span>
-                          </div>
-                        )}
+                  {/* Full-width cover image */}
+                  <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                    {getMealCoverUrl(m) ? (
+                      <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <ChefHat size={40} className="text-emerald-400" />
                       </div>
-                      {m.tags.length > 0 && (
-                        <div className="flex gap-1 mt-1.5 flex-wrap">
-                          {m.tags.slice(0, 3).map((t) => (
-                            <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
+                    )}
+                  </div>
+                  {/* Details below image */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-2">{m.name}</h3>
+                      <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                        {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
+                      </p>
+                    </div>
+                    {summary && summary.count > 0 && (
+                      <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
+                        <div className="flex gap-0.5">
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <Star key={n} size={12} className={cn(
+                              n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                            )} />
                           ))}
                         </div>
-                      )}
-                    </div>
+                        <span className="text-sm text-on-surface/50 font-bold tabular-nums">{summary.average.toFixed(1)}</span>
+                      </div>
+                    )}
                   </div>
+                  {m.tags.length > 0 && (
+                    <div className="flex gap-1.5 mt-2 flex-wrap">
+                      {m.tags.slice(0, 3).map((t) => (
+                        <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
+                      ))}
+                    </div>
+                  )}
                   {m.description && (
                     <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
                       &ldquo;{m.description}&rdquo;
@@ -516,9 +504,9 @@ export const SocialFeed: React.FC = () => {
               </Link>
               <div className="flex-1 min-w-0">
                 <Link to={`/user/${getUsername(r.user_id)}`} className="text-sm font-bold hover:text-primary">{getName(r.user_id)}</Link>
-                <p className="text-[10px] text-on-surface/40 font-medium uppercase tracking-wider">
+                <p className="text-[11px] text-on-surface/40 font-medium uppercase tracking-wider">
                   {profiles[r.user_id]?.is_expert
-                    ? <span className="inline-flex items-center gap-1 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
+                    ? <span className="inline-flex items-center gap-1 text-amber-600 font-bold"><Star size={10} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
                     : <>Rated · {timeAgo(r.created_at)}</>}
                 </p>
               </div>
@@ -530,39 +518,35 @@ export const SocialFeed: React.FC = () => {
               onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
               className="block w-full text-left group"
             >
-              <div className="flex gap-4">
-                {/* Thumbnail */}
-                <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
-                  {r.photo_url ? (
-                    <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center font-serif text-2xl font-bold text-on-surface/20">
-                      {initialOf(r.restaurant_name)}
-                    </div>
-                  )}
-                </div>
-                {/* Details */}
-                <div className="flex-1 min-w-0 flex flex-col justify-center">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{r.restaurant_name}</h3>
-                      <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                        {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}
-                      </p>
-                    </div>
-                    <span className={cn("text-xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
-                      {Number(r.score).toFixed(1)}
-                    </span>
+              {/* Full-width cover image */}
+              <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                {r.photo_url ? (
+                  <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center font-serif text-4xl font-bold text-on-surface/20">
+                    {initialOf(r.restaurant_name)}
                   </div>
-                  {r.tags && r.tags.length > 0 && (
-                    <div className="flex gap-1 mt-1.5 flex-wrap">
-                      {r.tags.slice(0, 3).map((t) => (
-                        <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
+              {/* Details below image */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-2">{r.restaurant_name}</h3>
+                  <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                    {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}
+                  </p>
+                </div>
+                <span className={cn("text-2xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
+                  {Number(r.score).toFixed(1)}
+                </span>
+              </div>
+              {r.tags && r.tags.length > 0 && (
+                <div className="flex gap-1.5 mt-2 flex-wrap">
+                  {r.tags.slice(0, 3).map((t) => (
+                    <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
+                  ))}
+                </div>
+              )}
               {r.notes && (
                 <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
                   &ldquo;{r.notes}&rdquo;
@@ -570,32 +554,50 @@ export const SocialFeed: React.FC = () => {
               )}
             </button>
 
-            {/* Actions row — tight, embedded */}
-            <div className="flex items-center gap-5 mt-3">
-              <button onClick={() => handleLike(r.id)} className={cn("flex items-center gap-1.5 transition-colors", userLiked.has(r.id) ? "text-red-500" : "text-on-surface/35 hover:text-red-500")}>
-                <Heart size={16} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
-                <span className="text-[11px] font-bold">{likes[r.id] || 0}</span>
+            {/* Actions row — ghost buttons, 44px tap targets */}
+            <div className="flex items-center gap-1 mt-2 -ml-2">
+              <button
+                onClick={() => handleLike(r.id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 min-h-[44px] px-2 rounded-full transition-colors",
+                  userLiked.has(r.id)
+                    ? "text-red-500"
+                    : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                )}
+              >
+                <Heart size={18} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
+                <span className="text-[12px] font-bold">{likes[r.id] || 0}</span>
               </button>
-              <button onClick={() => handleOpenComments(r.id)} className={cn("flex items-center gap-1.5 transition-colors", openComments === r.id ? "text-primary" : "text-on-surface/35 hover:text-primary")}>
-                <MessageSquare size={16} />
-                <span className="text-[11px] font-bold">{commentCounts[r.id] || 0}</span>
+              <button
+                onClick={() => handleOpenComments(r.id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 min-h-[44px] px-2 rounded-full transition-colors",
+                  openComments === r.id
+                    ? "text-primary"
+                    : "text-on-surface/50 hover:text-primary hover:bg-on-surface/[0.04]"
+                )}
+              >
+                <MessageSquare size={18} />
+                <span className="text-[12px] font-bold">{commentCounts[r.id] || 0}</span>
               </button>
               <div className="flex-1" />
               <button
                 onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
-                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-primary hover:text-primary/80 transition-colors"
+                className="inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
               >
-                <Plus size={12} /> Rate
+                <Plus size={14} /> Rate
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); openWishlistModal(meta); }}
                 className={cn(
-                  "transition-colors",
-                  wishlisted ? "text-red-500 hover:text-red-600" : "text-on-surface/35 hover:text-red-500"
+                  "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full transition-colors",
+                  wishlisted
+                    ? "text-red-500 hover:bg-red-500/5"
+                    : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
                 )}
                 aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
               >
-                <Heart size={16} className={wishlisted ? 'fill-red-500' : ''} />
+                <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
               </button>
             </div>
 
@@ -603,41 +605,45 @@ export const SocialFeed: React.FC = () => {
             <AnimatePresence>
               {openComments === r.id && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                  <div className="mt-3 pt-3 border-t border-on-surface/[0.06] space-y-2">
+                  <div className="mt-3 pt-3 border-t border-on-surface/[0.06] space-y-3">
                     {commentsLoading ? (
-                      <div className="text-center py-2"><div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
+                      <div className="space-y-2 py-1">
+                        <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-4/5" />
+                        <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-3/5" />
+                      </div>
                     ) : comments.length === 0 ? (
-                      <p className="text-[11px] text-on-surface/30 py-1">No comments yet — be the first!</p>
+                      <p className="text-[12px] text-on-surface/40 py-1">No comments yet — be the first!</p>
                     ) : (
-                      <div className="space-y-2 max-h-44 overflow-y-auto">
+                      <div className="space-y-3 max-h-52 overflow-y-auto">
                         {comments.map((c) => {
                           const cColor = avatarColor(c.user_id);
                           const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
                           return (
-                          <div key={c.id} className="flex gap-2">
-                            <div className={cn("w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", cColor.bg)}>
-                              <span className={cn("text-[10px] font-serif font-bold", cColor.text)}>{cInitial}</span>
+                          <div key={c.id} className="flex gap-2.5">
+                            <div className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", cColor.bg)}>
+                              <span className={cn("text-[13px] font-serif font-bold", cColor.text)}>{cInitial}</span>
                             </div>
                             <div className="min-w-0">
-                              <p className="text-[11px] leading-relaxed">
-                                <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/70 hover:text-primary">{commentProfiles[c.user_id]?.display_name || 'User'}</Link>{' '}
-                                <span className="text-on-surface/50">{c.text}</span>
+                              <p className="text-[12px] leading-relaxed">
+                                <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">{commentProfiles[c.user_id]?.display_name || 'User'}</Link>{' '}
+                                <span className="text-on-surface/60">{c.text}</span>
                               </p>
-                              <p className="text-[9px] text-on-surface/25 mt-0.5">{timeAgo(c.created_at)}</p>
+                              <p className="text-[12px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
                             </div>
                           </div>
                           );
                         })}
                       </div>
                     )}
-                    <div className="flex gap-2 pt-1">
+                    <div className="flex items-center gap-2 pt-1">
                       <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)}
                         placeholder="Write a comment..."
-                        className="flex-1 bg-on-surface/5 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary/20"
+                        className="flex-1 bg-on-surface/5 rounded-full min-h-[44px] px-4 text-[12px] focus:outline-none focus:ring-1 focus:ring-primary/20"
                         onKeyDown={(e) => e.key === 'Enter' && handleAddComment(r.id)} />
                       <button onClick={() => handleAddComment(r.id)} disabled={!newComment.trim()}
-                        className="p-2 text-primary disabled:text-on-surface/15 rounded-xl hover:bg-primary/5 transition-colors">
-                        <Send size={14} />
+                        className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
+                        aria-label="Post comment">
+                        <Send size={18} />
                       </button>
                     </div>
                   </div>

@@ -204,49 +204,61 @@ export const CircleActivity: React.FC = () => {
           <p className="text-on-surface/30 text-xs mt-1">Try adjusting your search or filters</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <ul className="divide-y divide-on-surface/[0.06]">
           {filtered.map((restaurant) => (
-            <Link key={restaurant.id} to={`/restaurant/${restaurant.id}`} className="block">
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-2xl border border-on-surface/8 shadow-sm overflow-hidden flex active:scale-[0.98] transition-transform"
-              >
-                <div className="w-24 sm:w-28 flex-shrink-0">
-                  <img src={restaurant.image} alt={restaurant.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                </div>
-                <div className="flex-1 p-3 sm:p-4 min-w-0 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-serif font-bold text-sm leading-tight line-clamp-1">{restaurant.name}</h3>
-                      {restaurant.rating !== null ? (
-                        <div className="flex items-center gap-0.5 text-primary flex-shrink-0">
-                          <Star size={11} className="fill-primary" />
-                          <span className="text-xs font-bold">{restaurant.rating}</span>
-                        </div>
-                      ) : (
-                        <Heart size={13} className="text-red-400 flex-shrink-0" />
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-on-surface/40 font-medium uppercase tracking-wider">
-                      <span>{restaurant.cuisine}</span>
-                      <span>·</span>
-                      <span>{restaurant.price}</span>
-                    </div>
+            <li key={restaurant.id}>
+              <Link to={`/restaurant/${restaurant.id}`} className="block group">
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="py-5"
+                >
+                  {/* Full-width restaurant photo */}
+                  <div className="w-full aspect-[5/3] rounded-xl overflow-hidden bg-on-surface/[0.05] mb-3">
+                    <img
+                      src={restaurant.image}
+                      alt={restaurant.name}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+                      referrerPolicy="no-referrer"
+                    />
                   </div>
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-on-surface/5">
-                    <img src={restaurant.sourceImage} alt={restaurant.sourceName}
-                      className="w-4.5 h-4.5 rounded-full object-cover" referrerPolicy="no-referrer" />
-                    <span className="text-[10px] text-on-surface/40 truncate">
-                      <span className="font-semibold text-on-surface/60">{restaurant.sourceName}</span>
-                      {' · '}{restaurant.addedAt}
-                    </span>
+
+                  {/* Byline row: source avatar + name + time + rating/wishlist badge */}
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <img
+                      src={restaurant.sourceImage}
+                      alt={restaurant.sourceName}
+                      className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-on-surface truncate leading-tight">
+                        {restaurant.sourceName}
+                      </p>
+                      <p className="text-[11px] text-on-surface/40 leading-tight mt-0.5">
+                        {restaurant.source === 'expert' ? 'Expert' : 'Friend'} · {restaurant.addedAt}
+                      </p>
+                    </div>
+                    {restaurant.rating !== null ? (
+                      <div className="flex items-center gap-1 text-primary flex-shrink-0">
+                        <Star size={14} className="fill-primary" />
+                        <span className="text-base font-serif font-bold leading-none">{restaurant.rating}</span>
+                      </div>
+                    ) : (
+                      <Heart size={16} className="text-red-400 fill-red-400 flex-shrink-0" />
+                    )}
                   </div>
-                </div>
-              </motion.div>
-            </Link>
+
+                  {/* Restaurant name + cuisine */}
+                  <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-1">{restaurant.name}</h3>
+                  <p className="text-[11px] text-on-surface/45 uppercase tracking-wider mt-0.5 font-semibold">
+                    {restaurant.cuisine} · {restaurant.price}
+                  </p>
+                </motion.div>
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       {/* ── Filter Panel ── */}
