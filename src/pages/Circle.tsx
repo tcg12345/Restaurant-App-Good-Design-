@@ -207,21 +207,27 @@ export const Circle: React.FC = () => {
               {pendingRequests.map((req) => {
                 const p = requestProfiles[req.user_id];
                 return (
-                  <div key={req.id} className="flex items-center gap-3 bg-primary/5 rounded-2xl border border-primary/12 px-3.5 py-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <span className="text-sm font-serif font-bold text-primary/60">{(p?.display_name || 'U').charAt(0).toUpperCase()}</span>
+                  <div key={req.id} className="flex items-center gap-3 bg-primary/5 rounded-2xl px-4 py-3">
+                    <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <span className="text-base font-serif font-bold text-primary/60">{(p?.display_name || 'U').charAt(0).toUpperCase()}</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold truncate">{p?.display_name || 'User'}</p>
-                      <p className="text-[10px] text-on-surface/35">@{p?.username || req.user_id.slice(0, 8)} wants to follow you</p>
+                      <p className="text-xs text-on-surface/50 mt-0.5 truncate">
+                        @{p?.username || req.user_id.slice(0, 8)} wants to follow you
+                      </p>
                     </div>
-                    <div className="flex gap-1.5 flex-shrink-0">
-                      <button onClick={() => handleAcceptRequest(req)}
-                        className="px-3 py-1.5 bg-primary text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => handleAcceptRequest(req)}
+                        className="px-3.5 h-9 bg-primary text-white text-xs font-bold rounded-full hover:bg-primary/90 active:scale-[0.97] transition-all"
+                      >
                         Accept
                       </button>
-                      <button onClick={() => handleDeclineRequest(req)}
-                        className="px-3 py-1.5 border border-on-surface/15 text-[10px] font-bold text-on-surface/40 rounded-full uppercase tracking-wider">
+                      <button
+                        onClick={() => handleDeclineRequest(req)}
+                        className="px-3.5 h-9 text-xs font-bold text-on-surface/50 rounded-full hover:bg-on-surface/[0.06] active:scale-[0.97] transition-all"
+                      >
                         Decline
                       </button>
                     </div>
@@ -325,41 +331,50 @@ export const Circle: React.FC = () => {
               <Crown size={18} className="text-amber-400 flex-shrink-0" />
               <div>
                 <p className="text-xs font-medium text-on-surface/50">No experts yet</p>
-                <p className="text-[10px] text-on-surface/30 mt-0.5">Expert reviewers will appear here once they join</p>
+                <p className="text-[11px] text-on-surface/35 mt-0.5">Expert reviewers will appear here once they join</p>
               </div>
             </div>
           ) : (
-            <div className="flex gap-5 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
+            <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-4 px-4">
               {expertProfiles.map((expert) => {
                 const isFollowed = expertFollowedIds.has(expert.user_id);
                 const rCount = expertRatingCounts[expert.user_id] || 0;
                 const fCount = expertFollowerCounts[expert.user_id] || 0;
                 return (
-                  <div key={expert.user_id} className="flex-shrink-0 w-40">
-                    <Link to={`/user/${expert.username}`} className="block mb-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-11 h-11 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                          <span className="text-base font-serif font-bold text-amber-700">{expert.display_name.charAt(0).toUpperCase()}</span>
+                  <div key={expert.user_id} className="flex-shrink-0 w-44">
+                    {/* Square image card with gradient overlay — no border */}
+                    <Link
+                      to={`/user/${expert.username}`}
+                      className="relative block aspect-square rounded-2xl overflow-hidden group"
+                    >
+                      <div className="h-full w-full bg-gradient-to-br from-amber-100 to-primary/10 flex items-center justify-center">
+                        <span className="text-6xl font-serif font-bold text-primary/25">
+                          {expert.display_name.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent" />
+                      <div className="absolute bottom-3 left-3 right-3 text-white">
+                        <div className="flex items-center gap-1 mb-1">
+                          <Crown size={11} className="text-amber-400" />
+                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/70">Expert</p>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1">
-                            <p className="text-xs font-bold truncate">{expert.display_name}</p>
-                            <Crown size={10} className="text-amber-500 flex-shrink-0" />
-                          </div>
-                          <p className="text-[9px] text-on-surface/35 mt-0.5">
-                            {formatCount(rCount)} reviews · {formatCount(fCount)} followers
-                          </p>
-                        </div>
+                        <h3 className="font-serif text-lg font-bold leading-tight truncate">{expert.display_name}</h3>
+                        <p className="text-[11px] font-medium text-white/75 mt-0.5">
+                          {formatCount(rCount)} reviews · {formatCount(fCount)} followers
+                        </p>
                       </div>
                     </Link>
+                    {/* Follow button — 44px tap target, 12px+ font */}
                     {isFollowed ? (
-                      <div className="flex items-center justify-center gap-1 w-full py-1.5 bg-on-surface/[0.04] rounded-full">
-                        <Check size={10} className="text-on-surface/35" />
-                        <span className="text-[9px] font-bold text-on-surface/35 uppercase tracking-wider">Following</span>
+                      <div className="mt-2 h-11 flex items-center justify-center gap-1.5 bg-on-surface/[0.06] rounded-full">
+                        <Check size={14} className="text-on-surface/45" />
+                        <span className="text-xs font-bold text-on-surface/55">Following</span>
                       </div>
                     ) : (
-                      <button onClick={() => handleFollowExpert(expert.user_id)}
-                        className="w-full py-1.5 bg-primary/8 text-primary text-[9px] font-bold rounded-full uppercase tracking-wider hover:bg-primary/12 transition-colors">
+                      <button
+                        onClick={() => handleFollowExpert(expert.user_id)}
+                        className="mt-2 w-full h-11 bg-primary/10 text-primary text-xs font-bold rounded-full hover:bg-primary/15 active:bg-primary/20 transition-colors"
+                      >
                         Follow
                       </button>
                     )}
@@ -389,7 +404,7 @@ export const Circle: React.FC = () => {
             <div className="flex flex-col items-center py-10">
               <Star size={22} className="text-on-surface/15 mb-2.5" />
               <p className="text-xs font-medium text-on-surface/35">No activity yet</p>
-              <p className="text-[10px] text-on-surface/25 mt-1">Ratings from your friends will show up here</p>
+              <p className="text-[11px] text-on-surface/30 mt-1">Ratings from your friends will show up here</p>
             </div>
           ) : (
             <ul className="divide-y divide-on-surface/[0.06]">
@@ -398,51 +413,56 @@ export const Circle: React.FC = () => {
                 const initial = (profile?.display_name || 'U').charAt(0).toUpperCase();
                 return (
                   <li key={r.id}>
-                    <Link to={`/restaurant/${r.restaurant_id}`} className="block">
+                    <Link to={`/restaurant/${r.restaurant_id}`} className="block group">
                       <motion.div
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="flex items-start gap-4 py-4 group"
+                        className="py-5"
                       >
-                        {/* Restaurant thumbnail */}
-                        <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+                        {/* Full-width restaurant photo */}
+                        <div className="w-full aspect-[5/3] rounded-xl overflow-hidden bg-on-surface/[0.05] flex items-center justify-center mb-3">
                           {r.image ? (
-                            <img src={r.image} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+                            <img
+                              src={r.image}
+                              alt={r.restaurant_name}
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+                              referrerPolicy="no-referrer"
+                            />
                           ) : (
-                            <span className="text-2xl font-serif font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</span>
+                            <span className="text-5xl font-serif font-bold text-on-surface/15">{r.restaurant_name.charAt(0)}</span>
                           )}
                         </div>
 
-                        {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1">
-                              <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{r.restaurant_name}</h3>
-                              <p className="text-[10px] text-on-surface/45 uppercase tracking-wider mt-0.5 font-semibold">
-                                {r.cuisine}{r.price ? ` · ${r.price}` : ''}
-                              </p>
-                            </div>
-                            <span className={cn("flex-shrink-0 text-lg font-serif font-bold", scoreColor(Number(r.score)))}>
-                              {Number(r.score).toFixed(1)}
-                            </span>
+                        {/* Byline row: avatar + friend name + score */}
+                        <div className="flex items-center gap-2.5 mb-2">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-serif font-bold text-primary/60">{initial}</span>
                           </div>
-
-                          {/* Notes preview */}
-                          {r.notes && (
-                            <p className="text-[11px] text-on-surface/45 italic mt-1 line-clamp-1">"{r.notes}"</p>
-                          )}
-
-                          {/* Who rated + time */}
-                          <div className="flex items-center gap-1.5 mt-1.5">
-                            <div className="w-4 h-4 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                              <span className="text-[7px] font-serif font-bold text-primary/60">{initial}</span>
-                            </div>
-                            <span className="text-[11px] text-on-surface/40 truncate">
-                              <span className="font-semibold text-on-surface/55">{getFriendName(r.user_id, activityProfiles)}</span>
-                            </span>
-                            <span className="text-[11px] text-on-surface/25 ml-auto flex-shrink-0">{timeAgo(r.created_at)}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-on-surface truncate leading-tight">
+                              {getFriendName(r.user_id, activityProfiles)}
+                            </p>
+                            <p className="text-[11px] text-on-surface/40 leading-tight mt-0.5">
+                              @{getFriendUsername(r.user_id, activityProfiles)} · {timeAgo(r.created_at)}
+                            </p>
                           </div>
+                          <span className={cn("flex-shrink-0 text-xl font-serif font-bold leading-none", scoreColor(Number(r.score)))}>
+                            {Number(r.score).toFixed(1)}
+                          </span>
                         </div>
+
+                        {/* Restaurant name + cuisine */}
+                        <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-1">{r.restaurant_name}</h3>
+                        <p className="text-[11px] text-on-surface/45 uppercase tracking-wider mt-0.5 font-semibold">
+                          {r.cuisine}{r.price ? ` · ${r.price}` : ''}
+                        </p>
+
+                        {/* Review text */}
+                        {r.notes && (
+                          <p className="text-[13px] text-on-surface/65 leading-relaxed mt-2 line-clamp-3">
+                            "{r.notes}"
+                          </p>
+                        )}
                       </motion.div>
                     </Link>
                   </li>

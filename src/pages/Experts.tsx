@@ -106,12 +106,12 @@ export const Experts: React.FC = () => {
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
 
                   <div className="absolute bottom-6 left-6 right-6 text-white">
-                    <div className="flex items-center gap-1.5 mb-1">
+                    <div className="flex items-center gap-1.5 mb-1.5">
                       <Crown size={11} className="text-amber-400" />
-                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">Expert</p>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/70">Expert</p>
                     </div>
                     <h3 className="font-serif text-2xl font-bold leading-tight mb-2">{e.profile.display_name}</h3>
-                    <p className="text-xs font-medium text-white/80">
+                    <p className="text-[13px] font-medium text-white/80">
                       {formatCount(e.ratings.length)} Review{e.ratings.length !== 1 ? 's' : ''} · {formatCount(e.followers)} Follower{e.followers !== 1 ? 's' : ''}
                     </p>
                   </div>
@@ -128,7 +128,7 @@ export const Experts: React.FC = () => {
           return (
             <section key={e.profile.user_id} className="mb-8">
               <Link to={`/user/${e.profile.username}`} className="flex items-center gap-2.5 mb-3">
-                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center">
                   <span className="text-sm font-serif font-bold text-amber-700">{e.profile.display_name.charAt(0).toUpperCase()}</span>
                 </div>
                 <div>
@@ -136,7 +136,7 @@ export const Experts: React.FC = () => {
                     <h3 className="text-sm font-bold">{e.profile.display_name}</h3>
                     <Crown size={12} className="text-amber-500" />
                   </div>
-                  <p className="text-[10px] text-on-surface/35">@{e.profile.username}</p>
+                  <p className="text-[11px] text-on-surface/40">@{e.profile.username}</p>
                 </div>
               </Link>
               <ul className="divide-y divide-on-surface/[0.06]">
@@ -146,13 +146,13 @@ export const Experts: React.FC = () => {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <h4 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{r.restaurant_name}</h4>
-                          <p className="text-[10px] text-on-surface/45 uppercase tracking-wider mt-0.5 font-semibold">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
+                          <p className="text-[11px] text-on-surface/45 uppercase tracking-wider mt-0.5 font-semibold">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
                         </div>
                         <span className={cn("text-lg font-serif font-bold flex-shrink-0", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
                       </div>
-                      {r.notes && <p className="text-[11px] text-on-surface/45 italic mt-1.5 line-clamp-2">"{r.notes}"</p>}
+                      {r.notes && <p className="text-[13px] text-on-surface/55 italic mt-2 line-clamp-2 leading-relaxed">"{r.notes}"</p>}
                       {r.tags && r.tags.length > 0 && (
-                        <div className="flex gap-1 mt-1.5 flex-wrap">{r.tags.slice(0, 3).map((t) => <span key={t} className="text-[9px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>)}</div>
+                        <div className="flex gap-1 mt-2 flex-wrap">{r.tags.slice(0, 3).map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>)}</div>
                       )}
                     </Link>
                   </li>
@@ -181,7 +181,7 @@ export const Experts: React.FC = () => {
                         </div>
                         <div>
                           <h4 className="font-bold text-sm">{review.expertName}</h4>
-                          <p className="text-[10px] text-on-surface/40 uppercase tracking-widest">{timeAgo(review.created_at)}</p>
+                          <p className="text-[11px] text-on-surface/40 uppercase tracking-widest mt-0.5">{timeAgo(review.created_at)}</p>
                         </div>
                       </Link>
                       <div className="flex items-center gap-1 text-primary">
