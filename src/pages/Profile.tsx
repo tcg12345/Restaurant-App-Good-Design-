@@ -363,54 +363,56 @@ export const Profile: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="px-5 pb-5">
-        <div className="grid grid-cols-4 gap-px rounded-2xl bg-on-surface/8 overflow-hidden border border-on-surface/8">
-          <div className="bg-white text-center py-3.5">
-            <p className="text-lg font-serif font-bold text-on-surface">{ratings.length}</p>
-            <p className="text-[9px] font-semibold text-on-surface/40 mt-0.5">Rated</p>
-          </div>
-          <div className="bg-white text-center py-3.5">
-            <p className="text-lg font-serif font-bold text-on-surface">{avgScore != null ? avgScore.toFixed(1) : '—'}</p>
-            <p className="text-[9px] font-semibold text-on-surface/40 mt-0.5">Avg</p>
-          </div>
-          <div className="bg-white text-center py-3.5">
-            <p className="text-lg font-serif font-bold text-on-surface">{wishlist.length}</p>
-            <p className="text-[9px] font-semibold text-on-surface/40 mt-0.5">Wishlist</p>
-          </div>
-          <div className="bg-white text-center py-3.5">
-            <p className="text-lg font-serif font-bold text-on-surface">{uniqueCities || '—'}</p>
-            <p className="text-[9px] font-semibold text-on-surface/40 mt-0.5">Cities</p>
-          </div>
+      {/* Stats row — open, card-less against the hero gradient */}
+      <div className="px-5 pb-6">
+        <div className="flex items-start justify-between gap-2">
+          {[
+            { value: String(ratings.length), label: 'Rated' },
+            { value: avgScore != null ? avgScore.toFixed(1) : '—', label: 'Avg score' },
+            { value: String(wishlist.length), label: 'Wishlist' },
+            { value: uniqueCities ? String(uniqueCities) : '—', label: 'Cities' },
+          ].map((stat) => (
+            <div key={stat.label} className="flex-1 min-w-0">
+              <p className="text-[30px] font-serif font-bold text-on-surface leading-none tabular-nums">{stat.value}</p>
+              <p className="text-[12px] font-medium text-on-surface/45 mt-1.5 truncate">{stat.label}</p>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-on-surface/8 mb-1">
-        <div className="flex overflow-x-auto scrollbar-hide px-5">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveTab(t.id)}
-              className={cn(
-                'relative flex-shrink-0 px-4 pb-2.5 pt-1 text-xs font-semibold transition-colors',
-                activeTab === t.id
-                  ? 'text-on-surface'
-                  : 'text-on-surface/40 hover:text-on-surface/60',
-              )}
-            >
-              {t.label}
-              {t.count != null && t.id !== 'overview' && (
-                <span className={cn('ml-1 tabular-nums', activeTab === t.id ? 'text-on-surface/60' : 'text-on-surface/30')}>
-                  {t.count}
+      {/* Tabs — larger 14px text, filled underline indicator, scrolls on overflow */}
+      <div className="border-b border-on-surface/[0.08] mb-1">
+        <div className="flex overflow-x-auto scrollbar-hide px-4 gap-1">
+          {tabs.map((t) => {
+            const isActive = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTab(t.id)}
+                className={cn(
+                  'relative flex-shrink-0 px-3 pt-2 pb-3 text-[14px] font-semibold transition-colors whitespace-nowrap',
+                  isActive ? 'text-on-surface' : 'text-on-surface/40 hover:text-on-surface/60',
+                )}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  {t.label}
+                  {t.count != null && t.id !== 'overview' && (
+                    <span className={cn('text-[12px] tabular-nums font-semibold', isActive ? 'text-on-surface/55' : 'text-on-surface/30')}>
+                      {t.count}
+                    </span>
+                  )}
                 </span>
-              )}
-              {activeTab === t.id && (
-                <motion.div layoutId="profileTab" className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-primary" />
-              )}
-            </button>
-          ))}
+                {isActive && (
+                  <motion.div
+                    layoutId="profileTab"
+                    className="absolute bottom-0 left-1.5 right-1.5 h-[3px] rounded-full bg-primary"
+                    transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -599,37 +601,45 @@ export const Profile: React.FC = () => {
             {filteredSortedRatings.length === 0 ? (
               <p className="text-sm text-on-surface/40 text-center py-10">No ratings match your search.</p>
             ) : (
-              <ul className="divide-y divide-on-surface/[0.06]">
-                {filteredSortedRatings.map((r) => (
-                  <li key={r.restaurantId}>
-                    <Link
-                      to={`/restaurant/${r.restaurantId}`}
-                      className="flex items-center gap-4 py-3 group"
-                    >
-                      <div className="w-14 h-14 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
-                        {r.image ? (
-                          <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-                            <MapPin size={18} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{r.name}</p>
-                        <p className="text-[11px] text-on-surface/40 truncate mt-0.5">
-                          {r.cuisine}
-                          {r.price && ` · ${r.price}`}
-                          {r.address && ` · ${cityFromAddress(r.address) || r.address.split(',').pop()?.trim()}`}
-                        </p>
-                      </div>
-                      <div className="text-right flex-shrink-0 flex items-center gap-1.5">
-                        {r.wouldReturn && <TrendingUp size={12} className="text-emerald-500" />}
-                        <span className={cn('text-lg font-serif font-bold', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
-                      </div>
-                    </Link>
-                  </li>
-                ))}
+              <ul className="-mx-5">
+                {filteredSortedRatings.map((r) => {
+                  const visitLabel = r.visitDate
+                    ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : '';
+                  const city = r.address ? cityFromAddress(r.address) || r.address.split(',').pop()?.trim() : '';
+                  return (
+                    <li key={r.restaurantId} className="border-b border-on-surface/[0.06] last:border-b-0">
+                      <Link
+                        to={`/restaurant/${r.restaurantId}`}
+                        className="flex items-center gap-3.5 px-5 py-3.5 group active:bg-on-surface/[0.02] transition-colors"
+                      >
+                        <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+                          {r.image ? (
+                            <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-on-surface/20">
+                              <MapPin size={18} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[15px] font-semibold truncate leading-snug">{r.name}</p>
+                          <p className="text-[12px] text-on-surface/45 truncate mt-1">
+                            {visitLabel}
+                            {r.cuisine && `${visitLabel ? ' · ' : ''}${r.cuisine}`}
+                            {city && ` · ${city}`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0 pl-1">
+                          {r.wouldReturn && <TrendingUp size={13} className="text-emerald-500" />}
+                          <span className={cn('text-2xl font-serif font-bold leading-none tabular-nums', scoreColor(numericScore(r.score)))}>
+                            {formatScore(r.score)}
+                          </span>
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>

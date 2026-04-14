@@ -415,14 +415,27 @@ export const UserProfile: React.FC = () => {
           )}
           {profile.bio && canView && <p className="text-xs text-on-surface/50 text-center mt-2 max-w-[250px] leading-relaxed">{profile.bio}</p>}
 
-          <div className="flex gap-5 mt-3">
-            <div className="text-center"><p className="text-sm font-bold text-on-surface">{followers}</p><p className="text-[10px] text-on-surface/40">Followers</p></div>
-            <div className="text-center"><p className="text-sm font-bold text-on-surface">{following}</p><p className="text-[10px] text-on-surface/40">Following</p></div>
+          {/* Open stats row — large numbers, card-less */}
+          <div className="flex items-start gap-7 mt-4">
+            <div className="text-center">
+              <p className="text-[28px] font-serif font-bold text-on-surface leading-none tabular-nums">{followers}</p>
+              <p className="text-[12px] font-medium text-on-surface/45 mt-1.5">Followers</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[28px] font-serif font-bold text-on-surface leading-none tabular-nums">{following}</p>
+              <p className="text-[12px] font-medium text-on-surface/45 mt-1.5">Following</p>
+            </div>
             {canView && userRatings.length > 0 && (
-              <div className="text-center"><p className="text-sm font-bold text-on-surface">{userRatings.length}</p><p className="text-[10px] text-on-surface/40">Ratings</p></div>
+              <div className="text-center">
+                <p className="text-[28px] font-serif font-bold text-on-surface leading-none tabular-nums">{userRatings.length}</p>
+                <p className="text-[12px] font-medium text-on-surface/45 mt-1.5">Ratings</p>
+              </div>
             )}
             {profile.is_expert && expertRecCount > 0 && (
-              <div className="text-center"><p className="text-sm font-bold text-amber-600">{expertRecCount}</p><p className="text-[10px] text-amber-500/70">Picks</p></div>
+              <div className="text-center">
+                <p className="text-[28px] font-serif font-bold text-amber-600 leading-none tabular-nums">{expertRecCount}</p>
+                <p className="text-[12px] font-medium text-amber-500/70 mt-1.5">Picks</p>
+              </div>
             )}
           </div>
 
@@ -565,96 +578,96 @@ export const UserProfile: React.FC = () => {
               </div>
             )}
 
-            {/* Ratings list */}
+            {/* Ratings list — flat rows with dividers, thumbnail flush left, score right */}
             {!isWishlistSelected && (
-            <div className="space-y-2 pb-20">
+            <ul className="-mx-3 pb-20">
               {filteredRatings.length === 0 ? (
-                <div className="text-center py-12"><p className="text-sm text-on-surface/30">{searchQuery || filterCuisine ? 'No matches' : 'No ratings yet'}</p></div>
+                <li className="text-center py-12"><p className="text-sm text-on-surface/30">{searchQuery || filterCuisine ? 'No matches' : 'No ratings yet'}</p></li>
               ) : (
                 filteredRatings.map((r) => {
                   const isExpanded = expandedId === r.id;
                   const photos = photosByRestaurant[r.restaurant_id] || [];
-                  const hasDetails = !!(r.notes || r.visit_date || (r.tags && r.tags.length > 0) || photos.length > 0 || r.would_return);
+                  const thumbnail = r.photo_url || photos[0]?.url || '';
+                  const visitLabel = r.visit_date
+                    ? new Date(r.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : '';
+                  const city = r.address ? r.address.split(',').slice(-1)[0]?.trim() : '';
 
                   return (
-                    <div key={r.id} className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
-                      {/* Header row */}
-                      <div className="flex items-center px-3 py-2.5">
-                        <Link to={`/restaurant/${r.restaurant_id}`} className="flex-1 min-w-0">
-                          <h3 className="font-serif font-bold text-sm truncate">{r.restaurant_name}</h3>
-                          <p className="text-[10px] text-on-surface/40 uppercase tracking-wider">
-                            {r.cuisine}{r.price ? ` · ${r.price}` : ''}
-                            {r.address && ` · ${r.address.split(',').slice(-1)[0]?.trim()}`}
+                    <li key={r.id} className="border-b border-on-surface/[0.06]">
+                      {/* Header row — full-width tap target */}
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(isExpanded ? null : r.id)}
+                        className="w-full flex items-center gap-3.5 px-3 py-3.5 text-left active:bg-on-surface/[0.02] transition-colors"
+                      >
+                        <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+                          {thumbnail ? (
+                            <img src={thumbnail} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <MapPin size={18} className="text-on-surface/20" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-serif font-bold text-[15px] truncate leading-snug">{r.restaurant_name}</h3>
+                          <p className="text-[12px] text-on-surface/45 truncate mt-1">
+                            {visitLabel}
+                            {r.cuisine && `${visitLabel ? ' · ' : ''}${r.cuisine}`}
+                            {city && ` · ${city}`}
                           </p>
-                        </Link>
-                        <span className={cn("text-lg font-serif font-bold flex-shrink-0 mr-2", scoreColor(Number(r.score)))}>
+                        </div>
+                        <span className={cn("text-2xl font-serif font-bold leading-none tabular-nums flex-shrink-0", scoreColor(Number(r.score)))}>
                           {Number(r.score).toFixed(1)}
                         </span>
-                        <button onClick={() => setExpandedId(isExpanded ? null : r.id)}
-                          className="p-1.5 text-on-surface/25 hover:text-on-surface/50 transition-colors flex-shrink-0">
-                          <ChevronDown size={16} className={cn("transition-transform", isExpanded && "rotate-180")} />
-                        </button>
-                      </div>
+                        <ChevronDown size={16} className={cn("text-on-surface/25 flex-shrink-0 transition-transform ml-1", isExpanded && "rotate-180")} />
+                      </button>
 
-                      {/* Expandable review dropdown */}
+                      {/* Expandable review details */}
                       <AnimatePresence>
                         {isExpanded && (
                           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                             className="overflow-hidden">
-                            <div className="border-t border-on-surface/6">
+                            <div className="pl-[76px] pr-4 pb-4 space-y-2.5">
                               {/* Photos */}
                               {photos.length > 0 && (
-                                <div className="flex gap-1 overflow-x-auto scrollbar-hide p-2">
+                                <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -ml-[60px] pl-[60px]">
                                   {photos.map((p) => (
                                     <img key={p.id} src={p.url} alt={p.caption || ''} className="h-24 w-auto rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
                                   ))}
                                 </div>
                               )}
 
-                              <div className="px-3 py-2.5 space-y-2">
-                                {/* Notes */}
-                                {r.notes && (
-                                  <div>
-                                    <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30 mb-0.5">Notes</p>
-                                    <p className="text-xs text-on-surface/60 leading-relaxed italic">"{r.notes}"</p>
-                                  </div>
-                                )}
+                              {/* Notes */}
+                              {r.notes && (
+                                <p className="text-[13px] text-on-surface/65 leading-relaxed italic">&ldquo;{r.notes}&rdquo;</p>
+                              )}
 
-                                {/* Date & Would Return */}
-                                <div className="flex items-center gap-3 flex-wrap">
-                                  {r.visit_date && (
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-[9px] font-bold uppercase tracking-widest text-on-surface/30">Visited</span>
-                                      <span className="text-xs text-on-surface/50">{new Date(r.visit_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                                    </div>
-                                  )}
+                              {/* Would Return + Tags */}
+                              {(r.would_return || (r.tags && r.tags.length > 0)) && (
+                                <div className="flex flex-wrap items-center gap-1.5">
                                   {r.would_return && (
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-600 font-medium">Would return</span>
+                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold">Would return</span>
                                   )}
+                                  {r.tags?.map((t) => (
+                                    <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/[0.08] text-primary/70 font-medium">{t}</span>
+                                  ))}
                                 </div>
+                              )}
 
-                                {/* Tags */}
-                                {r.tags && r.tags.length > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {r.tags.map((t) => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/60 font-medium">{t}</span>)}
-                                  </div>
-                                )}
-
-                                {/* View restaurant link */}
-                                <Link to={`/restaurant/${r.restaurant_id}`}
-                                  className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:text-primary/70 pt-1">
-                                  View Restaurant →
-                                </Link>
-                              </div>
+                              {/* View restaurant link */}
+                              <Link to={`/restaurant/${r.restaurant_id}`}
+                                className="inline-flex items-center gap-1 text-[12px] font-bold text-primary hover:text-primary/70 pt-1">
+                                View restaurant →
+                              </Link>
                             </div>
                           </motion.div>
                         )}
                       </AnimatePresence>
-                    </div>
+                    </li>
                   );
                 })
               )}
-            </div>
+            </ul>
             )}
 
             {/* Home Cooking section */}
