@@ -10,7 +10,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, X, ChevronLeft, ChevronRight, Check, Minus, Plus } from 'lucide-react';
+import { Clock, X, ChevronLeft, ChevronRight, Check, Minus, Plus, Users, Gauge, type LucideIcon } from 'lucide-react';
 import { cn } from './utils';
 import { useRecipes } from '../contexts/RecipesContext';
 
@@ -165,10 +165,10 @@ export const StepTimer: React.FC<{ minutes: number }> = ({ minutes }) => {
       className={cn(
         "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors flex-shrink-0",
         done
-          ? "bg-amber-100 text-amber-700 animate-pulse"
+          ? "bg-amber-400/20 text-amber-700 animate-pulse"
           : running
-            ? "bg-emerald-100 text-emerald-700"
-            : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+            ? "bg-emerald-500/15 text-emerald-700"
+            : "bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface",
       )}
       aria-label={running ? 'Pause timer' : done ? 'Reset timer' : 'Start timer'}
     >
@@ -260,30 +260,52 @@ export const PhotoLightbox: React.FC<{
    ─────────────────────────────────────────────────────────────────────────── */
 
 /** A single label/value pair for the horizontal quick-info row. */
-export type QuickInfoItem = { label: string; value: string };
+export type QuickInfoItem = { label: string; value: string; icon?: LucideIcon };
 
 /**
- * Magazine-style recipe metadata row — values stacked over uppercase labels,
- * each cell separated by a thin vertical divider. No background or border on
- * the row itself; the dividers and typography do the work.
+ * Default label → icon mapping so pages that just pass `{ label, value }`
+ * still get tasteful metadata icons for free. Explicit `icon` on the item
+ * takes precedence.
+ */
+const QUICK_INFO_DEFAULT_ICONS: Record<string, LucideIcon> = {
+  prep: Clock,
+  cook: Clock,
+  total: Clock,
+  time: Clock,
+  serves: Users,
+  servings: Users,
+  level: Gauge,
+  difficulty: Gauge,
+};
+
+/**
+ * Magazine-style recipe metadata row — a small icon, bold serif value and
+ * uppercase label stacked in each cell, separated by thin vertical dividers.
+ * No background or outer border; the dividers and typography do the work.
  */
 export const RecipeQuickInfoRow: React.FC<{ items: QuickInfoItem[]; className?: string }> = ({ items, className }) => {
   if (items.length === 0) return null;
   return (
     <div className={cn("flex items-stretch", className)}>
-      {items.map((item) => (
-        <div
-          key={item.label}
-          className="flex-1 min-w-0 px-3 first:pl-0 last:pr-0 border-l border-on-surface/10 first:border-l-0 text-center first:text-left last:text-right"
-        >
-          <p className="font-serif font-bold text-[18px] leading-tight text-on-surface tabular-nums whitespace-nowrap">
-            {item.value}
-          </p>
-          <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mt-0.5">
-            {item.label}
-          </p>
-        </div>
-      ))}
+      {items.map((item) => {
+        const Icon = item.icon ?? QUICK_INFO_DEFAULT_ICONS[item.label.toLowerCase()];
+        return (
+          <div
+            key={item.label}
+            className="flex-1 min-w-0 px-2 first:pl-0 last:pr-0 border-l border-on-surface/10 first:border-l-0 flex flex-col items-center text-center"
+          >
+            {Icon && (
+              <Icon size={14} className="text-on-surface/35 mb-1.5" strokeWidth={1.75} />
+            )}
+            <p className="font-serif font-bold text-[19px] leading-tight text-on-surface tabular-nums whitespace-nowrap">
+              {item.value}
+            </p>
+            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mt-1">
+              {item.label}
+            </p>
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -320,31 +342,34 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
   return (
     <div>
       {servings && (
-        <div className="flex items-center justify-between gap-3 pb-3 mb-1 border-b border-on-surface/8">
+        <div className="flex items-center justify-between gap-4 pb-4 mb-2 border-b border-on-surface/8">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mb-0.5">Scale for</p>
-            <p className="text-sm font-semibold text-on-surface tabular-nums">
-              {displayServings} serving{displayServings !== 1 ? 's' : ''}
+            <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/45 font-medium mb-1">Servings</p>
+            <p className="font-serif font-bold text-[22px] leading-none text-on-surface tabular-nums">
+              {displayServings}
+              <span className="text-xs text-on-surface/45 font-sans font-medium ml-1.5 align-middle">
+                {displayServings === 1 ? 'serving' : 'servings'}
+              </span>
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-on-surface/[0.04] border border-on-surface/10 rounded-full">
+          <div className="flex items-center bg-on-surface/[0.04] border border-on-surface/10 rounded-full">
             <button
               type="button"
               onClick={() => servings.onScaleChange(Math.max(0.25, (displayServings - 1) / servings.base))}
               disabled={displayServings <= 1}
-              className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface disabled:opacity-30 transition-colors"
+              className="w-11 h-11 flex items-center justify-center rounded-l-full text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.05] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
               aria-label="Decrease servings"
             >
-              <Minus size={14} />
+              <Minus size={16} />
             </button>
-            <div className="w-9 text-center text-sm font-semibold tabular-nums">{displayServings}</div>
+            <div className="w-px h-5 bg-on-surface/10" aria-hidden />
             <button
               type="button"
               onClick={() => servings.onScaleChange((displayServings + 1) / servings.base)}
-              className="w-9 h-9 flex items-center justify-center text-on-surface/60 hover:text-on-surface transition-colors"
+              className="w-11 h-11 flex items-center justify-center rounded-r-full text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors"
               aria-label="Increase servings"
             >
-              <Plus size={14} />
+              <Plus size={16} />
             </button>
           </div>
         </div>
@@ -357,10 +382,10 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
           return (
             <li key={i}>
               <label className={cn(
-                "flex items-baseline gap-3 py-3 cursor-pointer group transition-opacity",
+                "flex items-baseline gap-3.5 py-3.5 cursor-pointer group transition-opacity",
                 isChecked && "opacity-40",
               )}>
-                <span className="flex items-center flex-shrink-0 translate-y-[2px]">
+                <span className="flex items-center flex-shrink-0 translate-y-[3px]">
                   <input
                     type="checkbox"
                     checked={isChecked}
@@ -377,7 +402,7 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
                   </span>
                 </span>
                 <span className={cn(
-                  "flex-1 text-[15px] leading-[1.6] text-on-surface/80",
+                  "flex-1 text-[15px] leading-[1.75] text-on-surface/80",
                   isChecked && "line-through",
                 )}>
                   {(scaledAmount || ing.unit) && (
@@ -409,18 +434,23 @@ export const RecipeDirectionsList: React.FC<{ steps: string[] }> = ({ steps }) =
       {steps.map((step, i) => {
         const timerMinutes = extractStepMinutes(step);
         return (
-          <li key={i} className="py-5 first:pt-0 last:pb-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-600 mb-1.5">
-              Step {i + 1}
-            </p>
-            <p className="text-[16px] leading-[1.7] text-on-surface/85 whitespace-pre-wrap">
-              {step}
-            </p>
-            {timerMinutes !== null && (
-              <div className="mt-2">
-                <StepTimer minutes={timerMinutes} />
+          <li key={i} className="py-6 first:pt-0 last:pb-0">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-2.5">
+              <div
+                aria-hidden
+                className="font-serif font-bold text-[34px] leading-none text-on-surface/20 tabular-nums pt-1 select-none"
+              >
+                {i + 1}
               </div>
-            )}
+              <p className="text-[16px] leading-[1.75] text-on-surface/85 whitespace-pre-wrap">
+                {step}
+              </p>
+              {timerMinutes !== null && (
+                <div className="col-start-2">
+                  <StepTimer minutes={timerMinutes} />
+                </div>
+              )}
+            </div>
           </li>
         );
       })}
@@ -547,7 +577,7 @@ export const RecipeMobileSectionNav: React.FC<RecipeMobileSectionNavProps> = ({ 
 
   return (
     <div
-      className="sticky z-20 bg-surface/95 backdrop-blur-md border-b border-on-surface/8"
+      className="sticky z-20 bg-surface/75 backdrop-blur-md"
       style={{ top: topOffset }}
     >
       <div ref={containerRef} className="flex gap-1 px-4 py-2 overflow-x-auto scrollbar-hide">
@@ -579,3 +609,23 @@ export const RecipeMobileSectionNav: React.FC<RecipeMobileSectionNavProps> = ({ 
     </div>
   );
 };
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Empty state — a quiet prompt for sections with no content yet (ingredients,
+   directions, reviews). Uses soft body-copy tones so it reads as part of the
+   page rather than a loud callout.
+   ─────────────────────────────────────────────────────────────────────────── */
+export const RecipeEmptyState: React.FC<{
+  icon?: LucideIcon;
+  title: string;
+  hint?: string;
+  className?: string;
+}> = ({ icon: Icon, title, hint, className }) => (
+  <div className={cn("py-8 text-center", className)}>
+    {Icon && (
+      <Icon size={22} className="text-on-surface/20 mx-auto mb-2" strokeWidth={1.5} />
+    )}
+    <p className="text-sm text-on-surface/45 font-medium">{title}</p>
+    {hint && <p className="text-xs text-on-surface/35 mt-1">{hint}</p>}
+  </div>
+);
