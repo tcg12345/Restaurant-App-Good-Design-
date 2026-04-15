@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
@@ -110,6 +110,7 @@ interface MapProps {
 
 export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { setHideBottomNav, phoneMode } = useSettings();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings, lists: myLists } = useLists();
   const { user } = useAuth();
@@ -123,10 +124,15 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const [expertProfiles, setExpertProfiles] = useState<Record<string, UserProfile>>(cacheHit ? tabDataCache.expertProfiles : {});
   const [expertRatings, setExpertRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.expertRatings : []);
   const [tabDataLoaded, setTabDataLoaded] = useState(!!cacheHit);
+  // True once we've actually finished fetching the user's ratings (or once
+  // we know there's no user to fetch for). Used by the focus-deep-link
+  // handler to decide which tab to open the incoming restaurant on.
+  const [userDataReady, setUserDataReady] = useState<boolean>(() => !!cacheHit || !userId);
 
   // Load data for non-discover tabs (skipped if cache was fresh)
   useEffect(() => {
-    if (!userId || tabDataLoaded) return;
+    if (!userId) { setUserDataReady(true); return; }
+    if (tabDataLoaded) return;
     setTabDataLoaded(true);
     (async () => {
       const [myR, friendR, expertR] = await Promise.all([
@@ -157,6 +163,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       tabDataCache.expertRatings = expertR;
       tabDataCache.friendProfiles = profs;
       tabDataCache.expertProfiles = expProfs;
+      setUserDataReady(true);
     })();
   }, [userId, tabDataLoaded]);
   const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes'>(() => {
@@ -262,6 +269,15 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const [searchLocationBias, setSearchLocationBias] = useState<{ lat: number; lng: number } | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  // Becomes true once the Mapbox `load` event has fired so consumers (e.g.
+  // the focus-deep-link handler) know the map is ready to receive flyTo.
+  const [mapReady, setMapReady] = useState(false);
+  // When set, the marker-sync effects (hotels / ratings) must honour this
+  // focus target instead of running their own fit-all-markers fitBounds,
+  // since the focus-deep-link handler is in the middle of flying to a
+  // specific restaurant and we don't want the camera hijacked. Self-clears
+  // after a short window so normal fitBounds behaviour resumes.
+  const pendingFocusRef = useRef<{ lat: number; lng: number } | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
   const popupRef = useRef<mapboxgl.Popup | null>(null);
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -862,6 +878,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
     // Search nearby restaurants once map loads (skip if cached)
     map.on('load', () => {
+      setMapReady(true);
       const hasCachedPlaces = tabDataCache.discoverPlaces.length > 0 && (Date.now() - tabDataCache.discoverTs) < TAB_CACHE_TTL;
       if (hasCachedPlaces) {
         syncMarkers(tabDataCache.discoverPlaces);
@@ -910,6 +927,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
       map.remove();
       mapRef.current = null;
+      setMapReady(false);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -964,6 +982,122 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       window.history.replaceState({}, '', '/');
     }
   }, [mode]);
+
+  // ── Focus deep-link: when the user taps the embedded mini-map on a
+  // Restaurant Detail page, they arrive here with router `state.focus`
+  // carrying the restaurant's identity and coordinates. We need to:
+  //   1. Wait for the map instance to be ready and user ratings to have
+  //      finished loading (so we can decide which tab the restaurant
+  //      lives on).
+  //   2. Switch to a tab that actually contains this restaurant — prefer
+  //      "My Ratings" → "Friends" → "Experts" → "Discover" — so its
+  //      marker is visible.
+  //   3. Fly to the coordinates, select the place, and pop the bottom
+  //      sheet to peek so the user sees the same restaurant they came
+  //      from.
+  //   4. Clear the location state afterwards so refreshes / back
+  //      navigation don't re-trigger the fly-to.
+  // Track the identity of the last handled location state so a FRESH
+  // navigation from a different restaurant detail page (with its own new
+  // state object) still triggers the handler, while repeated re-renders
+  // of the same state don't re-fire it.
+  const handledFocusStateRef = useRef<unknown>(null);
+  useEffect(() => {
+    if (mode !== 'map') return;
+    if (handledFocusStateRef.current === location.state) return;
+    const focus = (location.state as any)?.focus as
+      | {
+          id: string;
+          name: string;
+          lat: number;
+          lng: number;
+          address?: string;
+          fullAddress?: string;
+          photoUrl?: string | null;
+          priceLevel?: number;
+          rating?: number;
+          types?: string[];
+          userRatingCount?: number;
+        }
+      | undefined;
+    if (!focus || !Number.isFinite(focus.lat) || !Number.isFinite(focus.lng)) {
+      // Nothing actionable in this location state; remember we looked at
+      // it so we don't keep re-checking.
+      handledFocusStateRef.current = location.state;
+      return;
+    }
+    if (!mapReady || !mapRef.current) return;
+    if (!userDataReady) return;
+
+    // Pick the best mode so the incoming restaurant's marker is visible.
+    const inMine = myRatings.some((r) => r.restaurant_id === focus.id);
+    const inFriends = !inMine && friendRatings.some((r) => r.restaurant_id === focus.id);
+    const inExperts = !inMine && !inFriends && expertRatings.some((r) => r.restaurant_id === focus.id);
+    const targetMode: typeof mapMode = inMine
+      ? 'myratings'
+      : inFriends
+      ? 'friends'
+      : inExperts
+      ? 'experts'
+      : 'discover';
+    // Arm the pending-focus ref BEFORE triggering the mode change so the
+    // marker-sync effects see a target and skip their own auto-fit to all
+    // markers (which would otherwise hijack the camera).
+    pendingFocusRef.current = { lat: focus.lat, lng: focus.lng };
+    // Self-clear so normal fit-all behaviour resumes shortly after our
+    // flyTo lands (our animation runs ~1.5s; a generous 4s window also
+    // covers slow background geocoding that might refire the markers).
+    setTimeout(() => {
+      pendingFocusRef.current = null;
+    }, 4000);
+    if (mapMode !== targetMode) setMapMode(targetMode);
+
+    const place: PlaceResult = {
+      id: focus.id,
+      name: focus.name,
+      lat: focus.lat,
+      lng: focus.lng,
+      rating: focus.rating ?? 0,
+      priceLevel: focus.priceLevel ?? 0,
+      address: focus.address ?? '',
+      fullAddress: focus.fullAddress ?? focus.address ?? '',
+      photoUrl: focus.photoUrl ?? null,
+      types: focus.types ?? [],
+      userRatingCount: focus.userRatingCount ?? 0,
+    };
+
+    // Suppress the pan-end "Search this area" pill that would otherwise
+    // fire because of the flyTo, and keep the marker-selected latch set
+    // so our selection doesn't get wiped by the map's own click/drag
+    // handlers.
+    isMarkerSelectedRef.current = true;
+    setSelectedPlace(place);
+    setSelectedMarker(focus.id);
+    setSheetState('peek');
+
+    mapRef.current.flyTo({
+      center: [focus.lng, focus.lat],
+      zoom: 15,
+      duration: 1500,
+      essential: true,
+    });
+
+    handledFocusStateRef.current = location.state;
+    // Drop the focus payload from history so a back-nav or hard refresh
+    // doesn't re-trigger the fly-to / tab switch.
+    navigate(location.pathname, { replace: true, state: null });
+  }, [
+    mode,
+    location.state,
+    location.pathname,
+    mapReady,
+    userDataReady,
+    myRatings,
+    friendRatings,
+    expertRatings,
+    mapMode,
+    navigate,
+  ]);
 
   // Location geocoding (debounced)
   useEffect(() => {
@@ -1372,7 +1506,14 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       animIndex++;
     }
 
-    if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
+    if (hasMarkers) {
+      const pf = pendingFocusRef.current;
+      if (pf) {
+        map.flyTo({ center: [pf.lng, pf.lat], zoom: 15, duration: 1500, essential: true });
+      } else {
+        map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
+      }
+    }
   }, [mapMode, hotelPlaces, createHotelMarkerElement, showHotelPopup]);
 
   // Add/remove custom markers for My Ratings and Friends modes
@@ -1480,7 +1621,14 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       hasMarkers = true;
     }
 
-    if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
+    if (hasMarkers) {
+      const pf = pendingFocusRef.current;
+      if (pf) {
+        map.flyTo({ center: [pf.lng, pf.lat], zoom: 15, duration: 1500, essential: true });
+      } else {
+        map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
+      }
+    }
   }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles, isWishlisted]);
 
   return (

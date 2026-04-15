@@ -892,7 +892,23 @@ export const RestaurantDetailMobile: React.FC = () => {
             <div ref={mapContainerRef} className="absolute inset-0" />
             <button
               type="button"
-              onClick={() => navigate('/map')}
+              onClick={() => navigate('/map', {
+                state: {
+                  focus: {
+                    id: place.id,
+                    name: place.name,
+                    lat: place.lat,
+                    lng: place.lng,
+                    address: place.address,
+                    fullAddress: place.fullAddress || place.address,
+                    photoUrl: place.photoUrl,
+                    priceLevel: place.priceLevel,
+                    rating: place.rating,
+                    types: place.types,
+                    userRatingCount: place.userRatingCount,
+                  },
+                },
+              })}
               aria-label="Open full map"
               className="absolute inset-0 z-10 active:bg-on-surface/5 transition-colors"
             />

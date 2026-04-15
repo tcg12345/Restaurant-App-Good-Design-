@@ -66,16 +66,20 @@ export function useRestaurantDetail() {
   }, [id]);
 
   useEffect(() => {
-    if (!place || !mapContainerRef.current || mapRef.current || !MAPBOX_TOKEN) return;
+    const container = mapContainerRef.current;
+    if (!place || !container || !MAPBOX_TOKEN) return;
+    // Guard against valid-but-zero coords from a partial response.
+    if (!Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
 
     mapboxgl.accessToken = MAPBOX_TOKEN;
     const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
+      container,
       style: 'mapbox://styles/mapbox/light-v11',
       center: [place.lng, place.lat],
       zoom: 15,
       interactive: true,
     });
+    mapRef.current = map;
 
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
 
@@ -83,13 +87,32 @@ export function useRestaurantDetail() {
       .setLngLat([place.lng, place.lat])
       .addTo(map);
 
-    mapRef.current = map;
+    // A ResizeObserver keeps the map in sync with the container size.
+    // This fixes the "blank map" case where the container has zero
+    // height/width at construction time (common when Mapbox is created
+    // below the fold before the parent layout has fully settled) — Mapbox
+    // caches the initial canvas size and will never repaint until told.
+    const ro = new ResizeObserver(() => {
+      try { map.resize(); } catch {}
+    });
+    ro.observe(container);
+    // Belt-and-braces: one forced resize on the next frame picks up the
+    // correct dimensions even in environments where ResizeObserver hasn't
+    // fired yet (e.g. very fast initial paint).
+    const rafId = requestAnimationFrame(() => {
+      try { map.resize(); } catch {}
+    });
 
     return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
     };
-  }, [place]);
+    // Depend on stable primitives so we don't tear down the map on
+    // unrelated `place` object reference changes, but DO recreate it when
+    // the user navigates to a different restaurant (different id/coords).
+  }, [place?.id, place?.lat, place?.lng]);
 
   // Track recently viewed restaurants
   useEffect(() => {
