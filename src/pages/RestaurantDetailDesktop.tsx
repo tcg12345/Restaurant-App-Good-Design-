@@ -859,7 +859,16 @@ export const RestaurantDetailDesktop: React.FC = () => {
             (the mapbox instance below stays visible). ── */}
         <section className="mb-10">
           <div className="relative w-full h-96 rounded-2xl overflow-hidden">
-            <div ref={mapContainerRef} className="absolute inset-0" />
+            {/* Inline width/height match Map.tsx — Mapbox's CSS sets
+                `.mapboxgl-map { position: relative }` which can override
+                Tailwind's `absolute` (equal specificity, source-order wins),
+                collapsing an inset-0 container to 0×0. Inline styles win
+                unconditionally and keep the canvas full-sized. */}
+            <div
+              ref={mapContainerRef}
+              className="absolute inset-0"
+              style={{ width: '100%', height: '100%' }}
+            />
             <button
               type="button"
               onClick={() => navigate('/map', {
