@@ -406,7 +406,7 @@ export const FollowingFeed: React.FC = () => {
                     </div>
 
                     {/* ── Desktop layout — unboxed horizontal card ── */}
-                    <div className="hidden md:block py-5">
+                    <div className="hidden md:block py-3">
                       <div className="flex gap-4">
                         {/* Photo thumbnail */}
                         <div className="flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] relative flex items-center justify-center">
@@ -424,7 +424,7 @@ export const FollowingFeed: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Content stack */}
+                        {/* Content stack — flex column so actions can dock to the bottom */}
                         <div className="flex-1 min-w-0 flex flex-col">
                           {/* Reviewer header */}
                           {profile && (
@@ -460,30 +460,30 @@ export const FollowingFeed: React.FC = () => {
                           <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
                             {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
                           </p>
-                        </div>
-                      </div>
 
-                      {/* Actions row */}
-                      <div className="flex items-center gap-1 mt-3 -ml-2">
-                        <div className="flex-1" />
-                        <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAddRestaurantModal(meta); }}
-                          className="inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
-                        >
-                          <Plus size={14} /> Rate
-                        </button>
-                        <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openWishlistModal(meta); }}
-                          className={cn(
-                            "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full transition-colors",
-                            wishlisted
-                              ? "text-red-500 hover:bg-red-500/5"
-                              : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
-                          )}
-                          aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                        >
-                          <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
-                        </button>
+                          {/* Actions row — docked to bottom so it lines up with the photo's bottom edge */}
+                          <div className="flex items-center gap-1 mt-auto pt-2 -ml-2">
+                            <div className="flex-1" />
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAddRestaurantModal(meta); }}
+                              className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
+                            >
+                              <Plus size={14} /> Rate
+                            </button>
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openWishlistModal(meta); }}
+                              className={cn(
+                                "inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded-full transition-colors",
+                                wishlisted
+                                  ? "text-red-500 hover:bg-red-500/5"
+                                  : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                              )}
+                              aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                            >
+                              <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
