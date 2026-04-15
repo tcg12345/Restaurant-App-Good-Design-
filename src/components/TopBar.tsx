@@ -28,7 +28,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
   };
 
   return (
-    <header className="sticky top-0 w-full px-6 py-4 flex items-center justify-between bg-surface/80 backdrop-blur-md border-b border-on-surface/[0.06] z-40">
+    <header className="sticky top-0 w-full px-6 py-4 flex items-center justify-between bg-surface/70 backdrop-blur-md z-40">
       <div className="flex items-center gap-3">
         {showBackButton ? (
           <button

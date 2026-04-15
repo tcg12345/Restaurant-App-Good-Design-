@@ -542,7 +542,7 @@ const ChatView: React.FC<{
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-on-surface/6 flex-shrink-0 bg-surface/80 backdrop-blur-md">
+      <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0 bg-surface/70 backdrop-blur-md">
         <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
           <ArrowLeft size={20} />
         </button>

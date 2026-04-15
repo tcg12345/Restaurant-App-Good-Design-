@@ -17,7 +17,7 @@ export const Search: React.FC = () => {
 
       {/* Tab switcher */}
       <div className="px-4 pt-1">
-        <div className="flex items-center gap-6 border-b border-on-surface/[0.08]">
+        <div className="flex items-center gap-6">
           {([
             ['discover', 'Discover'],
             ['following', 'Following'],

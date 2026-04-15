@@ -203,7 +203,7 @@ export const FriendReviewDetail: React.FC = () => {
       className="min-h-screen bg-surface pb-28"
     >
       {/* Sticky header */}
-      <div className="sticky top-0 z-30 bg-surface/90 backdrop-blur-md border-b border-on-surface/6">
+      <div className="sticky top-0 z-30 bg-surface/70 backdrop-blur-md">
         <div className="flex items-center gap-3 px-3 py-3">
           <button
             onClick={() => navigate(-1)}

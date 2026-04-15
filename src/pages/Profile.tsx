@@ -225,7 +225,7 @@ export const Profile: React.FC = () => {
       <div className="relative">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-[380px] bg-gradient-to-b from-primary/[0.1] via-primary/[0.04] to-transparent"
+          className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-gradient-to-b from-primary/[0.09] via-primary/[0.035] to-transparent"
         />
 
         <div className="relative px-5 pt-2 pb-5">

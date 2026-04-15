@@ -3579,7 +3579,7 @@ const HomeCookingTab: React.FC<{
         {statCardsBlock && <div className="mb-8">{statCardsBlock}</div>}
 
         {jumpTargets.length > 1 && (
-          <nav className="sticky top-0 z-20 bg-surface/85 backdrop-blur-md border-b border-on-surface/8 mb-6">
+          <nav className="sticky top-0 z-20 bg-surface/75 backdrop-blur-md mb-6">
             <div className="flex gap-1 py-2.5 overflow-x-auto scrollbar-hide">
               {jumpTargets.map((t) => (
                 <a
