@@ -3,19 +3,17 @@ import { Link, useNavigate } from 'react-router-dom';
 import { TopBar } from '../components/TopBar';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, List as ListIcon, ChefHat, ExternalLink, Users, Crown, Sparkles, TrendingUp, Search, Globe, EyeOff, Smartphone,
+  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
-import { useRecipes } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../lib/supabase-community';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 
 type SettingsPage = 'main' | 'edit' | 'account';
-type ProfileTab = 'overview' | 'ratings' | 'lists' | 'wishlist' | 'cooking';
 
 const scoreColor = (s: number) => (s >= 8 ? 'text-emerald-600' : s >= 5 ? 'text-amber-600' : 'text-rose-500');
 
@@ -49,25 +47,15 @@ function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string
   return '';
 }
 
-function listRestaurantIds(list: { restaurantIds?: string[] }): string[] {
-  return Array.isArray(list.restaurantIds) ? list.restaurantIds : [];
-}
-
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
   const listsCtx = useLists();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
-  const lists = Array.isArray(listsCtx.lists) ? listsCtx.lists : [];
   const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
-  const trips = Array.isArray(listsCtx.trips) ? listsCtx.trips : [];
-  const homeMeals = Array.isArray(listsCtx.homeMeals) ? listsCtx.homeMeals : [];
-  const { myRecipes: rawMyRecipes } = useRecipes();
-  const myRecipes = Array.isArray(rawMyRecipes) ? rawMyRecipes : [];
   const { phoneMode, togglePhoneMode } = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
-  const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
 
   const [editName, setEditName] = useState('');
   const [editUsername, setEditUsername] = useState('');
@@ -85,9 +73,6 @@ export const Profile: React.FC = () => {
   const [accountMsg, setAccountMsg] = useState('');
   const [accountError, setAccountError] = useState('');
   const [deleteStep, setDeleteStep] = useState(0);
-
-  const [ratingSort, setRatingSort] = useState<'recent' | 'high' | 'low'>('recent');
-  const [ratingSearch, setRatingSearch] = useState('');
 
   useEffect(() => {
     if (user?.id) {
@@ -132,6 +117,11 @@ export const Profile: React.FC = () => {
     setNewPassword('');
     setDeleteStep(0);
     setSettingsOpen(true);
+  };
+
+  const goToMyRatings = () => {
+    sessionStorage.setItem('map-mode', 'myratings');
+    navigate('/map');
   };
 
   const handleSaveProfile = async () => {
@@ -193,12 +183,6 @@ export const Profile: React.FC = () => {
     return nums.reduce((a, s) => a + s, 0) / nums.length;
   }, [ratings]);
 
-  const wouldReturnPct = useMemo(() => {
-    if (!ratings.length) return null;
-    const n = ratings.filter((r) => r.wouldReturn).length;
-    return Math.round((n / ratings.length) * 100);
-  }, [ratings]);
-
   const cuisineStats = useMemo(() => {
     const map = new Map<string, number>();
     ratings.forEach((r) => {
@@ -224,40 +208,12 @@ export const Profile: React.FC = () => {
   }, [ratings]);
 
   const recentRatings = useMemo(() => {
-    return [...ratings].sort((a, b) => ratingRecencyIso(b).localeCompare(ratingRecencyIso(a))).slice(0, 10);
+    return [...ratings].sort((a, b) => ratingRecencyIso(b).localeCompare(ratingRecencyIso(a))).slice(0, 6);
   }, [ratings]);
 
-  const filteredSortedRatings = useMemo(() => {
-    let r = [...ratings];
-    const q = ratingSearch.trim().toLowerCase();
-    if (q) {
-      r = r.filter(
-        (x) =>
-          (x.name || '').toLowerCase().includes(q) ||
-          (x.cuisine || '').toLowerCase().includes(q) ||
-          (x.address || '').toLowerCase().includes(q),
-      );
-    }
-    if (ratingSort === 'high') r.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
-    else if (ratingSort === 'low') r.sort((a, b) => (Number(a.score) || 0) - (Number(b.score) || 0));
-    else {
-      r.sort((a, b) => ratingRecencyIso(b).localeCompare(ratingRecencyIso(a)));
-    }
-    return r;
-  }, [ratings, ratingSearch, ratingSort]);
-
-  const publicHomeMeals = useMemo(() => (Array.isArray(homeMeals) ? homeMeals : []).filter((m) => m.isPublic), [homeMeals]);
   const memberSince = user?.created_at
     ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     : null;
-
-  const tabs: { id: ProfileTab; label: string; count?: number }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'ratings', label: 'Ratings', count: ratings.length },
-    { id: 'lists', label: 'Lists', count: lists.length },
-    { id: 'wishlist', label: 'Wishlist', count: wishlist.length },
-    { id: 'cooking', label: 'Home', count: homeMeals.length },
-  ];
 
   const maxCuisine = cuisineStats[0]?.[1] || 1;
 
@@ -265,10 +221,14 @@ export const Profile: React.FC = () => {
     <div className="pb-32 min-h-screen bg-surface">
       <TopBar title="Profile" />
 
-      {/* Hero */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.08] to-surface" />
-        <div className="relative px-5 pt-2 pb-6">
+      {/* Hero + stats — gradient fades seamlessly into the body with no seam */}
+      <div className="relative">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-[380px] bg-gradient-to-b from-primary/[0.1] via-primary/[0.04] to-transparent"
+        />
+
+        <div className="relative px-5 pt-2 pb-5">
           {pendingRequestCount > 0 && (
             <div className="w-full mb-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
               <span className="text-xs font-semibold text-amber-900">
@@ -364,430 +324,147 @@ export const Profile: React.FC = () => {
             )}
           </div>
         </div>
-      </div>
 
-      {/* Stats row — open, card-less against the hero gradient */}
-      <div className="px-5 pb-6">
-        <div className="flex items-start justify-between gap-2">
-          {[
-            { value: String(ratings.length), label: 'Rated' },
-            { value: avgScore != null ? avgScore.toFixed(1) : '—', label: 'Avg score' },
-            { value: String(wishlist.length), label: 'Wishlist' },
-            { value: uniqueCities ? String(uniqueCities) : '—', label: 'Cities' },
-          ].map((stat) => (
-            <div key={stat.label} className="flex-1 min-w-0">
-              <p className="text-[30px] font-serif font-bold text-on-surface leading-none tabular-nums">{stat.value}</p>
-              <p className="text-[12px] font-medium text-on-surface/45 mt-1.5 truncate">{stat.label}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Tabs — larger 14px text, filled underline indicator, scrolls on overflow */}
-      <div className="border-b border-on-surface/[0.08] mb-1">
-        <div className="flex overflow-x-auto scrollbar-hide px-4 gap-1">
-          {tabs.map((t) => {
-            const isActive = activeTab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setActiveTab(t.id)}
-                className={cn(
-                  'relative flex-shrink-0 px-3 pt-2 pb-3 text-[14px] font-semibold transition-colors whitespace-nowrap',
-                  isActive ? 'text-on-surface' : 'text-on-surface/40 hover:text-on-surface/60',
-                )}
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  {t.label}
-                  {t.count != null && t.id !== 'overview' && (
-                    <span className={cn('text-[12px] tabular-nums font-semibold', isActive ? 'text-on-surface/55' : 'text-on-surface/30')}>
-                      {t.count}
-                    </span>
-                  )}
-                </span>
-                {isActive && (
-                  <motion.div
-                    layoutId="profileTab"
-                    className="absolute bottom-0 left-1.5 right-1.5 h-[3px] rounded-full bg-primary"
-                    transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <main className="px-5 space-y-5 pt-4">
-        {activeTab === 'overview' && (
-          <>
-            {/* Highlights row */}
-            {(wouldReturnPct != null || uniqueCities > 0 || homeMeals.length > 0) && (
-              <div className="flex gap-2">
-                {wouldReturnPct != null && (
-                  <div className="flex-1 flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-emerald-50/70 border border-emerald-100/80">
-                    <TrendingUp size={15} className="text-emerald-600 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm font-bold text-emerald-900">{wouldReturnPct}%</p>
-                      <p className="text-[10px] text-emerald-700/70 leading-tight">would return</p>
-                    </div>
-                  </div>
-                )}
-                {homeMeals.length > 0 && (
-                  <div className="flex-1 flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-orange-50/70 border border-orange-100/80">
-                    <ChefHat size={15} className="text-orange-600 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm font-bold text-orange-900">{homeMeals.length}</p>
-                      <p className="text-[10px] text-orange-700/70 leading-tight">home meals</p>
-                    </div>
-                  </div>
-                )}
-                {lists.length > 0 && (
-                  <div className="flex-1 flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-sky-50/70 border border-sky-100/80">
-                    <ListIcon size={15} className="text-sky-600 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm font-bold text-sky-900">{lists.length}</p>
-                      <p className="text-[10px] text-sky-700/70 leading-tight">lists</p>
-                    </div>
-                  </div>
-                )}
+        {/* Stats row — open, card-less, inside the same gradient region so there is no seam */}
+        <div className="relative px-5 pt-3 pb-12">
+          <div className="flex items-start justify-between gap-3">
+            {[
+              { value: String(ratings.length), label: 'Rated' },
+              { value: avgScore != null ? avgScore.toFixed(1) : '—', label: 'Avg score' },
+              { value: String(wishlist.length), label: 'Wishlist' },
+              { value: uniqueCities ? String(uniqueCities) : '—', label: 'Cities' },
+            ].map((stat) => (
+              <div key={stat.label} className="flex-1 min-w-0">
+                <p className="text-[32px] font-serif font-bold text-on-surface leading-none tabular-nums">{stat.value}</p>
+                <p className="text-[12px] font-medium text-on-surface/45 mt-2 truncate">{stat.label}</p>
               </div>
-            )}
+            ))}
+          </div>
+        </div>
+      </div>
 
-            {/* Top cuisines */}
-            {cuisineStats.length > 0 && (
-              <section>
-                <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-3">Top cuisines</h3>
-                <div className="space-y-3">
-                  {cuisineStats.map(([name, count]) => (
-                    <div key={name} className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-on-surface/70 w-20 truncate">{name}</span>
-                      <div className="flex-1 h-1.5 rounded-full bg-on-surface/[0.06] overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary/70"
-                          style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-[11px] text-on-surface/35 tabular-nums w-6 text-right">{count}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Top Rated — immersive full-bleed scroller (matches Home page) */}
-            {topRated.length > 0 && (
-              <section className="-mx-5">
-                <div className="flex items-center justify-between mb-3 px-5">
-                  <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">Top Rated</h3>
-                  <button type="button" onClick={() => setActiveTab('ratings')} className="text-[11px] font-semibold text-primary">
-                    See all
-                  </button>
-                </div>
-                <div className="flex gap-3 overflow-x-auto pb-2 px-5 scrollbar-hide snap-x snap-mandatory">
-                  {topRated.slice(0, 8).map((r) => (
-                    <Link
-                      key={r.restaurantId}
-                      to={`/restaurant/${r.restaurantId}`}
-                      className="flex-shrink-0 snap-start group"
-                    >
-                      <div className="relative w-44 aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
-                        {r.image ? (
-                          <img
-                            src={r.image}
-                            alt={r.name}
-                            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.05]"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="absolute inset-0 flex items-center justify-center bg-on-surface/[0.05] text-on-surface/20 font-serif text-5xl font-bold">
-                            {r.name.charAt(0)}
-                          </div>
-                        )}
-                        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
-                        <div className="absolute inset-x-0 bottom-0 p-3">
-                          <p className="text-white text-sm font-bold leading-tight drop-shadow-sm line-clamp-2">{r.name}</p>
-                          <div className="flex items-center gap-1 mt-1">
-                            <Star size={11} className="fill-white text-white" />
-                            <span className="text-white/95 text-[11px] font-semibold tabular-nums">{formatScore(r.score)}</span>
-                            <span className="text-white/60 text-[11px]">/ 10</span>
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Recent visits */}
-            {recentRatings.length > 0 && (
-              <section>
-                <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Recent</h3>
-                <ul className="divide-y divide-on-surface/[0.06]">
-                  {recentRatings.slice(0, 5).map((r) => (
-                    <li key={r.restaurantId}>
-                      <Link
-                        to={`/restaurant/${r.restaurantId}`}
-                        className="flex items-center gap-4 py-3 group"
-                      >
-                        <div className="w-14 h-14 rounded-2xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
-                          {r.image ? (
-                            <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-                              <MapPin size={16} />
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">{r.name}</p>
-                          <p className="text-[11px] text-on-surface/40 mt-0.5">
-                            {r.visitDate
-                              ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                              : ''}
-                            {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
-                          </p>
-                        </div>
-                        <span className={cn('text-lg font-serif font-bold flex-shrink-0', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {ratings.length === 0 && wishlist.length === 0 && (
-              <div className="text-center py-14 rounded-2xl border border-dashed border-on-surface/10">
-                <MapPin size={32} className="mx-auto text-on-surface/15 mb-3" />
-                <p className="text-sm font-medium text-on-surface/50">Start exploring</p>
-                <p className="text-xs text-on-surface/30 mt-1 max-w-xs mx-auto">Rate restaurants and build lists to see your stats here.</p>
-                <button
-                  type="button"
-                  onClick={() => navigate('/')}
-                  className="mt-4 px-5 py-2.5 rounded-full bg-primary text-white text-xs font-semibold"
+      <main className="px-5 space-y-10">
+        {/* Top Rated — immersive full-bleed hero cards */}
+        {topRated.length > 0 && (
+          <section className="-mx-5">
+            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-4 px-5">Top Rated</h3>
+            <div className="flex gap-4 overflow-x-auto pb-2 px-5 scrollbar-hide snap-x snap-mandatory">
+              {topRated.slice(0, 8).map((r) => (
+                <Link
+                  key={r.restaurantId}
+                  to={`/restaurant/${r.restaurantId}`}
+                  className="flex-shrink-0 snap-start group"
                 >
-                  Open map
-                </button>
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === 'ratings' && (
-          <section className="space-y-3 pb-4">
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/25" />
-                <input
-                  type="search"
-                  value={ratingSearch}
-                  onChange={(e) => setRatingSearch(e.target.value)}
-                  placeholder="Search ratings..."
-                  className="w-full bg-on-surface/[0.04] rounded-full py-2 pl-9 pr-3 text-sm focus:outline-none focus:bg-on-surface/[0.06]"
-                />
-              </div>
-              <div className="flex bg-on-surface/[0.04] rounded-full overflow-hidden p-0.5">
-                {(['recent', 'high', 'low'] as const).map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setRatingSort(k)}
-                    className={cn(
-                      'px-3 py-1.5 text-[11px] font-semibold rounded-full transition-colors',
-                      ratingSort === k ? 'bg-surface text-on-surface' : 'text-on-surface/40',
+                  <div className="relative w-56 aspect-[3/4] rounded-3xl overflow-hidden bg-on-surface/[0.05] shadow-sm">
+                    {r.image ? (
+                      <img
+                        src={r.image}
+                        alt={r.name}
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center bg-on-surface/[0.05] text-on-surface/20 font-serif text-6xl font-bold">
+                        {r.name.charAt(0)}
+                      </div>
                     )}
-                  >
-                    {k === 'recent' ? 'New' : k === 'high' ? 'Top' : 'Low'}
-                  </button>
-                ))}
-              </div>
+                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-none" />
+                    <div className="absolute inset-x-0 bottom-0 p-4">
+                      <p className="text-white text-base font-bold leading-tight drop-shadow-sm line-clamp-2">{r.name}</p>
+                      <div className="flex items-center gap-1 mt-1.5">
+                        <Star size={12} className="fill-white text-white" />
+                        <span className="text-white/95 text-xs font-semibold tabular-nums">{formatScore(r.score)}</span>
+                        <span className="text-white/60 text-xs">/ 10</span>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ))}
             </div>
-            {filteredSortedRatings.length === 0 ? (
-              <p className="text-sm text-on-surface/40 text-center py-10">No ratings match your search.</p>
-            ) : (
-              <ul className="-mx-5">
-                {filteredSortedRatings.map((r) => {
-                  const visitLabel = r.visitDate
-                    ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                    : '';
-                  const city = r.address ? cityFromAddress(r.address) || r.address.split(',').pop()?.trim() : '';
-                  return (
-                    <li key={r.restaurantId} className="border-b border-on-surface/[0.06] last:border-b-0">
-                      <Link
-                        to={`/restaurant/${r.restaurantId}`}
-                        className="flex items-center gap-3.5 px-5 py-3.5 group active:bg-on-surface/[0.02] transition-colors"
-                      >
-                        <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
-                          {r.image ? (
-                            <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-                              <MapPin size={18} />
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[15px] font-semibold truncate leading-snug">{r.name}</p>
-                          <p className="text-[12px] text-on-surface/45 truncate mt-1">
-                            {visitLabel}
-                            {r.cuisine && `${visitLabel ? ' · ' : ''}${r.cuisine}`}
-                            {city && ` · ${city}`}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0 pl-1">
-                          {r.wouldReturn && <TrendingUp size={13} className="text-emerald-500" />}
-                          <span className={cn('text-2xl font-serif font-bold leading-none tabular-nums', scoreColor(numericScore(r.score)))}>
-                            {formatScore(r.score)}
-                          </span>
-                        </div>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
           </section>
         )}
 
-        {activeTab === 'lists' && (
-          <section className="divide-y divide-on-surface/[0.06] pb-4">
-            {lists.length === 0 ? (
-              <p className="text-sm text-on-surface/40 text-center py-10">No lists yet.</p>
-            ) : (
-              lists.map((list) => {
-                const rids = listRestaurantIds(list);
-                return (
-                <div key={list.id} className="py-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">{list.emoji}</span>
+        {/* Recent — clean divided list, with a See all link routing to the Map's My Ratings mode */}
+        {recentRatings.length > 0 && (
+          <section>
+            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Recent</h3>
+            <ul className="divide-y divide-on-surface/[0.06]">
+              {recentRatings.map((r) => (
+                <li key={r.restaurantId}>
+                  <Link
+                    to={`/restaurant/${r.restaurantId}`}
+                    className="flex items-center gap-4 py-3.5 group"
+                  >
+                    <div className="w-14 h-14 rounded-2xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
+                      {r.image ? (
+                        <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-on-surface/20">
+                          <MapPin size={16} />
+                        </div>
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[15px] font-semibold truncate">{list.name}</p>
+                      <p className="text-sm font-semibold truncate">{r.name}</p>
                       <p className="text-[11px] text-on-surface/40 mt-0.5">
-                        {rids.length} rated
-                        {list.wishlistIds?.length ? ` · ${list.wishlistIds.length} saved` : ''}
+                        {r.visitDate
+                          ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                          : ''}
+                        {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
                       </p>
                     </div>
-                    <ChevronRight size={14} className="text-on-surface/20 flex-shrink-0" />
-                  </div>
-                  {rids.length > 0 && (
-                    <div className="flex gap-1.5 mt-3 overflow-x-auto scrollbar-hide">
-                      {rids.slice(0, 5).map((id) => {
-                        const r = ratings.find((x) => x.restaurantId === id);
-                        return (
-                          <Link
-                            key={id}
-                            to={`/restaurant/${id}`}
-                            className="flex-shrink-0 w-14 h-14 rounded-xl bg-on-surface/[0.05] overflow-hidden"
-                          >
-                            {r?.image ? (
-                              <img src={r.image} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-on-surface/20 text-[10px] font-bold">
-                                {r?.name?.charAt(0) || '?'}
-                              </div>
-                            )}
-                          </Link>
-                        );
-                      })}
-                      {rids.length > 5 && (
-                        <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-on-surface/[0.05] flex items-center justify-center">
-                          <span className="text-[10px] font-semibold text-on-surface/35">+{rids.length - 5}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-              })
-            )}
+                    <span className={cn('text-lg font-serif font-bold flex-shrink-0', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={goToMyRatings}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
+              >
+                See all ratings
+                <ChevronRight size={13} />
+              </button>
+            </div>
           </section>
         )}
 
-        {activeTab === 'wishlist' && (
-          <section className="divide-y divide-on-surface/[0.06] pb-4">
-            {wishlist.length === 0 ? (
-              <p className="text-sm text-on-surface/40 text-center py-10">Your wishlist is empty.</p>
-            ) : (
-              wishlist.map((w) => (
-                <Link
-                  key={w.restaurantId}
-                  to={`/restaurant/${w.restaurantId}`}
-                  className="flex items-center gap-4 py-3 group"
-                >
-                  <div className="w-14 h-14 rounded-2xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
-                    {w.image ? <img src={w.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" /> : (
-                      <div className="w-full h-full flex items-center justify-center text-rose-200">
-                        <Heart size={18} className="fill-current" />
-                      </div>
-                    )}
+        {/* Cuisine breakdown */}
+        {cuisineStats.length > 0 && (
+          <section>
+            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-4">Cuisine breakdown</h3>
+            <div className="space-y-3">
+              {cuisineStats.map(([name, count]) => (
+                <div key={name} className="flex items-center gap-3">
+                  <span className="text-xs font-semibold text-on-surface/70 w-20 truncate">{name}</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-on-surface/[0.06] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary/70"
+                      style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
+                    />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{w.name}</p>
-                    <p className="text-[11px] text-on-surface/40 truncate mt-0.5">
-                      {w.cuisine}
-                      {w.price && ` · ${w.price}`}
-                      {w.address && ` · ${cityFromAddress(w.address) || ''}`}
-                    </p>
-                  </div>
-                  <Heart size={14} className="text-rose-300 fill-rose-300 flex-shrink-0" />
-                </Link>
-              ))
-            )}
+                  <span className="text-[11px] text-on-surface/35 tabular-nums w-6 text-right">{count}</span>
+                </div>
+              ))}
+            </div>
           </section>
         )}
 
-        {activeTab === 'cooking' && (
-          <section className="space-y-6 pb-4">
-            {homeMeals.length === 0 ? (
-              <div className="text-center py-12">
-                <ChefHat size={28} className="mx-auto text-on-surface/15 mb-2" />
-                <p className="text-sm text-on-surface/40">No home meals logged yet.</p>
-              </div>
-            ) : (
-              homeMeals.map((meal) => {
-                const mealPhotos = Array.isArray(meal.photos) ? meal.photos : [];
-                const mealDishes = Array.isArray(meal.dishes) ? meal.dishes : [];
-                const mealDate = meal.date ? new Date(meal.date) : null;
-                const dateLabel = mealDate && !Number.isNaN(mealDate.getTime())
-                  ? mealDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                  : '';
-                return (
-                <div key={meal.id} className="group">
-                  {mealPhotos[0]?.url && (
-                    <div className="aspect-[2/1] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
-                      <img src={mealPhotos[0].url} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" />
-                    </div>
-                  )}
-                  <div className="pt-3">
-                    <div className="flex items-start gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-serif text-[15px] font-bold leading-snug">{meal.name}</p>
-                        <p className="text-[11px] text-on-surface/40 mt-0.5 uppercase tracking-wider">
-                          {dateLabel}
-                          {mealDishes.length > 0 && `${dateLabel ? ' · ' : ''}${mealDishes.length} dish${mealDishes.length !== 1 ? 'es' : ''}`}
-                        </p>
-                      </div>
-                      <span className={cn('text-lg font-serif font-bold flex-shrink-0 pt-0.5', scoreColor(numericScore(meal.score)))}>{formatScore(meal.score)}</span>
-                    </div>
-                    {meal.description && (
-                      <p className="text-[11px] text-on-surface/45 mt-1.5 leading-relaxed line-clamp-2">{meal.description}</p>
-                    )}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                      {meal.wouldMakeAgain && (
-                        <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">Would make again</span>
-                      )}
-                      {!meal.isPublic && (
-                        <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-on-surface/[0.06] text-on-surface/35">Private</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-              })
-            )}
-          </section>
+        {ratings.length === 0 && wishlist.length === 0 && (
+          <div className="text-center py-14 rounded-2xl border border-dashed border-on-surface/10">
+            <MapPin size={32} className="mx-auto text-on-surface/15 mb-3" />
+            <p className="text-sm font-medium text-on-surface/50">Start exploring</p>
+            <p className="text-xs text-on-surface/30 mt-1 max-w-xs mx-auto">Rate restaurants and build lists to see your stats here.</p>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="mt-4 px-5 py-2.5 rounded-full bg-primary text-white text-xs font-semibold"
+            >
+              Open map
+            </button>
+          </div>
         )}
       </main>
 
