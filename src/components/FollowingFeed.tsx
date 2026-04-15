@@ -310,7 +310,7 @@ export const FollowingFeed: React.FC = () => {
               </button>
             )}
           </div>
-          <ul className="divide-y divide-on-surface/[0.06]">
+          <ul className="divide-y divide-on-surface/[0.06] md:divide-y-0">
             {visible.map((r) => {
               const profile = profiles[r.user_id];
               const city = extractCity(r.address);
@@ -336,71 +336,156 @@ export const FollowingFeed: React.FC = () => {
                         navigate(`/restaurant/${r.restaurant_id}`);
                       }
                     }}
-                    className="block w-full py-5 text-left group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
+                    className="block w-full text-left group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
                   >
-                    {/* Cover image (capped on desktop) */}
-                    <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3 relative flex items-center justify-center">
-                      <SearchIcon size={32} className="text-on-surface/20" />
-                      {r.photo_url && (
-                        <img
-                          src={r.photo_url}
-                          alt=""
-                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
-                          loading="lazy"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
+                    {/* ── Mobile layout — unchanged: cover image on top ── */}
+                    <div className="md:hidden py-5">
+                      {/* Cover image (capped on desktop) */}
+                      <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3 relative flex items-center justify-center">
+                        <SearchIcon size={32} className="text-on-surface/20" />
+                        {r.photo_url && (
+                          <img
+                            src={r.photo_url}
+                            alt=""
+                            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+                            loading="lazy"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        )}
+                        {/* Overlaid rate + wishlist actions */}
+                        <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5 z-10">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openWishlistModal(meta);
+                            }}
+                            className={cn(
+                              'w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
+                              wishlisted ? 'text-primary' : 'text-on-surface/70 hover:text-primary',
+                            )}
+                            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                          >
+                            <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openAddRestaurantModal(meta);
+                            }}
+                            className="w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
+                            aria-label="Add to list"
+                          >
+                            <Plus size={16} />
+                          </button>
+                        </div>
+                      </div>
+                      {/* Details below image */}
+                      <div className="flex items-start justify-between gap-3">
+                        <h4 className="font-serif text-[17px] font-bold text-on-surface leading-snug line-clamp-2 flex-1 min-w-0">
+                          {r.restaurant_name}
+                        </h4>
+                        <span className="flex items-center gap-0.5 text-sm font-bold text-primary flex-shrink-0 pt-0.5">
+                          <Star size={14} className="fill-primary" />
+                          {score.toFixed(1)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                        {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
+                      </p>
+                      {profile && (
+                        <p className="text-sm text-on-surface/50 mt-1.5 truncate">
+                          via <span className="font-semibold text-on-surface/75">{profile.display_name || profile.username}</span>
+                        </p>
                       )}
-                      {/* Overlaid rate + wishlist actions */}
-                      <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5 z-10">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openWishlistModal(meta);
-                          }}
-                          className={cn(
-                            'w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
-                            wishlisted ? 'text-primary' : 'text-on-surface/70 hover:text-primary',
+                    </div>
+
+                    {/* ── Desktop layout — unboxed horizontal card ── */}
+                    <div className="hidden md:block py-5">
+                      <div className="flex gap-4">
+                        {/* Photo thumbnail */}
+                        <div className="flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] relative flex items-center justify-center">
+                          <SearchIcon size={28} className="text-on-surface/20" />
+                          {r.photo_url && (
+                            <img
+                              src={r.photo_url}
+                              alt=""
+                              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+                              loading="lazy"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                              }}
+                            />
                           )}
-                          aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                        </div>
+
+                        {/* Content stack */}
+                        <div className="flex-1 min-w-0 flex flex-col">
+                          {/* Reviewer header */}
+                          {profile && (
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="w-7 h-7 rounded-full bg-on-surface/[0.06] flex items-center justify-center flex-shrink-0">
+                                <span className="text-[11px] font-serif font-bold text-on-surface/55">
+                                  {(profile.display_name || profile.username || 'U').charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[12px] font-bold leading-tight truncate">
+                                  {profile.display_name || profile.username}
+                                </p>
+                                <p className="text-[10px] text-on-surface/40 font-medium uppercase tracking-wider leading-tight mt-0.5">
+                                  {profile.is_expert
+                                    ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · Rated</span>
+                                    : <>Rated</>}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Restaurant name + score inline */}
+                          <div className="flex items-start justify-between gap-3">
+                            <h4 className="font-serif font-bold text-[17px] leading-tight flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">
+                              {r.restaurant_name}
+                            </h4>
+                            <span className="flex items-center gap-0.5 text-lg font-serif font-bold text-primary flex-shrink-0 leading-none pt-0.5">
+                              <Star size={14} className="fill-primary" />
+                              {score.toFixed(1)}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                            {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Actions row */}
+                      <div className="flex items-center gap-1 mt-3 -ml-2">
+                        <div className="flex-1" />
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAddRestaurantModal(meta); }}
+                          className="inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
                         >
-                          <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+                          <Plus size={14} /> Rate
                         </button>
                         <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openAddRestaurantModal(meta);
-                          }}
-                          className="w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
-                          aria-label="Add to list"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openWishlistModal(meta); }}
+                          className={cn(
+                            "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full transition-colors",
+                            wishlisted
+                              ? "text-red-500 hover:bg-red-500/5"
+                              : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                          )}
+                          aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
                         >
-                          <Plus size={16} />
+                          <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
                         </button>
                       </div>
                     </div>
-                    {/* Details below image */}
-                    <div className="flex items-start justify-between gap-3">
-                      <h4 className="font-serif text-[17px] font-bold text-on-surface leading-snug line-clamp-2 flex-1 min-w-0">
-                        {r.restaurant_name}
-                      </h4>
-                      <span className="flex items-center gap-0.5 text-sm font-bold text-primary flex-shrink-0 pt-0.5">
-                        <Star size={14} className="fill-primary" />
-                        {score.toFixed(1)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                      {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
-                    </p>
-                    {profile && (
-                      <p className="text-sm text-on-surface/50 mt-1.5 truncate">
-                        via <span className="font-semibold text-on-surface/75">{profile.display_name || profile.username}</span>
-                      </p>
-                    )}
                   </div>
                 </li>
               );
