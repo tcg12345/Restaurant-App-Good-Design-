@@ -276,7 +276,7 @@ export const SocialFeed: React.FC = () => {
 
   if (loading) {
     return (
-      <section className="mb-8">
+      <section className="mb-8 max-w-2xl mx-auto">
         <SectionHeader />
         <ul className="divide-y divide-on-surface/[0.06]">
           {[0, 1, 2].map((i) => (
@@ -305,7 +305,7 @@ export const SocialFeed: React.FC = () => {
   const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <section className="mb-8">
+    <section className="mb-8 max-w-2xl mx-auto">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
       {feedMode === 'experts' ? (
         <EmptyState

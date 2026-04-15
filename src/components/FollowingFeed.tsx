@@ -227,7 +227,7 @@ export const FollowingFeed: React.FC = () => {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 max-w-2xl mx-auto">
       {/* Search + filter row */}
       <div className="flex items-center gap-2">
         <div className="flex-1 relative">

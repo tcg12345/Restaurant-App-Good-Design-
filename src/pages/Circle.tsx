@@ -393,7 +393,7 @@ export const Circle: React.FC = () => {
         </section>
 
         {/* ── Activity Feed ── */}
-        <section className="mb-6">
+        <section className="mb-6 max-w-2xl mx-auto">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Activity</h2>
@@ -480,7 +480,7 @@ export const Circle: React.FC = () => {
         </section>
 
         {/* ── Circle Activity (mock data feed) ── */}
-        <section>
+        <section className="max-w-2xl mx-auto">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">From Your Circle</h2>

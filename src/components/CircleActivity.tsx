@@ -118,7 +118,7 @@ export const CircleActivity: React.FC = () => {
   };
 
   return (
-    <div>
+    <div className="max-w-2xl mx-auto">
       {/* Search + Filters row */}
       <div className="flex gap-2 mb-4">
         <div className="relative flex-1">
