@@ -329,74 +329,94 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </button>
         </div>
 
-        {/* ── Ratings — flowing inline stats, no cards ──
-            Desktop mirrors mobile: a single large primary score
-            (Community preferred over Google) with secondary sources
-            flowing on a single muted line. Friends stays clickable. */}
+        {/* ── Ratings — prominent side-by-side tiles ──
+            Community and Friends get gently-enclosed side-by-side
+            containers (subtle bg + faint border, not dashboard cards)
+            with color-coded scores, so users can compare at a glance.
+            Google is visibly de-emphasized to a single muted line
+            underneath. Desktop uses larger padding and bigger numerals
+            to match the wider viewport. */}
         <section className="mb-10">
           {(() => {
             const hasCommunity = communityStats.totalRatings > 0;
-            const primaryScore = hasCommunity ? communityStats.avgScore.toFixed(1) : String(place.rating);
-            const primaryCount = hasCommunity
-              ? `avg from ${communityStats.totalRatings} ${communityStats.totalRatings === 1 ? 'rating' : 'ratings'}`
-              : `from ${formatReviewCount(place.userRatingCount)} Google reviews`;
-            const primaryLabel = hasCommunity ? (isHotel ? 'Breakfast' : 'Community') : 'Google';
-            const primaryColor = hasCommunity
-              ? (isHotel ? 'text-amber-600' : 'text-on-surface')
-              : 'text-on-surface';
+            const hasFriends = !isHotel && friendsStats.totalRatings > 0;
+            const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
+            const scoreColor = (s: number) =>
+              s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+            const communityLabel = isHotel ? 'Breakfast' : 'Community';
+
             return (
               <>
-                <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2">{primaryLabel}</p>
-                <div className="flex items-baseline gap-4">
-                  <span className={cn('text-5xl font-serif font-bold leading-none', primaryColor)}>{primaryScore}</span>
-                  <span className="text-base text-on-surface/50">{primaryCount}</span>
+                <div className={cn('grid gap-5', isHotel ? 'grid-cols-1' : 'grid-cols-2')}>
+                  {/* Community / Breakfast tile */}
+                  <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">
+                      {communityLabel}
+                    </p>
+                    {hasCommunity ? (
+                      <>
+                        <p className={cn('text-[56px] font-serif font-bold leading-none tabular-nums', scoreColor(communityStats.avgScore))}>
+                          {communityStats.avgScore.toFixed(1)}
+                        </p>
+                        <p className="mt-3 text-sm text-on-surface/50">
+                          {communityStats.totalRatings} {communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[56px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
+                        <p className="mt-3 text-sm italic text-on-surface/45 leading-snug">
+                          Be the first to rate
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Friends tile (hidden for hotels) */}
+                  {!isHotel && (
+                    hasFriends ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowFriendsDetail(true)}
+                        className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6 text-left hover:bg-on-surface/[0.04] transition-colors group"
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Friends</p>
+                          <ChevronRight size={14} className="text-on-surface/30 group-hover:text-on-surface/50 transition-colors" />
+                        </div>
+                        <p className={cn('text-[56px] font-serif font-bold leading-none tabular-nums', scoreColor(friendsStats.avgScore))}>
+                          {friendsStats.avgScore.toFixed(1)}
+                        </p>
+                        <p className="mt-3 text-sm text-on-surface/50">
+                          {friendsStats.totalRatings} friend{friendsStats.totalRatings === 1 ? '' : 's'}
+                        </p>
+                      </button>
+                    ) : (
+                      <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">Friends</p>
+                        <p className="text-[56px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
+                        <p className="mt-3 text-sm italic text-on-surface/45 leading-snug">
+                          None of your friends have rated this yet
+                        </p>
+                      </div>
+                    )
+                  )}
                 </div>
+
+                {/* Google — a single muted line, visibly de-emphasized */}
+                {hasGoogle && (
+                  <p className="mt-4 flex items-baseline gap-1.5 text-[13px] text-on-surface/40">
+                    <Star size={12} className="fill-on-surface/25 text-on-surface/25 self-center flex-shrink-0" />
+                    <span>
+                      <span className="tabular-nums font-medium text-on-surface/55">{place.rating}</span>
+                      <span className="mx-1">on Google</span>
+                      <span className="text-on-surface/35">· {formatReviewCount(place.userRatingCount)} reviews</span>
+                    </span>
+                  </p>
+                )}
               </>
             );
           })()}
-
-          {(() => {
-            const hasCommunity = communityStats.totalRatings > 0;
-            const secondary: React.ReactNode[] = [];
-            if (hasCommunity) {
-              secondary.push(
-                <span key="google" className="inline-flex items-baseline gap-1.5">
-                  <Star size={13} className="fill-primary text-primary self-center" />
-                  <span className="font-serif font-bold text-on-surface">{place.rating}</span>
-                  <span className="text-on-surface/45">Google ({formatReviewCount(place.userRatingCount)})</span>
-                </span>
-              );
-            }
-            if (!isHotel && friendsStats.totalRatings > 0) {
-              secondary.push(
-                <button
-                  key="friends"
-                  type="button"
-                  onClick={() => setShowFriendsDetail(true)}
-                  className="inline-flex items-baseline gap-1.5 text-primary hover:text-primary/80 transition-colors"
-                >
-                  <span className="font-serif font-bold">{friendsStats.avgScore.toFixed(1)}</span>
-                  <span>from {friendsStats.totalRatings} friend{friendsStats.totalRatings === 1 ? '' : 's'}</span>
-                  <ChevronRight size={13} className="self-center" />
-                </button>
-              );
-            }
-            if (secondary.length === 0) return null;
-            return (
-              <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
-                {secondary.map((node, i) => (
-                  <React.Fragment key={i}>
-                    {i > 0 && <span className="text-on-surface/20">·</span>}
-                    {node}
-                  </React.Fragment>
-                ))}
-              </div>
-            );
-          })()}
-
-          {!isHotel && friendsStats.totalRatings === 0 && communityStats.totalRatings === 0 && (
-            <p className="mt-4 text-sm text-on-surface/45">No community or friend ratings yet · be the first</p>
-          )}
         </section>
 
         {/* ── Hotel Dining — flat list with dividers, no per-row cards ── */}
