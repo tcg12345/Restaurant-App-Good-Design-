@@ -208,8 +208,14 @@ export const RestaurantDetailDesktop: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Content — centered with max-width ── */}
-      <main className="px-3 pt-2 max-w-2xl mx-auto">
+      {/* ── Content — centered editorial column ──
+          max-w-5xl (1024px) gives a comfortable reading/browsing
+          width on 1440px+ monitors while still leaving generous
+          whitespace flanking the content. The only elements that
+          break out of this column are intentionally full-bleed
+          (the hero banner above). Every section below inherits
+          this width so nothing sprawls inconsistently. */}
+      <main className="px-6 lg:px-8 pt-6 max-w-5xl mx-auto">
 
         {/* Name + badges */}
         <div className="mb-6">
@@ -981,7 +987,10 @@ export const RestaurantDetailDesktop: React.FC = () => {
             sits above it to catch taps and route to the full /map page
             (the mapbox instance below stays visible). ── */}
         <section className="mb-10">
-          <div className="relative w-full h-96 rounded-2xl overflow-hidden">
+          {/* h-[28rem] (448px) keeps a comfortable ~2.3:1 aspect ratio
+              now that the container is ~1024px wide — h-96 would be
+              too letterbox at this width. */}
+          <div className="relative w-full h-[28rem] rounded-2xl overflow-hidden">
             {/* Inline width/height match Map.tsx — Mapbox's CSS sets
                 `.mapboxgl-map { position: relative }` which can override
                 Tailwind's `absolute` (equal specificity, source-order wins),
