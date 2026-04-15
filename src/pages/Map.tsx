@@ -166,6 +166,33 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       setUserDataReady(true);
     })();
   }, [userId, tabDataLoaded]);
+  // Focus-only mode: when the user arrives via a `state.focus` deep-link
+  // from a Restaurant Detail mini-map tap, the Map page shows ONLY that
+  // restaurant's marker, centred on the screen. Computed once at mount
+  // from the router location so the map-init effect (which has empty
+  // deps) can branch on it.
+  const [initialFocus] = useState<{
+    id: string;
+    name: string;
+    lat: number;
+    lng: number;
+    address?: string;
+    fullAddress?: string;
+    photoUrl?: string | null;
+    priceLevel?: number;
+    rating?: number;
+    types?: string[];
+    userRatingCount?: number;
+  } | null>(() => {
+    if (mode !== 'map') return null;
+    const f = (location.state as any)?.focus;
+    if (!f || !Number.isFinite(f.lat) || !Number.isFinite(f.lng)) return null;
+    return f;
+  });
+  const [isFocusOnly, setIsFocusOnly] = useState<boolean>(() => initialFocus !== null);
+  const isFocusOnlyRef = useRef(isFocusOnly);
+  isFocusOnlyRef.current = isFocusOnly;
+
   const [mapMode, setMapModeRaw] = useState<'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes'>(() => {
     const saved = sessionStorage.getItem('map-mode');
     return (saved === 'myratings' || saved === 'friends' || saved === 'experts' || saved === 'hotels' || saved === 'recipes') ? saved : 'discover';
@@ -173,6 +200,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const setMapMode = (mode: 'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes') => {
     setMapModeRaw(mode);
     sessionStorage.setItem('map-mode', mode);
+    // Any explicit mode change exits focus-only view so the user can see
+    // the full set of markers for that mode.
+    setIsFocusOnly(false);
     // Reset rating filters when switching modes
     setRatingSortBy('recent');
     setScoreRange([0, 10]);
@@ -272,12 +302,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   // Becomes true once the Mapbox `load` event has fired so consumers (e.g.
   // the focus-deep-link handler) know the map is ready to receive flyTo.
   const [mapReady, setMapReady] = useState(false);
-  // When set, the marker-sync effects (hotels / ratings) must honour this
-  // focus target instead of running their own fit-all-markers fitBounds,
-  // since the focus-deep-link handler is in the middle of flying to a
-  // specific restaurant and we don't want the camera hijacked. Self-clears
-  // after a short window so normal fitBounds behaviour resumes.
-  const pendingFocusRef = useRef<{ lat: number; lng: number } | null>(null);
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({});
   const popupRef = useRef<mapboxgl.Popup | null>(null);
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -512,6 +536,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const handleQuickFilter = useCallback(async (filter: string) => {
     const map = mapRef.current;
     if (!map) return;
+    if (isFocusOnlyRef.current) setIsFocusOnly(false);
     if (activeQuickFilter === filter) {
       setActiveQuickFilter(null);
       fetchNearbyRef.current?.();
@@ -710,6 +735,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const fetchNearby = useCallback(async (cuisines?: string[]) => {
     const map = mapRef.current;
     if (!map) return;
+    // Any explicit "search the map" action exits the focus-only view so
+    // normal discover behaviour resumes.
+    if (isFocusOnlyRef.current) setIsFocusOnly(false);
     setIsSearching(true);
     setShowSearchHere(false);
     try {
@@ -749,6 +777,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const addExpertOverlayMarkers = useCallback(() => {
     const map = mapRef.current;
     if (!map || mapModeRef.current !== 'discover') return;
+    if (isFocusOnlyRef.current) return; // no overlay when showing only a single focus marker
     // Clear previous expert overlay markers
     expertOverlayMarkersRef.current.forEach((m) => m.remove());
     expertOverlayMarkersRef.current = [];
@@ -821,6 +850,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const handleSearch = useCallback(async (query: string) => {
     const map = mapRef.current;
     if (!map || !query.trim()) return;
+    if (isFocusOnlyRef.current) setIsFocusOnly(false);
     setIsSearching(true);
     setSelectedMarker(null);
     setShowSearchHere(false);
@@ -864,11 +894,19 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
     mapboxgl.accessToken = MAPBOX_TOKEN;
 
+    // Focus-only deep-link: open the map already centred on the target
+    // restaurant so no camera animation is needed.
+    const focusOnlyInit = isFocusOnlyRef.current && initialFocus;
+    const initialCenter: [number, number] = focusOnlyInit
+      ? [initialFocus.lng, initialFocus.lat]
+      : [-73.99, 40.735];
+    const initialZoom = focusOnlyInit ? 15 : 12.5;
+
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: 'mapbox://styles/mapbox/light-v11',
-      center: [-73.99, 40.735],
-      zoom: 12.5,
+      center: initialCenter,
+      zoom: initialZoom,
       attributionControl: false,
     });
 
@@ -876,9 +914,36 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
     mapRef.current = map;
 
-    // Search nearby restaurants once map loads (skip if cached)
+    // Search nearby restaurants once map loads (skip if cached, or if
+    // we're in focus-only mode — in which case we only show a single
+    // marker for the restaurant the user came from).
     map.on('load', () => {
       setMapReady(true);
+      if (isFocusOnlyRef.current && initialFocus) {
+        // Build a PlaceResult from the focus payload so the bottom sheet
+        // card has all the info it needs.
+        const place: PlaceResult = {
+          id: initialFocus.id,
+          name: initialFocus.name,
+          lat: initialFocus.lat,
+          lng: initialFocus.lng,
+          rating: initialFocus.rating ?? 0,
+          priceLevel: initialFocus.priceLevel ?? 0,
+          address: initialFocus.address ?? '',
+          fullAddress: initialFocus.fullAddress ?? initialFocus.address ?? '',
+          photoUrl: initialFocus.photoUrl ?? null,
+          types: initialFocus.types ?? [],
+          userRatingCount: initialFocus.userRatingCount ?? 0,
+        };
+        // Render exactly one discover-style pin for the focused restaurant.
+        syncMarkers([place]);
+        // Pre-select it so the sheet opens on the card.
+        isMarkerSelectedRef.current = true;
+        setSelectedPlace(place);
+        setSelectedMarker(place.id);
+        setSheetState('peek');
+        return;
+      }
       const hasCachedPlaces = tabDataCache.discoverPlaces.length > 0 && (Date.now() - tabDataCache.discoverTs) < TAB_CACHE_TTL;
       if (hasCachedPlaces) {
         syncMarkers(tabDataCache.discoverPlaces);
@@ -891,6 +956,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     // Show "Search this area" button immediately on pan-end — no debounce,
     // we want the pill visible the moment the user stops dragging.
     map.on('moveend', () => {
+      if (isFocusOnlyRef.current) return; // no fresh searches in focus-only view
       if (mapModeRef.current !== 'discover' && mapModeRef.current !== 'hotels') return;
       if (isMarkerSelectedRef.current) return;
       if (fetchTimeoutRef.current) { clearTimeout(fetchTimeoutRef.current); fetchTimeoutRef.current = null; }
@@ -983,121 +1049,21 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     }
   }, [mode]);
 
-  // ── Focus deep-link: when the user taps the embedded mini-map on a
-  // Restaurant Detail page, they arrive here with router `state.focus`
-  // carrying the restaurant's identity and coordinates. We need to:
-  //   1. Wait for the map instance to be ready and user ratings to have
-  //      finished loading (so we can decide which tab the restaurant
-  //      lives on).
-  //   2. Switch to a tab that actually contains this restaurant — prefer
-  //      "My Ratings" → "Friends" → "Experts" → "Discover" — so its
-  //      marker is visible.
-  //   3. Fly to the coordinates, select the place, and pop the bottom
-  //      sheet to peek so the user sees the same restaurant they came
-  //      from.
-  //   4. Clear the location state afterwards so refreshes / back
-  //      navigation don't re-trigger the fly-to.
-  // Track the identity of the last handled location state so a FRESH
-  // navigation from a different restaurant detail page (with its own new
-  // state object) still triggers the handler, while repeated re-renders
-  // of the same state don't re-fire it.
-  const handledFocusStateRef = useRef<unknown>(null);
+  // ── Focus deep-link cleanup: the `state.focus` payload was consumed at
+  // mount time (see `initialFocus` above and the map-init `load` handler
+  // that renders the single marker). All we do here is drop the payload
+  // from history once the map is ready, so a hard refresh or back-nav
+  // doesn't re-trigger focus-only view after the user has explicitly
+  // left it.
+  const handledFocusStateRef = useRef(false);
   useEffect(() => {
     if (mode !== 'map') return;
-    if (handledFocusStateRef.current === location.state) return;
-    const focus = (location.state as any)?.focus as
-      | {
-          id: string;
-          name: string;
-          lat: number;
-          lng: number;
-          address?: string;
-          fullAddress?: string;
-          photoUrl?: string | null;
-          priceLevel?: number;
-          rating?: number;
-          types?: string[];
-          userRatingCount?: number;
-        }
-      | undefined;
-    if (!focus || !Number.isFinite(focus.lat) || !Number.isFinite(focus.lng)) {
-      // Nothing actionable in this location state; remember we looked at
-      // it so we don't keep re-checking.
-      handledFocusStateRef.current = location.state;
-      return;
-    }
-    if (!mapReady || !mapRef.current) return;
-    if (!userDataReady) return;
-
-    // Pick the best mode so the incoming restaurant's marker is visible.
-    const inMine = myRatings.some((r) => r.restaurant_id === focus.id);
-    const inFriends = !inMine && friendRatings.some((r) => r.restaurant_id === focus.id);
-    const inExperts = !inMine && !inFriends && expertRatings.some((r) => r.restaurant_id === focus.id);
-    const targetMode: typeof mapMode = inMine
-      ? 'myratings'
-      : inFriends
-      ? 'friends'
-      : inExperts
-      ? 'experts'
-      : 'discover';
-    // Arm the pending-focus ref BEFORE triggering the mode change so the
-    // marker-sync effects see a target and skip their own auto-fit to all
-    // markers (which would otherwise hijack the camera).
-    pendingFocusRef.current = { lat: focus.lat, lng: focus.lng };
-    // Self-clear so normal fit-all behaviour resumes shortly after our
-    // flyTo lands (our animation runs ~1.5s; a generous 4s window also
-    // covers slow background geocoding that might refire the markers).
-    setTimeout(() => {
-      pendingFocusRef.current = null;
-    }, 4000);
-    if (mapMode !== targetMode) setMapMode(targetMode);
-
-    const place: PlaceResult = {
-      id: focus.id,
-      name: focus.name,
-      lat: focus.lat,
-      lng: focus.lng,
-      rating: focus.rating ?? 0,
-      priceLevel: focus.priceLevel ?? 0,
-      address: focus.address ?? '',
-      fullAddress: focus.fullAddress ?? focus.address ?? '',
-      photoUrl: focus.photoUrl ?? null,
-      types: focus.types ?? [],
-      userRatingCount: focus.userRatingCount ?? 0,
-    };
-
-    // Suppress the pan-end "Search this area" pill that would otherwise
-    // fire because of the flyTo, and keep the marker-selected latch set
-    // so our selection doesn't get wiped by the map's own click/drag
-    // handlers.
-    isMarkerSelectedRef.current = true;
-    setSelectedPlace(place);
-    setSelectedMarker(focus.id);
-    setSheetState('peek');
-
-    mapRef.current.flyTo({
-      center: [focus.lng, focus.lat],
-      zoom: 15,
-      duration: 1500,
-      essential: true,
-    });
-
-    handledFocusStateRef.current = location.state;
-    // Drop the focus payload from history so a back-nav or hard refresh
-    // doesn't re-trigger the fly-to / tab switch.
+    if (handledFocusStateRef.current) return;
+    if (!mapReady) return;
+    if (!(location.state as any)?.focus) return;
+    handledFocusStateRef.current = true;
     navigate(location.pathname, { replace: true, state: null });
-  }, [
-    mode,
-    location.state,
-    location.pathname,
-    mapReady,
-    userDataReady,
-    myRatings,
-    friendRatings,
-    expertRatings,
-    mapMode,
-    navigate,
-  ]);
+  }, [mode, location.state, location.pathname, mapReady, navigate]);
 
   // Location geocoding (debounced)
   useEffect(() => {
@@ -1426,8 +1392,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
   // Fetch hotels when entering hotels mode
   useEffect(() => {
+    if (isFocusOnly) return; // focus-only view never pulls extra markers
     if (mapMode === 'hotels' && hotelPlaces.length === 0) fetchHotels();
-  }, [mapMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapMode, isFocusOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch friends' public home meals when entering recipes mode. Loads lazily
   // the first time the tab is opened and refreshes every time it's re-opened.
@@ -1472,6 +1439,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     hotelMarkersRef.current.forEach((m) => m.remove());
     hotelMarkersRef.current = [];
 
+    if (isFocusOnly) return; // focus-only view only shows the focus marker
     if (mapMode !== 'hotels' || hotelPlaces.length === 0) return;
 
     const bounds = new mapboxgl.LngLatBounds();
@@ -1507,14 +1475,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     }
 
     if (hasMarkers) {
-      const pf = pendingFocusRef.current;
-      if (pf) {
-        map.flyTo({ center: [pf.lng, pf.lat], zoom: 15, duration: 1500, essential: true });
-      } else {
-        map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
-      }
+      map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
     }
-  }, [mapMode, hotelPlaces, createHotelMarkerElement, showHotelPopup]);
+  }, [mapMode, hotelPlaces, createHotelMarkerElement, showHotelPopup, isFocusOnly]);
 
   // Add/remove custom markers for My Ratings and Friends modes
   const customMarkersRef = useRef<mapboxgl.Marker[]>([]);
@@ -1530,6 +1493,11 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       expertOverlayMarkersRef.current.forEach((m) => m.remove());
       expertOverlayMarkersRef.current = [];
     }
+
+    // Focus-only view: the single focus marker was added by the map-init
+    // load handler using syncMarkers, so leave it alone and skip all the
+    // ratings/hotels rendering below.
+    if (isFocusOnly) return;
 
     // Hide/show discover markers based on mode
     Object.values(markersRef.current).forEach((marker) => {
@@ -1622,14 +1590,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     }
 
     if (hasMarkers) {
-      const pf = pendingFocusRef.current;
-      if (pf) {
-        map.flyTo({ center: [pf.lng, pf.lat], zoom: 15, duration: 1500, essential: true });
-      } else {
-        map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
-      }
+      map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
     }
-  }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles, isWishlisted]);
+  }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles, isWishlisted, isFocusOnly]);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-muted">
@@ -1638,13 +1601,22 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
       )}
 
-      {/* Back to Search — floating above the map on the dedicated Map page */}
+      {/* Back button — floating above the map on the dedicated Map page.
+          When arriving via a Restaurant Detail deep-link (focus-only view),
+          this returns to that restaurant; otherwise it goes to the search
+          landing page. */}
       {mode === 'map' && (
         <button
           type="button"
-          onClick={() => navigate('/search/main')}
+          onClick={() => {
+            if (isFocusOnly && initialFocus) {
+              navigate(`/restaurant/${initialFocus.id}`);
+            } else {
+              navigate('/search/main');
+            }
+          }}
           className="absolute top-6 left-6 z-30 w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm shadow-xl border border-white/40 flex items-center justify-center text-on-surface/70 hover:text-primary transition-colors"
-          aria-label="Back to search"
+          aria-label={isFocusOnly ? 'Back to restaurant' : 'Back to search'}
         >
           <ArrowLeft size={20} />
         </button>
