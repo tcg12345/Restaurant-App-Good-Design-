@@ -356,25 +356,25 @@ export const RestaurantDetailMobile: React.FC = () => {
 
             return (
               <>
-                <div className={cn('grid gap-3', isHotel ? 'grid-cols-1' : 'grid-cols-2')}>
+                <div className={cn('grid gap-2.5', isHotel ? 'grid-cols-1' : 'grid-cols-2')}>
                   {/* Community / Breakfast tile */}
-                  <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-4 py-4">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2">
+                  <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-3.5 py-3">
+                    <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-1.5">
                       {communityLabel}
                     </p>
                     {hasCommunity ? (
                       <>
-                        <p className={cn('text-[34px] font-serif font-bold leading-none tabular-nums', scoreColor(communityStats.avgScore))}>
+                        <p className={cn('text-[26px] font-serif font-bold leading-none tabular-nums', scoreColor(communityStats.avgScore))}>
                           {communityStats.avgScore.toFixed(1)}
                         </p>
-                        <p className="mt-2 text-[11px] text-on-surface/50">
+                        <p className="mt-1.5 text-[10px] text-on-surface/50">
                           {communityStats.totalRatings} {communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
                         </p>
                       </>
                     ) : (
                       <>
-                        <p className="text-[34px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
-                        <p className="mt-2 text-[11px] italic text-on-surface/45 leading-snug">
+                        <p className="text-[26px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
+                        <p className="mt-1.5 text-[10px] italic text-on-surface/45 leading-snug">
                           Be the first to rate
                         </p>
                       </>
@@ -387,25 +387,25 @@ export const RestaurantDetailMobile: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setShowFriendsDetail(true)}
-                        className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-4 py-4 text-left active:scale-[0.98] transition-transform"
+                        className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-3.5 py-3 text-left active:scale-[0.98] transition-transform"
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">Friends</p>
-                          <ChevronRight size={12} className="text-on-surface/30" />
+                        <div className="flex items-center justify-between mb-1.5">
+                          <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-on-surface/40">Friends</p>
+                          <ChevronRight size={11} className="text-on-surface/30" />
                         </div>
-                        <p className={cn('text-[34px] font-serif font-bold leading-none tabular-nums', scoreColor(friendsStats.avgScore))}>
+                        <p className={cn('text-[26px] font-serif font-bold leading-none tabular-nums', scoreColor(friendsStats.avgScore))}>
                           {friendsStats.avgScore.toFixed(1)}
                         </p>
-                        <p className="mt-2 text-[11px] text-on-surface/50">
+                        <p className="mt-1.5 text-[10px] text-on-surface/50">
                           {friendsStats.totalRatings} friend{friendsStats.totalRatings === 1 ? '' : 's'}
                         </p>
                       </button>
                     ) : (
-                      <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-4 py-4">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2">Friends</p>
-                        <p className="text-[34px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
-                        <p className="mt-2 text-[11px] italic text-on-surface/45 leading-snug">
-                          None of your friends have rated this yet
+                      <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-3.5 py-3">
+                        <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-1.5">Friends</p>
+                        <p className="text-[26px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
+                        <p className="mt-1.5 text-[10px] italic text-on-surface/45 leading-snug">
+                          No friend ratings yet
                         </p>
                       </div>
                     )
