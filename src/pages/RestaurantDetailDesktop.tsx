@@ -4,7 +4,7 @@ import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Images, Users, UserCircle, Share2, Heart,
-  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw,
+  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
@@ -208,8 +208,14 @@ export const RestaurantDetailDesktop: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Content — centered with max-width ── */}
-      <main className="px-3 pt-2 max-w-2xl mx-auto">
+      {/* ── Content — centered editorial column ──
+          max-w-5xl (1024px) gives a comfortable reading/browsing
+          width on 1440px+ monitors while still leaving generous
+          whitespace flanking the content. The only elements that
+          break out of this column are intentionally full-bleed
+          (the hero banner above). Every section below inherits
+          this width so nothing sprawls inconsistently. */}
+      <main className="px-6 lg:px-8 pt-6 max-w-5xl mx-auto">
 
         {/* Name + badges */}
         <div className="mb-6">
@@ -329,74 +335,94 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </button>
         </div>
 
-        {/* ── Ratings — flowing inline stats, no cards ──
-            Desktop mirrors mobile: a single large primary score
-            (Community preferred over Google) with secondary sources
-            flowing on a single muted line. Friends stays clickable. */}
+        {/* ── Ratings — prominent side-by-side tiles ──
+            Community and Friends get gently-enclosed side-by-side
+            containers (subtle bg + faint border, not dashboard cards)
+            with color-coded scores, so users can compare at a glance.
+            Google is visibly de-emphasized to a single muted line
+            underneath. Desktop uses larger padding and bigger numerals
+            to match the wider viewport. */}
         <section className="mb-10">
           {(() => {
             const hasCommunity = communityStats.totalRatings > 0;
-            const primaryScore = hasCommunity ? communityStats.avgScore.toFixed(1) : String(place.rating);
-            const primaryCount = hasCommunity
-              ? `avg from ${communityStats.totalRatings} ${communityStats.totalRatings === 1 ? 'rating' : 'ratings'}`
-              : `from ${formatReviewCount(place.userRatingCount)} Google reviews`;
-            const primaryLabel = hasCommunity ? (isHotel ? 'Breakfast' : 'Community') : 'Google';
-            const primaryColor = hasCommunity
-              ? (isHotel ? 'text-amber-600' : 'text-on-surface')
-              : 'text-on-surface';
+            const hasFriends = !isHotel && friendsStats.totalRatings > 0;
+            const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
+            const scoreColor = (s: number) =>
+              s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
+            const communityLabel = isHotel ? 'Breakfast' : 'Community';
+
             return (
               <>
-                <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2">{primaryLabel}</p>
-                <div className="flex items-baseline gap-4">
-                  <span className={cn('text-5xl font-serif font-bold leading-none', primaryColor)}>{primaryScore}</span>
-                  <span className="text-base text-on-surface/50">{primaryCount}</span>
+                <div className={cn('grid gap-5', isHotel ? 'grid-cols-1' : 'grid-cols-2')}>
+                  {/* Community / Breakfast tile */}
+                  <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">
+                      {communityLabel}
+                    </p>
+                    {hasCommunity ? (
+                      <>
+                        <p className={cn('text-[56px] font-serif font-bold leading-none tabular-nums', scoreColor(communityStats.avgScore))}>
+                          {communityStats.avgScore.toFixed(1)}
+                        </p>
+                        <p className="mt-3 text-sm text-on-surface/50">
+                          {communityStats.totalRatings} {communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[56px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
+                        <p className="mt-3 text-sm italic text-on-surface/45 leading-snug">
+                          Be the first to rate
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Friends tile (hidden for hotels) */}
+                  {!isHotel && (
+                    hasFriends ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowFriendsDetail(true)}
+                        className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6 text-left hover:bg-on-surface/[0.04] transition-colors group"
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Friends</p>
+                          <ChevronRight size={14} className="text-on-surface/30 group-hover:text-on-surface/50 transition-colors" />
+                        </div>
+                        <p className={cn('text-[56px] font-serif font-bold leading-none tabular-nums', scoreColor(friendsStats.avgScore))}>
+                          {friendsStats.avgScore.toFixed(1)}
+                        </p>
+                        <p className="mt-3 text-sm text-on-surface/50">
+                          {friendsStats.totalRatings} friend{friendsStats.totalRatings === 1 ? '' : 's'}
+                        </p>
+                      </button>
+                    ) : (
+                      <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">Friends</p>
+                        <p className="text-[56px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
+                        <p className="mt-3 text-sm italic text-on-surface/45 leading-snug">
+                          None of your friends have rated this yet
+                        </p>
+                      </div>
+                    )
+                  )}
                 </div>
+
+                {/* Google — a single muted line, visibly de-emphasized */}
+                {hasGoogle && (
+                  <p className="mt-4 flex items-baseline gap-1.5 text-[13px] text-on-surface/40">
+                    <Star size={12} className="fill-on-surface/25 text-on-surface/25 self-center flex-shrink-0" />
+                    <span>
+                      <span className="tabular-nums font-medium text-on-surface/55">{place.rating}</span>
+                      <span className="mx-1">on Google</span>
+                      <span className="text-on-surface/35">· {formatReviewCount(place.userRatingCount)} reviews</span>
+                    </span>
+                  </p>
+                )}
               </>
             );
           })()}
-
-          {(() => {
-            const hasCommunity = communityStats.totalRatings > 0;
-            const secondary: React.ReactNode[] = [];
-            if (hasCommunity) {
-              secondary.push(
-                <span key="google" className="inline-flex items-baseline gap-1.5">
-                  <Star size={13} className="fill-primary text-primary self-center" />
-                  <span className="font-serif font-bold text-on-surface">{place.rating}</span>
-                  <span className="text-on-surface/45">Google ({formatReviewCount(place.userRatingCount)})</span>
-                </span>
-              );
-            }
-            if (!isHotel && friendsStats.totalRatings > 0) {
-              secondary.push(
-                <button
-                  key="friends"
-                  type="button"
-                  onClick={() => setShowFriendsDetail(true)}
-                  className="inline-flex items-baseline gap-1.5 text-primary hover:text-primary/80 transition-colors"
-                >
-                  <span className="font-serif font-bold">{friendsStats.avgScore.toFixed(1)}</span>
-                  <span>from {friendsStats.totalRatings} friend{friendsStats.totalRatings === 1 ? '' : 's'}</span>
-                  <ChevronRight size={13} className="self-center" />
-                </button>
-              );
-            }
-            if (secondary.length === 0) return null;
-            return (
-              <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
-                {secondary.map((node, i) => (
-                  <React.Fragment key={i}>
-                    {i > 0 && <span className="text-on-surface/20">·</span>}
-                    {node}
-                  </React.Fragment>
-                ))}
-              </div>
-            );
-          })()}
-
-          {!isHotel && friendsStats.totalRatings === 0 && communityStats.totalRatings === 0 && (
-            <p className="mt-4 text-sm text-on-surface/45">No community or friend ratings yet · be the first</p>
-          )}
         </section>
 
         {/* ── Hotel Dining — flat list with dividers, no per-row cards ── */}
@@ -613,104 +639,207 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </ul>
         </section>
 
-        {/* ── My Rating Details — flowing vertical layout, no cards ── */}
+        {/* ── My Rating Details — quiet editorial summary with ambient
+            inline edit affordances. Each subsection heading carries a
+            tiny muted pencil that deep-links the add-rating modal
+            straight to the matching sub-page. Empty subsections render
+            a subtle "Add …" prompt rather than disappearing, so users
+            can fill in any field without leaving this section. */}
         {myRating && place && (() => {
           const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.address };
+          type RatingPage = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
+          const openAt = (pg: RatingPage) => openAddRestaurantModal(meta, pg);
           const hasNotes = !!myRating.notes;
           const hasTags = (myRating.tags?.length || 0) > 0;
           const hasPhotos = (myRating.photos?.length || 0) > 0;
           const hasDate = !!myRating.visitDate;
           const hasPrice = !isHotel && !!myRating.price;
           const hasFriends = !isHotel && (myRating.friendIds?.length || 0) > 0;
-          const hasAny = hasNotes || hasTags || hasPhotos || hasDate || hasPrice || hasFriends;
+          const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
           return (
             <section className="mb-10">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">My Rating Details</h3>
                 <button
-                  onClick={() => openAddRestaurantModal(meta, 'notes')}
+                  onClick={() => openAt('main')}
                   className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary hover:text-primary/80"
                 >
                   <Edit3 size={13} /> Edit
                 </button>
               </div>
 
-              {hasAny ? (
-                <div className="space-y-6">
-                  {hasNotes && (
-                    <p className="text-base leading-relaxed italic text-on-surface/75 font-serif">
+              <div className="space-y-6">
+                {/* Notes */}
+                <div>
+                  <button
+                    onClick={() => openAt('notes')}
+                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 hover:text-on-surface/60 transition-colors"
+                  >
+                    <StickyNote size={13} />
+                    <span>Notes</span>
+                    <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
+                  </button>
+                  {hasNotes ? (
+                    <p className="mt-2 text-base leading-relaxed italic text-on-surface/75 font-serif">
                       "{myRating.notes}"
                     </p>
-                  )}
-
-                  {hasTags && (
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
-                        <Tag size={13} /> Tags
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {myRating.tags.map((t) => (
-                          <span key={t} className="text-xs font-medium px-3 py-1 rounded-full bg-primary/8 text-primary/80">
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {hasPhotos && (
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
-                        <Image size={13} /> Photos
-                      </p>
-                      <div className="flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory">
-                        {myRating.photos.map((p, i) => (
-                          <img
-                            key={i}
-                            src={p.url}
-                            className="w-28 h-28 rounded-xl object-cover flex-shrink-0 snap-start"
-                            referrerPolicy="no-referrer"
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {(hasDate || hasPrice || hasFriends) && (
-                    <ul className="space-y-3">
-                      {hasDate && (
-                        <li className="flex items-center gap-3 text-sm">
-                          <CalendarDays size={15} className="text-on-surface/35 flex-shrink-0" />
-                          <span className="text-on-surface/45 w-20 flex-shrink-0">Visited</span>
-                          <span className="text-on-surface/75">{new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
-                        </li>
-                      )}
-                      {hasPrice && (
-                        <li className="flex items-center gap-3 text-sm">
-                          <DollarSign size={15} className="text-on-surface/35 flex-shrink-0" />
-                          <span className="text-on-surface/45 w-20 flex-shrink-0">Price</span>
-                          <span className="text-on-surface/75">{myRating.price}</span>
-                        </li>
-                      )}
-                      {hasFriends && (
-                        <li className="flex items-start gap-3 text-sm">
-                          <Users size={15} className="text-on-surface/35 flex-shrink-0 mt-0.5" />
-                          <span className="text-on-surface/45 w-20 flex-shrink-0 pt-0.5">With</span>
-                          <span className="flex flex-wrap gap-1.5">
-                            {myRating.friendIds.map((fid) => (
-                              <span key={fid} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-primary/8 text-primary/80">
-                                {friendNames[fid] || fid.slice(0, 8)}
-                              </span>
-                            ))}
-                          </span>
-                        </li>
-                      )}
-                    </ul>
+                  ) : (
+                    <button
+                      onClick={() => openAt('notes')}
+                      className="mt-2 text-sm italic text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                    >
+                      Add notes…
+                    </button>
                   )}
                 </div>
-              ) : (
-                <p className="text-sm text-on-surface/35">No personal details added yet · click Edit to add notes, tags, photos</p>
-              )}
+
+                {/* Tags */}
+                <div>
+                  <button
+                    onClick={() => openAt('tags')}
+                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 hover:text-on-surface/60 transition-colors"
+                  >
+                    <Tag size={13} />
+                    <span>Tags</span>
+                    <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
+                  </button>
+                  {hasTags ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {myRating.tags.map((t) => (
+                        <span key={t} className="text-xs font-medium px-3 py-1 rounded-full bg-primary/8 text-primary/80">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => openAt('tags')}
+                      className="mt-2 block text-sm italic text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                    >
+                      Add tags…
+                    </button>
+                  )}
+                </div>
+
+                {/* Photos */}
+                <div>
+                  <button
+                    onClick={() => openAt('photos')}
+                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 hover:text-on-surface/60 transition-colors"
+                  >
+                    <Image size={13} />
+                    <span>Photos</span>
+                    <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
+                  </button>
+                  {hasPhotos ? (
+                    <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+                      {myRating.photos.map((p, i) => (
+                        <img
+                          key={i}
+                          src={p.url}
+                          className="w-28 h-28 rounded-xl object-cover flex-shrink-0 snap-start"
+                          referrerPolicy="no-referrer"
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => openAt('photos')}
+                      className="mt-2 block text-sm italic text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                    >
+                      Add photos…
+                    </button>
+                  )}
+                </div>
+
+                {/* Facts list — each row is its own tappable edit affordance */}
+                <ul className="border-t border-on-surface/[0.06] pt-5 space-y-3">
+                  {/* Score */}
+                  <li>
+                    <button
+                      onClick={() => openAt('main')}
+                      className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                    >
+                      <Star size={15} className="text-on-surface/35 flex-shrink-0" />
+                      <span className="text-on-surface/45 w-20 flex-shrink-0">Score</span>
+                      <span className="text-on-surface/75 flex-1 tabular-nums">{myRating.score.toFixed(1)} <span className="text-on-surface/35">/ 10</span></span>
+                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
+                    </button>
+                  </li>
+
+                  {/* Would return */}
+                  <li>
+                    <button
+                      onClick={() => openAt('main')}
+                      className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                    >
+                      <Heart size={15} className="text-on-surface/35 flex-shrink-0" />
+                      <span className="text-on-surface/45 w-20 flex-shrink-0">Return?</span>
+                      <span className="text-on-surface/75 flex-1">{myRating.wouldReturn ? 'Yes' : 'Nah'}</span>
+                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
+                    </button>
+                  </li>
+
+                  {/* Visited date */}
+                  <li>
+                    <button
+                      onClick={() => openAt('date')}
+                      className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                    >
+                      <CalendarDays size={15} className="text-on-surface/35 flex-shrink-0" />
+                      <span className="text-on-surface/45 w-20 flex-shrink-0">Visited</span>
+                      <span className={cn("flex-1", hasDate ? "text-on-surface/75" : "text-on-surface/30 italic")}>
+                        {hasDate ? dateLabel : 'Add date…'}
+                      </span>
+                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
+                    </button>
+                  </li>
+
+                  {/* Price (skip for hotels) */}
+                  {!isHotel && (
+                    <li>
+                      <button
+                        onClick={() => openAt('price')}
+                        className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                      >
+                        <DollarSign size={15} className="text-on-surface/35 flex-shrink-0" />
+                        <span className="text-on-surface/45 w-20 flex-shrink-0">Price</span>
+                        <span className={cn("flex-1", hasPrice ? "text-on-surface/75" : "text-on-surface/30 italic")}>
+                          {hasPrice ? myRating.price : 'Add price…'}
+                        </span>
+                        <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
+                      </button>
+                    </li>
+                  )}
+
+                  {/* Friends / companions (skip for hotels) */}
+                  {!isHotel && (
+                    <li>
+                      <button
+                        onClick={() => openAt('friends')}
+                        className="group flex items-start gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                      >
+                        <Users size={15} className="text-on-surface/35 flex-shrink-0 mt-0.5" />
+                        <span className="text-on-surface/45 w-20 flex-shrink-0 pt-0.5">With</span>
+                        <span className="flex-1">
+                          {hasFriends ? (
+                            <span className="flex flex-wrap gap-1.5">
+                              {myRating.friendIds.map((fid) => (
+                                <span key={fid} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-primary/8 text-primary/80">
+                                  {friendNames[fid] || fid.slice(0, 8)}
+                                </span>
+                              ))}
+                            </span>
+                          ) : (
+                            <span className="text-on-surface/30 italic">Add companions…</span>
+                          )}
+                        </span>
+                        <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 mt-1 transition-colors" />
+                      </button>
+                    </li>
+                  )}
+                </ul>
+              </div>
             </section>
           );
         })()}
@@ -858,11 +987,39 @@ export const RestaurantDetailDesktop: React.FC = () => {
             sits above it to catch taps and route to the full /map page
             (the mapbox instance below stays visible). ── */}
         <section className="mb-10">
-          <div className="relative w-full h-96 rounded-2xl overflow-hidden">
-            <div ref={mapContainerRef} className="absolute inset-0" />
+          {/* h-[28rem] (448px) keeps a comfortable ~2.3:1 aspect ratio
+              now that the container is ~1024px wide — h-96 would be
+              too letterbox at this width. */}
+          <div className="relative w-full h-[28rem] rounded-2xl overflow-hidden">
+            {/* Inline width/height match Map.tsx — Mapbox's CSS sets
+                `.mapboxgl-map { position: relative }` which can override
+                Tailwind's `absolute` (equal specificity, source-order wins),
+                collapsing an inset-0 container to 0×0. Inline styles win
+                unconditionally and keep the canvas full-sized. */}
+            <div
+              ref={mapContainerRef}
+              className="absolute inset-0"
+              style={{ width: '100%', height: '100%' }}
+            />
             <button
               type="button"
-              onClick={() => navigate('/map')}
+              onClick={() => navigate('/map', {
+                state: {
+                  focus: {
+                    id: place.id,
+                    name: place.name,
+                    lat: place.lat,
+                    lng: place.lng,
+                    address: place.address,
+                    fullAddress: place.fullAddress || place.address,
+                    photoUrl: place.photoUrl,
+                    priceLevel: place.priceLevel,
+                    rating: place.rating,
+                    types: place.types,
+                    userRatingCount: place.userRatingCount,
+                  },
+                },
+              })}
               aria-label="Open full map"
               className="absolute inset-0 z-10 hover:bg-on-surface/5 transition-colors"
             />

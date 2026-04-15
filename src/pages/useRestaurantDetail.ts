@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
 import { supabaseConfigured } from '../lib/supabase';
@@ -52,8 +52,84 @@ export function useRestaurantDetail() {
   const [photoIndex, setPhotoIndex] = useState(0);
   const [hoursOpen, setHoursOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const mapContainerRef = useRef<HTMLDivElement>(null);
+
+  // Keep a stable ref to the latest place so the callback ref can read it
+  // synchronously without closing over a stale value.
+  const placeRef = useRef<PlaceDetails | null>(null);
+  placeRef.current = place;
+
+  // Holds the teardown closure for the current Mapbox instance so the
+  // null-call of the callback ref can clean up without needing access to
+  // the variables created in the div-call.
+  const mapCleanupRef = useRef<(() => void) | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+
+  // Why a callback ref instead of useRef + useEffect?
+  //
+  // The page renders a full-screen spinner while `place` is loading, so
+  // the map <div> is NOT in the DOM during that window. Once the place
+  // arrives and loading clears, the div mounts and the ref fires.
+  //
+  // A state-based callback ref (our previous approach) hits a React 18
+  // StrictMode edge-case: StrictMode calls the ref null→div synchronously
+  // during a single commit; React batches those two setState calls so the
+  // final value looks unchanged, the useEffect never re-fires after the
+  // simulated unmount, and the map is permanently blank in dev.
+  //
+  // Putting the init code directly inside the callback ref sidesteps
+  // batching entirely:
+  //   div call  → create map, store cleanup closure in mapCleanupRef
+  //   null call → run the stored cleanup closure
+  //
+  // The div call always happens when loading===false && place!==null (the
+  // only conditions that render the container div), so placeRef.current is
+  // guaranteed to be non-null at that point.
+  const mapContainerRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) {
+      // Container unmounting (or StrictMode simulated unmount)
+      if (mapCleanupRef.current) {
+        mapCleanupRef.current();
+        mapCleanupRef.current = null;
+      }
+      return;
+    }
+
+    // Container mounting. Guard against double-init if React calls the
+    // ref twice with the same element.
+    if (mapRef.current) return;
+
+    const p = placeRef.current;
+    if (!p || !MAPBOX_TOKEN) return;
+    if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return;
+
+    mapboxgl.accessToken = MAPBOX_TOKEN;
+    const map = new mapboxgl.Map({
+      container: el,
+      style: 'mapbox://styles/mapbox/light-v11',
+      center: [p.lng, p.lat],
+      zoom: 15,
+      interactive: true,
+    });
+    mapRef.current = map;
+
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
+    new mapboxgl.Marker({ color: '#9f3012' }).setLngLat([p.lng, p.lat]).addTo(map);
+
+    // ResizeObserver keeps the canvas in sync with the container size
+    // (fixes "blank map" when the section is below the fold at init time).
+    const ro = new ResizeObserver(() => { try { map.resize(); } catch {} });
+    ro.observe(el);
+    // Belt-and-braces one-shot resize on the next frame.
+    const rafId = requestAnimationFrame(() => { try { map.resize(); } catch {} });
+
+    // Store the full teardown so the null-call can invoke it.
+    mapCleanupRef.current = () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []); // empty deps — all live data is accessed via refs
 
   useEffect(() => {
     if (!id) return;
@@ -64,32 +140,6 @@ export function useRestaurantDetail() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [id]);
-
-  useEffect(() => {
-    if (!place || !mapContainerRef.current || mapRef.current || !MAPBOX_TOKEN) return;
-
-    mapboxgl.accessToken = MAPBOX_TOKEN;
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/light-v11',
-      center: [place.lng, place.lat],
-      zoom: 15,
-      interactive: true,
-    });
-
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
-
-    new mapboxgl.Marker({ color: '#9f3012' })
-      .setLngLat([place.lng, place.lat])
-      .addTo(map);
-
-    mapRef.current = map;
-
-    return () => {
-      map.remove();
-      mapRef.current = null;
-    };
-  }, [place]);
 
   // Track recently viewed restaurants
   useEffect(() => {
