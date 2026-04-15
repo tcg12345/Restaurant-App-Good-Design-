@@ -276,7 +276,7 @@ export const SocialFeed: React.FC = () => {
 
   if (loading) {
     return (
-      <section className="mb-8 max-w-2xl mx-auto">
+      <section className="mb-8">
         <SectionHeader />
         <ul className="divide-y divide-on-surface/[0.06]">
           {[0, 1, 2].map((i) => (
@@ -288,7 +288,7 @@ export const SocialFeed: React.FC = () => {
                   <div className="h-2 w-16 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 </div>
               </div>
-              <div className="w-full aspect-[16/10] rounded-lg bg-on-surface/[0.05] animate-pulse mb-3" />
+              <div className="w-full max-w-md aspect-[16/10] rounded-lg bg-on-surface/[0.05] animate-pulse mb-3" />
               <div className="space-y-2">
                 <div className="h-3 w-3/4 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 <div className="h-2.5 w-1/2 rounded-full bg-on-surface/[0.05] animate-pulse" />
@@ -305,7 +305,7 @@ export const SocialFeed: React.FC = () => {
   const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <section className="mb-8 max-w-2xl mx-auto">
+    <section className="mb-8">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
       {feedMode === 'experts' ? (
         <EmptyState
@@ -353,8 +353,8 @@ export const SocialFeed: React.FC = () => {
                     onClick={() => openFriendRecipe(m)}
                     className="block w-full text-left group"
                   >
-                    {/* Full-width cover image */}
-                    <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                    {/* Cover image (capped on desktop) */}
+                    <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
                       {getMealCoverUrl(m) ? (
                         <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
                       ) : (
@@ -431,8 +431,8 @@ export const SocialFeed: React.FC = () => {
                   onClick={() => openFriendRecipe(m)}
                   className="block w-full text-left group"
                 >
-                  {/* Full-width cover image */}
-                  <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                  {/* Cover image (capped on desktop) */}
+                  <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
                     {getMealCoverUrl(m) ? (
                       <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
                     ) : (
@@ -518,8 +518,8 @@ export const SocialFeed: React.FC = () => {
               onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
               className="block w-full text-left group"
             >
-              {/* Full-width cover image */}
-              <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+              {/* Cover image (capped on desktop) */}
+              <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
                 {r.photo_url ? (
                   <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
                 ) : (

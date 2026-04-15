@@ -227,7 +227,7 @@ export const FollowingFeed: React.FC = () => {
   };
 
   return (
-    <div className="space-y-3 max-w-2xl mx-auto">
+    <div className="space-y-3">
       {/* Search + filter row */}
       <div className="flex items-center gap-2">
         <div className="flex-1 relative">
@@ -338,8 +338,8 @@ export const FollowingFeed: React.FC = () => {
                     }}
                     className="block w-full py-5 text-left group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
                   >
-                    {/* Full-width cover image */}
-                    <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3 relative flex items-center justify-center">
+                    {/* Cover image (capped on desktop) */}
+                    <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3 relative flex items-center justify-center">
                       <SearchIcon size={32} className="text-on-surface/20" />
                       {r.photo_url && (
                         <img
