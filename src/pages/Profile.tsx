@@ -3,12 +3,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { TopBar } from '../components/TopBar';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, List as ListIcon, ChefHat, ExternalLink, Users, Crown, Sparkles, TrendingUp, Search, Globe, EyeOff,
+  Star, MapPin, Heart, List as ListIcon, ChefHat, ExternalLink, Users, Crown, Sparkles, TrendingUp, Search, Globe, EyeOff, Smartphone,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useRecipes } from '../contexts/RecipesContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../lib/supabase-community';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
@@ -63,6 +64,7 @@ export const Profile: React.FC = () => {
   const homeMeals = Array.isArray(listsCtx.homeMeals) ? listsCtx.homeMeals : [];
   const { myRecipes: rawMyRecipes } = useRecipes();
   const myRecipes = Array.isArray(rawMyRecipes) ? rawMyRecipes : [];
+  const { phoneMode, togglePhoneMode } = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
@@ -885,6 +887,26 @@ export const Profile: React.FC = () => {
                           <motion.div
                             className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md"
                             animate={{ left: !profile?.is_public ? '1.125rem' : '0.125rem' }}
+                            transition={{ type: 'spring', damping: 20, stiffness: 350 }}
+                          />
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={togglePhoneMode}
+                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
+                      >
+                        <Smartphone size={18} className="text-on-surface/40" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">Phone View</p>
+                          <p className="text-[11px] text-on-surface/35">Force mobile layout on desktop</p>
+                        </div>
+                        <div
+                          className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${phoneMode ? 'bg-primary' : 'bg-on-surface/15'}`}
+                        >
+                          <motion.div
+                            className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md"
+                            animate={{ left: phoneMode ? '1.125rem' : '0.125rem' }}
                             transition={{ type: 'spring', damping: 20, stiffness: 350 }}
                           />
                         </div>

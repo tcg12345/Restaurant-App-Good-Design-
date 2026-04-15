@@ -426,8 +426,8 @@ export const Circle: React.FC = () => {
                         animate={{ opacity: 1, y: 0 }}
                         className="py-5"
                       >
-                        {/* Full-width restaurant photo */}
-                        <div className="w-full aspect-[5/3] rounded-xl overflow-hidden bg-on-surface/[0.05] flex items-center justify-center mb-3">
+                        {/* Restaurant photo (capped on desktop) */}
+                        <div className="w-full max-w-md aspect-[5/3] rounded-xl overflow-hidden bg-on-surface/[0.05] flex items-center justify-center mb-3">
                           {r.image ? (
                             <img
                               src={r.image}

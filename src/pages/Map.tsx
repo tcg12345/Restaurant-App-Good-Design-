@@ -2643,6 +2643,14 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                     {recommendations.map((place) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
+                      const recMeta = {
+                        id: place.id,
+                        name: place.name,
+                        image: (place as any).photoUrl || '',
+                        cuisine,
+                        price: priceLevelToString((place as any).priceLevel || 0),
+                        address: (place as any).address || '',
+                      };
                       return (
                         <div key={place.id} className="flex-shrink-0 w-44 group cursor-pointer snap-start" onClick={() => navigate(`/restaurant/${place.id}`)}>
                           <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
@@ -2651,16 +2659,25 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                             ) : (
                               <div className="h-full w-full flex items-center justify-center"><MapPinned size={24} className="text-on-surface/15" /></div>
                             )}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }}
-                              className={cn(
-                                "absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md transition-colors",
-                                wishlisted ? "text-red-400" : "text-white/90 hover:text-red-300"
-                              )}
-                              aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                            >
-                              <Heart size={14} className={wishlisted ? "fill-red-400" : ""} />
-                            </button>
+                            <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openWishlistModal(recMeta); }}
+                                className={cn(
+                                  "w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95",
+                                  wishlisted ? "text-primary" : "text-on-surface/70 hover:text-primary"
+                                )}
+                                aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                              >
+                                <Heart size={16} className={wishlisted ? "fill-primary" : ""} />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(recMeta); }}
+                                className="w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
+                                aria-label="Add to list"
+                              >
+                                <Plus size={16} />
+                              </button>
+                            </div>
                           </div>
                           <div className="pt-2.5 pb-1">
                             <div className="flex items-start justify-between gap-2">
@@ -3302,6 +3319,14 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                         {recommendations.map((place) => {
                           const cuisine = getCuisineLabel((place as any).types || []);
                           const wishlisted = isWishlisted(place.id);
+                          const recMeta = {
+                            id: place.id,
+                            name: place.name,
+                            image: (place as any).photoUrl || '',
+                            cuisine,
+                            price: priceLevelToString((place as any).priceLevel || 0),
+                            address: (place as any).address || '',
+                          };
                           return (
                             <div key={place.id} className="flex-shrink-0 w-40 group cursor-pointer snap-start" onClick={() => navigate(`/restaurant/${place.id}`)}>
                               <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
@@ -3310,16 +3335,25 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                                 ) : (
                                   <div className="h-full w-full flex items-center justify-center"><MapPinned size={22} className="text-on-surface/15" /></div>
                                 )}
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: (place as any).photoUrl || '', cuisine, price: priceLevelToString((place as any).priceLevel || 0), address: (place as any).address || '' }); }}
-                                  className={cn(
-                                    "absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md transition-colors",
-                                    wishlisted ? "text-red-400" : "text-white/90 hover:text-red-300"
-                                  )}
-                                  aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                                >
-                                  <Heart size={12} className={wishlisted ? "fill-red-400" : ""} />
-                                </button>
+                                <div className="absolute top-2 right-2 flex items-center gap-1">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openWishlistModal(recMeta); }}
+                                    className={cn(
+                                      "w-8 h-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95",
+                                      wishlisted ? "text-primary" : "text-on-surface/70 hover:text-primary"
+                                    )}
+                                    aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                                  >
+                                    <Heart size={14} className={wishlisted ? "fill-primary" : ""} />
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(recMeta); }}
+                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
+                                    aria-label="Add to list"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
                               </div>
                               <div className="pt-2 pb-1">
                                 <div className="flex items-start justify-between gap-2">

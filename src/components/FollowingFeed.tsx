@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Filter, X, ChevronDown, Loader2, Star, Users } from 'lucide-react';
+import { Search as SearchIcon, Filter, X, ChevronDown, Loader2, Star, Users, Plus, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useLists } from '../contexts/ListsContext';
 import {
   getAllFriendRatings,
   getProfilesByIds,
@@ -40,7 +41,8 @@ type SortOption = 'recent' | 'highest' | 'lowest';
 
 export const FollowingFeed: React.FC = () => {
   const { user } = useAuth();
-  const { setHideBottomNav } = useSettings();
+  const { setHideBottomNav, phoneMode } = useSettings();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
   const navigate = useNavigate();
 
   const [ratings, setRatings] = useState<CommunityRating[]>(() =>
@@ -308,52 +310,171 @@ export const FollowingFeed: React.FC = () => {
               </button>
             )}
           </div>
-          <ul className="divide-y divide-on-surface/[0.06]">
+          <ul className={cn("divide-y divide-on-surface/[0.06]", !phoneMode && "md:divide-y-0")}>
             {visible.map((r) => {
               const profile = profiles[r.user_id];
               const city = extractCity(r.address);
               const score = Number(r.score) || 0;
+              const wishlisted = isWishlisted(r.restaurant_id);
+              const meta = {
+                id: r.restaurant_id,
+                name: r.restaurant_name || '',
+                image: r.photo_url || '',
+                cuisine: r.cuisine || '',
+                price: r.price || '',
+                address: r.address || '',
+              };
               return (
                 <li key={r.id}>
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                    className="block w-full py-5 text-left group"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigate(`/restaurant/${r.restaurant_id}`);
+                      }
+                    }}
+                    className="block w-full text-left group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
                   >
-                    {/* Full-width cover image */}
-                    <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3 relative flex items-center justify-center">
-                      <SearchIcon size={32} className="text-on-surface/20" />
-                      {r.photo_url && (
-                        <img
-                          src={r.photo_url}
-                          alt=""
-                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
-                          loading="lazy"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      )}
-                    </div>
-                    {/* Details below image */}
-                    <div className="flex items-start justify-between gap-3">
-                      <h4 className="font-serif text-[17px] font-bold text-on-surface leading-snug line-clamp-2 flex-1 min-w-0">
-                        {r.restaurant_name}
-                      </h4>
-                      <span className="flex items-center gap-0.5 text-sm font-bold text-primary flex-shrink-0 pt-0.5">
-                        <Star size={14} className="fill-primary" />
-                        {score.toFixed(1)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                      {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
-                    </p>
-                    {profile && (
-                      <p className="text-sm text-on-surface/50 mt-1.5 truncate">
-                        via <span className="font-semibold text-on-surface/75">{profile.display_name || profile.username}</span>
+                    {/* ── Mobile layout — info only, no photo ── */}
+                    <div className={cn("py-4", phoneMode ? "block" : "md:hidden")}>
+                      {/* Restaurant name + score */}
+                      <div className="flex items-start justify-between gap-3">
+                        <h4 className="font-serif text-[17px] font-bold text-on-surface leading-snug line-clamp-2 flex-1 min-w-0">
+                          {r.restaurant_name}
+                        </h4>
+                        <span className="flex items-center gap-0.5 text-sm font-bold text-primary flex-shrink-0 pt-0.5">
+                          <Star size={14} className="fill-primary" />
+                          {score.toFixed(1)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                        {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
                       </p>
-                    )}
-                  </button>
+                      {profile && (
+                        <p className="text-sm text-on-surface/50 mt-1.5 truncate">
+                          via <span className="font-semibold text-on-surface/75">{profile.display_name || profile.username}</span>
+                        </p>
+                      )}
+
+                      {/* Actions row */}
+                      <div className="flex items-center gap-1 mt-2 -ml-2">
+                        <div className="flex-1" />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openAddRestaurantModal(meta);
+                          }}
+                          className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
+                        >
+                          <Plus size={14} /> Rate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openWishlistModal(meta);
+                          }}
+                          className={cn(
+                            "inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded-full transition-colors",
+                            wishlisted
+                              ? "text-red-500 hover:bg-red-500/5"
+                              : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                          )}
+                          aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                        >
+                          <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* ── Desktop layout — unboxed horizontal card ── */}
+                    <div className={cn("py-3", phoneMode ? "hidden" : "hidden md:block")}>
+                      <div className="flex gap-4">
+                        {/* Photo thumbnail */}
+                        <div className="flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] relative flex items-center justify-center">
+                          <SearchIcon size={28} className="text-on-surface/20" />
+                          {r.photo_url && (
+                            <img
+                              src={r.photo_url}
+                              alt=""
+                              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+                              loading="lazy"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                              }}
+                            />
+                          )}
+                        </div>
+
+                        {/* Content stack — flex column so actions can dock to the bottom */}
+                        <div className="flex-1 min-w-0 flex flex-col">
+                          {/* Reviewer header */}
+                          {profile && (
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="w-7 h-7 rounded-full bg-on-surface/[0.06] flex items-center justify-center flex-shrink-0">
+                                <span className="text-[11px] font-serif font-bold text-on-surface/55">
+                                  {(profile.display_name || profile.username || 'U').charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[12px] font-bold leading-tight truncate">
+                                  {profile.display_name || profile.username}
+                                </p>
+                                <p className="text-[10px] text-on-surface/40 font-medium uppercase tracking-wider leading-tight mt-0.5">
+                                  {profile.is_expert
+                                    ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · Rated</span>
+                                    : <>Rated</>}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Restaurant name + score inline */}
+                          <div className="flex items-start justify-between gap-3">
+                            <h4 className="font-serif font-bold text-[17px] leading-tight flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">
+                              {r.restaurant_name}
+                            </h4>
+                            <span className="flex items-center gap-0.5 text-lg font-serif font-bold text-primary flex-shrink-0 leading-none pt-0.5">
+                              <Star size={14} className="fill-primary" />
+                              {score.toFixed(1)}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                            {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
+                          </p>
+
+                          {/* Actions row — docked to bottom so it lines up with the photo's bottom edge */}
+                          <div className="flex items-center gap-1 mt-auto pt-2 -ml-2">
+                            <div className="flex-1" />
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAddRestaurantModal(meta); }}
+                              className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
+                            >
+                              <Plus size={14} /> Rate
+                            </button>
+                            <button
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openWishlistModal(meta); }}
+                              className={cn(
+                                "inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded-full transition-colors",
+                                wishlisted
+                                  ? "text-red-500 hover:bg-red-500/5"
+                                  : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                              )}
+                              aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                            >
+                              <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </li>
               );
             })}

@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
@@ -43,6 +44,7 @@ export const SocialFeed: React.FC = () => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const navigate = useNavigate();
+  const { phoneMode } = useSettings();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
 
   const [activity, setActivity] = useState<CommunityRating[]>([]);
@@ -288,7 +290,7 @@ export const SocialFeed: React.FC = () => {
                   <div className="h-2 w-16 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 </div>
               </div>
-              <div className="w-full aspect-[16/10] rounded-lg bg-on-surface/[0.05] animate-pulse mb-3" />
+              <div className="w-full max-w-md aspect-[16/10] rounded-lg bg-on-surface/[0.05] animate-pulse mb-3" />
               <div className="space-y-2">
                 <div className="h-3 w-3/4 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 <div className="h-2.5 w-1/2 rounded-full bg-on-surface/[0.05] animate-pulse" />
@@ -353,8 +355,8 @@ export const SocialFeed: React.FC = () => {
                     onClick={() => openFriendRecipe(m)}
                     className="block w-full text-left group"
                   >
-                    {/* Full-width cover image */}
-                    <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                    {/* Cover image (capped on desktop) */}
+                    <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
                       {getMealCoverUrl(m) ? (
                         <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
                       ) : (
@@ -404,7 +406,7 @@ export const SocialFeed: React.FC = () => {
           </ul>
         )
       ) : (
-      <ul className="divide-y divide-on-surface/[0.06]">
+      <ul>
         {feedItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
@@ -431,8 +433,8 @@ export const SocialFeed: React.FC = () => {
                   onClick={() => openFriendRecipe(m)}
                   className="block w-full text-left group"
                 >
-                  {/* Full-width cover image */}
-                  <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
+                  {/* Cover image (capped on desktop) */}
+                  <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
                     {getMealCoverUrl(m) ? (
                       <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
                     ) : (
@@ -495,67 +497,82 @@ export const SocialFeed: React.FC = () => {
           };
           return (
           <li key={r.id} className="py-5">
-            {/* User header */}
-            <div className="flex items-center gap-3 mb-3">
-              <Link to={`/user/${getUsername(r.user_id)}`}>
-                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center", color.bg)}>
-                  <span className={cn("text-sm font-serif font-bold", color.text)}>{initial}</span>
-                </div>
-              </Link>
-              <div className="flex-1 min-w-0">
-                <Link to={`/user/${getUsername(r.user_id)}`} className="text-sm font-bold hover:text-primary">{getName(r.user_id)}</Link>
-                <p className="text-[11px] text-on-surface/40 font-medium uppercase tracking-wider">
-                  {profiles[r.user_id]?.is_expert
-                    ? <span className="inline-flex items-center gap-1 text-amber-600 font-bold"><Star size={10} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
-                    : <>Rated · {timeAgo(r.created_at)}</>}
-                </p>
-              </div>
-            </div>
+            {/* Photo + content — no box, full width */}
+            <div className={cn("flex", !phoneMode && "md:gap-4")}>
+              {/* Photo thumbnail — desktop only (hidden in phone mode) */}
+              {!phoneMode && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                  className="hidden md:block flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  aria-label={`View ${r.restaurant_name}`}
+                >
+                  {r.photo_url ? (
+                    <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-serif text-3xl font-bold text-on-surface/20">
+                      {initialOf(r.restaurant_name)}
+                    </div>
+                  )}
+                </button>
+              )}
 
-            {/* Restaurant body — tappable */}
-            <button
-              type="button"
-              onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-              className="block w-full text-left group"
-            >
-              {/* Full-width cover image */}
-              <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
-                {r.photo_url ? (
-                  <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center font-serif text-4xl font-bold text-on-surface/20">
-                    {initialOf(r.restaurant_name)}
+              {/* Content stack */}
+              <div className="flex-1 min-w-0 flex flex-col">
+                {/* Reviewer header */}
+                <div className="flex items-center gap-2 mb-2">
+                  <Link to={`/user/${getUsername(r.user_id)}`} className="flex-shrink-0">
+                    <div className={cn("w-7 h-7 rounded-full flex items-center justify-center", color.bg)}>
+                      <span className={cn("text-[11px] font-serif font-bold", color.text)}>{initial}</span>
+                    </div>
+                  </Link>
+                  <div className="flex-1 min-w-0">
+                    <Link to={`/user/${getUsername(r.user_id)}`} className="text-[12px] font-bold hover:text-primary block truncate leading-tight">
+                      {getName(r.user_id)}
+                    </Link>
+                    <p className="text-[10px] text-on-surface/40 font-medium uppercase tracking-wider leading-tight mt-0.5">
+                      {profiles[r.user_id]?.is_expert
+                        ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
+                        : <>Rated · {timeAgo(r.created_at)}</>}
+                    </p>
                   </div>
-                )}
-              </div>
-              {/* Details below image */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-2">{r.restaurant_name}</h3>
+                </div>
+
+                {/* Tappable restaurant info */}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                  className="block text-left group focus-visible:outline-none"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="font-serif font-bold text-[16px] sm:text-[17px] leading-tight flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">
+                      {r.restaurant_name}
+                    </h3>
+                    <span className={cn("text-xl sm:text-2xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
+                      {Number(r.score).toFixed(1)}
+                    </span>
+                  </div>
                   <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
                     {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}
                   </p>
-                </div>
-                <span className={cn("text-2xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
-                  {Number(r.score).toFixed(1)}
-                </span>
+                  {r.tags && r.tags.length > 0 && (
+                    <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                      {r.tags.slice(0, 3).map((t) => (
+                        <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                  {r.notes && (
+                    <p className="mt-2 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
+                      &ldquo;{r.notes}&rdquo;
+                    </p>
+                  )}
+                </button>
               </div>
-              {r.tags && r.tags.length > 0 && (
-                <div className="flex gap-1.5 mt-2 flex-wrap">
-                  {r.tags.slice(0, 3).map((t) => (
-                    <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
-                  ))}
-                </div>
-              )}
-              {r.notes && (
-                <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
-                  &ldquo;{r.notes}&rdquo;
-                </p>
-              )}
-            </button>
+            </div>
 
-            {/* Actions row — ghost buttons, 44px tap targets */}
-            <div className="flex items-center gap-1 mt-2 -ml-2">
+            {/* Actions row */}
+            <div className="flex items-center gap-1 mt-3 -ml-2">
               <button
                 onClick={() => handleLike(r.id)}
                 className={cn(

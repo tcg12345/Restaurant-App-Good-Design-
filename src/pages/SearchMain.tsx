@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft, Plus, Heart } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, type PlaceResult } from '../lib/places';
 import { cn } from '../lib/utils';
 import { LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
+import { useLists } from '../contexts/ListsContext';
 
 const RECENT_SEARCHES_KEY = 'gourmet-canvas-recent-searches-v2';
 const MAX_RECENT = 10;
@@ -111,6 +112,7 @@ function placeToRecent(place: PlaceResult): RecentSearch {
 
 export const SearchMain: React.FC = () => {
   const navigate = useNavigate();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>(() => readRecentSearches());
   const [results, setResults] = useState<PlaceResult[]>([]);
@@ -212,51 +214,53 @@ export const SearchMain: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
-      <header className="sticky top-0 w-full px-4 py-3 flex items-center gap-3 bg-surface/80 backdrop-blur-md z-40">
-        <button
-          type="button"
-          onClick={() => navigate('/search')}
-          className="w-10 h-10 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors flex-shrink-0"
-          aria-label="Back"
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <form
-          className="flex-1 relative"
-          onSubmit={(e) => {
-            e.preventDefault();
-            runSearch(searchQuery);
-          }}
-        >
-          <SearchIcon size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search restaurants, cuisines..."
-            className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06] transition-all"
-            autoCapitalize="off"
-            autoCorrect="off"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('');
-                setResults([]);
-                inputRef.current?.focus();
-              }}
-              className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60"
-              aria-label="Clear search"
-            >
-              <X size={16} />
-            </button>
-          )}
-        </form>
+      <header className="sticky top-0 w-full bg-surface/80 backdrop-blur-md z-40">
+        <div className="px-4 py-3 flex items-center gap-3 md:max-w-2xl md:mx-auto">
+          <button
+            type="button"
+            onClick={() => navigate('/search')}
+            className="w-10 h-10 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors flex-shrink-0"
+            aria-label="Back"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <form
+            className="flex-1 relative"
+            onSubmit={(e) => {
+              e.preventDefault();
+              runSearch(searchQuery);
+            }}
+          >
+            <SearchIcon size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search restaurants, cuisines..."
+              className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06] transition-all"
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setResults([]);
+                  inputRef.current?.focus();
+                }}
+                className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60"
+                aria-label="Clear search"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </form>
+        </div>
       </header>
 
-      <main className="px-4 pt-2">
+      <main className="px-4 pt-2 md:max-w-2xl md:mx-auto">
         {hasQuery ? (
           // ── Search results ──
           <>
@@ -307,12 +311,28 @@ export const SearchMain: React.FC = () => {
                   const distance = locationKnown
                     ? formatDistance(haversineDistanceMi(userLat, userLng, place.lat, place.lng))
                     : '';
+                  const wishlisted = isWishlisted(place.id);
+                  const meta = {
+                    id: place.id,
+                    name: place.name,
+                    image: place.photoUrl || '',
+                    cuisine: location || 'Restaurant',
+                    price,
+                    address: place.address || '',
+                  };
                   return (
                     <li key={place.id}>
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => handleSelectResult(place)}
-                        className="w-full flex gap-4 py-4 px-2 -mx-2 rounded-xl text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05]"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleSelectResult(place);
+                          }
+                        }}
+                        className="w-full flex gap-4 py-4 px-2 -mx-2 rounded-xl text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       >
                         <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
                           {place.photoUrl ? (
@@ -327,24 +347,52 @@ export const SearchMain: React.FC = () => {
                           )}
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col justify-center">
-                          <div className="flex items-start justify-between gap-3">
-                            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{place.name}</h3>
-                            {place.rating > 0 && (
-                              <div className="flex items-center gap-1 flex-shrink-0 pt-0.5 text-primary">
-                                <Star size={13} className="fill-primary" />
-                                <span className="text-sm font-bold">{place.rating.toFixed(1)}</span>
-                              </div>
-                            )}
-                          </div>
+                          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{place.name}</h3>
                           <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
                             {location || 'Restaurant'}
                             {price && <><span className="text-on-surface/25 mx-1.5">·</span>{price}</>}
                           </p>
-                          {distance && (
-                            <p className="mt-0.5 text-xs text-on-surface/50">{distance}</p>
-                          )}
+                          <div className="mt-0.5 flex items-center gap-2 text-xs text-on-surface/50">
+                            {place.rating > 0 && (
+                              <span className="flex items-center gap-1 text-primary font-bold">
+                                <Star size={12} className="fill-primary" />
+                                {place.rating.toFixed(1)}
+                              </span>
+                            )}
+                            {place.rating > 0 && distance && <span className="text-on-surface/25">·</span>}
+                            {distance && <span>{distance}</span>}
+                          </div>
                         </div>
-                      </button>
+                        <div className="flex items-center gap-1.5 flex-shrink-0 self-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openWishlistModal(meta);
+                            }}
+                            className={cn(
+                              'w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
+                              wishlisted ? 'text-primary' : 'text-on-surface/70 hover:text-primary',
+                            )}
+                            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                          >
+                            <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openAddRestaurantModal(meta);
+                            }}
+                            className="w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
+                            aria-label="Add to list"
+                          >
+                            <Plus size={16} />
+                          </button>
+                        </div>
+                      </div>
                     </li>
                   );
                 })}
