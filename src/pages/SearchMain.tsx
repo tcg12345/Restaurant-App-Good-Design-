@@ -345,22 +345,21 @@ export const SearchMain: React.FC = () => {
                           )}
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col justify-center">
-                          <div className="flex items-start justify-between gap-3">
-                            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{place.name}</h3>
-                            {place.rating > 0 && (
-                              <div className="flex items-center gap-1 flex-shrink-0 pt-0.5 text-primary">
-                                <Star size={13} className="fill-primary" />
-                                <span className="text-sm font-bold">{place.rating.toFixed(1)}</span>
-                              </div>
-                            )}
-                          </div>
+                          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{place.name}</h3>
                           <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
                             {location || 'Restaurant'}
                             {price && <><span className="text-on-surface/25 mx-1.5">·</span>{price}</>}
                           </p>
-                          {distance && (
-                            <p className="mt-0.5 text-xs text-on-surface/50">{distance}</p>
-                          )}
+                          <div className="mt-0.5 flex items-center gap-2 text-xs text-on-surface/50">
+                            {place.rating > 0 && (
+                              <span className="flex items-center gap-1 text-primary font-bold">
+                                <Star size={12} className="fill-primary" />
+                                {place.rating.toFixed(1)}
+                              </span>
+                            )}
+                            {place.rating > 0 && distance && <span className="text-on-surface/25">·</span>}
+                            {distance && <span>{distance}</span>}
+                          </div>
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0 self-center">
                           <button
