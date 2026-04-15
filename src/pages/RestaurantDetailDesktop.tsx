@@ -4,7 +4,7 @@ import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Images, Users, UserCircle, Share2, Heart,
-  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw,
+  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
@@ -613,104 +613,207 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </ul>
         </section>
 
-        {/* ── My Rating Details — flowing vertical layout, no cards ── */}
+        {/* ── My Rating Details — quiet editorial summary with ambient
+            inline edit affordances. Each subsection heading carries a
+            tiny muted pencil that deep-links the add-rating modal
+            straight to the matching sub-page. Empty subsections render
+            a subtle "Add …" prompt rather than disappearing, so users
+            can fill in any field without leaving this section. */}
         {myRating && place && (() => {
           const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.address };
+          type RatingPage = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
+          const openAt = (pg: RatingPage) => openAddRestaurantModal(meta, pg);
           const hasNotes = !!myRating.notes;
           const hasTags = (myRating.tags?.length || 0) > 0;
           const hasPhotos = (myRating.photos?.length || 0) > 0;
           const hasDate = !!myRating.visitDate;
           const hasPrice = !isHotel && !!myRating.price;
           const hasFriends = !isHotel && (myRating.friendIds?.length || 0) > 0;
-          const hasAny = hasNotes || hasTags || hasPhotos || hasDate || hasPrice || hasFriends;
+          const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
           return (
             <section className="mb-10">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">My Rating Details</h3>
                 <button
-                  onClick={() => openAddRestaurantModal(meta, 'notes')}
+                  onClick={() => openAt('main')}
                   className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary hover:text-primary/80"
                 >
                   <Edit3 size={13} /> Edit
                 </button>
               </div>
 
-              {hasAny ? (
-                <div className="space-y-6">
-                  {hasNotes && (
-                    <p className="text-base leading-relaxed italic text-on-surface/75 font-serif">
+              <div className="space-y-6">
+                {/* Notes */}
+                <div>
+                  <button
+                    onClick={() => openAt('notes')}
+                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 hover:text-on-surface/60 transition-colors"
+                  >
+                    <StickyNote size={13} />
+                    <span>Notes</span>
+                    <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
+                  </button>
+                  {hasNotes ? (
+                    <p className="mt-2 text-base leading-relaxed italic text-on-surface/75 font-serif">
                       "{myRating.notes}"
                     </p>
-                  )}
-
-                  {hasTags && (
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
-                        <Tag size={13} /> Tags
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {myRating.tags.map((t) => (
-                          <span key={t} className="text-xs font-medium px-3 py-1 rounded-full bg-primary/8 text-primary/80">
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {hasPhotos && (
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 flex items-center gap-1.5">
-                        <Image size={13} /> Photos
-                      </p>
-                      <div className="flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory">
-                        {myRating.photos.map((p, i) => (
-                          <img
-                            key={i}
-                            src={p.url}
-                            className="w-28 h-28 rounded-xl object-cover flex-shrink-0 snap-start"
-                            referrerPolicy="no-referrer"
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {(hasDate || hasPrice || hasFriends) && (
-                    <ul className="space-y-3">
-                      {hasDate && (
-                        <li className="flex items-center gap-3 text-sm">
-                          <CalendarDays size={15} className="text-on-surface/35 flex-shrink-0" />
-                          <span className="text-on-surface/45 w-20 flex-shrink-0">Visited</span>
-                          <span className="text-on-surface/75">{new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
-                        </li>
-                      )}
-                      {hasPrice && (
-                        <li className="flex items-center gap-3 text-sm">
-                          <DollarSign size={15} className="text-on-surface/35 flex-shrink-0" />
-                          <span className="text-on-surface/45 w-20 flex-shrink-0">Price</span>
-                          <span className="text-on-surface/75">{myRating.price}</span>
-                        </li>
-                      )}
-                      {hasFriends && (
-                        <li className="flex items-start gap-3 text-sm">
-                          <Users size={15} className="text-on-surface/35 flex-shrink-0 mt-0.5" />
-                          <span className="text-on-surface/45 w-20 flex-shrink-0 pt-0.5">With</span>
-                          <span className="flex flex-wrap gap-1.5">
-                            {myRating.friendIds.map((fid) => (
-                              <span key={fid} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-primary/8 text-primary/80">
-                                {friendNames[fid] || fid.slice(0, 8)}
-                              </span>
-                            ))}
-                          </span>
-                        </li>
-                      )}
-                    </ul>
+                  ) : (
+                    <button
+                      onClick={() => openAt('notes')}
+                      className="mt-2 text-sm italic text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                    >
+                      Add notes…
+                    </button>
                   )}
                 </div>
-              ) : (
-                <p className="text-sm text-on-surface/35">No personal details added yet · click Edit to add notes, tags, photos</p>
-              )}
+
+                {/* Tags */}
+                <div>
+                  <button
+                    onClick={() => openAt('tags')}
+                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 hover:text-on-surface/60 transition-colors"
+                  >
+                    <Tag size={13} />
+                    <span>Tags</span>
+                    <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
+                  </button>
+                  {hasTags ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {myRating.tags.map((t) => (
+                        <span key={t} className="text-xs font-medium px-3 py-1 rounded-full bg-primary/8 text-primary/80">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => openAt('tags')}
+                      className="mt-2 block text-sm italic text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                    >
+                      Add tags…
+                    </button>
+                  )}
+                </div>
+
+                {/* Photos */}
+                <div>
+                  <button
+                    onClick={() => openAt('photos')}
+                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 hover:text-on-surface/60 transition-colors"
+                  >
+                    <Image size={13} />
+                    <span>Photos</span>
+                    <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
+                  </button>
+                  {hasPhotos ? (
+                    <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+                      {myRating.photos.map((p, i) => (
+                        <img
+                          key={i}
+                          src={p.url}
+                          className="w-28 h-28 rounded-xl object-cover flex-shrink-0 snap-start"
+                          referrerPolicy="no-referrer"
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => openAt('photos')}
+                      className="mt-2 block text-sm italic text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                    >
+                      Add photos…
+                    </button>
+                  )}
+                </div>
+
+                {/* Facts list — each row is its own tappable edit affordance */}
+                <ul className="border-t border-on-surface/[0.06] pt-5 space-y-3">
+                  {/* Score */}
+                  <li>
+                    <button
+                      onClick={() => openAt('main')}
+                      className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                    >
+                      <Star size={15} className="text-on-surface/35 flex-shrink-0" />
+                      <span className="text-on-surface/45 w-20 flex-shrink-0">Score</span>
+                      <span className="text-on-surface/75 flex-1 tabular-nums">{myRating.score.toFixed(1)} <span className="text-on-surface/35">/ 10</span></span>
+                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
+                    </button>
+                  </li>
+
+                  {/* Would return */}
+                  <li>
+                    <button
+                      onClick={() => openAt('main')}
+                      className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                    >
+                      <Heart size={15} className="text-on-surface/35 flex-shrink-0" />
+                      <span className="text-on-surface/45 w-20 flex-shrink-0">Return?</span>
+                      <span className="text-on-surface/75 flex-1">{myRating.wouldReturn ? 'Yes' : 'Nah'}</span>
+                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
+                    </button>
+                  </li>
+
+                  {/* Visited date */}
+                  <li>
+                    <button
+                      onClick={() => openAt('date')}
+                      className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                    >
+                      <CalendarDays size={15} className="text-on-surface/35 flex-shrink-0" />
+                      <span className="text-on-surface/45 w-20 flex-shrink-0">Visited</span>
+                      <span className={cn("flex-1", hasDate ? "text-on-surface/75" : "text-on-surface/30 italic")}>
+                        {hasDate ? dateLabel : 'Add date…'}
+                      </span>
+                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
+                    </button>
+                  </li>
+
+                  {/* Price (skip for hotels) */}
+                  {!isHotel && (
+                    <li>
+                      <button
+                        onClick={() => openAt('price')}
+                        className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                      >
+                        <DollarSign size={15} className="text-on-surface/35 flex-shrink-0" />
+                        <span className="text-on-surface/45 w-20 flex-shrink-0">Price</span>
+                        <span className={cn("flex-1", hasPrice ? "text-on-surface/75" : "text-on-surface/30 italic")}>
+                          {hasPrice ? myRating.price : 'Add price…'}
+                        </span>
+                        <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
+                      </button>
+                    </li>
+                  )}
+
+                  {/* Friends / companions (skip for hotels) */}
+                  {!isHotel && (
+                    <li>
+                      <button
+                        onClick={() => openAt('friends')}
+                        className="group flex items-start gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
+                      >
+                        <Users size={15} className="text-on-surface/35 flex-shrink-0 mt-0.5" />
+                        <span className="text-on-surface/45 w-20 flex-shrink-0 pt-0.5">With</span>
+                        <span className="flex-1">
+                          {hasFriends ? (
+                            <span className="flex flex-wrap gap-1.5">
+                              {myRating.friendIds.map((fid) => (
+                                <span key={fid} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-primary/8 text-primary/80">
+                                  {friendNames[fid] || fid.slice(0, 8)}
+                                </span>
+                              ))}
+                            </span>
+                          ) : (
+                            <span className="text-on-surface/30 italic">Add companions…</span>
+                          )}
+                        </span>
+                        <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 mt-1 transition-colors" />
+                      </button>
+                    </li>
+                  )}
+                </ul>
+              </div>
             </section>
           );
         })()}
