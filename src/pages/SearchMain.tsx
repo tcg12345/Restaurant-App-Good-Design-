@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft, Plus, Heart } from 'lucide-react';
 import { searchPlacesByText, priceLevelToString, extractCityState, type PlaceResult } from '../lib/places';
 import { cn } from '../lib/utils';
 import { LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
+import { useLists } from '../contexts/ListsContext';
 
 const RECENT_SEARCHES_KEY = 'gourmet-canvas-recent-searches-v2';
 const MAX_RECENT = 10;
@@ -111,6 +112,7 @@ function placeToRecent(place: PlaceResult): RecentSearch {
 
 export const SearchMain: React.FC = () => {
   const navigate = useNavigate();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>(() => readRecentSearches());
   const [results, setResults] = useState<PlaceResult[]>([]);
@@ -307,12 +309,28 @@ export const SearchMain: React.FC = () => {
                   const distance = locationKnown
                     ? formatDistance(haversineDistanceMi(userLat, userLng, place.lat, place.lng))
                     : '';
+                  const wishlisted = isWishlisted(place.id);
+                  const meta = {
+                    id: place.id,
+                    name: place.name,
+                    image: place.photoUrl || '',
+                    cuisine: location || 'Restaurant',
+                    price,
+                    address: place.address || '',
+                  };
                   return (
                     <li key={place.id}>
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => handleSelectResult(place)}
-                        className="w-full flex gap-4 py-4 px-2 -mx-2 rounded-xl text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05]"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleSelectResult(place);
+                          }
+                        }}
+                        className="w-full flex gap-4 py-4 px-2 -mx-2 rounded-xl text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       >
                         <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
                           {place.photoUrl ? (
@@ -344,7 +362,36 @@ export const SearchMain: React.FC = () => {
                             <p className="mt-0.5 text-xs text-on-surface/50">{distance}</p>
                           )}
                         </div>
-                      </button>
+                        <div className="flex items-center gap-1.5 flex-shrink-0 self-center">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openWishlistModal(meta);
+                            }}
+                            className={cn(
+                              'w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
+                              wishlisted ? 'text-primary' : 'text-on-surface/70 hover:text-primary',
+                            )}
+                            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                          >
+                            <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openAddRestaurantModal(meta);
+                            }}
+                            className="w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
+                            aria-label="Add to list"
+                          >
+                            <Plus size={16} />
+                          </button>
+                        </div>
+                      </div>
                     </li>
                   );
                 })}

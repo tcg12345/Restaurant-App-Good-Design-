@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Filter, X, ChevronDown, Loader2, Star, Users } from 'lucide-react';
+import { Search as SearchIcon, Filter, X, ChevronDown, Loader2, Star, Users, Plus, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useLists } from '../contexts/ListsContext';
 import {
   getAllFriendRatings,
   getProfilesByIds,
@@ -41,6 +42,7 @@ type SortOption = 'recent' | 'highest' | 'lowest';
 export const FollowingFeed: React.FC = () => {
   const { user } = useAuth();
   const { setHideBottomNav } = useSettings();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
   const navigate = useNavigate();
 
   const [ratings, setRatings] = useState<CommunityRating[]>(() =>
@@ -313,12 +315,28 @@ export const FollowingFeed: React.FC = () => {
               const profile = profiles[r.user_id];
               const city = extractCity(r.address);
               const score = Number(r.score) || 0;
+              const wishlisted = isWishlisted(r.restaurant_id);
+              const meta = {
+                id: r.restaurant_id,
+                name: r.restaurant_name || '',
+                image: r.photo_url || '',
+                cuisine: r.cuisine || '',
+                price: r.price || '',
+                address: r.address || '',
+              };
               return (
                 <li key={r.id}>
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                    className="block w-full py-5 text-left group"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        navigate(`/restaurant/${r.restaurant_id}`);
+                      }
+                    }}
+                    className="block w-full py-5 text-left group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
                   >
                     {/* Full-width cover image */}
                     <div className="w-full aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3 relative flex items-center justify-center">
@@ -334,6 +352,36 @@ export const FollowingFeed: React.FC = () => {
                           }}
                         />
                       )}
+                      {/* Overlaid rate + wishlist actions */}
+                      <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5 z-10">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openWishlistModal(meta);
+                          }}
+                          className={cn(
+                            'w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
+                            wishlisted ? 'text-primary' : 'text-on-surface/70 hover:text-primary',
+                          )}
+                          aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                        >
+                          <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openAddRestaurantModal(meta);
+                          }}
+                          className="w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
+                          aria-label="Add to list"
+                        >
+                          <Plus size={16} />
+                        </button>
+                      </div>
                     </div>
                     {/* Details below image */}
                     <div className="flex items-start justify-between gap-3">
@@ -353,7 +401,7 @@ export const FollowingFeed: React.FC = () => {
                         via <span className="font-semibold text-on-surface/75">{profile.display_name || profile.username}</span>
                       </p>
                     )}
-                  </button>
+                  </div>
                 </li>
               );
             })}

@@ -98,12 +98,12 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
       type="button"
       onClick={(e) => stop(e, onHeart)}
       className={cn(
-        'w-8 h-8 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md transition-colors',
-        isWishlisted ? 'text-red-400' : 'text-white hover:text-red-300',
+        'w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
+        isWishlisted ? 'text-primary' : 'text-on-surface/70 hover:text-primary',
       )}
       aria-label={isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
     >
-      <Heart size={15} className={cn(isWishlisted && 'fill-red-400')} />
+      <Heart size={16} className={cn(isWishlisted && 'fill-primary')} />
     </button>
   ) : null;
 
@@ -111,10 +111,10 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
     <button
       type="button"
       onClick={(e) => stop(e, onAdd)}
-      className="w-8 h-8 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md text-white hover:text-primary transition-colors"
+      className="w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
       aria-label="Add to list"
     >
-      <Plus size={15} />
+      <Plus size={16} />
     </button>
   ) : null;
 
@@ -203,8 +203,8 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
         <div className="absolute top-3 left-3 right-3 flex items-start justify-between gap-2 z-10">
           <div>{isHotel && hotelPill}</div>
           <div className="flex items-center gap-2">
-            {addButton}
             {heartButton}
+            {addButton}
           </div>
         </div>
 
@@ -244,14 +244,14 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           referrerPolicy="no-referrer"
         />
 
-        {/* Top action row */}
+        {/* Top action row — hotel pill on the left, rate/wishlist on the right */}
         <div className="absolute top-2.5 left-2.5 right-2.5 flex items-start justify-between gap-2 z-10">
-          {addButton ?? <div />}
-          {heartButton}
+          <div>{isHotel && hotelPill}</div>
+          <div className="flex items-center gap-1.5">
+            {heartButton}
+            {addButton}
+          </div>
         </div>
-
-        {/* Bottom-left hotel pill */}
-        {isHotel && <div className="absolute bottom-2.5 left-2.5 z-10">{hotelPill}</div>}
 
         {/* Bottom-right score badge */}
         <div className="absolute bottom-2.5 right-2.5 z-10">
