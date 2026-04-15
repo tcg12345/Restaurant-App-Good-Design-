@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
 import { supabaseConfigured } from '../lib/supabase';
@@ -52,7 +52,20 @@ export function useRestaurantDetail() {
   const [photoIndex, setPhotoIndex] = useState(0);
   const [hoursOpen, setHoursOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const mapContainerRef = useRef<HTMLDivElement>(null);
+  // We deliberately track the map container in STATE (via a callback ref)
+  // rather than useRef. The Restaurant Detail page returns a loading
+  // spinner while `place` is still being fetched, which means the map
+  // <div> is not in the DOM during the loading→loaded transition. With a
+  // plain useRef, the effect that depends on `[place]` fires the moment
+  // `setPlace` runs but BEFORE `setLoading(false)` — so when the effect
+  // runs, the container hasn't been mounted yet, `ref.current` is null,
+  // and after the loader unmounts the effect never re-runs (deps didn't
+  // change). A callback ref flips a state value on mount, which makes the
+  // init effect re-run once the container actually exists.
+  const [mapContainerEl, setMapContainerEl] = useState<HTMLDivElement | null>(null);
+  const mapContainerRef = useCallback((el: HTMLDivElement | null) => {
+    setMapContainerEl(el);
+  }, []);
   const mapRef = useRef<mapboxgl.Map | null>(null);
 
   useEffect(() => {
@@ -66,14 +79,13 @@ export function useRestaurantDetail() {
   }, [id]);
 
   useEffect(() => {
-    const container = mapContainerRef.current;
-    if (!place || !container || !MAPBOX_TOKEN) return;
+    if (!place || !mapContainerEl || !MAPBOX_TOKEN) return;
     // Guard against valid-but-zero coords from a partial response.
     if (!Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
 
     mapboxgl.accessToken = MAPBOX_TOKEN;
     const map = new mapboxgl.Map({
-      container,
+      container: mapContainerEl,
       style: 'mapbox://styles/mapbox/light-v11',
       center: [place.lng, place.lat],
       zoom: 15,
@@ -95,7 +107,7 @@ export function useRestaurantDetail() {
     const ro = new ResizeObserver(() => {
       try { map.resize(); } catch {}
     });
-    ro.observe(container);
+    ro.observe(mapContainerEl);
     // Belt-and-braces: one forced resize on the next frame picks up the
     // correct dimensions even in environments where ResizeObserver hasn't
     // fired yet (e.g. very fast initial paint).
@@ -109,10 +121,10 @@ export function useRestaurantDetail() {
       map.remove();
       mapRef.current = null;
     };
-    // Depend on stable primitives so we don't tear down the map on
-    // unrelated `place` object reference changes, but DO recreate it when
-    // the user navigates to a different restaurant (different id/coords).
-  }, [place?.id, place?.lat, place?.lng]);
+    // Depend on the container element and the stable coord primitives so
+    // the map is (re)created whenever the container mounts/unmounts or
+    // the user navigates to a different restaurant.
+  }, [mapContainerEl, place?.id, place?.lat, place?.lng]);
 
   // Track recently viewed restaurants
   useEffect(() => {
