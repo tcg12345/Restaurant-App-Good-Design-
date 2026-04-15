@@ -404,7 +404,7 @@ export const SocialFeed: React.FC = () => {
           </ul>
         )
       ) : (
-      <ul className="divide-y divide-on-surface/[0.06]">
+      <ul>
         {feedItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
@@ -494,162 +494,177 @@ export const SocialFeed: React.FC = () => {
             address: r.address || '',
           };
           return (
-          <li key={r.id} className="py-5">
-            {/* User header */}
-            <div className="flex items-center gap-3 mb-3">
-              <Link to={`/user/${getUsername(r.user_id)}`}>
-                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center", color.bg)}>
-                  <span className={cn("text-sm font-serif font-bold", color.text)}>{initial}</span>
-                </div>
-              </Link>
-              <div className="flex-1 min-w-0">
-                <Link to={`/user/${getUsername(r.user_id)}`} className="text-sm font-bold hover:text-primary">{getName(r.user_id)}</Link>
-                <p className="text-[11px] text-on-surface/40 font-medium uppercase tracking-wider">
-                  {profiles[r.user_id]?.is_expert
-                    ? <span className="inline-flex items-center gap-1 text-amber-600 font-bold"><Star size={10} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
-                    : <>Rated · {timeAgo(r.created_at)}</>}
-                </p>
-              </div>
-            </div>
+          <li key={r.id} className="py-2">
+            <article className="max-w-[640px] bg-white border border-on-surface/[0.08] rounded-2xl shadow-sm overflow-hidden">
+              {/* Photo + content */}
+              <div className="flex gap-3 p-3 sm:gap-4 sm:p-4">
+                {/* Photo thumbnail */}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                  className="flex-shrink-0 w-[120px] sm:w-[200px] md:w-[220px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  aria-label={`View ${r.restaurant_name}`}
+                >
+                  {r.photo_url ? (
+                    <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-serif text-4xl font-bold text-on-surface/20">
+                      {initialOf(r.restaurant_name)}
+                    </div>
+                  )}
+                </button>
 
-            {/* Restaurant body — tappable */}
-            <button
-              type="button"
-              onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-              className="block w-full text-left group"
-            >
-              {/* Cover image (capped on desktop) */}
-              <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3">
-                {r.photo_url ? (
-                  <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center font-serif text-4xl font-bold text-on-surface/20">
-                    {initialOf(r.restaurant_name)}
-                  </div>
-                )}
-              </div>
-              {/* Details below image */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-serif font-bold text-[17px] leading-snug line-clamp-2">{r.restaurant_name}</h3>
-                  <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                    {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}
-                  </p>
-                </div>
-                <span className={cn("text-2xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
-                  {Number(r.score).toFixed(1)}
-                </span>
-              </div>
-              {r.tags && r.tags.length > 0 && (
-                <div className="flex gap-1.5 mt-2 flex-wrap">
-                  {r.tags.slice(0, 3).map((t) => (
-                    <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
-                  ))}
-                </div>
-              )}
-              {r.notes && (
-                <p className="mt-3 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
-                  &ldquo;{r.notes}&rdquo;
-                </p>
-              )}
-            </button>
-
-            {/* Actions row — ghost buttons, 44px tap targets */}
-            <div className="flex items-center gap-1 mt-2 -ml-2">
-              <button
-                onClick={() => handleLike(r.id)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 min-h-[44px] px-2 rounded-full transition-colors",
-                  userLiked.has(r.id)
-                    ? "text-red-500"
-                    : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
-                )}
-              >
-                <Heart size={18} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
-                <span className="text-[12px] font-bold">{likes[r.id] || 0}</span>
-              </button>
-              <button
-                onClick={() => handleOpenComments(r.id)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 min-h-[44px] px-2 rounded-full transition-colors",
-                  openComments === r.id
-                    ? "text-primary"
-                    : "text-on-surface/50 hover:text-primary hover:bg-on-surface/[0.04]"
-                )}
-              >
-                <MessageSquare size={18} />
-                <span className="text-[12px] font-bold">{commentCounts[r.id] || 0}</span>
-              </button>
-              <div className="flex-1" />
-              <button
-                onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
-                className="inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
-              >
-                <Plus size={14} /> Rate
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); openWishlistModal(meta); }}
-                className={cn(
-                  "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full transition-colors",
-                  wishlisted
-                    ? "text-red-500 hover:bg-red-500/5"
-                    : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
-                )}
-                aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-              >
-                <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
-              </button>
-            </div>
-
-            {/* Comments */}
-            <AnimatePresence>
-              {openComments === r.id && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                  <div className="mt-3 pt-3 border-t border-on-surface/[0.06] space-y-3">
-                    {commentsLoading ? (
-                      <div className="space-y-2 py-1">
-                        <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-4/5" />
-                        <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-3/5" />
+                {/* Content stack */}
+                <div className="flex-1 min-w-0 flex flex-col">
+                  {/* Reviewer header */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <Link to={`/user/${getUsername(r.user_id)}`} className="flex-shrink-0">
+                      <div className={cn("w-7 h-7 rounded-full flex items-center justify-center", color.bg)}>
+                        <span className={cn("text-[11px] font-serif font-bold", color.text)}>{initial}</span>
                       </div>
-                    ) : comments.length === 0 ? (
-                      <p className="text-[12px] text-on-surface/40 py-1">No comments yet — be the first!</p>
-                    ) : (
-                      <div className="space-y-3 max-h-52 overflow-y-auto">
-                        {comments.map((c) => {
-                          const cColor = avatarColor(c.user_id);
-                          const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
-                          return (
-                          <div key={c.id} className="flex gap-2.5">
-                            <div className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", cColor.bg)}>
-                              <span className={cn("text-[13px] font-serif font-bold", cColor.text)}>{cInitial}</span>
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-[12px] leading-relaxed">
-                                <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">{commentProfiles[c.user_id]?.display_name || 'User'}</Link>{' '}
-                                <span className="text-on-surface/60">{c.text}</span>
-                              </p>
-                              <p className="text-[12px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
-                            </div>
-                          </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 pt-1">
-                      <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)}
-                        placeholder="Write a comment..."
-                        className="flex-1 bg-on-surface/5 rounded-full min-h-[44px] px-4 text-[12px] focus:outline-none focus:ring-1 focus:ring-primary/20"
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddComment(r.id)} />
-                      <button onClick={() => handleAddComment(r.id)} disabled={!newComment.trim()}
-                        className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
-                        aria-label="Post comment">
-                        <Send size={18} />
-                      </button>
+                    </Link>
+                    <div className="flex-1 min-w-0">
+                      <Link to={`/user/${getUsername(r.user_id)}`} className="text-[12px] font-bold hover:text-primary block truncate leading-tight">
+                        {getName(r.user_id)}
+                      </Link>
+                      <p className="text-[10px] text-on-surface/40 font-medium uppercase tracking-wider leading-tight mt-0.5">
+                        {profiles[r.user_id]?.is_expert
+                          ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
+                          : <>Rated · {timeAgo(r.created_at)}</>}
+                      </p>
                     </div>
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+
+                  {/* Tappable restaurant info */}
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                    className="block text-left group focus-visible:outline-none"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="font-serif font-bold text-[15px] sm:text-[16px] leading-tight flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">
+                        {r.restaurant_name}
+                      </h3>
+                      <span className={cn("text-lg sm:text-xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
+                        {Number(r.score).toFixed(1)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                      {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}
+                    </p>
+                    {r.tags && r.tags.length > 0 && (
+                      <div className="flex gap-1 mt-1.5 flex-wrap">
+                        {r.tags.slice(0, 3).map((t) => (
+                          <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
+                        ))}
+                      </div>
+                    )}
+                    {r.notes && (
+                      <p className="mt-2 text-[12px] text-on-surface/60 italic leading-relaxed line-clamp-3">
+                        &ldquo;{r.notes}&rdquo;
+                      </p>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Actions row — slim bar at bottom of card */}
+              <div className="flex items-center gap-0.5 px-2 py-1 border-t border-on-surface/[0.06]">
+                <button
+                  onClick={() => handleLike(r.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 min-h-[40px] px-2.5 rounded-full transition-colors",
+                    userLiked.has(r.id)
+                      ? "text-red-500"
+                      : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                  )}
+                >
+                  <Heart size={16} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
+                  <span className="text-[12px] font-bold">{likes[r.id] || 0}</span>
+                </button>
+                <button
+                  onClick={() => handleOpenComments(r.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 min-h-[40px] px-2.5 rounded-full transition-colors",
+                    openComments === r.id
+                      ? "text-primary"
+                      : "text-on-surface/50 hover:text-primary hover:bg-on-surface/[0.04]"
+                  )}
+                >
+                  <MessageSquare size={16} />
+                  <span className="text-[12px] font-bold">{commentCounts[r.id] || 0}</span>
+                </button>
+                <div className="flex-1" />
+                <button
+                  onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
+                  className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
+                >
+                  <Plus size={14} /> Rate
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); openWishlistModal(meta); }}
+                  className={cn(
+                    "inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded-full transition-colors",
+                    wishlisted
+                      ? "text-red-500 hover:bg-red-500/5"
+                      : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                  )}
+                  aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                >
+                  <Heart size={16} className={wishlisted ? 'fill-red-500' : ''} />
+                </button>
+              </div>
+
+              {/* Comments */}
+              <AnimatePresence>
+                {openComments === r.id && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                    <div className="px-4 pb-4 pt-3 border-t border-on-surface/[0.06] space-y-3">
+                      {commentsLoading ? (
+                        <div className="space-y-2 py-1">
+                          <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-4/5" />
+                          <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-3/5" />
+                        </div>
+                      ) : comments.length === 0 ? (
+                        <p className="text-[12px] text-on-surface/40 py-1">No comments yet — be the first!</p>
+                      ) : (
+                        <div className="space-y-3 max-h-52 overflow-y-auto">
+                          {comments.map((c) => {
+                            const cColor = avatarColor(c.user_id);
+                            const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
+                            return (
+                            <div key={c.id} className="flex gap-2.5">
+                              <div className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", cColor.bg)}>
+                                <span className={cn("text-[13px] font-serif font-bold", cColor.text)}>{cInitial}</span>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[12px] leading-relaxed">
+                                  <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">{commentProfiles[c.user_id]?.display_name || 'User'}</Link>{' '}
+                                  <span className="text-on-surface/60">{c.text}</span>
+                                </p>
+                                <p className="text-[12px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
+                              </div>
+                            </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 pt-1">
+                        <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)}
+                          placeholder="Write a comment..."
+                          className="flex-1 bg-on-surface/5 rounded-full min-h-[40px] px-4 text-[12px] focus:outline-none focus:ring-1 focus:ring-primary/20"
+                          onKeyDown={(e) => e.key === 'Enter' && handleAddComment(r.id)} />
+                        <button onClick={() => handleAddComment(r.id)} disabled={!newComment.trim()}
+                          className="inline-flex items-center justify-center min-w-[40px] min-h-[40px] text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
+                          aria-label="Post comment">
+                          <Send size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </article>
           </li>
           );
         })}
