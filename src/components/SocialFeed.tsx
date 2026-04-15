@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
@@ -43,6 +44,7 @@ export const SocialFeed: React.FC = () => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const navigate = useNavigate();
+  const { phoneMode } = useSettings();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
 
   const [activity, setActivity] = useState<CommunityRating[]>([]);
@@ -496,22 +498,24 @@ export const SocialFeed: React.FC = () => {
           return (
           <li key={r.id} className="py-5">
             {/* Photo + content — no box, full width */}
-            <div className="flex md:gap-4">
-              {/* Photo thumbnail — desktop only */}
-              <button
-                type="button"
-                onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                className="hidden md:block flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                aria-label={`View ${r.restaurant_name}`}
-              >
-                {r.photo_url ? (
-                  <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center font-serif text-3xl font-bold text-on-surface/20">
-                    {initialOf(r.restaurant_name)}
-                  </div>
-                )}
-              </button>
+            <div className={cn("flex", !phoneMode && "md:gap-4")}>
+              {/* Photo thumbnail — desktop only (hidden in phone mode) */}
+              {!phoneMode && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                  className="hidden md:block flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  aria-label={`View ${r.restaurant_name}`}
+                >
+                  {r.photo_url ? (
+                    <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-serif text-3xl font-bold text-on-surface/20">
+                      {initialOf(r.restaurant_name)}
+                    </div>
+                  )}
+                </button>
+              )}
 
               {/* Content stack */}
               <div className="flex-1 min-w-0 flex flex-col">

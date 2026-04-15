@@ -41,7 +41,7 @@ type SortOption = 'recent' | 'highest' | 'lowest';
 
 export const FollowingFeed: React.FC = () => {
   const { user } = useAuth();
-  const { setHideBottomNav } = useSettings();
+  const { setHideBottomNav, phoneMode } = useSettings();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
   const navigate = useNavigate();
 
@@ -310,7 +310,7 @@ export const FollowingFeed: React.FC = () => {
               </button>
             )}
           </div>
-          <ul className="divide-y divide-on-surface/[0.06] md:divide-y-0">
+          <ul className={cn("divide-y divide-on-surface/[0.06]", !phoneMode && "md:divide-y-0")}>
             {visible.map((r) => {
               const profile = profiles[r.user_id];
               const city = extractCity(r.address);
@@ -339,7 +339,7 @@ export const FollowingFeed: React.FC = () => {
                     className="block w-full text-left group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
                   >
                     {/* ── Mobile layout — info only, no photo ── */}
-                    <div className="md:hidden py-4">
+                    <div className={cn("py-4", phoneMode ? "block" : "md:hidden")}>
                       {/* Restaurant name + score */}
                       <div className="flex items-start justify-between gap-3">
                         <h4 className="font-serif text-[17px] font-bold text-on-surface leading-snug line-clamp-2 flex-1 min-w-0">
@@ -394,7 +394,7 @@ export const FollowingFeed: React.FC = () => {
                     </div>
 
                     {/* ── Desktop layout — unboxed horizontal card ── */}
-                    <div className="hidden md:block py-3">
+                    <div className={cn("py-3", phoneMode ? "hidden" : "hidden md:block")}>
                       <div className="flex gap-4">
                         {/* Photo thumbnail */}
                         <div className="flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] relative flex items-center justify-center">
