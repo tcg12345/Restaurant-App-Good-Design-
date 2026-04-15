@@ -338,54 +338,9 @@ export const FollowingFeed: React.FC = () => {
                     }}
                     className="block w-full text-left group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
                   >
-                    {/* ── Mobile layout — unchanged: cover image on top ── */}
-                    <div className="md:hidden py-5">
-                      {/* Cover image (capped on desktop) */}
-                      <div className="w-full max-w-md aspect-[16/10] rounded-lg overflow-hidden bg-on-surface/[0.05] mb-3 relative flex items-center justify-center">
-                        <SearchIcon size={32} className="text-on-surface/20" />
-                        {r.photo_url && (
-                          <img
-                            src={r.photo_url}
-                            alt=""
-                            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
-                            loading="lazy"
-                            onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        )}
-                        {/* Overlaid rate + wishlist actions */}
-                        <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5 z-10">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              openWishlistModal(meta);
-                            }}
-                            className={cn(
-                              'w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
-                              wishlisted ? 'text-primary' : 'text-on-surface/70 hover:text-primary',
-                            )}
-                            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-                          >
-                            <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              openAddRestaurantModal(meta);
-                            }}
-                            className="w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
-                            aria-label="Add to list"
-                          >
-                            <Plus size={16} />
-                          </button>
-                        </div>
-                      </div>
-                      {/* Details below image */}
+                    {/* ── Mobile layout — info only, no photo ── */}
+                    <div className="md:hidden py-4">
+                      {/* Restaurant name + score */}
                       <div className="flex items-start justify-between gap-3">
                         <h4 className="font-serif text-[17px] font-bold text-on-surface leading-snug line-clamp-2 flex-1 min-w-0">
                           {r.restaurant_name}
@@ -403,6 +358,39 @@ export const FollowingFeed: React.FC = () => {
                           via <span className="font-semibold text-on-surface/75">{profile.display_name || profile.username}</span>
                         </p>
                       )}
+
+                      {/* Actions row */}
+                      <div className="flex items-center gap-1 mt-2 -ml-2">
+                        <div className="flex-1" />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openAddRestaurantModal(meta);
+                          }}
+                          className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
+                        >
+                          <Plus size={14} /> Rate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openWishlistModal(meta);
+                          }}
+                          className={cn(
+                            "inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded-full transition-colors",
+                            wishlisted
+                              ? "text-red-500 hover:bg-red-500/5"
+                              : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                          )}
+                          aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                        >
+                          <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
+                        </button>
+                      </div>
                     </div>
 
                     {/* ── Desktop layout — unboxed horizontal card ── */}

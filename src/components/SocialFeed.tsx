@@ -496,12 +496,12 @@ export const SocialFeed: React.FC = () => {
           return (
           <li key={r.id} className="py-5">
             {/* Photo + content — no box, full width */}
-            <div className="flex gap-4">
-              {/* Photo thumbnail */}
+            <div className="flex md:gap-4">
+              {/* Photo thumbnail — desktop only */}
               <button
                 type="button"
                 onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                className="flex-shrink-0 w-[96px] sm:w-[120px] md:w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                className="hidden md:block flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 aria-label={`View ${r.restaurant_name}`}
               >
                 {r.photo_url ? (
