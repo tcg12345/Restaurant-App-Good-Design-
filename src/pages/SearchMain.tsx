@@ -214,51 +214,53 @@ export const SearchMain: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
-      <header className="sticky top-0 w-full px-4 py-3 flex items-center gap-3 bg-surface/80 backdrop-blur-md z-40">
-        <button
-          type="button"
-          onClick={() => navigate('/search')}
-          className="w-10 h-10 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors flex-shrink-0"
-          aria-label="Back"
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <form
-          className="flex-1 relative"
-          onSubmit={(e) => {
-            e.preventDefault();
-            runSearch(searchQuery);
-          }}
-        >
-          <SearchIcon size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search restaurants, cuisines..."
-            className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06] transition-all"
-            autoCapitalize="off"
-            autoCorrect="off"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('');
-                setResults([]);
-                inputRef.current?.focus();
-              }}
-              className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60"
-              aria-label="Clear search"
-            >
-              <X size={16} />
-            </button>
-          )}
-        </form>
+      <header className="sticky top-0 w-full bg-surface/80 backdrop-blur-md z-40">
+        <div className="px-4 py-3 flex items-center gap-3 md:max-w-2xl md:mx-auto">
+          <button
+            type="button"
+            onClick={() => navigate('/search')}
+            className="w-10 h-10 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors flex-shrink-0"
+            aria-label="Back"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <form
+            className="flex-1 relative"
+            onSubmit={(e) => {
+              e.preventDefault();
+              runSearch(searchQuery);
+            }}
+          >
+            <SearchIcon size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
+            <input
+              ref={inputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search restaurants, cuisines..."
+              className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06] transition-all"
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setResults([]);
+                  inputRef.current?.focus();
+                }}
+                className="absolute inset-y-0 right-3 flex items-center text-on-surface/30 hover:text-on-surface/60"
+                aria-label="Clear search"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </form>
+        </div>
       </header>
 
-      <main className="px-4 pt-2">
+      <main className="px-4 pt-2 md:max-w-2xl md:mx-auto">
         {hasQuery ? (
           // ── Search results ──
           <>
