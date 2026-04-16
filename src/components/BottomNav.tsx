@@ -20,23 +20,37 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
   const location = useLocation();
   const splitTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Collapse the split when navigating away from search-related pages
+  const isSearchActive = location.pathname === '/search';
+  const isMapActive = location.pathname === '/map';
+  const isSearchOrMap = isSearchActive || isMapActive;
+
+  // On the map page the nav is collapsible and should show the split by default
   useEffect(() => {
-    if (location.pathname !== '/search' && location.pathname !== '/map') {
+    if (isMapActive && collapsible) {
+      setSearchSplit(true);
+    }
+  }, [isMapActive, collapsible]);
+
+  // Collapse the split when navigating away from search-related pages
+  // (but not when collapsible on the map page — that stays split)
+  useEffect(() => {
+    if (!isSearchOrMap) {
       setSearchSplit(false);
     }
   }, [location.pathname]);
 
-  // Close split when tapping outside (any other nav item handles this via onClick)
   const closeSplit = () => {
     clearTimeout(splitTimerRef.current);
-    setSearchSplit(false);
+    // Don't close the split if we're on the map page with collapsible nav
+    if (!(isMapActive && collapsible)) {
+      setSearchSplit(false);
+    }
   };
 
-  const isSearchActive = location.pathname === '/search';
-  const isMapActive = location.pathname === '/map';
-  const isSearchOrMap = isSearchActive || isMapActive;
   const isExpanded = !collapsible || expanded;
+
+  // When collapsed on the map page, show the search/map split; otherwise show explore
+  const collapsedShowsSearch = collapsible && isMapActive;
 
   return (
     <motion.nav
@@ -66,7 +80,12 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
         {navItems.map((item) => {
           const isExplore = (item as any).isExplore;
           const isSplittable = (item as any).splitsWith === 'map';
-          const shouldShow = isExpanded || isExplore;
+
+          // Visibility when collapsed:
+          // - On map page: show the search/map split, hide everything else
+          // - On other collapsible pages: show explore, hide everything else
+          const shouldShow = isExpanded
+            || (collapsedShowsSearch ? isSplittable : isExplore);
 
           if (!shouldShow) return null;
 
@@ -118,6 +137,9 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
 
           // ── Search button with split into Search + Map ──
           if (isSplittable) {
+            // Force split open when collapsed on the map page
+            const showSplit = searchSplit || (collapsedShowsSearch && !isExpanded);
+
             return (
               <motion.div
                 key={item.label}
@@ -134,7 +156,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                 className={cn("flex items-center justify-center", isExpanded ? `flex-1 ${phoneMode ? 'min-w-[3rem]' : 'min-w-[3.5rem]'}` : "flex-none")}
               >
                 <AnimatePresence mode="popLayout" initial={false}>
-                  {searchSplit ? (
+                  {showSplit ? (
                     /* ── Split state: two buttons side by side ── */
                     <motion.div
                       key="split"
@@ -192,14 +214,11 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                       key="single"
                       layoutId="search-icon"
                       onClick={() => {
-                        // If already on search or map, just toggle the split
                         if (isSearchOrMap) {
                           setSearchSplit(true);
                           return;
                         }
-                        // First tap: split open
                         setSearchSplit(true);
-                        // Navigate to search after a beat so the user sees the split
                         splitTimerRef.current = setTimeout(() => {
                           navigate('/search');
                         }, 200);
