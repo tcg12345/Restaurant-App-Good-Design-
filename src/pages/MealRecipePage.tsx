@@ -12,7 +12,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Star, Check, Share2 } from 'lucide-react';
+import { ArrowLeft, Star, Check, Share2, MessageSquare } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
@@ -37,6 +37,7 @@ import {
   RecipeDirectionsList,
   RecipeReviewList,
   RecipeMobileSectionNav,
+  RecipeEmptyState,
   type QuickInfoItem,
   type ReviewListItem,
 } from '../lib/recipe-display';
@@ -472,9 +473,11 @@ export const MealRecipePage: React.FC = () => {
       {loadingReviews ? (
         <p className="text-sm text-on-surface/40 text-center py-6">Loading reviews…</p>
       ) : reviews.length === 0 ? (
-        <p className="text-sm text-on-surface/40 text-center py-6">
-          Be the first to rate this recipe.
-        </p>
+        <RecipeEmptyState
+          icon={MessageSquare}
+          title="No reviews yet"
+          hint="Be the first to rate this recipe."
+        />
       ) : (
         <RecipeReviewList
           reviews={reviewListItems}
@@ -605,7 +608,7 @@ export const MealRecipePage: React.FC = () => {
 
       {/* Sticky jump nav */}
       {jumpTargets.length > 1 && (
-        <nav className="sticky top-0 z-20 bg-surface/85 backdrop-blur-md border-b border-on-surface/8 mb-6">
+        <nav className="sticky top-0 z-20 bg-surface/75 backdrop-blur-md mb-6">
           <div className="flex gap-1 py-2.5 overflow-x-auto scrollbar-hide">
             {jumpTargets.map((t) => (
               <a

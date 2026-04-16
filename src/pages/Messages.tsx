@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, Share2, ChefHat, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreColor } from '../lib/score';
 import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
@@ -17,9 +18,7 @@ const RestaurantShareCard: React.FC<{
   onClick?: () => void;
 }> = ({ restaurant, isMe, hasTextAbove, onClick }) => {
   // Color tokens adapt to bubble side
-  const scoreColor = isMe
-    ? 'text-white'
-    : (restaurant.score ?? 0) >= 8 ? 'text-green-600' : (restaurant.score ?? 0) >= 5 ? 'text-yellow-600' : 'text-red-500';
+  const scoreClr = isMe ? 'text-white' : scoreColor(restaurant.score ?? 0);
   const titleCls = isMe ? 'text-white' : 'text-on-surface';
   const subCls = isMe ? 'text-white/75' : 'text-on-surface/50';
   const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
@@ -53,7 +52,7 @@ const RestaurantShareCard: React.FC<{
           </div>
           {restaurant.isReview && restaurant.score !== undefined && (
             <div className="flex-shrink-0 text-right leading-none pl-1">
-              <span className={cn("text-lg font-serif font-bold tabular-nums", scoreColor)}>{restaurant.score.toFixed(1)}</span>
+              <span className={cn("text-lg font-serif font-bold tabular-nums", scoreClr)}>{restaurant.score.toFixed(1)}</span>
               <p className={cn("text-[9px] font-medium", faintCls)}>/10</p>
             </div>
           )}
@@ -233,7 +232,6 @@ const ShareRestaurantSheet: React.FC<{
               ) : (
                 <div className="space-y-2 pt-2">
                   {filteredRatings.map((r) => {
-                    const scoreColor = r.score >= 8 ? 'text-green-500' : r.score >= 5 ? 'text-yellow-500' : 'text-red-400';
                     return (
                       <div key={r.restaurantId} className="flex items-center gap-3 p-2.5 rounded-xl border border-on-surface/8 hover:border-on-surface/15 transition-all">
                         {r.image ? (
@@ -247,7 +245,7 @@ const ShareRestaurantSheet: React.FC<{
                           <p className="text-sm font-semibold text-on-surface/80 truncate">{r.name}</p>
                           <p className="text-[11px] text-on-surface/40">{r.cuisine} · {r.price}</p>
                         </div>
-                        <span className={cn("text-sm font-serif font-bold tabular-nums mr-1", scoreColor)}>{r.score.toFixed(1)}</span>
+                        <span className={cn("text-sm font-serif font-bold tabular-nums mr-1", scoreColor(r.score))}>{r.score.toFixed(1)}</span>
                         <div className="flex flex-col gap-1 flex-shrink-0">
                           <button onClick={() => handleShareReview(r)}
                             className="px-2.5 py-1 bg-primary text-white text-[10px] font-semibold rounded-lg hover:bg-primary/90 transition-colors">
@@ -542,7 +540,7 @@ const ChatView: React.FC<{
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-on-surface/6 flex-shrink-0 bg-surface/80 backdrop-blur-md">
+      <div className="flex items-center gap-3 px-4 py-3 flex-shrink-0 bg-surface/70 backdrop-blur-md">
         <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
           <ArrowLeft size={20} />
         </button>
@@ -730,7 +728,7 @@ const ChatView: React.FC<{
                     {pendingShare.cuisine && <span className="text-[10px] text-on-surface/40">{pendingShare.cuisine}</span>}
                     {pendingShare.price && <span className="text-[10px] text-on-surface/30">{pendingShare.price}</span>}
                     {pendingShare.isReview && pendingShare.score !== undefined && (
-                      <span className={cn("text-[10px] font-bold", pendingShare.score >= 8 ? 'text-green-500' : pendingShare.score >= 5 ? 'text-yellow-500' : 'text-red-400')}>
+                      <span className={cn("text-[10px] font-bold", scoreColor(pendingShare.score))}>
                         {pendingShare.score.toFixed(1)}
                       </span>
                     )}

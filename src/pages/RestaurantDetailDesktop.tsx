@@ -7,6 +7,7 @@ import {
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreColor, scoreDotBg } from '../lib/score';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
@@ -347,8 +348,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
             const hasCommunity = communityStats.totalRatings > 0;
             const hasFriends = !isHotel && friendsStats.totalRatings > 0;
             const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
-            const scoreColor = (s: number) =>
-              s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
             const communityLabel = isHotel ? 'Breakfast' : 'Community';
 
             return (
@@ -480,7 +479,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                             </p>
                           </div>
                           {score != null && (
-                            <span className={cn("text-xl font-serif font-bold flex-shrink-0 pt-0.5", score >= 8 ? 'text-green-600' : score >= 5 ? 'text-yellow-600' : 'text-red-500')}>
+                            <span className={cn("text-xl font-serif font-bold flex-shrink-0 pt-0.5", scoreColor(score))}>
                               {score.toFixed(1)}
                             </span>
                           )}
@@ -504,7 +503,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <ul className="divide-y divide-on-surface/[0.06]">
               {expertRecommendations.map((rec) => {
                 const isExpanded = expandedExpertId === rec.id;
-                const scoreColor = Number(rec.rating) >= 8 ? 'text-green-600' : Number(rec.rating) >= 5 ? 'text-yellow-600' : 'text-red-500';
                 return (
                   <li key={rec.id}>
                     <button
@@ -526,7 +524,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                           <p className={cn("text-sm mt-1 leading-relaxed text-on-surface/65", isExpanded ? "" : "line-clamp-2")}>{rec.recommendation_text}</p>
                         </div>
                         <div className="flex items-baseline gap-1 flex-shrink-0 pt-0.5">
-                          <span className={cn("text-2xl font-serif font-bold leading-none", scoreColor)}>{Number(rec.rating).toFixed(1)}</span>
+                          <span className={cn("text-2xl font-serif font-bold leading-none", scoreColor(Number(rec.rating)))}>{Number(rec.rating).toFixed(1)}</span>
                           <span className="text-xs text-on-surface/30 font-semibold">/10</span>
                         </div>
                       </div>
@@ -664,7 +662,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   onClick={() => openAt('main')}
                   className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary hover:text-primary/80"
                 >
-                  <Edit3 size={13} /> Edit
+                  <Edit3 size={12} /> Edit
                 </button>
               </div>
 
@@ -846,10 +844,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
         {/* ── Visit History Timeline — minimal dots + 1px rail ── */}
         {myRating && visitHistory.length > 0 && place && (() => {
-          const dotColor = (score: number) =>
-            score >= 8 ? 'bg-green-500' : score >= 5 ? 'bg-yellow-500' : 'bg-red-500';
-          const textColor = (score: number) =>
-            score >= 8 ? 'text-green-600' : score >= 5 ? 'text-yellow-600' : 'text-red-500';
+          const dotColor = scoreDotBg;
+          const textColor = scoreColor;
           return (
             <section className="mb-10">
               <div className="flex items-center gap-2 mb-4">
@@ -1074,7 +1070,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
                 {friendsStats.ratings.map((r) => {
-                  const scoreColor = Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500';
                   return (
                     <div key={r.id} className="bg-white rounded-xl border border-on-surface/8 p-4">
                       <div className="flex items-center justify-between mb-1">
@@ -1084,7 +1079,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                           </div>
                           <span className="text-sm font-semibold text-on-surface/70">Friend</span>
                         </div>
-                        <span className={cn("text-xl font-serif font-bold", scoreColor)}>{Number(r.score).toFixed(1)}</span>
+                        <span className={cn("text-xl font-serif font-bold", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
                       </div>
                       {r.notes && <p className="text-[13px] text-on-surface/50 italic mt-2 leading-relaxed">"{r.notes}"</p>}
                       {r.tags && r.tags.length > 0 && (

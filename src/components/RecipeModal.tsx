@@ -308,23 +308,23 @@ export const RecipeModal: React.FC = () => {
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-2.5">Quick Info</p>
                       <div className="grid grid-cols-3 gap-2 mb-3">
                         <div>
-                          <p className="text-[9px] font-semibold text-on-surface/30 mb-1 flex items-center gap-1"><Clock size={10} />Prep</p>
+                          <p className="text-[10px] font-semibold text-on-surface/30 mb-1 flex items-center gap-1"><Clock size={10} />Prep</p>
                           <div className="relative">
                             <input type="number" value={prepTime} onChange={(e) => setPrepTime(e.target.value)} placeholder="0"
                               className="w-full bg-white border border-on-surface/10 rounded-lg px-3 py-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-on-surface/25">min</span>
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-on-surface/25">min</span>
                           </div>
                         </div>
                         <div>
-                          <p className="text-[9px] font-semibold text-on-surface/30 mb-1 flex items-center gap-1"><Timer size={10} />Cook</p>
+                          <p className="text-[10px] font-semibold text-on-surface/30 mb-1 flex items-center gap-1"><Timer size={10} />Cook</p>
                           <div className="relative">
                             <input type="number" value={cookTime} onChange={(e) => setCookTime(e.target.value)} placeholder="0"
                               className="w-full bg-white border border-on-surface/10 rounded-lg px-3 py-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-on-surface/25">min</span>
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-on-surface/25">min</span>
                           </div>
                         </div>
                         <div>
-                          <p className="text-[9px] font-semibold text-on-surface/30 mb-1 flex items-center gap-1"><Users size={10} />Servings</p>
+                          <p className="text-[10px] font-semibold text-on-surface/30 mb-1 flex items-center gap-1"><Users size={10} />Servings</p>
                           <input type="number" value={servings} onChange={(e) => setServings(e.target.value)} placeholder="4"
                             className="w-full bg-white border border-on-surface/10 rounded-lg px-3 py-2 text-sm font-medium text-center focus:outline-none focus:ring-2 focus:ring-primary/20" />
                         </div>
@@ -332,7 +332,7 @@ export const RecipeModal: React.FC = () => {
 
                       {/* Difficulty */}
                       <div className="mb-3">
-                        <p className="text-[9px] font-semibold text-on-surface/30 mb-1.5">Difficulty</p>
+                        <p className="text-[10px] font-semibold text-on-surface/30 mb-1.5">Difficulty</p>
                         <div className="flex gap-2">
                           {DIFFICULTIES.map((d) => (
                             <button key={d} onClick={() => setDifficulty(d)}
@@ -347,7 +347,7 @@ export const RecipeModal: React.FC = () => {
 
                       {/* Cuisine */}
                       <div>
-                        <p className="text-[9px] font-semibold text-on-surface/30 mb-1.5">Cuisine</p>
+                        <p className="text-[10px] font-semibold text-on-surface/30 mb-1.5">Cuisine</p>
                         <input type="text" value={cuisine} onChange={(e) => setCuisine(e.target.value)}
                           placeholder="e.g. Italian, Mexican, Thai..."
                           className="w-full bg-white border border-on-surface/10 rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />

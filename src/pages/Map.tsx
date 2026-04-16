@@ -6,6 +6,7 @@ import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
+import { scoreColor } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -2338,8 +2339,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           const cuisine = getCuisineLabel(selectedPlace.types);
           const restData = { id: selectedPlace.id, name: selectedPlace.name, image: selectedPlace.photoUrl || '', cuisine, price: priceLevelToString(selectedPlace.priceLevel), address: selectedPlace.address };
 
-          // Score color helper
-          const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-amber-600' : 'text-red-500';
 
           return (
             <motion.div

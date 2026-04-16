@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Share2, ChefHat, Tag, Star, Edit3, Loader2,
+  UtensilsCrossed, BookOpen, MessageSquare,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRecipes, type Recipe, type RecipeReview } from '../contexts/RecipesContext';
@@ -15,6 +16,7 @@ import {
   RecipeDirectionsList,
   RecipeReviewList,
   RecipeMobileSectionNav,
+  RecipeEmptyState,
   type QuickInfoItem,
 } from '../lib/recipe-display';
 
@@ -107,11 +109,14 @@ export const RecipeDetail: React.FC = () => {
   if (recipe.servings) quickInfoItems.push({ label: 'Serves', value: String(recipe.servings) });
   if (recipe.difficulty) quickInfoItems.push({ label: 'Level', value: DIFFICULTY_LABELS[recipe.difficulty] || recipe.difficulty });
 
-  const sections: { id: string; label: string }[] = [];
-  if (recipe.ingredients.length > 0) sections.push({ id: 'ingredients', label: 'Ingredients' });
-  if (recipe.steps.length > 0) sections.push({ id: 'directions', label: 'Directions' });
-  if (recipe.description) sections.push({ id: 'notes', label: 'Notes' });
-  if (reviews.length > 0) sections.push({ id: 'reviews', label: 'Reviews' });
+  // Sections always include Ingredients / Directions / Reviews — if any are
+  // empty the body renders a quiet empty state so scroll-to links still land.
+  const sections: { id: string; label: string }[] = [
+    { id: 'ingredients', label: 'Ingredients' },
+    { id: 'directions', label: 'Directions' },
+    ...(recipe.description ? [{ id: 'notes', label: 'Notes' }] : []),
+    { id: 'reviews', label: 'Reviews' },
+  ];
 
   return (
     <div className="pb-32 bg-surface min-h-screen">
@@ -184,8 +189,10 @@ export const RecipeDetail: React.FC = () => {
         )}
       </div>
 
-      {/* ── Mobile sticky section nav ── */}
-      <RecipeMobileSectionNav sections={sections} />
+      {/* ── Content column: constrained reading measure on desktop ── */}
+      <div className="max-w-[680px] mx-auto">
+        {/* ── Sticky section nav ── */}
+        <RecipeMobileSectionNav sections={sections} />
 
       {/* ── Main Content ── */}
       <main className="px-5 pt-5">
@@ -241,9 +248,9 @@ export const RecipeDetail: React.FC = () => {
         )}
 
         {/* ── Ingredients ── */}
-        {recipe.ingredients.length > 0 && (
-          <section id="ingredients" className="mb-10 scroll-mt-20">
-            <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Ingredients</h2>
+        <section id="ingredients" className="mb-10 scroll-mt-20">
+          <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Ingredients</h2>
+          {recipe.ingredients.length > 0 ? (
             <RecipeIngredientList
               recipeKey={recipe.id}
               ingredients={recipe.ingredients}
@@ -253,16 +260,28 @@ export const RecipeDetail: React.FC = () => {
                 onScaleChange: setServingsScale,
               } : undefined}
             />
-          </section>
-        )}
+          ) : (
+            <RecipeEmptyState
+              icon={UtensilsCrossed}
+              title="No ingredients listed"
+              hint={isOwner ? 'Add ingredients by editing this recipe.' : undefined}
+            />
+          )}
+        </section>
 
         {/* ── Directions ── */}
-        {recipe.steps.length > 0 && (
-          <section id="directions" className="mb-10 scroll-mt-20">
-            <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Directions</h2>
+        <section id="directions" className="mb-10 scroll-mt-20">
+          <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Directions</h2>
+          {recipe.steps.length > 0 ? (
             <RecipeDirectionsList steps={recipe.steps.map((s) => s.text)} />
-          </section>
-        )}
+          ) : (
+            <RecipeEmptyState
+              icon={BookOpen}
+              title="No directions yet"
+              hint={isOwner ? 'Add step-by-step directions by editing this recipe.' : undefined}
+            />
+          )}
+        </section>
 
         {/* ── Notes (description) ── */}
         {recipe.description && (
@@ -306,9 +325,9 @@ export const RecipeDetail: React.FC = () => {
         )}
 
         {/* ── Reviews ── */}
-        {reviews.length > 0 && (
-          <section id="reviews" className="mb-10 scroll-mt-20">
-            <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Reviews</h2>
+        <section id="reviews" className="mb-10 scroll-mt-20">
+          <h2 className="font-serif font-bold text-2xl text-on-surface mb-4">Reviews</h2>
+          {reviews.length > 0 ? (
             <RecipeReviewList
               reviews={reviews}
               profiles={reviewerProfiles}
@@ -323,9 +342,16 @@ export const RecipeDetail: React.FC = () => {
                 </span>
               )}
             />
-          </section>
-        )}
+          ) : (
+            <RecipeEmptyState
+              icon={MessageSquare}
+              title="No reviews yet"
+              hint="Cook this recipe and share your thoughts."
+            />
+          )}
+        </section>
       </main>
+      </div>
 
       {/* ── Gallery overlay ── */}
       <AnimatePresence>

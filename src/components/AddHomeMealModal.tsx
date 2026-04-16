@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreColorLight } from '../lib/score';
 import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useRecipes } from '../contexts/RecipesContext';
+import { TimeWheelPicker, NumberWheelPicker } from './WheelPicker';
 
 const HOME_COOKING_TAGS = [
   'Italian Night', 'Meal Prep', 'Holiday Meal', 'Grilling', 'Baking',
@@ -19,6 +21,33 @@ const DIFFICULTY_COLORS: Record<'Easy' | 'Medium' | 'Hard', string> = {
   Easy: 'border-green-200 bg-green-50 text-green-700',
   Medium: 'border-amber-200 bg-amber-50 text-amber-700',
   Hard: 'border-red-200 bg-red-50 text-red-700',
+};
+
+// Short rationales shown next to each option in the difficulty sheet so the
+// user understands what the three levels actually mean.
+const DIFFICULTY_DESC: Record<'Easy' | 'Medium' | 'Hard', string> = {
+  Easy: 'Quick to make, forgiving, weeknight-friendly',
+  Medium: 'Needs some attention or a few techniques',
+  Hard: 'Involved prep, timing, or advanced techniques',
+};
+
+// Solid text-only colors used when rendering the current difficulty in the
+// Quick Info cell (no background — the cell itself already has a tinted wash).
+const DIFFICULTY_TEXT: Record<'Easy' | 'Medium' | 'Hard', string> = {
+  Easy: 'text-green-600',
+  Medium: 'text-amber-600',
+  Hard: 'text-red-500',
+};
+
+// Formats a minute total into a short, glanceable string like "1h 30m".
+// Returns null for any zero/negative total so callers can render a placeholder.
+const formatDuration = (totalMinutes: number): string | null => {
+  if (!Number.isFinite(totalMinutes) || totalMinutes <= 0) return null;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
 };
 
 // Per-line outcome of the bulk ingredient parser. Rendered with a green Check
@@ -243,7 +272,7 @@ const parseIngredientLine = (raw: string): { name: string; amount: string; unit:
   return { amount, unit: '', name: rest };
 };
 
-type Page = 'main' | 'tags' | 'photos' | 'dishes' | 'ingredients' | 'steps';
+type Page = 'main' | 'tags' | 'photos' | 'dishList' | 'dishes' | 'ingredients' | 'steps';
 
 export const AddHomeMealModal: React.FC = () => {
   const {
@@ -265,18 +294,23 @@ export const AddHomeMealModal: React.FC = () => {
   const [dishes, setDishes] = useState<HomeMealDish[]>([]);
   const [isPublic, setIsPublic] = useState(false);
 
-  // Recipe-like fields
+  // Recipe-like fields. Prep / cook / servings are all stored as plain
+  // numbers (minute totals and an integer count) because the wheel pickers
+  // commit final numeric values directly — there's no text-field edit state
+  // to preserve between keystrokes.
   const [coverPhoto, setCoverPhoto] = useState('');
-  // Prep / cook time is edited as separate hours + minutes strings so the
-  // fields can be empty (placeholder "0") until the user actually types.
-  const [prepHoursStr, setPrepHoursStr] = useState('');
-  const [prepMinutesStr, setPrepMinutesStr] = useState('');
-  const [cookHoursStr, setCookHoursStr] = useState('');
-  const [cookMinutesStr, setCookMinutesStr] = useState('');
-  const [servingsStr, setServingsStr] = useState('');
+  const [prepMinutesTotal, setPrepMinutesTotal] = useState(0);
+  const [cookMinutesTotal, setCookMinutesTotal] = useState(0);
+  const [servings, setServings] = useState<number | null>(null);
   const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>('Medium');
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
   const [steps, setSteps] = useState<string[]>([]);
+
+  // Quick Info picker open-state flags.
+  const [prepPickerOpen, setPrepPickerOpen] = useState(false);
+  const [cookPickerOpen, setCookPickerOpen] = useState(false);
+  const [servingsPickerOpen, setServingsPickerOpen] = useState(false);
+  const [difficultyPickerOpen, setDifficultyPickerOpen] = useState(false);
 
   // Ingredient/step form state
   const [newIngredientName, setNewIngredientName] = useState('');
@@ -321,20 +355,14 @@ export const AddHomeMealModal: React.FC = () => {
       setDishes(existing?.dishes ?? []);
       setIsPublic(existing?.isPublic ?? false);
       setCoverPhoto(existing?.coverPhoto ?? '');
-      // Split stored minute totals into hours + minutes strings. Empty
-      // strings render as placeholder "0".
-      const prepMins = existing?.prepTime ?? 0;
-      const cookMins = existing?.cookTime ?? 0;
-      const ph = Math.floor(prepMins / 60);
-      const pm = prepMins % 60;
-      const ch = Math.floor(cookMins / 60);
-      const cm = cookMins % 60;
-      setPrepHoursStr(ph > 0 ? String(ph) : '');
-      setPrepMinutesStr(pm > 0 ? String(pm) : '');
-      setCookHoursStr(ch > 0 ? String(ch) : '');
-      setCookMinutesStr(cm > 0 ? String(cm) : '');
-      setServingsStr(existing?.servings != null ? String(existing.servings) : '');
+      setPrepMinutesTotal(existing?.prepTime ?? 0);
+      setCookMinutesTotal(existing?.cookTime ?? 0);
+      setServings(existing?.servings ?? null);
       setDifficulty(existing?.difficulty ?? 'Medium');
+      setPrepPickerOpen(false);
+      setCookPickerOpen(false);
+      setServingsPickerOpen(false);
+      setDifficultyPickerOpen(false);
       setIngredients(existing?.ingredients ? [...existing.ingredients] : []);
       setSteps(existing?.steps ? [...existing.steps] : []);
       setNewIngredientName('');
@@ -620,27 +648,14 @@ export const AddHomeMealModal: React.FC = () => {
       };
       setDishes((prev) => [...prev, newDish]);
     }
-    setPage('main');
+    setPage('dishList');
   };
 
   const handleDeleteDish = () => {
     if (editingDishId) {
       setDishes((prev) => prev.filter((d) => d.id !== editingDishId));
     }
-    setPage('main');
-  };
-
-  // Convert the hours/minutes strings into a single minute total for storage.
-  const prepTotalMinutes = (parseInt(prepHoursStr, 10) || 0) * 60 + (parseInt(prepMinutesStr, 10) || 0);
-  const cookTotalMinutes = (parseInt(cookHoursStr, 10) || 0) * 60 + (parseInt(cookMinutesStr, 10) || 0);
-  const servingsValue = parseInt(servingsStr, 10);
-
-  // Servings stepper helper — defaults to 4 when the field is empty.
-  const adjustServings = (delta: number) => {
-    const current = parseInt(servingsStr, 10);
-    const base = Number.isFinite(current) && current > 0 ? current : 4;
-    const next = Math.max(1, base + delta);
-    setServingsStr(String(next));
+    setPage('dishList');
   };
 
   const handleSave = () => {
@@ -656,9 +671,9 @@ export const AddHomeMealModal: React.FC = () => {
       dishes,
       isPublic,
       coverPhoto,
-      prepTime: prepTotalMinutes,
-      cookTime: cookTotalMinutes,
-      servings: Number.isFinite(servingsValue) && servingsValue > 0 ? servingsValue : 4,
+      prepTime: prepMinutesTotal,
+      cookTime: cookMinutesTotal,
+      servings: servings != null && servings > 0 ? servings : 4,
       difficulty,
       ingredients,
       steps,
@@ -685,7 +700,16 @@ export const AddHomeMealModal: React.FC = () => {
 
   const photoInput = <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />;
 
+  // Picker sheets layer above the main modal at z-[200]. They're siblings of
+  // the root modal so they stay mounted until their open-state goes false,
+  // giving AnimatePresence a clean exit animation.
+  const prepHours = Math.floor(prepMinutesTotal / 60);
+  const prepMinutes = prepMinutesTotal % 60;
+  const cookHours = Math.floor(cookMinutesTotal / 60);
+  const cookMinutes = cookMinutesTotal % 60;
+
   return (
+    <>
     <AnimatePresence>
       {homeMealModalOpen && (
         <motion.div
@@ -713,301 +737,206 @@ export const AddHomeMealModal: React.FC = () => {
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
-                  <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
+                  <div className="px-6 pt-5 sm:pt-6 pb-3 flex items-center justify-between flex-shrink-0">
                     <div className="min-w-0">
-                      <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Meal' : 'Log Home Meal'}</h2>
-                      {existing && <p className="text-xs text-on-surface/40 truncate">{existing.name}</p>}
+                      <h2 className="font-serif font-bold text-xl truncate">{existing ? 'Update Meal' : 'Log Home Meal'}</h2>
+                      {existing && <p className="text-xs text-on-surface/40 truncate mt-0.5">{existing.name}</p>}
                     </div>
-                    <button onClick={closeHomeMealModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
+                    <button onClick={closeHomeMealModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={22} /></button>
                   </div>
 
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3">
-                    {/* Cover photo — compact dropzone */}
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pb-4 space-y-6">
+                    {/* Cover photo — taller, more generous dropzone */}
                     <button
                       onClick={() => coverInputRef.current?.click()}
-                      className="w-full h-20 rounded-2xl border border-dashed border-on-surface/20 bg-on-surface/[0.02] shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] flex items-center justify-center gap-2 mb-3 overflow-hidden hover:border-primary/30 transition-colors relative"
+                      className="w-full h-32 rounded-3xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] flex items-center justify-center gap-2 overflow-hidden hover:border-primary/30 transition-colors relative mt-1"
                     >
                       {coverPhoto ? (
                         <>
                           <img src={coverPhoto} alt="Cover" className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                            <Camera size={18} className="text-white" />
+                          <div className="absolute inset-0 bg-black/25 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                            <Camera size={20} className="text-white" />
                           </div>
                         </>
                       ) : (
                         <>
-                          <Camera size={16} className="text-on-surface/30" />
-                          <span className="text-xs text-on-surface/40 font-medium">Add cover photo</span>
+                          <Camera size={18} className="text-on-surface/30" />
+                          <span className="text-xs text-on-surface/45 font-medium">Add cover photo</span>
                         </>
                       )}
                     </button>
 
-                    {/* Meal name */}
-                    <input
-                      type="text"
-                      value={mealName}
-                      onChange={(e) => setMealName(e.target.value)}
-                      placeholder="Meal name"
-                      autoFocus
-                      className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl px-4 py-2.5 text-sm font-semibold placeholder:font-medium placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 mb-2.5"
-                    />
-
-                    {/* Description (max-height w/ internal scroll) */}
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="A brief description..."
-                      rows={2}
-                      className="w-full bg-on-surface/[0.04] border border-on-surface/10 rounded-xl py-2 px-4 text-sm font-medium placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none max-h-24 overflow-y-auto mb-3"
-                    />
-
-                    {/* Quick Info */}
-                    <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Quick Info</p>
-
-                    {/* Prep | Cook — side-by-side w/ divider */}
-                    <div className="flex items-stretch bg-on-surface/[0.04] border border-on-surface/10 rounded-xl mb-2">
-                      <div className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2">
-                        <Clock size={12} className="text-on-surface/40 flex-shrink-0" />
-                        <span className="text-[10px] font-semibold text-on-surface/50 mr-0.5">Prep</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={prepHoursStr}
-                          onChange={(e) => setPrepHoursStr(e.target.value.replace(/\D/g, ''))}
-                          placeholder="0"
-                          className="w-6 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
-                          aria-label="Prep hours"
-                        />
-                        <span className="text-[10px] text-on-surface/45">h</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={prepMinutesStr}
-                          onChange={(e) => setPrepMinutesStr(e.target.value.replace(/\D/g, ''))}
-                          onBlur={() => {
-                            const m = parseInt(prepMinutesStr, 10) || 0;
-                            if (m >= 60) {
-                              const extraH = Math.floor(m / 60);
-                              const remMin = m % 60;
-                              const h = parseInt(prepHoursStr, 10) || 0;
-                              setPrepHoursStr(String(h + extraH));
-                              setPrepMinutesStr(remMin > 0 ? String(remMin) : '');
-                            }
-                          }}
-                          placeholder="0"
-                          className="w-7 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
-                          aria-label="Prep minutes"
-                        />
-                        <span className="text-[10px] text-on-surface/45">m</span>
-                      </div>
-                      <div className="w-px bg-on-surface/10 my-2" />
-                      <div className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2">
-                        <Flame size={12} className="text-on-surface/40 flex-shrink-0" />
-                        <span className="text-[10px] font-semibold text-on-surface/50 mr-0.5">Cook</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={cookHoursStr}
-                          onChange={(e) => setCookHoursStr(e.target.value.replace(/\D/g, ''))}
-                          placeholder="0"
-                          className="w-6 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
-                          aria-label="Cook hours"
-                        />
-                        <span className="text-[10px] text-on-surface/45">h</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={cookMinutesStr}
-                          onChange={(e) => setCookMinutesStr(e.target.value.replace(/\D/g, ''))}
-                          onBlur={() => {
-                            const m = parseInt(cookMinutesStr, 10) || 0;
-                            if (m >= 60) {
-                              const extraH = Math.floor(m / 60);
-                              const remMin = m % 60;
-                              const h = parseInt(cookHoursStr, 10) || 0;
-                              setCookHoursStr(String(h + extraH));
-                              setCookMinutesStr(remMin > 0 ? String(remMin) : '');
-                            }
-                          }}
-                          placeholder="0"
-                          className="w-7 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
-                          aria-label="Cook minutes"
-                        />
-                        <span className="text-[10px] text-on-surface/45">m</span>
-                      </div>
+                    {/* Meal name + description — borderless, editorial feel */}
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={mealName}
+                        onChange={(e) => setMealName(e.target.value)}
+                        placeholder="Meal name"
+                        autoFocus
+                        className="w-full bg-transparent text-[22px] font-serif font-bold placeholder:font-serif placeholder:font-normal placeholder:text-on-surface/25 focus:outline-none"
+                      />
+                      <textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="A brief description..."
+                        rows={2}
+                        className="w-full bg-transparent text-sm text-on-surface/75 leading-relaxed placeholder:text-on-surface/30 focus:outline-none resize-none"
+                      />
                     </div>
 
-                    {/* Servings stepper + Difficulty pills */}
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="flex items-center bg-on-surface/[0.04] border border-on-surface/10 rounded-xl flex-shrink-0">
-                        <div className="pl-2.5 pr-0.5 py-1.5 flex items-center gap-1">
-                          <Users size={12} className="text-on-surface/40" />
-                          <span className="text-[10px] font-semibold text-on-surface/50">Serves</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => adjustServings(-1)}
-                          className="w-6 h-8 text-on-surface/55 hover:text-on-surface transition-colors text-base leading-none"
-                          aria-label="Decrease servings"
-                        >−</button>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={servingsStr}
-                          onChange={(e) => setServingsStr(e.target.value.replace(/\D/g, ''))}
-                          placeholder="4"
-                          className="w-7 bg-transparent text-center text-sm font-semibold tabular-nums placeholder:text-on-surface/30 focus:outline-none"
-                          aria-label="Servings"
+                    {/* Quick Info — 2×2 grid of tappable cells. Each cell opens
+                         its own dedicated picker sheet. */}
+                    <section>
+                      <p className="text-[10px] uppercase tracking-[0.16em] text-on-surface/40 font-semibold mb-2.5">Quick Info</p>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <QuickInfoCell
+                          icon={<Clock size={14} />}
+                          label="Prep time"
+                          value={formatDuration(prepMinutesTotal) ?? 'Not set'}
+                          empty={prepMinutesTotal <= 0}
+                          onClick={() => setPrepPickerOpen(true)}
                         />
-                        <button
-                          type="button"
-                          onClick={() => adjustServings(1)}
-                          className="w-6 h-8 text-on-surface/55 hover:text-on-surface transition-colors text-base leading-none pr-1"
-                          aria-label="Increase servings"
-                        >+</button>
+                        <QuickInfoCell
+                          icon={<Flame size={14} />}
+                          label="Cook time"
+                          value={formatDuration(cookMinutesTotal) ?? 'Not set'}
+                          empty={cookMinutesTotal <= 0}
+                          onClick={() => setCookPickerOpen(true)}
+                        />
+                        <QuickInfoCell
+                          icon={<Users size={14} />}
+                          label="Servings"
+                          value={servings != null && servings > 0 ? String(servings) : 'Not set'}
+                          empty={servings == null || servings <= 0}
+                          onClick={() => setServingsPickerOpen(true)}
+                        />
+                        <QuickInfoCell
+                          icon={<Gauge size={14} />}
+                          label="Difficulty"
+                          value={difficulty}
+                          valueClassName={DIFFICULTY_TEXT[difficulty]}
+                          onClick={() => setDifficultyPickerOpen(true)}
+                        />
                       </div>
-                      <div className="flex gap-1 flex-1 min-w-0">
-                        {(['Easy', 'Medium', 'Hard'] as const).map((d) => (
-                          <button
-                            key={d}
-                            onClick={() => setDifficulty(d)}
-                            className={cn(
-                              "flex-1 py-1.5 rounded-full text-[11px] font-semibold border transition-all",
-                              difficulty === d
-                                ? DIFFICULTY_COLORS[d]
-                                : "border-on-surface/10 bg-on-surface/[0.02] text-on-surface/50 hover:border-on-surface/20",
-                            )}
-                          >
-                            {d}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    </section>
 
-                    {/* Your rating */}
-                    <div className="border-t border-on-surface/8 pt-3 mb-3">
-                      <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-2 text-center">Your Rating</p>
+                    {/* Your rating — standalone section with its own breathing room */}
+                    <section>
+                      <p className="text-[10px] uppercase tracking-[0.16em] text-on-surface/40 font-semibold mb-3 text-center">Your Rating</p>
                       <div className="flex flex-col items-center">
-                        <div className="flex items-baseline gap-1 mb-2">
+                        <div className="flex items-baseline gap-1 mb-3">
                           <span className={cn(
-                            "text-4xl font-serif font-bold tabular-nums",
-                            score >= 8 ? 'text-green-500' : score >= 5 ? 'text-yellow-500' : score > 0 ? 'text-red-400' : 'text-on-surface/25',
+                            "text-5xl font-serif font-bold tabular-nums leading-none",
+                            score > 0 ? scoreColorLight(score) : 'text-on-surface/25',
                           )}>
                             {score > 0 ? score.toFixed(1) : '—'}
                           </span>
                           <span className="text-xs text-on-surface/35 font-medium">/ 10</span>
                         </div>
-                        <div className="w-full max-w-[240px]">
+                        <div className="w-full max-w-[260px]">
                           <input
                             type="range" min="0" max="10" step="0.1"
                             value={score}
                             onChange={(e) => setScore(parseFloat(e.target.value))}
                             className="w-full h-2 bg-on-surface/10 rounded-full appearance-none cursor-pointer accent-primary"
                           />
-                          <p className="text-[11px] font-medium text-on-surface/45 text-center mt-1">
+                          <p className="text-[11px] font-medium text-on-surface/45 text-center mt-2">
                             {score === 0 ? 'Slide to rate' : score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
                           </p>
                         </div>
                       </div>
-                    </div>
+                    </section>
 
-                    {/* Dishes — compact */}
-                    <div className="border-t border-on-surface/8 pt-2.5 mb-2">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium">Dishes</p>
-                        <button
-                          onClick={() => openDishPage()}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
-                        >
-                          <Plus size={12} />Add Dish
-                        </button>
+                    {/* Details — single clean row-list. Dishes, ingredients, steps,
+                         photos, and tags all live in their own sub-pages rather
+                         than being crammed inline on this screen. */}
+                    <section>
+                      <p className="text-[10px] uppercase tracking-[0.16em] text-on-surface/40 font-semibold mb-2.5">Details</p>
+                      <div className="bg-white rounded-2xl border border-on-surface/[0.06] overflow-hidden">
+                        <DetailRow
+                          icon={<UtensilsCrossed size={15} />}
+                          label="Dishes"
+                          active={hasDishes}
+                          sub={hasDishes ? `${dishes.length} ${dishes.length === 1 ? 'dish' : 'dishes'}` : undefined}
+                          onClick={() => setPage('dishList')}
+                        />
+                        <DetailRow
+                          icon={<Hash size={15} />}
+                          label="Ingredients"
+                          active={hasIngredients}
+                          sub={hasIngredients ? `${ingredients.length} items` : undefined}
+                          onClick={() => setPage('ingredients')}
+                        />
+                        <DetailRow
+                          icon={<FileText size={15} />}
+                          label="Steps"
+                          active={hasSteps}
+                          sub={hasSteps ? `${steps.length} steps` : undefined}
+                          onClick={() => setPage('steps')}
+                        />
+                        <DetailRow
+                          icon={<Image size={15} />}
+                          label="Photos"
+                          active={hasPhotos}
+                          sub={hasPhotos ? `${photos.length} added` : undefined}
+                          onClick={handlePhotosClick}
+                        />
+                        <DetailRow
+                          icon={<Tag size={15} />}
+                          label="Tags"
+                          active={hasTags}
+                          sub={hasTags ? `${selectedTags.length} selected` : undefined}
+                          onClick={() => setPage('tags')}
+                          isLast
+                        />
                       </div>
-                      {hasDishes ? (
-                        <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
-                          {dishes.map((dish, i) => (
-                            <button
-                              key={dish.id}
-                              onClick={() => openDishPage(dish)}
-                              className={cn(
-                                "w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-on-surface/[0.03] transition-colors",
-                                i !== dishes.length - 1 && "border-b border-on-surface/6",
-                              )}
-                            >
-                              {dish.photo ? (
-                                <img src={dish.photo} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
-                              ) : (
-                                <div className="w-8 h-8 rounded-lg bg-on-surface/5 flex items-center justify-center flex-shrink-0">
-                                  <UtensilsCrossed size={13} className="text-on-surface/25" />
-                                </div>
-                              )}
-                              <span className="text-[13px] font-medium text-on-surface/75 flex-1 truncate">{dish.name}</span>
-                              <ChevronRight size={13} className="text-on-surface/25 flex-shrink-0" />
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-on-surface/12 bg-on-surface/[0.02]">
-                          <UtensilsCrossed size={14} className="text-on-surface/25" />
-                          <p className="text-[11px] text-on-surface/35">No dishes added</p>
-                        </div>
-                      )}
-                    </div>
+                    </section>
 
-                    {/* Recipe Details — compact menu list */}
-                    <div className="border-t border-on-surface/8 pt-2.5 mb-2">
-                      <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Recipe Details</p>
-                      <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
-                        <DetailRow icon={<Hash size={14} />} label="Ingredients" active={hasIngredients} sub={hasIngredients ? `${ingredients.length} items` : undefined} onClick={() => setPage('ingredients')} />
-                        <DetailRow icon={<FileText size={14} />} label="Steps" active={hasSteps} sub={hasSteps ? `${steps.length} steps` : undefined} onClick={() => setPage('steps')} />
-                        <DetailRow icon={<Image size={14} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
-                        <DetailRow icon={<Tag size={14} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} isLast />
-                      </div>
-                    </div>
-
-                    {/* Privacy — compact */}
+                    {/* Privacy */}
                     <button
                       onClick={() => setIsPublic(!isPublic)}
                       className={cn(
-                        "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all text-left",
-                        isPublic ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15",
+                        "w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border transition-all text-left",
+                        isPublic ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/[0.06] hover:border-on-surface/15",
                       )}
                     >
                       <span className={cn("flex-shrink-0", isPublic ? "text-primary" : "text-on-surface/35")}>
-                        {isPublic ? <Globe size={14} /> : <Lock size={14} />}
+                        {isPublic ? <Globe size={16} /> : <Lock size={16} />}
                       </span>
-                      <span className={cn("text-[12px] font-semibold flex-1", isPublic ? "text-primary" : "text-on-surface/55")}>
+                      <span className={cn("text-[13px] font-semibold flex-1", isPublic ? "text-primary" : "text-on-surface/75")}>
                         {isPublic ? 'Public' : 'Private'}
                       </span>
-                      <span className="text-[10px] text-on-surface/30">
-                        {isPublic ? 'Visible to friends' : 'Only you can see this'}
+                      <span className="text-[11px] text-on-surface/35">
+                        {isPublic ? 'Visible to friends' : 'Only you'}
                       </span>
                     </button>
 
                     {existing && !confirmDelete && (
                       <button
                         onClick={() => setConfirmDelete(true)}
-                        className="w-full mt-3 py-2 text-red-400 text-[11px] font-semibold hover:text-red-500 transition-colors"
+                        className="w-full py-2 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors"
                       >
                         Delete Meal
                       </button>
                     )}
                     {existing && confirmDelete && (
-                      <div className="mt-3 flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-                        <p className="text-[11px] text-red-600 font-medium">Delete this meal?</p>
+                      <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-2xl px-4 py-3">
+                        <p className="text-[12px] text-red-600 font-medium">Delete this meal?</p>
                         <div className="flex gap-2">
-                          <button onClick={() => setConfirmDelete(false)} className="px-2.5 py-1 text-[11px] font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
-                          <button onClick={() => { if (existing) { deleteHomeMeal(existing.id); } closeHomeMealModal(); }} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-[11px] font-semibold text-on-surface/60 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
+                          <button onClick={() => { if (existing) { deleteHomeMeal(existing.id); } closeHomeMealModal(); }} className="px-3 py-1.5 text-[11px] font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
                         </div>
                       </div>
                     )}
                   </div>
 
                   {/* Sticky save footer — pill button w/ drop shadow */}
-                  <div className="px-5 pt-2.5 pb-4 flex-shrink-0 border-t border-on-surface/8 bg-surface">
+                  <div className="px-6 pt-3 pb-5 flex-shrink-0 bg-surface">
                     <button
                       onClick={handleSave}
                       disabled={!mealName.trim()}
-                      className="w-full py-3 bg-primary text-white rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_rgba(188,108,97,0.55)] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:shadow-none"
+                      className="w-full py-3.5 bg-primary text-white rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_rgba(188,108,97,0.55)] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:shadow-none"
                     >
                       {existing ? 'Update Meal' : 'Save Meal'}
                     </button>
@@ -1015,9 +944,66 @@ export const AddHomeMealModal: React.FC = () => {
                 </motion.div>
               )}
 
+              {/* ═══════════ DISH LIST ═══════════ */}
+              {page === 'dishList' && (
+                <SubPage
+                  key="dishList"
+                  onBack={() => setPage('main')}
+                  title="Dishes"
+                  rightAction={
+                    <button onClick={() => openDishPage()} className="inline-flex items-center gap-1 text-xs font-semibold text-primary">
+                      <Plus size={14} />Add
+                    </button>
+                  }
+                >
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-5" onTouchMove={(e) => e.stopPropagation()}>
+                    {dishes.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-14 text-center">
+                        <UtensilsCrossed size={28} className="text-on-surface/15 mb-3" />
+                        <p className="text-sm text-on-surface/35 font-medium">No dishes yet</p>
+                        <p className="text-[11px] text-on-surface/30 mt-1 mb-4">Add individual dishes to log what you made.</p>
+                        <button
+                          onClick={() => openDishPage()}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/15 transition-colors"
+                        >
+                          <Plus size={14} />Add First Dish
+                        </button>
+                      </div>
+                    ) : (
+                      <ul className="divide-y divide-on-surface/[0.06] border-y border-on-surface/[0.06]">
+                        {dishes.map((dish) => (
+                          <li key={dish.id}>
+                            <button
+                              onClick={() => openDishPage(dish)}
+                              className="w-full flex items-center gap-3 py-3.5 text-left hover:bg-on-surface/[0.02] transition-colors"
+                            >
+                              {dish.photo ? (
+                                <img src={dish.photo} alt="" className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+                              ) : (
+                                <div className="w-12 h-12 rounded-xl bg-on-surface/[0.04] flex items-center justify-center flex-shrink-0">
+                                  <UtensilsCrossed size={16} className="text-on-surface/25" />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-on-surface/85 truncate">{dish.name}</p>
+                                {dish.description && (
+                                  <p className="text-[12px] text-on-surface/45 truncate mt-0.5">{dish.description}</p>
+                                )}
+                              </div>
+                              <ChevronRight size={16} className="text-on-surface/25 flex-shrink-0" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <BottomBtn label="Done" onClick={() => setPage('main')} />
+                </SubPage>
+              )}
+
               {/* ═══════════ DISHES ═══════════ */}
               {page === 'dishes' && (
-                <SubPage key="dishes" onBack={() => setPage('main')} title={editingDishId ? 'Edit Dish' : 'Add Dish'}>
+                <SubPage key="dishes" onBack={() => setPage('dishList')} title={editingDishId ? 'Edit Dish' : 'Add Dish'}>
                   <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5 space-y-4">
                     {/* Dish name */}
                     <div>
@@ -1611,32 +1597,175 @@ export const AddHomeMealModal: React.FC = () => {
         </motion.div>
       )}
     </AnimatePresence>
+
+    {/* Quick Info pickers — mounted alongside the main modal so they can
+         animate in above it when tapped. */}
+    <TimeWheelPicker
+      isOpen={prepPickerOpen}
+      onClose={() => setPrepPickerOpen(false)}
+      onConfirm={(h, m) => setPrepMinutesTotal(h * 60 + m)}
+      initialHours={prepHours}
+      initialMinutes={prepMinutes}
+      title="Prep time"
+    />
+    <TimeWheelPicker
+      isOpen={cookPickerOpen}
+      onClose={() => setCookPickerOpen(false)}
+      onConfirm={(h, m) => setCookMinutesTotal(h * 60 + m)}
+      initialHours={cookHours}
+      initialMinutes={cookMinutes}
+      title="Cook time"
+    />
+    <NumberWheelPicker
+      isOpen={servingsPickerOpen}
+      onClose={() => setServingsPickerOpen(false)}
+      onConfirm={(v) => setServings(v)}
+      initialValue={servings ?? 4}
+      min={1}
+      max={24}
+      title="Servings"
+      unitLabel="People"
+    />
+    <DifficultySheet
+      isOpen={difficultyPickerOpen}
+      onClose={() => setDifficultyPickerOpen(false)}
+      value={difficulty}
+      onChange={setDifficulty}
+    />
+    </>
   );
 };
 
 /* ── Shared sub-components ── */
 
-// Compact ~44px-tall row used inside a bordered container on the main page.
-// Relies on a shared parent for the outer border/background.
+// A single cell in the Quick Info 2×2 grid. Renders icon + small label + the
+// current value in a serif display face. Tapping opens a dedicated picker.
+const QuickInfoCell: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  valueClassName?: string;
+  empty?: boolean;
+  onClick: () => void;
+}> = ({ icon, label, value, valueClassName, empty, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="rounded-2xl bg-on-surface/[0.03] border border-on-surface/[0.06] px-4 py-4 text-left hover:bg-on-surface/[0.05] hover:border-on-surface/[0.1] transition-colors flex flex-col gap-3 min-h-[88px]"
+  >
+    <div className="flex items-center gap-1.5 text-on-surface/45">
+      <span className="flex-shrink-0">{icon}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">{label}</span>
+    </div>
+    <span className={cn(
+      'font-serif leading-none truncate',
+      empty
+        ? 'text-[15px] font-medium text-on-surface/30'
+        : 'text-[22px] font-bold',
+      !empty && (valueClassName ?? 'text-on-surface'),
+    )}>
+      {value}
+    </span>
+  </button>
+);
+
+// Bottom sheet for picking meal difficulty. Three large options, each with a
+// short rationale and the matching color palette.
+const DifficultySheet: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  value: 'Easy' | 'Medium' | 'Hard';
+  onChange: (v: 'Easy' | 'Medium' | 'Hard') => void;
+}> = ({ isOpen, onClose, value, onChange }) => (
+  <AnimatePresence>
+    {isOpen && (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[200] flex items-end justify-center"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ y: '100%' }}
+          animate={{ y: 0 }}
+          exit={{ y: '100%' }}
+          transition={{ type: 'spring', damping: 32, stiffness: 320 }}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-surface w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl pt-3 pb-6 px-6"
+        >
+          <div className="flex items-center justify-center mb-3">
+            <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+          </div>
+          <p className="text-center font-serif font-bold text-lg mb-5">Difficulty</p>
+          <div className="space-y-2.5">
+            {(['Easy', 'Medium', 'Hard'] as const).map((d) => {
+              const selected = value === d;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => { onChange(d); onClose(); }}
+                  className={cn(
+                    'w-full flex items-center justify-between px-5 py-4 rounded-2xl border transition-all text-left',
+                    selected
+                      ? DIFFICULTY_COLORS[d]
+                      : 'border-on-surface/[0.08] bg-on-surface/[0.02] hover:border-on-surface/[0.15]',
+                  )}
+                >
+                  <div className="flex flex-col gap-1 min-w-0 pr-3">
+                    <span className={cn(
+                      'text-lg font-serif font-bold leading-none',
+                      selected ? '' : 'text-on-surface/80',
+                    )}>
+                      {d}
+                    </span>
+                    <span className={cn(
+                      'text-[11px] font-medium leading-snug',
+                      selected ? 'opacity-75' : 'text-on-surface/45',
+                    )}>
+                      {DIFFICULTY_DESC[d]}
+                    </span>
+                  </div>
+                  <div
+                    className={cn(
+                      'w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all',
+                      selected ? 'bg-current' : 'border-2 border-on-surface/20',
+                    )}
+                  >
+                    {selected && <Check size={14} strokeWidth={3} style={{ color: 'white' }} />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </motion.div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+);
+
+// Row used inside the Details list on the main page. Label on the left,
+// preview of current content in the middle, chevron on the right.
 const DetailRow: React.FC<{
   icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void; isLast?: boolean;
 }> = ({ icon, label, active, sub, onClick, isLast }) => (
   <button
     onClick={onClick}
     className={cn(
-      "w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors",
-      !isLast && "border-b border-on-surface/6",
+      "w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-on-surface/[0.025] transition-colors",
+      !isLast && "border-b border-on-surface/[0.06]",
     )}
   >
     <span className={cn(
-      "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
+      "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0",
       active ? "bg-primary/10 text-primary" : "bg-on-surface/[0.05] text-on-surface/45",
     )}>
       {icon}
     </span>
-    <span className={cn("text-[13px] font-medium flex-1", active ? "text-on-surface" : "text-on-surface/65")}>{label}</span>
-    {sub && <span className="text-[11px] text-primary/70 flex-shrink-0">{sub}</span>}
-    <ChevronRight size={13} className="text-on-surface/25 flex-shrink-0" />
+    <span className={cn("text-[14px] font-semibold flex-1", active ? "text-on-surface" : "text-on-surface/75")}>{label}</span>
+    {sub && <span className="text-[11px] font-medium text-on-surface/40 flex-shrink-0">{sub}</span>}
+    <ChevronRight size={15} className="text-on-surface/25 flex-shrink-0" />
   </button>
 );
 
@@ -1646,8 +1775,8 @@ const SubPage: React.FC<{
   <motion.div initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
     transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
     className="flex flex-col flex-1 min-h-0" onTouchMove={(e) => e.stopPropagation()}>
-    <div className="px-5 pt-4 sm:pt-5 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
-      <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors">
+    <div className="px-5 pt-5 sm:pt-6 pb-3 flex items-center gap-3 flex-shrink-0">
+      <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/45 hover:text-on-surface transition-colors">
         <ChevronLeft size={22} />
       </button>
       <h2 className="font-serif font-bold text-lg flex-1">{title}</h2>
@@ -1658,7 +1787,7 @@ const SubPage: React.FC<{
 );
 
 const BottomBtn: React.FC<{ label: string; onClick: () => void; disabled?: boolean }> = ({ label, onClick, disabled }) => (
-  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-    <button onClick={onClick} disabled={disabled} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40">{label}</button>
+  <div className="px-5 py-4 flex-shrink-0 bg-surface">
+    <button onClick={onClick} disabled={disabled} className="w-full py-3.5 bg-primary text-white rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_rgba(188,108,97,0.55)] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:shadow-none">{label}</button>
   </div>
 );

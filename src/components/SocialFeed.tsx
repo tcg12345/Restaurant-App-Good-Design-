@@ -4,6 +4,7 @@ import { ShareRecipeSheet } from './ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { scoreColor } from '../lib/score';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -179,7 +180,6 @@ export const SocialFeed: React.FC = () => {
     }
   };
 
-  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
   const getName = (uid: string) => profiles[uid]?.display_name || 'User';
   const getUsername = (uid: string) => profiles[uid]?.username || '';
   const timeAgo = (date: string) => {
