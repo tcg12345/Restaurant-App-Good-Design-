@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
@@ -12,7 +12,7 @@ import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel 
 import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type CommunityPhoto, type HotelDining, type DiningType, type ExpertRecommendation } from '../lib/supabase-community';
+import { getProfilesByIds, getCommunityStats, getFriends, type UserProfile as UP, type CommunityPhoto, type HotelDining, type DiningType, type ExpertRecommendation } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
 import { Link } from 'react-router-dom';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
@@ -79,6 +79,24 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [addDiningOpen, setAddDiningOpen] = useState(false);
   const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
+  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
+
+  // Fetch which experts the user follows
+  useEffect(() => {
+    if (!user?.id) return;
+    getFriends(user.id).then((friends) => setFollowedIds(new Set(friends.map((f) => f.friend_id))));
+  }, [user?.id]);
+
+  // Expert recs from experts the user follows — shown prominently
+  const followedExpertRecs = useMemo(
+    () => expertRecommendations.filter((r) => followedIds.has(r.user_id)),
+    [expertRecommendations, followedIds],
+  );
+  // Remaining expert recs (not followed) — shown in the regular section
+  const otherExpertRecs = useMemo(
+    () => expertRecommendations.filter((r) => !followedIds.has(r.user_id)),
+    [expertRecommendations, followedIds],
+  );
 
   const myRating = place ? getRating(place.id) : undefined;
   // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
@@ -427,6 +445,51 @@ export const RestaurantDetailMobile: React.FC = () => {
           })()}
         </section>
 
+        {/* ── Followed Expert Review — prominent callout ── */}
+        {followedExpertRecs.length > 0 && (
+          <section className="mb-8">
+            {followedExpertRecs.map((rec) => (
+              <div key={rec.id} className="rounded-2xl border border-amber-200/60 bg-amber-50/40 p-4">
+                <div className="flex items-center gap-2.5 mb-3">
+                  <Link
+                    to={`/user/${rec.expert_username}`}
+                    className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0"
+                  >
+                    <span className="text-sm font-serif font-bold text-amber-700">{rec.expert_name.charAt(0).toUpperCase()}</span>
+                  </Link>
+                  <div className="flex-1 min-w-0">
+                    <Link to={`/user/${rec.expert_username}`} className="text-sm font-bold text-on-surface hover:text-primary transition-colors truncate block">
+                      {rec.expert_name}
+                    </Link>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-600">Expert Review</p>
+                  </div>
+                  <div className="flex items-baseline gap-0.5 flex-shrink-0">
+                    <span className={cn("text-2xl font-serif font-bold leading-none", scoreColor(Number(rec.rating)))}>{Number(rec.rating).toFixed(1)}</span>
+                    <span className="text-[10px] text-on-surface/30 font-semibold">/10</span>
+                  </div>
+                </div>
+
+                {rec.recommendation_text && (
+                  <p className="text-[13px] leading-relaxed text-on-surface/70 mb-3">{rec.recommendation_text}</p>
+                )}
+
+                {rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-600/70 mb-1.5">Must Try</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {rec.highlight_dishes.map((dish) => (
+                        <span key={dish} className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-white/80 border border-amber-200/50 text-amber-800">
+                          {dish}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </section>
+        )}
+
         {/* ── Hotel Dining — flat list with dividers, no per-row cards ── */}
         {isHotel && (
           <section className="mb-8">
@@ -497,15 +560,15 @@ export const RestaurantDetailMobile: React.FC = () => {
         )}
 
         {/* ── Expert Picks — flat list with dividers, no per-item cards ── */}
-        {expertRecommendations.length > 0 && (
+        {otherExpertRecs.length > 0 && (
           <section className="mb-8">
             <div className="flex items-center gap-2 mb-2">
               <Star size={13} className="text-amber-600 fill-amber-600 flex-shrink-0" />
               <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-amber-700">Expert Picks</h3>
-              <span className="text-xs font-semibold text-on-surface/30">· {expertRecommendations.length}</span>
+              <span className="text-xs font-semibold text-on-surface/30">· {otherExpertRecs.length}</span>
             </div>
             <ul className="divide-y divide-on-surface/[0.06]">
-              {expertRecommendations.map((rec) => {
+              {otherExpertRecs.map((rec) => {
                 const isExpanded = expandedExpertId === rec.id;
                 return (
                   <li key={rec.id}>
