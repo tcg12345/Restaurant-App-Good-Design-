@@ -911,8 +911,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       attributionControl: false,
     });
 
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-left');
-
     mapRef.current = map;
 
     // Search nearby restaurants once map loads (skip if cached, or if
