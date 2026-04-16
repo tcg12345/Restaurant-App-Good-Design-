@@ -70,7 +70,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   // Hours expanded by default — it's the most frequently checked info,
   // so show it open without a tap. Local state so we don't mutate the
   // shared hook default.
-  const [hoursOpen, setHoursOpen] = useState(true);
+  const [hoursOpen, setHoursOpen] = useState(false);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   const [sendToChatOpen, setSendToChatOpen] = useState(false);

@@ -62,7 +62,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   } = useRestaurantDetail();
   // Hours default to open — it's the most frequently checked info. Tracked
   // locally so the shared hook can keep its collapsed default elsewhere.
-  const [hoursOpen, setHoursOpen] = useState(true);
+  const [hoursOpen, setHoursOpen] = useState(false);
 
   const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
   const { conversations, sendMessage } = useChat();
