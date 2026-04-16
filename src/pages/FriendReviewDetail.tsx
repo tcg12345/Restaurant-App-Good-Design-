@@ -6,6 +6,7 @@ import {
   CornerDownLeft, Loader2, Calendar, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreColor, scoreRingStrong, scoreGradientOverlay } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import {
@@ -48,15 +49,6 @@ const timeAgo = (date: string) => {
   const years = Math.floor(days / 365);
   return `${years} year${years === 1 ? '' : 's'} ago`;
 };
-
-const scoreColor = (s: number) =>
-  s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
-const scoreRing = (s: number) =>
-  s >= 8 ? 'ring-green-500/40' : s >= 5 ? 'ring-yellow-500/40' : 'ring-red-500/40';
-const scoreGradient = (s: number) =>
-  s >= 8 ? 'from-green-500/20 to-green-500/0'
-    : s >= 5 ? 'from-yellow-500/20 to-yellow-500/0'
-    : 'from-red-500/20 to-red-500/0';
 
 export const FriendReviewDetail: React.FC = () => {
   const { ratingId } = useParams<{ ratingId: string }>();
@@ -232,7 +224,7 @@ export const FriendReviewDetail: React.FC = () => {
             <span className="font-serif text-5xl font-bold text-on-surface/15">{initialOf(rating.restaurant_name)}</span>
           </div>
         )}
-        <div className={cn("absolute inset-0 bg-gradient-to-t", scoreGradient(score))} />
+        <div className={cn("absolute inset-0 bg-gradient-to-t", scoreGradientOverlay(score))} />
         {hasPhotos && userPhotos.length > 1 && (
           <>
             {/* Tap-to-advance overlay */}
@@ -295,7 +287,7 @@ export const FriendReviewDetail: React.FC = () => {
           <div className="flex-shrink-0 flex flex-col items-center">
             <div className={cn(
               "w-20 h-20 rounded-full bg-white ring-4 flex items-center justify-center shadow-sm",
-              scoreRing(score)
+              scoreRingStrong(score)
             )}>
               <span className={cn("text-2xl font-serif font-bold", scoreColor(score))}>{score.toFixed(1)}</span>
             </div>
@@ -438,7 +430,7 @@ export const FriendReviewDetail: React.FC = () => {
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
             <div className="mt-4 mx-4 border-t border-on-surface/8 pt-4 space-y-3">
               {commentsLoading ? (
-                <div className="text-center py-3"><div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
+                <div className="text-center py-3"><Loader2 size={16} className="animate-spin text-primary mx-auto" /></div>
               ) : comments.length === 0 ? (
                 <p className="text-xs text-on-surface/40 py-1">No comments yet — be the first!</p>
               ) : (

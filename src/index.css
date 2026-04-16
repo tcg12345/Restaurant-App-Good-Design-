@@ -20,6 +20,19 @@
   h1, h2, h3, h4, h5, h6 {
     @apply font-serif;
   }
+
+  /* Prevent iOS Safari auto-zoom on input focus (requires >= 16px). */
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="password"],
+  input[type="url"],
+  input[type="tel"],
+  input[type="number"],
+  textarea,
+  select {
+    font-size: max(1rem, 1em);
+  }
 }
 
 /* ==========================================================================

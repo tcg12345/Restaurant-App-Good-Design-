@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreColorLight } from '../lib/score';
 import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useRecipes } from '../contexts/RecipesContext';
@@ -827,7 +828,7 @@ export const AddHomeMealModal: React.FC = () => {
                         <div className="flex items-baseline gap-1 mb-3">
                           <span className={cn(
                             "text-5xl font-serif font-bold tabular-nums leading-none",
-                            score >= 8 ? 'text-green-500' : score >= 5 ? 'text-yellow-500' : score > 0 ? 'text-red-400' : 'text-on-surface/25',
+                            score > 0 ? scoreColorLight(score) : 'text-on-surface/25',
                           )}>
                             {score > 0 ? score.toFixed(1) : '—'}
                           </span>

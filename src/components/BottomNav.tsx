@@ -27,12 +27,15 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
       className={cn(
         "fixed left-1/2 glass rounded-full border border-on-surface/[0.06] z-50 flex items-center justify-center",
         hideBottomNav && "pointer-events-none",
-        phoneMode ? "bottom-3" : "bottom-6",
+        !phoneMode && "bottom-6",
         isExpanded
           ? phoneMode ? "gap-2 px-3 py-2" : "gap-2 px-6 py-2"
           : phoneMode ? "px-2 py-2" : "px-3 py-2"
       )}
-      style={{ x: '-50%' }}
+      style={{
+        x: '-50%',
+        ...(phoneMode ? { bottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' } : {}),
+      }}
       transition={{
         layout: { type: 'spring', damping: 22, stiffness: 280, mass: 0.8 },
         opacity: { duration: 0.2 },

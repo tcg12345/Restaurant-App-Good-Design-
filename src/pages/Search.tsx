@@ -60,7 +60,7 @@ export const Search: React.FC = () => {
                   navigate('/search/main');
                 }}
                 onClick={() => navigate('/search/main')}
-                className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06] rounded-full py-3 pl-11 pr-4 text-sm font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none cursor-pointer transition-colors"
+                className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.07] border border-on-surface/[0.06] rounded-full py-3 pl-11 pr-4 text-base font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none cursor-pointer transition-colors"
                 aria-label="Search"
               />
             </div>

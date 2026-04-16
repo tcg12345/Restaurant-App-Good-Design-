@@ -12,10 +12,9 @@ import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../lib/supabase-community';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
+import { scoreColor } from '../lib/score';
 
 type SettingsPage = 'main' | 'edit' | 'account';
-
-const scoreColor = (s: number) => (s >= 8 ? 'text-emerald-600' : s >= 5 ? 'text-amber-600' : 'text-rose-500');
 
 function formatScore(s: unknown): string {
   const n = typeof s === 'number' ? s : Number(s);
@@ -278,7 +277,7 @@ export const Profile: React.FC = () => {
               onClick={openEditProfile}
               className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-on-surface/[0.06] text-on-surface/70 text-xs font-semibold border border-on-surface/8 hover:bg-on-surface/10 transition-colors"
             >
-              <Edit3 size={13} />
+              <Edit3 size={14} />
               Edit profile
             </button>
             <Link

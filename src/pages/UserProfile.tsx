@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, ChefHat, UtensilsCrossed, Crown, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { scoreColor } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import {
@@ -359,7 +360,6 @@ export const UserProfile: React.FC = () => {
     }
   };
 
-  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
   const selectedListName = selectedListId ? userLists.find((l) => l.id === selectedListId)?.name : null;
 
   if (loading) {

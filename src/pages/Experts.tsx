@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, Crown, Check, ArrowUpDown, ChevronDown } from 'lucide-react';
+import { Star, Crown, Check, ArrowUpDown, ChevronDown, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import { scoreColor, scoreDotBg } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import {
   getExpertProfiles, getUserRatings, getFollowCounts, followPublicAccount, getFriends,
@@ -141,8 +142,6 @@ export const Experts: React.FC = () => {
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 6);
 
-  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
-  const scoreDotBg = (s: number) => s >= 8 ? 'bg-green-500' : s >= 5 ? 'bg-yellow-500' : 'bg-red-500';
 
   const timeAgo = (date: string) => {
     if (!date) return '';
@@ -163,7 +162,7 @@ export const Experts: React.FC = () => {
       <div className="pb-32">
         <TopBar title="Tastemakers" />
         <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Loader2 size={28} className="animate-spin text-primary" />
         </div>
       </div>
     );

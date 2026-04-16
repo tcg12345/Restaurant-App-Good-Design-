@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, ChevronRight } from 'lucide-react';
+import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, ChevronRight, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, sendFriendRequest, followPublicAccount, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, getExpertProfiles, getUserRatings, getFollowCounts, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { Link } from 'react-router-dom';
@@ -163,8 +164,6 @@ export const Circle: React.FC = () => {
     loadData();
   };
 
-  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
-  const scoreBg = (s: number) => s >= 8 ? 'bg-green-50 border-green-200' : s >= 5 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200';
   const getFriendName = (uid: string, profiles: Record<string, UserProfile>) => {
     const p = profiles[uid];
     return p ? p.display_name || `@${p.username}` : uid.slice(0, 8) + '...';
@@ -529,7 +528,7 @@ export const Circle: React.FC = () => {
               {/* Results */}
               <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
                 {searching ? (
-                  <div className="text-center py-8"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>
+                  <div className="text-center py-8"><Loader2 size={22} className="animate-spin text-primary mx-auto" /></div>
                 ) : searchQuery.trim() && searchResults.length === 0 ? (
                   <div className="text-center py-8">
                     <p className="text-sm text-on-surface/40">No users found for "@{searchQuery}"</p>

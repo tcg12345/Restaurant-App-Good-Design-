@@ -7,6 +7,7 @@ import {
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreColor, scoreDotBg } from '../lib/score';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
@@ -350,8 +351,6 @@ export const RestaurantDetailMobile: React.FC = () => {
             const hasCommunity = communityStats.totalRatings > 0;
             const hasFriends = !isHotel && friendsStats.totalRatings > 0;
             const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
-            const scoreColor = (s: number) =>
-              s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
             const communityLabel = isHotel ? 'Breakfast' : 'Community';
 
             return (
@@ -359,7 +358,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 <div className={cn('grid gap-2.5', isHotel ? 'grid-cols-1' : 'grid-cols-2')}>
                   {/* Community / Breakfast tile */}
                   <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-3.5 py-3">
-                    <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-1.5">
                       {communityLabel}
                     </p>
                     {hasCommunity ? (
@@ -390,7 +389,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-3.5 py-3 text-left active:scale-[0.98] transition-transform"
                       >
                         <div className="flex items-center justify-between mb-1.5">
-                          <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-on-surface/40">Friends</p>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">Friends</p>
                           <ChevronRight size={11} className="text-on-surface/30" />
                         </div>
                         <p className={cn('text-[26px] font-serif font-bold leading-none tabular-nums', scoreColor(friendsStats.avgScore))}>
@@ -402,7 +401,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                       </button>
                     ) : (
                       <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-3.5 py-3">
-                        <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-1.5">Friends</p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-1.5">Friends</p>
                         <p className="text-[26px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
                         <p className="mt-1.5 text-[10px] italic text-on-surface/45 leading-snug">
                           No friend ratings yet
@@ -484,7 +483,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                             </p>
                           </div>
                           {score != null && (
-                            <span className={cn("text-lg font-serif font-bold flex-shrink-0 pt-0.5", score >= 8 ? 'text-green-600' : score >= 5 ? 'text-yellow-600' : 'text-red-500')}>
+                            <span className={cn("text-lg font-serif font-bold flex-shrink-0 pt-0.5", scoreColor(score))}>
                               {score.toFixed(1)}
                             </span>
                           )}
@@ -508,7 +507,6 @@ export const RestaurantDetailMobile: React.FC = () => {
             <ul className="divide-y divide-on-surface/[0.06]">
               {expertRecommendations.map((rec) => {
                 const isExpanded = expandedExpertId === rec.id;
-                const scoreColor = Number(rec.rating) >= 8 ? 'text-green-600' : Number(rec.rating) >= 5 ? 'text-yellow-600' : 'text-red-500';
                 return (
                   <li key={rec.id}>
                     <button
@@ -530,7 +528,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                           <p className={cn("text-[13px] mt-1 leading-relaxed text-on-surface/65", isExpanded ? "" : "line-clamp-2")}>{rec.recommendation_text}</p>
                         </div>
                         <div className="flex items-baseline gap-1 flex-shrink-0 pt-0.5">
-                          <span className={cn("text-xl font-serif font-bold leading-none", scoreColor)}>{Number(rec.rating).toFixed(1)}</span>
+                          <span className={cn("text-xl font-serif font-bold leading-none", scoreColor(Number(rec.rating)))}>{Number(rec.rating).toFixed(1)}</span>
                           <span className="text-xs text-on-surface/30 font-semibold">/10</span>
                         </div>
                       </div>
@@ -668,7 +666,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   onClick={() => openAt('main')}
                   className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary active:opacity-70"
                 >
-                  <Edit3 size={11} /> Edit
+                  <Edit3 size={12} /> Edit
                 </button>
               </div>
 
@@ -681,7 +679,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   >
                     <StickyNote size={12} />
                     <span>Notes</span>
-                    <Edit3 size={9} className="text-on-surface/25 ml-0.5" />
+                    <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
                   </button>
                   {hasNotes ? (
                     <p className="mt-2 text-[15px] leading-relaxed italic text-on-surface/75 font-serif">
@@ -705,7 +703,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   >
                     <Tag size={12} />
                     <span>Tags</span>
-                    <Edit3 size={9} className="text-on-surface/25 ml-0.5" />
+                    <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
                   </button>
                   {hasTags ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -733,7 +731,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   >
                     <Image size={12} />
                     <span>Photos</span>
-                    <Edit3 size={9} className="text-on-surface/25 ml-0.5" />
+                    <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
                   </button>
                   {hasPhotos ? (
                     <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 snap-x snap-mandatory">
@@ -767,7 +765,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                       <Star size={14} className="text-on-surface/35 flex-shrink-0" />
                       <span className="text-on-surface/45 w-16 flex-shrink-0">Score</span>
                       <span className="text-on-surface/75 flex-1 tabular-nums">{myRating.score.toFixed(1)} <span className="text-on-surface/35">/ 10</span></span>
-                      <Edit3 size={9} className="text-on-surface/20 flex-shrink-0" />
+                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
                     </button>
                   </li>
 
@@ -780,7 +778,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                       <Heart size={14} className="text-on-surface/35 flex-shrink-0" />
                       <span className="text-on-surface/45 w-16 flex-shrink-0">Return?</span>
                       <span className="text-on-surface/75 flex-1">{myRating.wouldReturn ? 'Yes' : 'Nah'}</span>
-                      <Edit3 size={9} className="text-on-surface/20 flex-shrink-0" />
+                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
                     </button>
                   </li>
 
@@ -795,7 +793,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                       <span className={cn("flex-1", hasDate ? "text-on-surface/75" : "text-on-surface/30 italic")}>
                         {hasDate ? dateLabel : 'Add date…'}
                       </span>
-                      <Edit3 size={9} className="text-on-surface/20 flex-shrink-0" />
+                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
                     </button>
                   </li>
 
@@ -811,7 +809,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         <span className={cn("flex-1", hasPrice ? "text-on-surface/75" : "text-on-surface/30 italic")}>
                           {hasPrice ? myRating.price : 'Add price…'}
                         </span>
-                        <Edit3 size={9} className="text-on-surface/20 flex-shrink-0" />
+                        <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
                       </button>
                     </li>
                   )}
@@ -838,7 +836,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                             <span className="text-on-surface/30 italic">Add companions…</span>
                           )}
                         </span>
-                        <Edit3 size={9} className="text-on-surface/20 flex-shrink-0 mt-1" />
+                        <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 mt-1 transition-colors" />
                       </button>
                     </li>
                   )}
@@ -855,10 +853,8 @@ export const RestaurantDetailMobile: React.FC = () => {
             expands inline detail (tags + photos + would-return). */}
         {myRating && visitHistory.length > 0 && place && (() => {
           // Helper to pick dot colors consistently with the score colors
-          const dotColor = (score: number) =>
-            score >= 8 ? 'bg-green-500' : score >= 5 ? 'bg-yellow-500' : 'bg-red-500';
-          const textColor = (score: number) =>
-            score >= 8 ? 'text-green-600' : score >= 5 ? 'text-yellow-600' : 'text-red-500';
+          const dotColor = scoreDotBg;
+          const textColor = scoreColor;
           return (
             <section className="mb-8">
               <div className="flex items-center gap-2 mb-4">
@@ -1082,7 +1078,6 @@ export const RestaurantDetailMobile: React.FC = () => {
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
                 {friendsStats.ratings.map((r) => {
-                  const scoreColor = Number(r.score) >= 8 ? 'text-green-600' : Number(r.score) >= 5 ? 'text-yellow-600' : 'text-red-500';
                   return (
                     <div key={r.id} className="bg-white rounded-xl border border-on-surface/8 p-3">
                       <div className="flex items-center justify-between mb-1">
@@ -1092,7 +1087,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                           </div>
                           <span className="text-xs font-semibold text-on-surface/70">Friend</span>
                         </div>
-                        <span className={cn("text-lg font-serif font-bold", scoreColor)}>{Number(r.score).toFixed(1)}</span>
+                        <span className={cn("text-lg font-serif font-bold", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
                       </div>
                       {r.notes && <p className="text-[13px] text-on-surface/50 italic mt-1 leading-relaxed">"{r.notes}"</p>}
                       {r.tags && r.tags.length > 0 && (

@@ -5,6 +5,7 @@ import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersH
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
+import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
@@ -294,8 +295,6 @@ const AddFromRatedSheet: React.FC<{
     onCreateNewRating?.(r.restaurantId, { id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address });
   };
 
-  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
-
   return (
     <AnimatePresence>
       {open && (
@@ -403,7 +402,6 @@ const RestaurantRow: React.FC<{
   onRemove?: () => void;
   removeLabel?: string;
 }> = ({ restaurantId, name, image, cuisine, price, address, score, tags, notes, visitDate, wouldReturn, listBadges, onEdit, onRemove, removeLabel }) => {
-  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
   const { phoneMode } = useSettings();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [swiped, setSwiped] = useState(false);
@@ -525,7 +523,7 @@ const RestaurantRow: React.FC<{
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
                       className="p-1.5 text-on-surface/30 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors"
                     >
-                      <Edit3 size={13} />
+                      <Edit3 size={14} />
                     </button>
                   )}
                   {onRemove && (
@@ -634,7 +632,6 @@ const RestaurantGridCard: React.FC<{
   onEdit?: () => void;
   onRemove?: () => void;
 }> = ({ restaurantId, name, image, cuisine, price, score, onEdit, onRemove }) => {
-  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
   const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <div className="group relative">
@@ -873,9 +870,9 @@ const AddHotelBreakfastModal: React.FC<{
   const hasTags = selectedTags.length > 0;
   const hasPhotos = photos.length > 0;
   const dateLabel = hasDate ? new Date(visitDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined;
-  const scoreColor = score >= 8 ? 'text-green-400' : score >= 5 ? 'text-yellow-400' : 'text-red-400';
-  const scoreBg = score >= 8 ? 'from-green-500/20 to-green-600/5' : score >= 5 ? 'from-yellow-500/20 to-yellow-600/5' : 'from-red-500/20 to-red-600/5';
-  const scoreRing = score >= 8 ? 'ring-green-400/30' : score >= 5 ? 'ring-yellow-400/30' : 'ring-red-400/30';
+  const scoreClr = scoreColorLight(score);
+  const scoreBg = scoreBgGradient(score);
+  const scoreRing = scoreRingColor(score);
   const filteredTags = tagSearch.trim() ? HOTEL_TAGS.filter((t) => t.toLowerCase().includes(tagSearch.toLowerCase())) : HOTEL_TAGS;
 
   if (!open) return null;
@@ -989,7 +986,7 @@ const AddHotelBreakfastModal: React.FC<{
                   <div className="flex flex-col items-center pt-3 sm:pt-5">
                     <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
                       <div className="text-center">
-                        <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreColor)}>{score.toFixed(1)}</div>
+                        <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
                         <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-0.5">out of 10</div>
                       </div>
                     </div>
@@ -1292,7 +1289,6 @@ const ListDetailView: React.FC<{
         ) : (
           <div className="space-y-3">
             {filteredRecipes.map((recipe) => {
-              const scoreColor = recipe.score >= 8 ? 'text-green-500' : recipe.score >= 5 ? 'text-yellow-500' : 'text-red-400';
               return (
                 <button key={recipe.id} onClick={() => openAddRecipeModal(list.id, recipe)}
                   className="w-full flex items-center gap-3 p-3 bg-white border border-on-surface/8 rounded-2xl hover:shadow-md transition-all text-left">
@@ -1322,7 +1318,7 @@ const ListDetailView: React.FC<{
                     </div>
                   </div>
                   <div className="flex-shrink-0 text-right">
-                    <span className={cn("text-lg font-serif font-bold tabular-nums", scoreColor)}>{recipe.score.toFixed(1)}</span>
+                    <span className={cn("text-lg font-serif font-bold tabular-nums", scoreColor(recipe.score))}>{recipe.score.toFixed(1)}</span>
                     <p className="text-[9px] text-on-surface/30 font-medium">/ 10</p>
                   </div>
                 </button>
@@ -1763,8 +1759,6 @@ const AddToNightSheet: React.FC<{
   const filteredRatings = ratedSearch.trim()
     ? ratings.filter((r) => r.name.toLowerCase().includes(ratedSearch.toLowerCase()) || r.cuisine.toLowerCase().includes(ratedSearch.toLowerCase()))
     : ratings;
-
-  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
 
   if (!open) return null;
 
@@ -2251,7 +2245,7 @@ const TripsTab: React.FC<{
               </button>
               <div className="flex-1" />
               <button onClick={() => setEditingTrip(selectedTrip)} className="p-2 rounded-full hover:bg-on-surface/5 transition-colors">
-                <Edit3 size={15} className="text-on-surface/35" />
+                <Edit3 size={14} className="text-on-surface/35" />
               </button>
               <button onClick={() => { if (confirm('Delete this trip?')) { deleteTrip(selectedTrip.id); setSelectedTripId(null); } }}
                 className="p-2 rounded-full hover:bg-on-surface/5 transition-colors text-on-surface/25 hover:text-red-400">
@@ -3054,8 +3048,6 @@ const HomeCookingTab: React.FC<{
 
     return result;
   }, [meals, searchQuery, sortBy]);
-
-  const scoreColor = (s: number) => s >= 8 ? 'text-green-600' : s >= 5 ? 'text-yellow-600' : 'text-red-500';
 
   // ── Meal detail view (diary / blog entry style) ──
   if (selectedMeal) {
