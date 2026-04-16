@@ -2518,7 +2518,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       <motion.div
         ref={sheetRef}
         animate={{ y: getSheetY(sheetState) }}
-        initial={{ y: getSheetY('peek') }}
+        initial={{ y: getSheetY(mode === 'home' ? 'full' : 'peek') }}
         transition={{ type: 'spring', damping: 32, stiffness: 300, mass: 0.8 }}
         style={{ height: FULL_HEIGHT }}
         className={cn(
