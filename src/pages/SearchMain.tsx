@@ -400,7 +400,7 @@ export const SearchMain: React.FC = () => {
             )}
           </>
         ) : recentSearches.length > 0 ? (
-          // ── Recent searches — simple text list, no per-item card ──
+          // ── Recent searches — thin restaurant cards ──
           <section>
             <div className="flex items-center justify-between mb-2 mt-2">
               <div className="flex items-center gap-2">
@@ -415,35 +415,63 @@ export const SearchMain: React.FC = () => {
                 Clear All
               </button>
             </div>
-            <ul className="divide-y divide-on-surface/[0.06] border-y border-on-surface/[0.06]">
-              {recentSearches.map((r) => (
-                <li key={r.id} className="relative">
-                  <button
-                    type="button"
+            <div className="space-y-2">
+              {recentSearches.map((r) => {
+                const wishlisted = isWishlisted(r.id);
+                const location = extractCityState(r.address, r.address);
+                return (
+                  <div
+                    key={r.id}
+                    className="flex items-center gap-3 rounded-xl bg-white border border-on-surface/[0.06] shadow-sm overflow-hidden cursor-pointer transition-all hover:shadow-md active:scale-[0.99]"
                     onClick={() => handleRecentClick(r)}
-                    className="w-full flex items-center gap-3 py-3.5 pr-10 pl-2 -ml-2 rounded-lg text-left transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05]"
                   >
-                    <SearchIcon size={15} className="text-on-surface/35 flex-shrink-0" />
-                    <span className="flex-1 text-[15px] text-on-surface truncate">{r.name}</span>
-                    {r.timestamp && (
-                      <span className="text-xs text-on-surface/45 flex-shrink-0">
-                        {formatRelativeTime(r.timestamp)}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleRemove(r.id); }}
-                    className={cn(
-                      "absolute right-0 top-1/2 -translate-y-1/2 min-w-[40px] h-10 rounded-full text-on-surface/25 hover:text-on-surface/55 flex items-center justify-center transition-colors",
-                    )}
-                    aria-label={`Remove ${r.name} from recent searches`}
-                  >
-                    <X size={14} />
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    {/* Thumbnail */}
+                    <div className="w-14 h-14 flex-shrink-0 bg-on-surface/5 overflow-hidden">
+                      {r.image ? (
+                        <img src={r.image} alt={r.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif text-lg font-bold">{r.name.charAt(0)}</div>
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0 py-2">
+                      <p className="text-sm font-semibold text-on-surface truncate">{r.name}</p>
+                      <p className="text-[11px] text-on-surface/50 truncate">
+                        {r.cuisine && <span className="text-primary/70 font-medium uppercase tracking-wider">{r.cuisine}</span>}
+                        {r.cuisine && location && <span className="text-on-surface/25 mx-1">·</span>}
+                        {location}
+                      </p>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 pr-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => openAddRestaurantModal({ id: r.id, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                        className="w-8 h-8 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors"
+                        aria-label="Rate"
+                      >
+                        <Plus size={14} />
+                      </button>
+                      <button
+                        onClick={() => openWishlistModal({ id: r.id, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                        className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/40 hover:text-red-400")}
+                        aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                      >
+                        <Heart size={13} className={wishlisted ? "fill-red-400" : ""} />
+                      </button>
+                      <button
+                        onClick={() => handleRemove(r.id)}
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface/25 hover:text-on-surface/55 transition-colors"
+                        aria-label={`Remove ${r.name}`}
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </section>
         ) : (
           <EmptyState
