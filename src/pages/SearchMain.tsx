@@ -214,7 +214,7 @@ export const SearchMain: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
-      <header className="sticky top-0 w-full bg-surface/80 backdrop-blur-md z-30">
+      <header className="sticky top-0 w-full bg-surface/80 backdrop-blur-md z-40">
         <div className="px-4 py-3 flex items-center gap-3 md:max-w-2xl md:mx-auto">
           <button
             type="button"

@@ -1472,8 +1472,8 @@ const FilterSheet: React.FC<{
             dragConstraints={{ top: 0 }}
             dragElastic={{ top: 0, bottom: 0.4 }}
             onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) onClose(); }}
-            className={cn("fixed bottom-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              phoneMode ? "left-0 right-0 h-[92vh]" : "left-1/2 -translate-x-1/2 w-full max-w-xl max-h-[75vh]")}
+            className={cn("fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+              phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
           >
             {/* Drag handle */}
             {phoneMode && (
@@ -4003,7 +4003,7 @@ export const Pantry: React.FC = () => {
         </div>
       ) : undefined} />}
 
-      <main className="px-3 max-w-5xl mx-auto">
+      <main className="px-3">
         {currentList ? (
           <ListDetailView list={currentList} viewMode={effectiveViewMode} onViewModeChange={setViewMode} onBack={() => setSelectedList(null)} />
         ) : showHomeCooking ? (
@@ -4392,8 +4392,8 @@ export const Pantry: React.FC = () => {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className={cn("fixed bottom-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-                phoneMode ? "left-0 right-0 max-h-[92vh]" : "left-1/2 -translate-x-1/2 w-full max-w-md max-h-[70vh]")}
+              className={cn("fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+                phoneMode ? "max-h-[92vh]" : "max-h-[70vh]")}
             >
               {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
               <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
@@ -4442,8 +4442,8 @@ export const Pantry: React.FC = () => {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className={cn("fixed bottom-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-                phoneMode ? "left-0 right-0 max-h-[92vh]" : "left-1/2 -translate-x-1/2 w-full max-w-md max-h-[70vh]")}
+              className={cn("fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+                phoneMode ? "max-h-[92vh]" : "max-h-[70vh]")}
             >
               {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
               <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
@@ -4490,8 +4490,7 @@ export const Pantry: React.FC = () => {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 350 }}
-              className={cn("fixed bottom-0 z-[60] bg-surface rounded-t-3xl",
-                phoneMode ? "left-0 right-0" : "left-1/2 -translate-x-1/2 w-full max-w-sm")}
+              className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
             >
               {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
               <div className="px-5 pt-3 pb-5">
@@ -4526,8 +4525,7 @@ export const Pantry: React.FC = () => {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 350 }}
-              className={cn("fixed bottom-0 z-[60] bg-surface rounded-t-3xl",
-                phoneMode ? "left-0 right-0" : "left-1/2 -translate-x-1/2 w-full max-w-sm")}
+              className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
             >
               {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
               <div className="px-5 pt-3 pb-5">

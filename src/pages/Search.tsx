@@ -16,7 +16,7 @@ export const Search: React.FC = () => {
       <TopBar title="Search" />
 
       {/* Tab switcher */}
-      <div className="px-4 pt-1 max-w-[680px] mx-auto">
+      <div className="px-4 pt-1">
         <div className="flex items-center gap-6">
           {([
             ['discover', 'Discover'],
@@ -40,7 +40,7 @@ export const Search: React.FC = () => {
         </div>
       </div>
 
-      <main className="px-4 pt-4 max-w-[680px] mx-auto">
+      <main className="px-4 pt-4">
         {tab === 'discover' ? (
           <div className="space-y-3">
             {/* Real input that transitions into the full search page on focus.

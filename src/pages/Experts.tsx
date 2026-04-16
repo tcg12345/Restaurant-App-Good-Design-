@@ -186,7 +186,7 @@ export const Experts: React.FC = () => {
     <div className="pb-32">
       <TopBar title="Tastemakers" />
 
-      <main className="px-3 max-w-5xl mx-auto">
+      <main className="px-3">
         <section className="mb-10">
           <h2 className="text-2xl font-serif font-bold mb-5">Meet the Experts</h2>
 
@@ -277,7 +277,7 @@ export const Experts: React.FC = () => {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               {displayExperts.map((e) => {
                 const isFollowed = followedIds.has(e.profile.user_id);
                 return (

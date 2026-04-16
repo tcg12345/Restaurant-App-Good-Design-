@@ -204,8 +204,8 @@ const ShareRestaurantSheet: React.FC<{
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={cn("fixed bottom-0 z-[80] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              phoneMode ? "left-0 right-0 max-h-[85vh]" : "left-1/2 -translate-x-1/2 w-full max-w-md max-h-[70vh]")}
+            className={cn("fixed bottom-0 left-0 right-0 z-[80] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+              phoneMode ? "max-h-[85vh]" : "max-h-[70vh]")}
           >
             {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
             <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
@@ -323,8 +323,8 @@ const NewChatSheet: React.FC<{
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={cn("fixed bottom-0 z-[70] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              phoneMode ? "left-0 right-0 max-h-[85vh]" : "left-1/2 -translate-x-1/2 w-full max-w-md max-h-[70vh]")}
+            className={cn("fixed bottom-0 left-0 right-0 z-[70] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+              phoneMode ? "max-h-[85vh]" : "max-h-[70vh]")}
           >
             {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
             <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
@@ -877,7 +877,7 @@ export const Messages: React.FC = () => {
   // If viewing a conversation, show the chat view
   if (activeConversation) {
     return (
-      <div className="h-screen flex flex-col bg-surface max-w-[680px] mx-auto">
+      <div className="h-screen flex flex-col bg-surface">
         <ChatView
           conversation={activeConversation}
           profiles={profiles}
@@ -890,7 +890,7 @@ export const Messages: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface pb-32">
       {/* Header */}
-      <header className="sticky top-0 w-full px-5 py-4 flex items-center justify-between bg-surface/80 backdrop-blur-md z-40 max-w-[680px] mx-auto">
+      <header className="sticky top-0 w-full px-5 py-4 flex items-center justify-between bg-surface/80 backdrop-blur-md z-40">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
             <ArrowLeft size={20} />
@@ -904,7 +904,7 @@ export const Messages: React.FC = () => {
       </header>
 
       {/* Conversation list */}
-      <div className="px-3 max-w-[680px] mx-auto">
+      <div className="px-3">
         {sortedConversations.length === 0 ? (
           <div className="text-center py-20">
             <MessageCircle size={40} className="mx-auto text-on-surface/12 mb-4" />

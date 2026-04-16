@@ -579,8 +579,8 @@ const FollowingFilterSheet: React.FC<{
               if (info.offset.y > 80 || info.velocity.y > 300) onClose();
             }}
             className={cn(
-              'fixed bottom-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden',
-              phoneMode ? 'left-0 right-0 h-[85vh]' : 'left-1/2 -translate-x-1/2 w-full max-w-md max-h-[75vh]',
+              'fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden',
+              phoneMode ? 'h-[85vh]' : 'max-h-[75vh]',
             )}
           >
             {phoneMode && (
