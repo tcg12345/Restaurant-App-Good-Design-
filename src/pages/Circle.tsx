@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
 import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, ChevronRight, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -188,7 +187,6 @@ export const Circle: React.FC = () => {
   if (loading) {
     return (
       <div className="pb-32">
-        <TopBar title="Social" showBackButton />
         <main className="px-4 pt-4">
           <LoadingSkeletonList count={4} variant="list-item" />
         </main>
@@ -198,9 +196,8 @@ export const Circle: React.FC = () => {
 
   return (
     <div className="pb-32">
-      <TopBar title="Social" showBackButton />
 
-      <main className="px-4">
+      <main className="px-4 pt-5">
         {/* ── Pending Requests ── */}
         {pendingRequests.length > 0 && (
           <section className="mb-5">

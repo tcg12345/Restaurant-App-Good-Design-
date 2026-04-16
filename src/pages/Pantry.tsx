@@ -1,5 +1,4 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
 import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Heart, Upload, Search, Check, Edit3, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
@@ -3959,41 +3958,43 @@ export const Pantry: React.FC = () => {
 
   return (
     <div className="pb-32">
-      {!hideTopBar && <TopBar title="My Lists" rightAction={!currentList ? (
-        <div className="relative" ref={moreMenuRef}>
-          <button onClick={() => setMoreMenuOpen(!moreMenuOpen)}
-            className="p-2 hover:bg-muted rounded-full transition-colors">
-            <MoreHorizontal size={20} />
-          </button>
-          <AnimatePresence>
-            {moreMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: -4 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: -4 }}
-                transition={{ type: 'spring', damping: 24, stiffness: 400, mass: 0.5 }}
-                className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-on-surface/8 overflow-hidden z-50"
-              >
-                <button onClick={() => { setMoreMenuOpen(false); navigate('/import'); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left">
-                  <Upload size={16} className="text-on-surface/40" />
-                  <span className="text-sm font-medium text-on-surface/70">Import</span>
-                </button>
-                <button onClick={() => handleExport('csv')}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
-                  <Download size={16} className="text-on-surface/40" />
-                  <span className="text-sm font-medium text-on-surface/70">Export CSV</span>
-                </button>
-                <button onClick={() => handleExport('json')}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
-                  <Download size={16} className="text-on-surface/40" />
-                  <span className="text-sm font-medium text-on-surface/70">Export JSON</span>
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+      {!hideTopBar && !currentList && (
+        <div className="flex items-center justify-end px-4 pt-4 pb-1">
+          <div className="relative" ref={moreMenuRef}>
+            <button onClick={() => setMoreMenuOpen(!moreMenuOpen)}
+              className="p-2 hover:bg-muted rounded-full transition-colors">
+              <MoreHorizontal size={20} />
+            </button>
+            <AnimatePresence>
+              {moreMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: -4 }}
+                  transition={{ type: 'spring', damping: 24, stiffness: 400, mass: 0.5 }}
+                  className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-on-surface/8 overflow-hidden z-50"
+                >
+                  <button onClick={() => { setMoreMenuOpen(false); navigate('/import'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left">
+                    <Upload size={16} className="text-on-surface/40" />
+                    <span className="text-sm font-medium text-on-surface/70">Import</span>
+                  </button>
+                  <button onClick={() => handleExport('csv')}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
+                    <Download size={16} className="text-on-surface/40" />
+                    <span className="text-sm font-medium text-on-surface/70">Export CSV</span>
+                  </button>
+                  <button onClick={() => handleExport('json')}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
+                    <Download size={16} className="text-on-surface/40" />
+                    <span className="text-sm font-medium text-on-surface/70">Export JSON</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
-      ) : undefined} />}
+      )}
 
       <main className="px-3">
         {currentList ? (

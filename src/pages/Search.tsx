@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search as SearchIcon, Map as MapIcon } from 'lucide-react';
-import { TopBar } from '../components/TopBar';
 import { FollowingFeed } from '../components/FollowingFeed';
 import { cn } from '../lib/utils';
 
@@ -13,10 +12,9 @@ export const Search: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
-      <TopBar title="Search" />
 
       {/* Tab switcher */}
-      <div className="px-4 pt-1">
+      <div className="px-4 pt-5">
         <div className="flex items-center gap-6">
           {([
             ['discover', 'Discover'],

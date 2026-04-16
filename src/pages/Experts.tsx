@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
 import { Star, Crown, Check, ArrowUpDown, ChevronDown, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -160,7 +159,6 @@ export const Experts: React.FC = () => {
   if (loading) {
     return (
       <div className="pb-32">
-        <TopBar title="Tastemakers" />
         <div className="flex items-center justify-center py-20">
           <Loader2 size={28} className="animate-spin text-primary" />
         </div>
@@ -171,7 +169,6 @@ export const Experts: React.FC = () => {
   if (experts.length === 0) {
     return (
       <div className="pb-32">
-        <TopBar title="Tastemakers" />
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
           <Crown size={32} className="text-on-surface/15 mb-3" />
           <p className="text-sm font-medium text-on-surface/40">No experts yet</p>
@@ -183,9 +180,8 @@ export const Experts: React.FC = () => {
 
   return (
     <div className="pb-32">
-      <TopBar title="Tastemakers" />
 
-      <main className="px-3">
+      <main className="px-3 pt-5">
         <section className="mb-10">
           <h2 className="text-2xl font-serif font-bold mb-5">Meet the Experts</h2>
 
