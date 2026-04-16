@@ -19,6 +19,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
   const navigate = useNavigate();
   const location = useLocation();
   const splitTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const splitHoverRef = useRef<ReturnType<typeof setTimeout>>();
 
   const isSearchActive = location.pathname === '/search';
   const isMapActive = location.pathname === '/map';
@@ -166,6 +167,12 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.15 }}
+                      onMouseEnter={() => { if (!phoneMode) clearTimeout(splitHoverRef.current); }}
+                      onMouseLeave={() => {
+                        if (!phoneMode && !isSearchOrMap) {
+                          splitHoverRef.current = setTimeout(() => setSearchSplit(false), 300);
+                        }
+                      }}
                     >
                       {/* Search half */}
                       <motion.button
@@ -213,6 +220,12 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                     <motion.button
                       key="single"
                       layoutId="search-icon"
+                      onMouseEnter={() => {
+                        if (!phoneMode) {
+                          clearTimeout(splitHoverRef.current);
+                          setSearchSplit(true);
+                        }
+                      }}
                       onClick={() => {
                         if (isSearchOrMap) {
                           setSearchSplit(true);
