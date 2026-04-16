@@ -2631,11 +2631,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                 className="flex-1 relative"
                 aria-label="Open search"
               >
-                <div className="absolute inset-y-0 left-3.5 flex items-center text-on-surface/40">
-                  <Search size={15} />
-                </div>
-                <div className="w-full bg-white/60 backdrop-blur-sm rounded-full py-2 pl-10 pr-4 text-xs font-medium text-on-surface/40 text-left border border-on-surface/10">
-                  Search restaurant, cuisine, occasion...
+                <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
+                <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium text-on-surface/40 text-left">
+                  Search restaurants, cuisines...
                 </div>
               </button>
             </div>
