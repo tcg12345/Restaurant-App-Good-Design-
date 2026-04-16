@@ -27,7 +27,7 @@ export const ShareRecipeSheet: React.FC<{
       <motion.div
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        className="fixed bottom-0 left-0 right-0 z-[70] bg-surface rounded-t-3xl flex flex-col overflow-hidden max-h-[60vh]"
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[70] bg-surface rounded-t-3xl flex flex-col overflow-hidden max-h-[60vh]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-on-surface/6 flex-shrink-0">

@@ -228,7 +228,7 @@ export const Profile: React.FC = () => {
           className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-gradient-to-b from-primary/[0.09] via-primary/[0.035] to-transparent"
         />
 
-        <div className="relative px-5 pt-2 pb-5">
+        <div className="relative px-5 pt-2 pb-5 max-w-[680px] mx-auto">
           {pendingRequestCount > 0 && (
             <div className="w-full mb-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
               <span className="text-xs font-semibold text-amber-900">
@@ -343,7 +343,7 @@ export const Profile: React.FC = () => {
         </div>
       </div>
 
-      <main className="px-5 space-y-10">
+      <main className="px-5 space-y-10 max-w-[680px] mx-auto">
         {/* Top Rated — immersive full-bleed hero cards */}
         {topRated.length > 0 && (
           <section className="-mx-5">
@@ -484,7 +484,7 @@ export const Profile: React.FC = () => {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="fixed inset-x-0 bottom-0 z-[60] bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden"
+              className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[60] bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden"
             >
               <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
                 <div className="w-10 h-1 rounded-full bg-on-surface/15" />

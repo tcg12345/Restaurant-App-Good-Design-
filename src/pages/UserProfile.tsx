@@ -373,7 +373,7 @@ export const UserProfile: React.FC = () => {
   if (!profile) {
     return (
       <div className="min-h-screen bg-surface">
-        <header className="sticky top-0 px-4 py-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
+        <header className="sticky top-0 px-4 py-3 bg-surface/70 backdrop-blur-md z-20 flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/50"><ArrowLeft size={20} /></button>
           <h1 className="font-serif font-bold text-lg">User Not Found</h1>
         </header>
@@ -386,8 +386,8 @@ export const UserProfile: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-surface pb-32">
-      <header className="sticky top-0 px-4 py-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
+    <div className="min-h-screen bg-surface pb-32 max-w-[880px] mx-auto">
+      <header className="sticky top-0 px-4 py-3 bg-surface/70 backdrop-blur-md z-20 flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/50"><ArrowLeft size={20} /></button>
         <h1 className="font-serif font-bold text-lg">@{profile.username}</h1>
       </header>
@@ -746,7 +746,7 @@ export const UserProfile: React.FC = () => {
               className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setFiltersOpen(false)} />
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl h-[92vh] flex flex-col overflow-hidden">
+              className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-50 bg-surface rounded-t-3xl h-[92vh] max-h-[92vh] flex flex-col overflow-hidden">
               <div className="flex justify-center pt-3 pb-1 flex-shrink-0"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>
               <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
                 <h3 className="font-serif font-bold text-lg">Filters</h3>
@@ -844,7 +844,7 @@ export const UserProfile: React.FC = () => {
           <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
             transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
             className="fixed inset-0 z-40 bg-surface flex flex-col">
-            <header className="sticky top-0 px-4 py-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
+            <header className="sticky top-0 px-4 py-3 bg-surface/70 backdrop-blur-md z-20 flex items-center gap-3">
               <button onClick={() => setShowMapPage(false)}
                 className="p-2 -ml-2 text-on-surface/50 hover:text-on-surface"><ArrowLeft size={20} /></button>
               <h1 className="font-serif font-bold text-lg">{profile.display_name}'s Map</h1>

@@ -279,7 +279,7 @@ export const CircleActivity: React.FC = () => {
               onDragEnd={(_e, info) => {
                 if (info.offset.y > 100 || info.velocity.y > 300) setShowFilters(false);
               }}
-              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl shadow-2xl max-h-[75vh] flex flex-col overflow-hidden"
+              className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-50 bg-surface rounded-t-3xl shadow-2xl max-h-[75vh] flex flex-col overflow-hidden"
             >
               {/* Drag handle */}
               <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">

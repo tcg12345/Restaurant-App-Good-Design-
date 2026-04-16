@@ -2523,7 +2523,10 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         transition={{ type: 'spring', damping: 32, stiffness: 300, mass: 0.8 }}
         style={{ height: FULL_HEIGHT }}
         className={cn(
-          "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform",
+          "absolute bottom-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] z-40 border-t border-white/40 flex flex-col will-change-transform",
+          phoneMode
+            ? "left-0 right-0"
+            : "left-1/2 -translate-x-1/2 w-full max-w-[600px]",
           sheetState === 'full' ? "glass rounded-t-none" : "glass rounded-t-[3rem]"
         )}
       >

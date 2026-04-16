@@ -201,7 +201,7 @@ export const Circle: React.FC = () => {
     <div className="pb-32">
       <TopBar title="Social" showBackButton />
 
-      <main className="px-4">
+      <main className="px-4 max-w-[680px] mx-auto">
         {/* ── Pending Requests ── */}
         {pendingRequests.length > 0 && (
           <section className="mb-5">
@@ -499,7 +499,7 @@ export const Circle: React.FC = () => {
               className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]" onClick={() => setAddSheetOpen(false)} />
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl h-[85vh] flex flex-col overflow-hidden">
+              className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[60] bg-surface rounded-t-3xl h-[85vh] max-h-[85vh] flex flex-col overflow-hidden">
               <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>
               <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
                 <h3 className="font-serif font-bold text-lg">Find Friends</h3>

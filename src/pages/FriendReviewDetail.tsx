@@ -200,7 +200,7 @@ export const FriendReviewDetail: React.FC = () => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-screen bg-surface pb-28"
+      className="min-h-screen bg-surface pb-28 max-w-[680px] mx-auto"
     >
       {/* Sticky header */}
       <div className="sticky top-0 z-30 bg-surface/70 backdrop-blur-md">

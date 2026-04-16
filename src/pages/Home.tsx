@@ -531,7 +531,7 @@ export const Home: React.FC = () => {
       <div className="pb-32">
         <TopBar />
 
-        <main className="px-3">
+        <main className="px-3 max-w-5xl mx-auto">
           <div className="flex items-center justify-center gap-6 mb-8">
             <button
               onClick={() => setActiveTab('general')}
@@ -637,7 +637,7 @@ export const Home: React.FC = () => {
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             className="fixed inset-0 z-40 bg-surface overflow-y-auto"
           >
-            <div className="pb-32 min-h-full">
+            <div className="pb-32 min-h-full max-w-5xl mx-auto">
               <div className="px-3 pt-4">
                 {/* Phone: back arrow on its own row above search bars */}
                 {phoneMode && (
@@ -1087,7 +1087,7 @@ export const Home: React.FC = () => {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="fixed inset-0 bg-black/30 z-50"
+                      className="fixed inset-0 bg-black/30 z-[60]"
                       onClick={() => setShowFilters(false)}
                     />
                     <motion.div
@@ -1101,7 +1101,7 @@ export const Home: React.FC = () => {
                       onDragEnd={(_e, info) => {
                         if (info.offset.y > 100 || info.velocity.y > 300) setShowFilters(false);
                       }}
-                      className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col overflow-hidden"
+                      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[60] bg-surface rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col overflow-hidden"
                     >
                       {/* Drag handle */}
                       <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">

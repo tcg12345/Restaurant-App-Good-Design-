@@ -124,7 +124,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   }
 
   return (
-    <div className="pb-32 bg-surface min-h-screen">
+    <div className="pb-32 bg-surface min-h-screen max-w-[680px] mx-auto">
 
       {/* ── Hero — full-bleed tall image, text at very bottom ── */}
       <div className="relative w-full overflow-hidden" style={{ height: '75vh', maxHeight: '85vh' }}>
@@ -1068,7 +1068,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden"
+              className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-50 bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden"
             >
               <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>
               <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-on-surface/6 flex-shrink-0">
@@ -1119,7 +1119,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 z-[70] bg-surface rounded-t-3xl flex flex-col overflow-hidden max-h-[60vh]"
+              className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md z-[70] bg-surface rounded-t-3xl flex flex-col overflow-hidden max-h-[60vh]"
             >
               <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>
               <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-on-surface/6 flex-shrink-0">

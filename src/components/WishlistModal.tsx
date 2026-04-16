@@ -241,8 +241,8 @@ export const WishlistModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className={cn("fixed bottom-0 left-0 right-0 z-[110] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
+            className={cn("fixed bottom-0 z-[110] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+              phoneMode ? "left-0 right-0 h-[92vh]" : "left-1/2 -translate-x-1/2 w-full max-w-md max-h-[75vh]")}
           >
             {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
             <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
