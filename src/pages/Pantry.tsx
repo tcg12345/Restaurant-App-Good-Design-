@@ -3989,6 +3989,11 @@ export const Pantry: React.FC = () => {
                     <Download size={16} className="text-on-surface/40" />
                     <span className="text-sm font-medium text-on-surface/70">Export JSON</span>
                   </button>
+                  <button onClick={() => { setMoreMenuOpen(false); navigate('/reorder'); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-on-surface/3 transition-colors text-left border-t border-on-surface/5">
+                    <ArrowUpDown size={16} className="text-on-surface/40" />
+                    <span className="text-sm font-medium text-on-surface/70">Reorder ratings</span>
+                  </button>
                 </motion.div>
               )}
             </AnimatePresence>

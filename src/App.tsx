@@ -36,12 +36,13 @@ import { UserProfile } from './pages/UserProfile';
 import { Messages } from './pages/Messages';
 import { FriendReviewDetail } from './pages/FriendReviewDetail';
 import { MealRecipePage } from './pages/MealRecipePage';
+import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
 
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/map';
-  const showBottomNav = !['/onboarding', '/messages'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
+  const showBottomNav = !['/onboarding', '/messages', '/reorder'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
 
@@ -139,6 +140,7 @@ const AppContent: React.FC = () => {
                 <Route path="/restaurant/:id" element={<RestaurantDetail />} />
                 <Route path="/onboarding" element={<Onboarding />} />
                 <Route path="/import" element={<ImportRestaurants />} />
+                <Route path="/reorder" element={<ReorderRatings />} />
                 <Route path="/recipe/:id" element={<RecipeDetail />} />
                 <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
                 <Route path="/user/:username" element={<UserProfile />} />
