@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon, Map as MapIcon } from 'lucide-react';
+import { Search as SearchIcon } from 'lucide-react';
 import { FollowingFeed } from '../components/FollowingFeed';
 import { cn } from '../lib/utils';
 
@@ -63,20 +63,6 @@ export const Search: React.FC = () => {
               />
             </div>
 
-            <button
-              type="button"
-              onClick={() => navigate('/map')}
-              className="w-full flex items-center gap-3 py-3 text-left group"
-              aria-label="Open map"
-            >
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 transition-colors group-hover:bg-primary/15">
-                <MapIcon size={18} className="text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[15px] font-semibold text-on-surface">Explore on map</p>
-                <p className="text-[11px] text-on-surface/50">Browse restaurants by location</p>
-              </div>
-            </button>
           </div>
         ) : (
           <FollowingFeed />
