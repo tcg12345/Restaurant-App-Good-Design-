@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ArrowLeft, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -1556,27 +1556,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       {/* Real Mapbox Map — rendered only when this is the Map page */}
       {mode !== 'home' && (
         <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
-      )}
-
-      {/* Back button — floating above the map on the dedicated Map page.
-          When arriving via a Restaurant Detail deep-link (focus-only view),
-          this returns to that restaurant; otherwise it goes to the search
-          landing page. */}
-      {mode === 'map' && (
-        <button
-          type="button"
-          onClick={() => {
-            if (isFocusOnly && initialFocus) {
-              navigate(`/restaurant/${initialFocus.id}`);
-            } else {
-              navigate('/search/main');
-            }
-          }}
-          className="absolute top-6 left-6 z-30 w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm shadow-xl border border-white/40 flex items-center justify-center text-on-surface/70 hover:text-primary transition-colors"
-          aria-label={isFocusOnly ? 'Back to restaurant' : 'Back to search'}
-        >
-          <ArrowLeft size={20} />
-        </button>
       )}
 
       {/* Search this area button — floating pill, appears instantly on pan-end */}
