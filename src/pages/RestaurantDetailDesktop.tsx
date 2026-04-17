@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
@@ -12,7 +12,7 @@ import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel 
 import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getProfilesByIds, getCommunityStats, type CommunityPhoto, type HotelDining, type DiningType, type ExpertRecommendation } from '../lib/supabase-community';
+import { getProfilesByIds, getCommunityStats, getFriends, type UserProfile as UP, type CommunityPhoto, type HotelDining, type DiningType, type ExpertRecommendation } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
@@ -62,7 +62,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   } = useRestaurantDetail();
   // Hours default to open — it's the most frequently checked info. Tracked
   // locally so the shared hook can keep its collapsed default elsewhere.
-  const [hoursOpen, setHoursOpen] = useState(true);
+  const [hoursOpen, setHoursOpen] = useState(false);
 
   const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
   const { conversations, sendMessage } = useChat();
@@ -75,6 +75,32 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [addDiningOpen, setAddDiningOpen] = useState(false);
   const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
+  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
+  const [followedExpertProfiles, setFollowedExpertProfiles] = useState<Record<string, UP>>({});
+
+  useEffect(() => {
+    if (!user?.id) return;
+    getFriends(user.id).then((friends) => setFollowedIds(new Set(friends.map((f) => f.friend_id))));
+  }, [user?.id]);
+
+  const followedRaterIds = useMemo(() => {
+    if (followedIds.size === 0 || communityStats.ratings.length === 0) return [];
+    return [...new Set(communityStats.ratings.map((r) => r.user_id).filter((id) => followedIds.has(id)))];
+  }, [communityStats.ratings, followedIds]);
+
+  useEffect(() => {
+    if (followedRaterIds.length === 0) return;
+    getProfilesByIds(followedRaterIds).then((profiles) => {
+      const experts: Record<string, UP> = {};
+      Object.values(profiles).forEach((p) => { if (p.is_expert) experts[p.user_id] = p; });
+      setFollowedExpertProfiles(experts);
+    });
+  }, [followedRaterIds]);
+
+  const followedExpertRatings = useMemo(
+    () => communityStats.ratings.filter((r) => !!followedExpertProfiles[r.user_id]),
+    [communityStats.ratings, followedExpertProfiles],
+  );
 
   const myRating = place ? getRating(place.id) : undefined;
   // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
@@ -423,6 +449,52 @@ export const RestaurantDetailDesktop: React.FC = () => {
             );
           })()}
         </section>
+
+        {/* ── Followed Expert Rating — prominent callout ── */}
+        {followedExpertRatings.length > 0 && (
+          <section className="mb-10 space-y-3">
+            {followedExpertRatings.map((rating) => {
+              const prof = followedExpertProfiles[rating.user_id];
+              if (!prof) return null;
+              return (
+                <div key={rating.id} className="rounded-2xl border border-amber-200/60 bg-amber-50/40 p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <Link
+                      to={`/user/${prof.username}`}
+                      className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0"
+                    >
+                      <span className="text-base font-serif font-bold text-amber-700">{prof.display_name.charAt(0).toUpperCase()}</span>
+                    </Link>
+                    <div className="flex-1 min-w-0">
+                      <Link to={`/user/${prof.username}`} className="text-base font-bold text-on-surface hover:text-primary transition-colors truncate block">
+                        {prof.display_name}
+                      </Link>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-600">Expert Review</p>
+                    </div>
+                    <div className="flex items-baseline gap-0.5 flex-shrink-0">
+                      <span className={cn("text-2xl font-serif font-bold leading-none", scoreColor(Number(rating.score)))}>{Number(rating.score).toFixed(1)}</span>
+                      <span className="text-[10px] text-on-surface/30 font-semibold">/10</span>
+                    </div>
+                  </div>
+
+                  {rating.notes && (
+                    <p className="text-sm leading-relaxed text-on-surface/70 mb-3">{rating.notes}</p>
+                  )}
+
+                  {rating.tags && rating.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {rating.tags.map((tag) => (
+                        <span key={tag} className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-white/80 border border-amber-200/50 text-amber-800">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+        )}
 
         {/* ── Hotel Dining — flat list with dividers, no per-row cards ── */}
         {isHotel && (

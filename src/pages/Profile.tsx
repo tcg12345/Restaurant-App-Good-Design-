@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { TopBar } from '../components/TopBar';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone,
@@ -218,16 +217,9 @@ export const Profile: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
-      <TopBar title="Profile" />
 
-      {/* Hero + stats — gradient fades seamlessly into the body with no seam */}
       <div className="relative">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-gradient-to-b from-primary/[0.09] via-primary/[0.035] to-transparent"
-        />
-
-        <div className="relative px-5 pt-2 pb-5">
+        <div className="relative px-5 pt-6 pb-5">
           {pendingRequestCount > 0 && (
             <div className="w-full mb-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
               <span className="text-xs font-semibold text-amber-900">

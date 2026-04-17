@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { TopBar } from '../components/TopBar';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, ChevronRight, Loader2 } from 'lucide-react';
+import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, ChevronRight, Loader2, ArrowLeft } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, sendFriendRequest, followPublicAccount, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, getExpertProfiles, getUserRatings, getFollowCounts, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { CircleActivity } from '../components/CircleActivity';
 import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
 
 export const Circle: React.FC = () => {
+  const navigate = useNavigate();
   const { user, refreshPendingRequests } = useAuth();
   const userId = user?.id ?? null;
 
@@ -188,8 +188,12 @@ export const Circle: React.FC = () => {
   if (loading) {
     return (
       <div className="pb-32">
-        <TopBar title="Social" showBackButton />
-        <main className="px-4 pt-4">
+        <div className="px-4 pt-4 pb-1">
+          <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/60 hover:bg-on-surface/5 transition-colors">
+            <ArrowLeft size={20} />
+          </button>
+        </div>
+        <main className="px-4">
           <LoadingSkeletonList count={4} variant="list-item" />
         </main>
       </div>
@@ -198,7 +202,11 @@ export const Circle: React.FC = () => {
 
   return (
     <div className="pb-32">
-      <TopBar title="Social" showBackButton />
+      <div className="px-4 pt-4 pb-1">
+        <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/60 hover:bg-on-surface/5 transition-colors">
+          <ArrowLeft size={20} />
+        </button>
+      </div>
 
       <main className="px-4">
         {/* ── Pending Requests ── */}
