@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -54,6 +54,59 @@ const PRICE_LEVELS = [
   { value: 2, label: '$$' },
   { value: 3, label: '$$$' },
   { value: 4, label: '$$$$' },
+];
+
+type Guide = {
+  id: string;
+  title: string;
+  author: string;
+  image: string;
+  count: number;
+};
+
+const MOCK_GUIDES: Guide[] = [
+  {
+    id: 'g-nyc-chinese',
+    title: 'Best Chinese Restaurants in NYC',
+    author: 'Jamie Lin',
+    image: 'https://images.unsplash.com/photo-1526318896980-cf78c088247c?auto=format&fit=crop&q=80&w=800',
+    count: 12,
+  },
+  {
+    id: 'g-rome-pasta',
+    title: 'Pasta Spots You Can\u2019t Miss in Rome',
+    author: 'Marco Rossi',
+    image: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&q=80&w=800',
+    count: 9,
+  },
+  {
+    id: 'g-tokyo-ramen',
+    title: 'Tokyo\u2019s Hidden Ramen Gems',
+    author: 'Aiko Tanaka',
+    image: 'https://images.unsplash.com/photo-1557872943-16a5ac26437e?auto=format&fit=crop&q=80&w=800',
+    count: 8,
+  },
+  {
+    id: 'g-paris-bistros',
+    title: 'Classic Paris Bistros',
+    author: 'Camille Durand',
+    image: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=800',
+    count: 10,
+  },
+  {
+    id: 'g-la-tacos',
+    title: 'The Best Tacos in Los Angeles',
+    author: 'Diego Ramirez',
+    image: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?auto=format&fit=crop&q=80&w=800',
+    count: 14,
+  },
+  {
+    id: 'g-austin-bbq',
+    title: 'Austin BBQ, Ranked',
+    author: 'Sam Hughes',
+    image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800',
+    count: 7,
+  },
 ];
 
 function ratingToPlace(r: CommunityRating): PlaceResult | null {
@@ -2759,6 +2812,44 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                 </section>
               ) : null}
 
+              {/* Guides */}
+              <section className="mt-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <BookOpen size={15} className="text-primary/60" />
+                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Guides</h3>
+                  </div>
+                  <button className="text-xs font-semibold text-primary">See All</button>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                  {MOCK_GUIDES.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      className="flex-shrink-0 snap-start group text-left"
+                    >
+                      <div className="relative w-56 aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
+                        <img
+                          src={g.image}
+                          alt={g.title}
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+                        <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 backdrop-blur-sm text-[10px] font-bold uppercase tracking-wider text-on-surface/70">
+                          <BookOpen size={10} />
+                          Guide
+                        </div>
+                        <div className="absolute inset-x-0 bottom-0 p-3">
+                          <p className="text-white text-[15px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
+                          <p className="text-white/80 text-[11px] font-medium mt-1 truncate">by {g.author} · {g.count} spots</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
               {/* Social Feed */}
               <div className="mt-5">
                 <SocialFeed />
@@ -3417,6 +3508,44 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       </div>
                     </section>
                   ) : null}
+
+                  {/* Guides */}
+                  <section>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <BookOpen size={13} className="text-primary/60" />
+                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Guides</h3>
+                      </div>
+                      <button className="text-xs font-semibold text-primary">See All</button>
+                    </div>
+                    <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                      {MOCK_GUIDES.map((g) => (
+                        <button
+                          key={g.id}
+                          type="button"
+                          className="flex-shrink-0 snap-start group text-left"
+                        >
+                          <div className="relative w-48 aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
+                            <img
+                              src={g.image}
+                              alt={g.title}
+                              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+                            <div className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider text-on-surface/70">
+                              <BookOpen size={9} />
+                              Guide
+                            </div>
+                            <div className="absolute inset-x-0 bottom-0 p-2.5">
+                              <p className="text-white text-[13px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
+                              <p className="text-white/80 text-[10px] font-medium mt-0.5 truncate">by {g.author} · {g.count} spots</p>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
 
                   {/* Social Feed */}
                   <SocialFeed />
