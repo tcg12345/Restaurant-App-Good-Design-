@@ -4,7 +4,7 @@ import { RestaurantCard } from '../components/RestaurantCard';
 import { CircleActivity } from '../components/CircleActivity';
 import { LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
-import { Search, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles, Building2, SearchX } from 'lucide-react';
+import { Search, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles, Building2, SearchX, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
@@ -42,6 +42,59 @@ const PRICE_LEVELS = [
 
 
 // Mock data removed — using real ratings from context
+
+type Guide = {
+  id: string;
+  title: string;
+  author: string;
+  image: string;
+  count: number;
+};
+
+const MOCK_GUIDES: Guide[] = [
+  {
+    id: 'g-nyc-chinese',
+    title: 'Best Chinese Restaurants in NYC',
+    author: 'Jamie Lin',
+    image: 'https://images.unsplash.com/photo-1526318896980-cf78c088247c?auto=format&fit=crop&q=80&w=800',
+    count: 12,
+  },
+  {
+    id: 'g-rome-pasta',
+    title: 'Pasta Spots You Can\u2019t Miss in Rome',
+    author: 'Marco Rossi',
+    image: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&q=80&w=800',
+    count: 9,
+  },
+  {
+    id: 'g-tokyo-ramen',
+    title: 'Tokyo\u2019s Hidden Ramen Gems',
+    author: 'Aiko Tanaka',
+    image: 'https://images.unsplash.com/photo-1557872943-16a5ac26437e?auto=format&fit=crop&q=80&w=800',
+    count: 8,
+  },
+  {
+    id: 'g-paris-bistros',
+    title: 'Classic Paris Bistros',
+    author: 'Camille Durand',
+    image: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=800',
+    count: 10,
+  },
+  {
+    id: 'g-la-tacos',
+    title: 'The Best Tacos in Los Angeles',
+    author: 'Diego Ramirez',
+    image: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?auto=format&fit=crop&q=80&w=800',
+    count: 14,
+  },
+  {
+    id: 'g-austin-bbq',
+    title: 'Austin BBQ, Ranked',
+    author: 'Sam Hughes',
+    image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800',
+    count: 7,
+  },
+];
 
 function placeToCardProps(place: PlaceResult) {
   return {
@@ -614,6 +667,41 @@ export const Home: React.FC = () => {
                   </div>
                 </section>
               )}
+
+              {/* Guides */}
+              <section className="mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-serif font-bold">Guides</h2>
+                  <button className="text-xs font-semibold text-primary">See All</button>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-2 -mx-3 px-3 scrollbar-hide snap-x snap-mandatory">
+                  {MOCK_GUIDES.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      className="flex-shrink-0 snap-start group text-left"
+                    >
+                      <div className="relative w-56 aspect-[4/5] rounded-2xl overflow-hidden bg-muted">
+                        <img
+                          src={g.image}
+                          alt={g.title}
+                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+                        <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 backdrop-blur-sm text-[10px] font-bold uppercase tracking-wider text-on-surface/70">
+                          <BookOpen size={10} />
+                          Guide
+                        </div>
+                        <div className="absolute inset-x-0 bottom-0 p-3">
+                          <p className="text-white text-[15px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
+                          <p className="text-white/80 text-[11px] font-medium mt-1 truncate">by {g.author} · {g.count} spots</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
 
               {/* Friend Activity Feed */}
               <SocialFeed />
