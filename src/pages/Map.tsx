@@ -56,8 +56,6 @@ const PRICE_LEVELS = [
   { value: 4, label: '$$$$' },
 ];
 
-const QUICK_FILTERS = ['Near Me', 'Hotels', 'Italian', 'Fine Dining', 'Sushi', 'Mexican'];
-
 function ratingToPlace(r: CommunityRating): PlaceResult | null {
   if (!r.lat || !r.lng) return null;
   const priceMap: Record<string, number> = { '$': 1, '$$': 2, '$$$': 3, '$$$$': 4 };
@@ -339,7 +337,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const NEARBY_INITIAL = 4;
   const NEARBY_INCREMENT = 12;
   const [nearbyShowCount, setNearbyShowCount] = useState(NEARBY_INITIAL);
-  const [activeQuickFilter, setActiveQuickFilter] = useState<string | null>(null);
   const preSearchPlacesRef = useRef<PlaceResult[]>([]);
 
   // Recent views from localStorage
@@ -532,47 +529,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     setApiRecommendations((prev) => [...prev, ...fresh]);
     setRecsLoadingMore(false);
   }, [recsLoadingMore, buildRecQueries, fetchRecBatch]);
-
-  // Quick filter handler for discover search
-  const handleQuickFilter = useCallback(async (filter: string) => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (isFocusOnlyRef.current) setIsFocusOnly(false);
-    if (activeQuickFilter === filter) {
-      setActiveQuickFilter(null);
-      fetchNearbyRef.current?.();
-      return;
-    }
-    setActiveQuickFilter(filter);
-    setIsSearching(true);
-    setShowSearchHere(false);
-    try {
-      const center = map.getCenter();
-      let results: PlaceResult[];
-      if (filter === 'Hotels') {
-        setMapMode('hotels');
-        results = await searchHotels('hotels', center.lat, center.lng);
-        setHotelPlaces(results);
-        setIsSearching(false);
-        return;
-      } else if (filter === 'Near Me') {
-        results = await searchNearbyRestaurants(center.lat, center.lng, 1000, [], 0);
-      } else {
-        results = await searchPlacesByText(filter, center.lat, center.lng);
-      }
-      setPlaces(results);
-      syncMarkersRef.current?.(results);
-      if (results.length > 0) {
-        const bounds = new mapboxgl.LngLatBounds();
-        results.forEach((p) => bounds.extend([p.lng, p.lat]));
-        map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
-      }
-    } catch (err) {
-      console.error('Quick filter search failed:', err);
-    } finally {
-      setIsSearching(false);
-    }
-  }, [activeQuickFilter]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);
@@ -3295,23 +3251,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           {/* Discover tab content — integrated feed + search */}
           {mapMode === 'discover' && (
             <div className="space-y-4">
-                  {/* Quick filters */}
-                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar -mx-1 px-1">
-                    {QUICK_FILTERS.map((filter) => (
-                      <button
-                        key={filter}
-                        onClick={() => handleQuickFilter(filter)}
-                        className={cn("whitespace-nowrap px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border transition-all",
-                          activeQuickFilter === filter
-                            ? 'bg-primary text-white border-primary'
-                            : 'bg-white border-muted hover:border-primary hover:text-primary'
-                        )}
-                      >
-                        {filter}
-                      </button>
-                    ))}
-                  </div>
-
                   {/* ── Search mode content ── */}
                   {discoverSearchActive ? (
                     isSearching ? (
