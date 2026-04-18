@@ -278,13 +278,16 @@ export const RestaurantDetailMobile: React.FC = () => {
             : '';
           return (
             <section className="mb-6">
-              <p className="font-mono text-[12px] font-semibold uppercase tracking-[0.14em] text-on-surface/55 mb-2.5">
+              <p className="font-mono text-[12px] font-medium uppercase tracking-[0.18em] text-on-surface/55 mb-3">
                 {isHotel ? 'Hotel' : cuisine}
                 {!isHotel && priceStr && <> · {priceStr}</>}
               </p>
               <div className="flex items-center gap-4">
                 <div className="flex-1 min-w-0">
-                  <h1 className="font-display text-[40px] font-bold text-on-surface leading-[1] tracking-[-0.01em]">
+                  <h1
+                    className="font-display text-[40px] text-on-surface leading-[1.02]"
+                    style={{ fontWeight: 600, fontVariationSettings: '"opsz" 144' }}
+                  >
                     {place.name}
                   </h1>
                   <p className="mt-3 text-[14px] text-on-surface/60 truncate">
