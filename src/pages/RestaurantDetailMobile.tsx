@@ -264,7 +264,7 @@ export const RestaurantDetailMobile: React.FC = () => {
       </div>
 
       {/* ── Main Content ── */}
-      <main className="px-5 pt-5">
+      <main className="px-3 pt-5">
 
         {/* ── Name + metadata — on the warm surface, confident and grounded.
             Large serif name on the left, prominent circular score badge
@@ -910,7 +910,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
                   </button>
                   {hasPhotos ? (
-                    <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar -mx-5 px-5 snap-x snap-mandatory">
+                    <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 snap-x snap-mandatory">
                       {myRating.photos.map((p, i) => (
                         <img
                           key={i}
