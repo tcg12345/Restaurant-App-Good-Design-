@@ -161,7 +161,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           the page surface. The dark gradient stays at the bottom for
           a gentle fade, but nothing sits on top of it except the
           carousel dots. ── */}
-      <div className="relative w-full overflow-hidden" style={{ height: '52vh', maxHeight: '60vh' }}>
+      <div className="relative w-full overflow-hidden" style={{ height: '39vh', maxHeight: '45vh' }}>
         {photos.length > 0 ? (
           <button
             onClick={() => setGalleryOpen(true)}
