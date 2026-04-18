@@ -499,6 +499,11 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasExperts = expertCount > 0;
           const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
+          // System font stack — intentionally uses the native Apple/Windows
+          // UI face for the count line so it reads as quiet meta-info
+          // distinct from the display serif and mono label above.
+          const systemStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
           // Shared renderer for a single score box
           const Box = ({ label, score, count, countLabel, emptyCopy, onClick }: {
             label: string;
@@ -510,22 +515,54 @@ export const RestaurantDetailMobile: React.FC = () => {
           }) => {
             const body = (
               <>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/50 mb-2">
+                <p
+                  className="uppercase mb-2 text-on-surface/55"
+                  style={{
+                    fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                    fontSize: '10px',
+                    fontWeight: 500,
+                    letterSpacing: '1.4px',
+                  }}
+                >
                   {label}
                 </p>
                 {score != null ? (
                   <>
-                    <p className={cn('text-[28px] font-serif font-bold leading-none tabular-nums', scoreColor(score))}>
+                    <p
+                      className={cn('leading-none tabular-nums', scoreColor(score))}
+                      style={{
+                        fontFamily: '"Fraunces", "Noto Serif", serif',
+                        fontSize: '28px',
+                        fontWeight: 600,
+                        fontVariationSettings: '"opsz" 144',
+                      }}
+                    >
                       {score.toFixed(1)}
                     </p>
-                    <p className="mt-1.5 text-[11px] text-on-surface/55">
+                    <p
+                      className="mt-1.5 text-on-surface/55"
+                      style={{ fontFamily: systemStack, fontSize: '11px' }}
+                    >
                       {count.toLocaleString()} {countLabel}
                     </p>
                   </>
                 ) : (
                   <>
-                    <p className="text-[28px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
-                    <p className="mt-1.5 text-[11px] italic text-on-surface/40 leading-snug">
+                    <p
+                      className="leading-none tabular-nums text-on-surface/15"
+                      style={{
+                        fontFamily: '"Fraunces", "Noto Serif", serif',
+                        fontSize: '28px',
+                        fontWeight: 600,
+                        fontVariationSettings: '"opsz" 144',
+                      }}
+                    >
+                      —
+                    </p>
+                    <p
+                      className="mt-1.5 italic text-on-surface/40 leading-snug"
+                      style={{ fontFamily: systemStack, fontSize: '11px' }}
+                    >
                       {emptyCopy}
                     </p>
                   </>
@@ -544,13 +581,6 @@ export const RestaurantDetailMobile: React.FC = () => {
 
           return (
             <section className="mb-10">
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
-                The Community Says
-              </p>
-              <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight mb-4">
-                {!hasCommunity && !hasFriends && !hasExperts ? 'No ratings yet' : 'Scores across your network'}
-              </h2>
-
               <div className={cn('grid gap-2.5', isHotel ? 'grid-cols-1' : 'grid-cols-3')}>
                 <Box
                   label={isHotel ? 'Breakfast' : 'Everyone'}
