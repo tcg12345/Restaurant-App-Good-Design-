@@ -3,7 +3,9 @@
 @theme {
   --font-serif: "Noto Serif", serif;
   --font-sans: "Manrope", sans-serif;
-  
+  --font-display: "Fraunces", "Noto Serif", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
   --color-surface: #fff8f6;
   --color-on-surface: #1e1b1a;
   --color-primary: #9f3012;
