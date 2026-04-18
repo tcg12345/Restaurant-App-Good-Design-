@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Images, Users, UserCircle, Share2, Heart,
-  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
+  Navigation, ExternalLink, X, Users, UserCircle, Share2, Heart, Bookmark,
+  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreDotBg } from '../lib/score';
@@ -64,13 +64,16 @@ export const RestaurantDetailMobile: React.FC = () => {
     visitHistory, visitCount,
   } = useRestaurantDetail();
 
-  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal, removeFromWishlist } = useLists();
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
   // Hours expanded by default — it's the most frequently checked info,
   // so show it open without a tap. Local state so we don't mutate the
   // shared hook default.
   const [hoursOpen, setHoursOpen] = useState(false);
+  // Ref on the "My Rating Details" section so the Your Rating summary
+  // card above can smooth-scroll down to it when tapped.
+  const myRatingRef = useRef<HTMLElement | null>(null);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   const [sendToChatOpen, setSendToChatOpen] = useState(false);
@@ -159,8 +162,12 @@ export const RestaurantDetailMobile: React.FC = () => {
   return (
     <div className="pb-32 bg-surface min-h-screen">
 
-      {/* ── Hero — full-bleed tall image, text at very bottom ── */}
-      <div className="relative w-full overflow-hidden" style={{ height: '75vh', maxHeight: '85vh' }}>
+      {/* ── Hero — full-bleed image. Shorter than before (52vh) because
+          the name + metadata moved out of the overlay and down onto
+          the page surface. The dark gradient stays at the bottom for
+          a gentle fade, but nothing sits on top of it except the
+          carousel dots. ── */}
+      <div className="relative w-full overflow-hidden" style={{ height: '52vh', maxHeight: '60vh' }}>
         {photos.length > 0 ? (
           <button
             onClick={() => setGalleryOpen(true)}
@@ -179,10 +186,10 @@ export const RestaurantDetailMobile: React.FC = () => {
           </div>
         )}
 
-        {/* Dark gradient — bottom half only for text legibility */}
+        {/* Dark gradient — gentle fade at the bottom */}
         <div
-          className="absolute inset-x-0 bottom-0 h-1/2 pointer-events-none"
-          style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.45) 40%, rgba(0,0,0,0.1) 75%, transparent 100%)' }}
+          className="absolute inset-x-0 bottom-0 h-1/3 pointer-events-none"
+          style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.15) 55%, transparent 100%)' }}
         />
         {/* Thin fade into page bg */}
         <div
@@ -205,7 +212,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             >
               <ChevronRight size={18} />
             </button>
-            <div className="absolute bottom-[100px] left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-1.5 z-10">
               {photos.map((_, i) => (
                 <button
                   key={i}
@@ -225,8 +232,27 @@ export const RestaurantDetailMobile: React.FC = () => {
           <ArrowLeft size={18} />
         </button>
 
-        {/* Top-right actions */}
+        {/* Top-right actions — bookmark (wishlist) + share */}
         <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+          <button
+            onClick={() => {
+              if (!place) return;
+              if (isWishlisted(place.id)) {
+                removeFromWishlist(place.id);
+              } else {
+                openWishlistModal({
+                  id: place.id, name: place.name,
+                  image: place.photoUrl || '',
+                  cuisine, price: priceStr,
+                  address: place.address,
+                });
+              }
+            }}
+            aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
+            className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80"
+          >
+            <Bookmark size={16} className={place && isWishlisted(place.id) ? 'fill-white text-white' : ''} />
+          </button>
           <button
             onClick={() => {
               if (navigator.share) {
@@ -235,140 +261,214 @@ export const RestaurantDetailMobile: React.FC = () => {
                 navigator.clipboard.writeText(window.location.href);
               }
             }}
+            aria-label="Share"
             className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80"
           >
             <Share2 size={16} />
           </button>
-          {photos.length > 1 && (
-            <button
-              onClick={() => setGalleryOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 text-xs font-medium"
-            >
-              <Images size={14} />
-              {photos.length}
-            </button>
-          )}
-        </div>
-
-        {/* Name + badges — anchored at very bottom, white on dark gradient */}
-        <div className="absolute bottom-10 left-5 right-5 z-10 pointer-events-none">
-          <h1 className="text-2xl font-serif font-bold text-white leading-tight mb-1.5 drop-shadow-lg">{place.name}</h1>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold text-white/90 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
-            {!isHotel && priceStr && (
-              <>
-                <span className="text-white/50">·</span>
-                <span className="text-xs font-semibold text-white/90 uppercase tracking-wider">{priceStr}</span>
-              </>
-            )}
-            {place.isOpen !== null && (
-              <>
-                <span className="text-white/50">·</span>
-                {place.isOpen ? (
-                  <span className="text-xs font-semibold text-green-400">Open</span>
-                ) : (
-                  <span className="text-xs font-semibold text-red-400">
-                    Closed{(() => {
-                      const next = getNextOpenTime(place.hours);
-                      return next ? ` · Opens ${next}` : '';
-                    })()}
-                  </span>
-                )}
-              </>
-            )}
-          </div>
         </div>
       </div>
 
       {/* ── Main Content ── */}
-      <main className="px-3 pt-6">
+      <main className="px-5 pt-5">
 
-        {/* Action buttons — Rate, Wishlist, Rate Again */}
-        <div className={cn("grid gap-2 mb-3", place && getRating(place.id) ? "grid-cols-3" : "grid-cols-2")}>
-          <button
-            onClick={() => place && openAddRestaurantModal({
-              id: place.id, name: place.name,
-              image: place.photoUrl || '',
-              cuisine, price: priceStr,
-              address: place.address,
-            })}
-            className={`flex items-center justify-center gap-1.5 py-3 rounded-2xl font-medium text-sm active:scale-[0.98] transition-transform ${
-              place && getRating(place.id) ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-primary text-white'
-            }`}
-          >
-            <Star size={16} />
-            {place && getRating(place.id) ? `${getRating(place.id)!.score.toFixed(1)}` : 'Rate'}
-          </button>
-          {place && getRating(place.id) && (
-            <button
-              onClick={() => openAddRestaurantModal({
+        {/* ── Name + metadata — on the warm surface, confident and grounded.
+            Large serif name on the left, prominent circular score badge
+            floating on the right. The score shows the user's personal
+            rating if they have one, otherwise the community average. ── */}
+        {(() => {
+          const badgeScore = myRating?.score ?? (communityStats.totalRatings > 0 ? communityStats.avgScore : null);
+          const badgeIsPersonal = !!myRating;
+          const badgeColor = badgeScore != null
+            ? (badgeScore >= 8 ? 'bg-secondary' : badgeScore >= 5 ? 'bg-amber-600' : 'bg-red-500')
+            : '';
+          return (
+            <section className="mb-5">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/50 mb-1.5">
+                {isHotel ? 'Hotel' : cuisine}
+                {!isHotel && priceStr && <> · {priceStr}</>}
+              </p>
+              <div className="flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-[34px] font-serif font-bold text-on-surface leading-[1.05] tracking-tight">
+                    {place.name}
+                  </h1>
+                  <p className="mt-2 text-[13px] text-on-surface/55 truncate">
+                    {place.address}
+                  </p>
+                  {place.isOpen !== null && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[13px]">
+                      <span className={cn('inline-block w-1.5 h-1.5 rounded-full', place.isOpen ? 'bg-green-500' : 'bg-red-500')} />
+                      {place.isOpen ? (
+                        <span className="text-on-surface/70">
+                          <span className="font-semibold text-green-700">Open</span>
+                          {(() => {
+                            const line = getTodayHours(place.hours);
+                            const close = line.split(/\s*[–-]\s*/)[1];
+                            return close ? <span> · closes {close.trim()}</span> : null;
+                          })()}
+                        </span>
+                      ) : (
+                        <span className="text-on-surface/70">
+                          <span className="font-semibold text-red-600">Closed</span>
+                          {(() => {
+                            const next = getNextOpenTime(place.hours);
+                            return next ? <span> · opens {next}</span> : null;
+                          })()}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {badgeScore != null && (
+                  <div
+                    className={cn(
+                      'flex-shrink-0 w-[60px] h-[60px] rounded-full flex items-center justify-center shadow-sm',
+                      badgeColor,
+                    )}
+                    aria-label={badgeIsPersonal ? `Your rating ${badgeScore.toFixed(1)}` : `Community rating ${badgeScore.toFixed(1)}`}
+                  >
+                    <span className="text-[22px] font-serif font-bold text-white tabular-nums leading-none">
+                      {badgeScore.toFixed(1)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </section>
+          );
+        })()}
+
+        {/* ── Your Rating summary card — dark olive card with the user's
+            score, visit count and a short notes snippet. Tapping scrolls
+            to the full My Rating Details section below. If unrated, the
+            same card becomes a warm "Rate this restaurant" call-to-action
+            that opens the rating modal. ── */}
+        <button
+          type="button"
+          onClick={() => {
+            if (!place) return;
+            if (myRating) {
+              myRatingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+              openAddRestaurantModal({
                 id: place.id, name: place.name,
                 image: place.photoUrl || '',
                 cuisine, price: priceStr,
                 address: place.address,
-              }, 'new-visit')}
-              className="flex items-center justify-center gap-1.5 py-3 rounded-2xl font-medium text-sm active:scale-[0.98] transition-transform bg-primary/10 text-primary border border-primary/20"
-            >
-              <Plus size={14} />
-              Re-rate
-            </button>
+              });
+            }
+          }}
+          className="w-full mb-6 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left active:scale-[0.99] transition-transform"
+          style={{ backgroundColor: '#2f3425' }}
+        >
+          {myRating ? (
+            <>
+              <div
+                className={cn(
+                  'flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center',
+                  myRating.score >= 8 ? 'bg-[#d4a373]' : myRating.score >= 5 ? 'bg-amber-500' : 'bg-red-400',
+                )}
+              >
+                <span className="text-[15px] font-serif font-bold text-[#2f3425] tabular-nums leading-none">
+                  {myRating.score.toFixed(1)}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">
+                  Your Rating · {visitCount + 1} {visitCount + 1 === 1 ? 'visit' : 'visits'}
+                </p>
+                {myRating.notes ? (
+                  <p className="mt-0.5 text-[14px] italic font-serif text-white/90 line-clamp-1 leading-snug">
+                    "{myRating.notes}"
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-[13px] text-white/60 italic leading-snug">
+                    Tap to see your full review
+                  </p>
+                )}
+              </div>
+              <ChevronRight size={18} className="text-white/55 flex-shrink-0" />
+            </>
+          ) : (
+            <>
+              <div className="flex-shrink-0 w-11 h-11 rounded-full bg-[#d4a373]/90 flex items-center justify-center">
+                <Star size={18} className="text-[#2f3425]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">
+                  Rate this restaurant
+                </p>
+                <p className="mt-0.5 text-[14px] font-serif text-white/90 leading-snug">
+                  Log your visit and score
+                </p>
+              </div>
+              <ChevronRight size={18} className="text-white/55 flex-shrink-0" />
+            </>
           )}
-          <button
-            onClick={() => place && openWishlistModal({
-              id: place.id, name: place.name,
-              image: place.photoUrl || '',
-              cuisine, price: priceStr,
-              address: place.address,
-            })}
-            className={`flex items-center justify-center gap-1.5 py-3 rounded-2xl font-medium text-sm active:scale-[0.98] transition-transform border ${
-              place && isWishlisted(place.id) ? 'bg-secondary/10 text-secondary border-secondary/30' : 'bg-white text-on-surface/60 border-on-surface/12'
-            }`}
-          >
-            <Heart size={16} className={place && isWishlisted(place.id) ? 'fill-secondary' : ''} />
-            {place && isWishlisted(place.id) ? 'Saved' : 'Wishlist'}
-          </button>
-        </div>
+        </button>
 
-        {/* Action row — Directions, Website, Photos, Send */}
-        <div className="grid grid-cols-4 gap-2 mb-7">
+        {/* ── Action row — Call, Route, Web, Share.
+            Circular outlined icon buttons, Apple-Maps-style. Muted when
+            the underlying data isn't available. ── */}
+        <div className="grid grid-cols-4 gap-2 mb-8">
+          {place.phone ? (
+            <a
+              href={`tel:${place.phone}`}
+              className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity"
+            >
+              <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Phone size={18} className="text-on-surface" />
+              </span>
+              <span className="text-[11px] font-medium text-on-surface/75">Call</span>
+            </a>
+          ) : (
+            <div className="flex flex-col items-center gap-2 opacity-35">
+              <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Phone size={18} className="text-on-surface" />
+              </span>
+              <span className="text-[11px] font-medium text-on-surface">Call</span>
+            </div>
+          )}
           <a
             href={directionsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
+            className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity"
           >
-            <Navigation size={18} />
-            <span className="text-xs font-medium">Directions</span>
+            <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
+              <Navigation size={18} className="text-on-surface" />
+            </span>
+            <span className="text-[11px] font-medium text-on-surface/75">Route</span>
           </a>
           {place.website ? (
             <a
               href={place.website}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
+              className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity"
             >
-              <Globe size={18} />
-              <span className="text-xs font-medium">Website</span>
+              <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Globe size={18} className="text-on-surface" />
+              </span>
+              <span className="text-[11px] font-medium text-on-surface/75">Web</span>
             </a>
           ) : (
-            <div className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/8 text-on-surface/30">
-              <Globe size={18} />
-              <span className="text-xs font-medium">Website</span>
+            <div className="flex flex-col items-center gap-2 opacity-35">
+              <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Globe size={18} className="text-on-surface" />
+              </span>
+              <span className="text-[11px] font-medium text-on-surface">Web</span>
             </div>
           )}
           <button
-            onClick={() => setGalleryOpen(true)}
-            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
-          >
-            <Images size={18} />
-            <span className="text-xs font-medium">Photos</span>
-          </button>
-          <button
+            type="button"
             onClick={() => setSendToChatOpen(true)}
-            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface active:scale-95 transition-transform"
+            className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity"
           >
-            <Send size={18} />
-            <span className="text-xs font-medium">Send</span>
+            <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
+              <Send size={18} className="text-on-surface" />
+            </span>
+            <span className="text-[11px] font-medium text-on-surface/75">Share</span>
           </button>
         </div>
 
@@ -737,7 +837,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasFriends = !isHotel && (myRating.friendIds?.length || 0) > 0;
           const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
           return (
-            <section className="mb-8">
+            <section ref={myRatingRef} className="mb-8 scroll-mt-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">My Rating Details</h3>
                 <button
@@ -812,7 +912,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
                   </button>
                   {hasPhotos ? (
-                    <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 snap-x snap-mandatory">
+                    <div className="mt-2 flex gap-2 overflow-x-auto no-scrollbar -mx-5 px-5 snap-x snap-mandatory">
                       {myRating.photos.map((p, i) => (
                         <img
                           key={i}
@@ -1071,7 +1171,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             container itself renders mapbox; a transparent overlay button
             sits above it to catch taps and route to the full /map page
             (the mapbox instance below stays visible). ── */}
-        <section className="mb-8 -mx-3">
+        <section className="mb-8 -mx-5">
           <div className="relative w-full h-64">
             {/* Inline width/height match Map.tsx — Mapbox's CSS sets
                 `.mapboxgl-map { position: relative }` which can override
@@ -1106,7 +1206,7 @@ export const RestaurantDetailMobile: React.FC = () => {
               className="absolute inset-0 z-10 active:bg-on-surface/5 transition-colors"
             />
           </div>
-          <div className="px-3 pt-3 flex items-center justify-between">
+          <div className="px-5 pt-3 flex items-center justify-between">
             <p className="text-[13px] text-on-surface/45 truncate flex-1">{place.address}</p>
             <a
               href={mapsUrl}

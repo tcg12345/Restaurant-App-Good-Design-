@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Images, Users, UserCircle, Share2, Heart,
-  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
+  Navigation, ExternalLink, X, Users, UserCircle, Share2, Heart, Bookmark,
+  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreDotBg } from '../lib/score';
@@ -64,9 +64,12 @@ export const RestaurantDetailDesktop: React.FC = () => {
   // locally so the shared hook can keep its collapsed default elsewhere.
   const [hoursOpen, setHoursOpen] = useState(false);
 
-  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal, removeFromWishlist } = useLists();
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
+  // Ref on the "My Rating Details" section so the Your Rating summary
+  // card above can smooth-scroll down to it when tapped.
+  const myRatingRef = useRef<HTMLElement | null>(null);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   const [sendToChatOpen, setSendToChatOpen] = useState(false);
@@ -209,8 +212,27 @@ export const RestaurantDetailDesktop: React.FC = () => {
           <ArrowLeft size={20} />
         </button>
 
-        {/* Top-right actions */}
+        {/* Top-right actions — bookmark (wishlist) + share */}
         <div className="absolute top-6 right-6 flex items-center gap-2 z-10">
+          <button
+            onClick={() => {
+              if (!place) return;
+              if (isWishlisted(place.id)) {
+                removeFromWishlist(place.id);
+              } else {
+                openWishlistModal({
+                  id: place.id, name: place.name,
+                  image: place.photoUrl || '',
+                  cuisine, price: priceStr,
+                  address: place.address,
+                });
+              }
+            }}
+            aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
+            className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/40 transition-colors"
+          >
+            <Bookmark size={18} className={place && isWishlisted(place.id) ? 'fill-white text-white' : ''} />
+          </button>
           <button
             onClick={() => {
               if (navigator.share) {
@@ -219,19 +241,11 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 navigator.clipboard.writeText(window.location.href);
               }
             }}
+            aria-label="Share"
             className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/40 transition-colors"
           >
             <Share2 size={18} />
           </button>
-          {photos.length > 1 && (
-            <button
-              onClick={() => setGalleryOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 text-xs font-medium hover:bg-black/40 transition-colors"
-            >
-              <Images size={14} />
-              {photos.length}
-            </button>
-          )}
         </div>
       </div>
 
@@ -244,121 +258,203 @@ export const RestaurantDetailDesktop: React.FC = () => {
           this width so nothing sprawls inconsistently. */}
       <main className="px-6 lg:px-8 pt-6 max-w-5xl mx-auto">
 
-        {/* Name + badges */}
-        <div className="mb-6">
-          <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-tight mb-2">{place.name}</h1>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
-            {!isHotel && priceStr && (
-              <>
-                <span className="text-on-surface/35">·</span>
-                <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{priceStr}</span>
-              </>
-            )}
-            {place.isOpen !== null && (
-              <>
-                <span className="text-on-surface/35">·</span>
-                {place.isOpen ? (
-                  <span className="text-xs font-semibold text-green-600">Open</span>
-                ) : (
-                  <span className="text-xs font-semibold text-red-500">
-                    Closed{(() => {
-                      const next = getNextOpenTime(place.hours);
-                      return next ? ` · Opens ${next}` : '';
-                    })()}
-                  </span>
+        {/* ── Name + metadata — large serif name on the left, prominent
+            circular score badge floating on the right. Score shows the
+            user's personal rating if present, otherwise the community
+            average. ── */}
+        {(() => {
+          const badgeScore = myRating?.score ?? (communityStats.totalRatings > 0 ? communityStats.avgScore : null);
+          const badgeIsPersonal = !!myRating;
+          const badgeColor = badgeScore != null
+            ? (badgeScore >= 8 ? 'bg-secondary' : badgeScore >= 5 ? 'bg-amber-600' : 'bg-red-500')
+            : '';
+          return (
+            <section className="mb-7">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/50 mb-2">
+                {isHotel ? 'Hotel' : cuisine}
+                {!isHotel && priceStr && <> · {priceStr}</>}
+              </p>
+              <div className="flex items-start gap-6">
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-[1.05] tracking-tight">
+                    {place.name}
+                  </h1>
+                  <p className="mt-3 text-sm text-on-surface/55">
+                    {place.address}
+                  </p>
+                  {place.isOpen !== null && (
+                    <div className="mt-2 flex items-center gap-2 text-sm">
+                      <span className={cn('inline-block w-2 h-2 rounded-full', place.isOpen ? 'bg-green-500' : 'bg-red-500')} />
+                      {place.isOpen ? (
+                        <span className="text-on-surface/70">
+                          <span className="font-semibold text-green-700">Open</span>
+                          {(() => {
+                            const line = getTodayHours(place.hours);
+                            const close = line.split(/\s*[–-]\s*/)[1];
+                            return close ? <span> · closes {close.trim()}</span> : null;
+                          })()}
+                        </span>
+                      ) : (
+                        <span className="text-on-surface/70">
+                          <span className="font-semibold text-red-600">Closed</span>
+                          {(() => {
+                            const next = getNextOpenTime(place.hours);
+                            return next ? <span> · opens {next}</span> : null;
+                          })()}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {badgeScore != null && (
+                  <div
+                    className={cn(
+                      'flex-shrink-0 w-20 h-20 rounded-full flex items-center justify-center shadow-sm',
+                      badgeColor,
+                    )}
+                    aria-label={badgeIsPersonal ? `Your rating ${badgeScore.toFixed(1)}` : `Community rating ${badgeScore.toFixed(1)}`}
+                  >
+                    <span className="text-[28px] font-serif font-bold text-white tabular-nums leading-none">
+                      {badgeScore.toFixed(1)}
+                    </span>
+                  </div>
                 )}
-              </>
-            )}
-          </div>
-        </div>
+              </div>
+            </section>
+          );
+        })()}
 
-        {/* Action buttons — Rate, Wishlist, Rate Again */}
-        <div className={cn("grid gap-2 mb-3", place && getRating(place.id) ? "grid-cols-3" : "grid-cols-2")}>
-          <button
-            onClick={() => place && openAddRestaurantModal({
-              id: place.id, name: place.name,
-              image: place.photoUrl || '',
-              cuisine, price: priceStr,
-              address: place.address,
-            })}
-            className={`flex items-center justify-center gap-1.5 py-3.5 rounded-2xl font-medium text-sm transition-colors ${
-              place && getRating(place.id) ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100' : 'bg-primary text-white hover:bg-primary/90'
-            }`}
-          >
-            <Star size={16} />
-            {place && getRating(place.id) ? `${getRating(place.id)!.score.toFixed(1)}` : 'Rate'}
-          </button>
-          {place && getRating(place.id) && (
-            <button
-              onClick={() => openAddRestaurantModal({
+        {/* ── Your Rating summary card — dark olive card with the user's
+            score, visit count and a short notes snippet. Tapping scrolls
+            to the full My Rating Details section below. If unrated, the
+            same card becomes a warm "Rate this restaurant" call-to-action
+            that opens the rating modal. ── */}
+        <button
+          type="button"
+          onClick={() => {
+            if (!place) return;
+            if (myRating) {
+              myRatingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+              openAddRestaurantModal({
                 id: place.id, name: place.name,
                 image: place.photoUrl || '',
                 cuisine, price: priceStr,
                 address: place.address,
-              }, 'new-visit')}
-              className="flex items-center justify-center gap-1.5 py-3.5 rounded-2xl font-medium text-sm transition-colors bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15"
-            >
-              <Plus size={14} />
-              Re-rate
-            </button>
+              });
+            }
+          }}
+          className="w-full mb-8 rounded-2xl px-5 py-4 flex items-center gap-4 text-left hover:brightness-110 transition-all"
+          style={{ backgroundColor: '#2f3425' }}
+        >
+          {myRating ? (
+            <>
+              <div
+                className={cn(
+                  'flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center',
+                  myRating.score >= 8 ? 'bg-[#d4a373]' : myRating.score >= 5 ? 'bg-amber-500' : 'bg-red-400',
+                )}
+              >
+                <span className="text-base font-serif font-bold text-[#2f3425] tabular-nums leading-none">
+                  {myRating.score.toFixed(1)}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/55">
+                  Your Rating · {visitCount + 1} {visitCount + 1 === 1 ? 'visit' : 'visits'}
+                </p>
+                {myRating.notes ? (
+                  <p className="mt-0.5 text-[15px] italic font-serif text-white/90 truncate leading-snug">
+                    "{myRating.notes}"
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-sm text-white/60 italic leading-snug">
+                    Tap to see your full review
+                  </p>
+                )}
+              </div>
+              <ChevronRight size={20} className="text-white/55 flex-shrink-0" />
+            </>
+          ) : (
+            <>
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#d4a373]/90 flex items-center justify-center">
+                <Star size={20} className="text-[#2f3425]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/55">
+                  Rate this restaurant
+                </p>
+                <p className="mt-0.5 text-[15px] font-serif text-white/90 leading-snug">
+                  Log your visit and score
+                </p>
+              </div>
+              <ChevronRight size={20} className="text-white/55 flex-shrink-0" />
+            </>
           )}
-          <button
-            onClick={() => place && openWishlistModal({
-              id: place.id, name: place.name,
-              image: place.photoUrl || '',
-              cuisine, price: priceStr,
-              address: place.address,
-            })}
-            className={`flex items-center justify-center gap-1.5 py-3.5 rounded-2xl font-medium text-sm transition-colors border ${
-              place && isWishlisted(place.id) ? 'bg-secondary/10 text-secondary border-secondary/30 hover:bg-secondary/20' : 'bg-white text-on-surface/60 border-on-surface/12 hover:bg-on-surface/[0.03]'
-            }`}
-          >
-            <Heart size={16} className={place && isWishlisted(place.id) ? 'fill-secondary' : ''} />
-            {place && isWishlisted(place.id) ? 'Saved' : 'Wishlist'}
-          </button>
-        </div>
+        </button>
 
-        {/* Action row — Directions, Website, Photos, Send */}
-        <div className="grid grid-cols-4 gap-3 mb-7">
+        {/* ── Action row — Call, Route, Web, Share.
+            Circular outlined icon buttons, Apple-Maps-style. Muted when
+            the underlying data isn't available. ── */}
+        <div className="grid grid-cols-4 gap-4 mb-10 max-w-md">
+          {place.phone ? (
+            <a
+              href={`tel:${place.phone}`}
+              className="flex flex-col items-center gap-2 hover:opacity-70 transition-opacity"
+            >
+              <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Phone size={20} className="text-on-surface" />
+              </span>
+              <span className="text-xs font-medium text-on-surface/75">Call</span>
+            </a>
+          ) : (
+            <div className="flex flex-col items-center gap-2 opacity-35">
+              <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Phone size={20} className="text-on-surface" />
+              </span>
+              <span className="text-xs font-medium text-on-surface">Call</span>
+            </div>
+          )}
           <a
             href={directionsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
+            className="flex flex-col items-center gap-2 hover:opacity-70 transition-opacity"
           >
-            <Navigation size={18} />
-            <span className="text-xs font-medium">Directions</span>
+            <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+              <Navigation size={20} className="text-on-surface" />
+            </span>
+            <span className="text-xs font-medium text-on-surface/75">Route</span>
           </a>
           {place.website ? (
             <a
               href={place.website}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
+              className="flex flex-col items-center gap-2 hover:opacity-70 transition-opacity"
             >
-              <Globe size={18} />
-              <span className="text-xs font-medium">Website</span>
+              <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Globe size={20} className="text-on-surface" />
+              </span>
+              <span className="text-xs font-medium text-on-surface/75">Web</span>
             </a>
           ) : (
-            <div className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/8 text-on-surface/30">
-              <Globe size={18} />
-              <span className="text-xs font-medium">Website</span>
+            <div className="flex flex-col items-center gap-2 opacity-35">
+              <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Globe size={20} className="text-on-surface" />
+              </span>
+              <span className="text-xs font-medium text-on-surface">Web</span>
             </div>
           )}
           <button
-            onClick={() => setGalleryOpen(true)}
-            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
-          >
-            <Images size={18} />
-            <span className="text-xs font-medium">Photos</span>
-          </button>
-          <button
+            type="button"
             onClick={() => setSendToChatOpen(true)}
-            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
+            className="flex flex-col items-center gap-2 hover:opacity-70 transition-opacity"
           >
-            <Send size={18} />
-            <span className="text-xs font-medium">Send</span>
+            <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+              <Send size={20} className="text-on-surface" />
+            </span>
+            <span className="text-xs font-medium text-on-surface/75">Share</span>
           </button>
         </div>
 
@@ -727,7 +823,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const hasFriends = !isHotel && (myRating.friendIds?.length || 0) > 0;
           const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
           return (
-            <section className="mb-10">
+            <section ref={myRatingRef} className="mb-10 scroll-mt-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">My Rating Details</h3>
                 <button
