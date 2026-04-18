@@ -154,7 +154,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   }
 
   return (
-    <div className="pb-32 bg-surface min-h-screen">
+    <div className="pb-32 min-h-screen" style={{ backgroundColor: '#f7f2ea' }}>
 
       {/* ── Hero — full-bleed image. Shorter than before (52vh) because
           the name + metadata moved out of the overlay and down onto
@@ -264,7 +264,7 @@ export const RestaurantDetailMobile: React.FC = () => {
       </div>
 
       {/* ── Main Content ── */}
-      <main className="px-0 pt-5">
+      <main className="pt-5" style={{ paddingLeft: 18, paddingRight: 18 }}>
 
         {/* ── Name + metadata — on the warm surface, confident and grounded.
             Large serif name on the left, prominent circular score badge
@@ -278,15 +278,30 @@ export const RestaurantDetailMobile: React.FC = () => {
             : '';
           return (
             <section className="mb-6">
-              <p className="font-mono text-[12px] font-medium uppercase tracking-[0.18em] text-on-surface/55 mb-3">
+              <p
+                className="uppercase mb-3"
+                style={{
+                  fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                  fontSize: '10px',
+                  fontWeight: 500,
+                  letterSpacing: '1.4px',
+                  color: '#6b6359',
+                }}
+              >
                 {isHotel ? 'Hotel' : cuisine}
                 {!isHotel && priceStr && <> · {priceStr}</>}
               </p>
               <div className="flex items-center gap-4">
                 <div className="flex-1 min-w-0">
                   <h1
-                    className="font-display text-[40px] text-on-surface leading-[1.02]"
-                    style={{ fontWeight: 600, fontVariationSettings: '"opsz" 144' }}
+                    className="text-on-surface leading-[1.05]"
+                    style={{
+                      fontFamily: '"Fraunces", "Noto Serif", serif',
+                      fontSize: '32px',
+                      fontWeight: 500,
+                      letterSpacing: '-0.6px',
+                      fontVariationSettings: '"opsz" 144',
+                    }}
                   >
                     {place.name}
                   </h1>
