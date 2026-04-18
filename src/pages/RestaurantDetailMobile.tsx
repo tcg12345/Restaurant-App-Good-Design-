@@ -350,11 +350,10 @@ export const RestaurantDetailMobile: React.FC = () => {
           );
         })()}
 
-        {/* ── Your Rating summary card — dark olive card with the user's
-            score, visit count and a short notes snippet. Tapping scrolls
-            to the full My Rating Details section below. If unrated, the
-            same card becomes a warm "Rate this restaurant" call-to-action
-            that opens the rating modal. ── */}
+        {/* ── Your Rating callout — near-black card (ink) with a
+            persimmon score circle, JetBrains Mono label, and italic
+            Fraunces note quote. Tapping scrolls to the full My Rating
+            Details section or opens the rating modal when unrated. ── */}
         <button
           type="button"
           onClick={() => {
@@ -370,48 +369,72 @@ export const RestaurantDetailMobile: React.FC = () => {
               });
             }
           }}
-          className="w-full mb-6 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left active:scale-[0.99] transition-transform"
-          style={{ backgroundColor: '#2f3425' }}
+          className="w-full mb-5 rounded-[14px] bg-ink text-cream p-4 flex items-center gap-3.5 text-left active:scale-[0.99] transition-transform"
         >
           {myRating ? (
             <>
-              <div
-                className={cn(
-                  'flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center',
-                  myRating.score >= 8 ? 'bg-[#d4a373]' : myRating.score >= 5 ? 'bg-amber-500' : 'bg-red-400',
-                )}
-              >
-                <span className="text-[15px] font-serif font-bold text-[#2f3425] tabular-nums leading-none">
+              <div className="flex-shrink-0 w-[46px] h-[46px] rounded-full bg-persimmon flex items-center justify-center">
+                <span
+                  className="text-white leading-none"
+                  style={{
+                    fontFamily: '"Fraunces", "Noto Serif", serif',
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    fontVariationSettings: '"opsz" 144',
+                  }}
+                >
                   {myRating.score.toFixed(1)}
                 </span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">
-                  Your Rating · {visitCount + 1} {visitCount + 1 === 1 ? 'visit' : 'visits'}
+                <p
+                  className="uppercase text-white/70"
+                  style={{
+                    fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                    fontSize: '11px',
+                    letterSpacing: '0.05em',
+                  }}
+                >
+                  Your rating · {visitCount + 1} {visitCount + 1 === 1 ? 'visit' : 'visits'}
                 </p>
-                {myRating.notes ? (
-                  <p className="mt-0.5 text-[14px] italic font-serif text-white/90 line-clamp-1 leading-snug">
-                    "{myRating.notes}"
-                  </p>
-                ) : (
-                  <p className="mt-0.5 text-[13px] text-white/60 italic leading-snug">
-                    Tap to see your full review
-                  </p>
-                )}
+                <p
+                  className="italic text-white/95 line-clamp-1 mt-0.5"
+                  style={{
+                    fontFamily: '"Fraunces", "Noto Serif", serif',
+                    fontSize: '15px',
+                    lineHeight: 1.3,
+                  }}
+                >
+                  "{myRating.notes || 'Tap to see your full review'}"
+                </p>
               </div>
               <ChevronRight size={18} className="text-white/55 flex-shrink-0" />
             </>
           ) : (
             <>
-              <div className="flex-shrink-0 w-11 h-11 rounded-full bg-[#d4a373]/90 flex items-center justify-center">
-                <Star size={18} className="text-[#2f3425]" />
+              <div className="flex-shrink-0 w-[46px] h-[46px] rounded-full bg-persimmon flex items-center justify-center">
+                <Star size={18} className="text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">
-                  Rate this restaurant
+                <p
+                  className="uppercase text-white/70"
+                  style={{
+                    fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                    fontSize: '11px',
+                    letterSpacing: '0.05em',
+                  }}
+                >
+                  Tap to rate
                 </p>
-                <p className="mt-0.5 text-[14px] font-serif text-white/90 leading-snug">
-                  Log your visit and score
+                <p
+                  className="italic text-white/95 mt-0.5"
+                  style={{
+                    fontFamily: '"Fraunces", "Noto Serif", serif',
+                    fontSize: '15px',
+                    lineHeight: 1.3,
+                  }}
+                >
+                  "Log your visit and score"
                 </p>
               </div>
               <ChevronRight size={18} className="text-white/55 flex-shrink-0" />
@@ -419,76 +442,37 @@ export const RestaurantDetailMobile: React.FC = () => {
           )}
         </button>
 
-        {/* ── Action row — Call, Route, Web, Share.
-            Circular outlined icon buttons, Apple-Maps-style. Muted when
-            the underlying data isn't available. ── */}
-        <div className="grid grid-cols-4 gap-2 mb-8">
-          {place.phone ? (
-            <a
-              href={`tel:${place.phone}`}
-              className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity"
-            >
-              <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
-                <Phone size={18} className="text-on-surface" />
-              </span>
-              <span className="text-[11px] font-medium text-on-surface/75">Call</span>
-            </a>
-          ) : (
-            <div className="flex flex-col items-center gap-2 opacity-35">
-              <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
-                <Phone size={18} className="text-on-surface" />
-              </span>
-              <span className="text-[11px] font-medium text-on-surface">Call</span>
-            </div>
-          )}
-          <a
-            href={directionsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity"
-          >
-            <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
-              <Navigation size={18} className="text-on-surface" />
-            </span>
-            <span className="text-[11px] font-medium text-on-surface/75">Route</span>
-          </a>
-          {place.website ? (
-            <a
-              href={place.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity"
-            >
-              <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
-                <Globe size={18} className="text-on-surface" />
-              </span>
-              <span className="text-[11px] font-medium text-on-surface/75">Web</span>
-            </a>
-          ) : (
-            <div className="flex flex-col items-center gap-2 opacity-35">
-              <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
-                <Globe size={18} className="text-on-surface" />
-              </span>
-              <span className="text-[11px] font-medium text-on-surface">Web</span>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => setSendToChatOpen(true)}
-            className="flex flex-col items-center gap-2 active:opacity-70 transition-opacity"
-          >
-            <span className="w-12 h-12 rounded-full border border-on-surface/15 flex items-center justify-center">
-              <Send size={18} className="text-on-surface" />
-            </span>
-            <span className="text-[11px] font-medium text-on-surface/75">Share</span>
-          </button>
+        {/* ── Action row — Call, Route, Web, Share. Rounded paper
+            cards (not circle outlines) with icon + label stacked. ── */}
+        <div className="grid grid-cols-4 gap-2 mb-6">
+          {[
+            { Icon: Phone, label: 'Call', href: place.phone ? `tel:${place.phone}` : null },
+            { Icon: Navigation, label: 'Route', href: directionsUrl, external: true },
+            { Icon: Globe, label: 'Web', href: place.website || null, external: true },
+            { Icon: Send, label: 'Share', onClick: () => setSendToChatOpen(true) },
+          ].map(({ Icon, label, href, external, onClick }) => {
+            const inner = (
+              <>
+                <Icon size={18} />
+                <span style={{ fontSize: '11px', fontWeight: 500 }}>{label}</span>
+              </>
+            );
+            const cls = 'flex flex-col items-center justify-center gap-1 py-3 rounded-[12px] bg-paper border border-line text-ink-2 active:opacity-70 transition-opacity';
+            const disabledCls = 'flex flex-col items-center justify-center gap-1 py-3 rounded-[12px] bg-paper border border-line text-ink-2 opacity-35';
+            if (onClick) return <button key={label} type="button" onClick={onClick} className={cls}>{inner}</button>;
+            if (!href) return <div key={label} className={disabledCls}>{inner}</div>;
+            return (
+              <a key={label} href={href} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className={cls}>
+                {inner}
+              </a>
+            );
+          })}
         </div>
 
         {/* ── The Community Says — three clean score boxes side-by-side:
-            EVERYONE, FRIENDS, EXPERTS. Each box has a warm surface,
-            subtle border, color-coded serif score, and a rating count.
-            Google gets a single muted note below the row, not its own
-            box. ── */}
+            EVERYONE, FRIENDS, EXPERTS. Paper fill, subtle line border,
+            centered Fraunces score in the middle with a JetBrains Mono
+            eyebrow above and system-font count below. ── */}
         {(() => {
           const expertAvg = expertRecommendations.length > 0
             ? expertRecommendations.reduce((sum, r) => sum + Number(r.rating), 0) / expertRecommendations.length
@@ -499,12 +483,10 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasExperts = expertCount > 0;
           const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
-          // System font stack — intentionally uses the native Apple/Windows
-          // UI face for the count line so it reads as quiet meta-info
-          // distinct from the display serif and mono label above.
+          // System font stack — native Apple/Windows UI face for the
+          // count line so it reads as quiet meta-info.
           const systemStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
-          // Shared renderer for a single score box
           const Box = ({ label, score, count, countLabel, emptyCopy, onClick }: {
             label: string;
             score: number | null;
@@ -516,12 +498,11 @@ export const RestaurantDetailMobile: React.FC = () => {
             const body = (
               <>
                 <p
-                  className="uppercase mb-2 text-on-surface/55"
+                  className="uppercase text-ink-3"
                   style={{
                     fontFamily: '"JetBrains Mono", ui-monospace, monospace',
                     fontSize: '10px',
-                    fontWeight: 500,
-                    letterSpacing: '1.4px',
+                    letterSpacing: '0.14em',
                   }}
                 >
                   {label}
@@ -529,19 +510,20 @@ export const RestaurantDetailMobile: React.FC = () => {
                 {score != null ? (
                   <>
                     <p
-                      className={cn('leading-none tabular-nums', scoreColor(score))}
+                      className={cn('leading-none tabular-nums mt-1', scoreColor(score))}
                       style={{
                         fontFamily: '"Fraunces", "Noto Serif", serif',
-                        fontSize: '28px',
-                        fontWeight: 600,
+                        fontSize: '26px',
+                        fontWeight: 500,
+                        letterSpacing: '-0.5px',
                         fontVariationSettings: '"opsz" 144',
                       }}
                     >
                       {score.toFixed(1)}
                     </p>
                     <p
-                      className="mt-1.5 text-on-surface/55"
-                      style={{ fontFamily: systemStack, fontSize: '11px' }}
+                      className="mt-0.5 text-ink-3"
+                      style={{ fontFamily: systemStack, fontSize: '10px' }}
                     >
                       {count.toLocaleString()} {countLabel}
                     </p>
@@ -549,19 +531,20 @@ export const RestaurantDetailMobile: React.FC = () => {
                 ) : (
                   <>
                     <p
-                      className="leading-none tabular-nums text-on-surface/15"
+                      className="leading-none tabular-nums mt-1 text-ink-4"
                       style={{
                         fontFamily: '"Fraunces", "Noto Serif", serif',
-                        fontSize: '28px',
-                        fontWeight: 600,
+                        fontSize: '26px',
+                        fontWeight: 500,
+                        letterSpacing: '-0.5px',
                         fontVariationSettings: '"opsz" 144',
                       }}
                     >
                       —
                     </p>
                     <p
-                      className="mt-1.5 italic text-on-surface/40 leading-snug"
-                      style={{ fontFamily: systemStack, fontSize: '11px' }}
+                      className="mt-0.5 italic text-ink-4"
+                      style={{ fontFamily: systemStack, fontSize: '10px' }}
                     >
                       {emptyCopy}
                     </p>
@@ -569,7 +552,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 )}
               </>
             );
-            const classes = 'rounded-2xl bg-white/60 border border-on-surface/10 px-3 py-3.5 text-left';
+            const classes = 'rounded-[12px] bg-paper border border-line py-3.5 px-2.5 text-center';
             return onClick ? (
               <button type="button" onClick={onClick} className={cn(classes, 'active:scale-[0.98] transition-transform')}>
                 {body}
@@ -580,7 +563,29 @@ export const RestaurantDetailMobile: React.FC = () => {
           };
 
           return (
-            <section className="mb-10">
+            <section className="mb-6">
+              <p
+                className="uppercase text-ink-3 mb-1"
+                style={{
+                  fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                  fontSize: '10px',
+                  letterSpacing: '0.14em',
+                }}
+              >
+                The community says
+              </p>
+              <h2
+                className="text-ink mb-3"
+                style={{
+                  fontFamily: '"Fraunces", "Noto Serif", serif',
+                  fontSize: '22px',
+                  fontWeight: 500,
+                  letterSpacing: '-0.4px',
+                  lineHeight: 1.15,
+                }}
+              >
+                Scores across your network
+              </h2>
               <div className={cn('grid gap-2.5', isHotel ? 'grid-cols-1' : 'grid-cols-3')}>
                 <Box
                   label={isHotel ? 'Breakfast' : 'Everyone'}
@@ -611,10 +616,16 @@ export const RestaurantDetailMobile: React.FC = () => {
               </div>
 
               {hasGoogle && (
-                <p className="mt-3 text-[12px] text-on-surface/40">
-                  <span className="text-on-surface/50">Google:</span>{' '}
-                  <span className="tabular-nums font-medium text-on-surface/60">{place.rating}</span>
-                  <span className="ml-1 text-on-surface/35">({formatReviewCount(place.userRatingCount)} reviews)</span>
+                <p
+                  className="mt-3 text-ink-3"
+                  style={{
+                    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                    fontSize: '12px',
+                  }}
+                >
+                  <span>Google:</span>{' '}
+                  <span className="tabular-nums font-medium text-ink-2">{place.rating}</span>
+                  <span className="ml-1 text-ink-4">({formatReviewCount(place.userRatingCount)} reviews)</span>
                 </p>
               )}
             </section>
@@ -622,13 +633,10 @@ export const RestaurantDetailMobile: React.FC = () => {
         })()}
 
         {/* ── Flavor Profile — radar chart on the left, ranked flavor
-            list on the right. Top flavors are bold with larger type;
-            the rest trail off in a muted line. Hidden entirely for
-            cuisines we don't have a profile for. ── */}
+            list on the right. Top flavors are ink-bold; the rest trail
+            off muted. Hidden for cuisines without a defined profile. ── */}
         {(() => {
           if (isHotel || !place) return null;
-          // Only render when the cuisine maps to a known profile so we
-          // don't fabricate taste data for unknown categories.
           const knownCuisines = [
             'italian','french','japanese','sushi','chinese','korean','thai','indian',
             'mexican','mediterranean','american','seafood','steakhouse','pizza','cafe',
@@ -642,35 +650,56 @@ export const RestaurantDetailMobile: React.FC = () => {
           const ranked = [...flavorData].sort((a, b) => b.value - a.value);
           const topFlavorNames = new Set(ranked.slice(0, 3).map((f) => f.subject));
           return (
-            <section className="mb-10">
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
-                Flavor Profile
+            <section className="mb-6">
+              <p
+                className="uppercase text-ink-3 mb-1"
+                style={{
+                  fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                  fontSize: '10px',
+                  letterSpacing: '0.14em',
+                }}
+              >
+                Flavor profile
               </p>
-              <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight mb-4">
+              <h2
+                className="text-ink mb-3"
+                style={{
+                  fontFamily: '"Fraunces", "Noto Serif", serif',
+                  fontSize: '22px',
+                  fontWeight: 500,
+                  letterSpacing: '-0.4px',
+                  lineHeight: 1.15,
+                }}
+              >
                 What people taste here
               </h2>
-              <div className="rounded-2xl bg-white/60 border border-on-surface/10 px-4 py-4">
+              <div className="rounded-[14px] bg-paper border border-line p-4">
                 <div className="flex items-center gap-4">
                   <RadarChart
                     data={flavorData}
-                    color="#9f3012"
+                    color="#e85a2c"
                     showLabels={false}
-                    className="w-32 h-32 flex-shrink-0"
+                    className="w-[104px] h-[104px] flex-shrink-0"
                   />
-                  <ul className="flex-1 min-w-0 space-y-1.5">
+                  <ul
+                    className="flex-1 min-w-0 space-y-1"
+                    style={{
+                      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                      fontSize: '12px',
+                      lineHeight: 1.5,
+                    }}
+                  >
                     {ranked.map((f) => {
                       const pct = Math.round((f.value / f.fullMark) * 100);
                       const isTop = topFlavorNames.has(f.subject);
                       return (
-                        <li
-                          key={f.subject}
-                          className={cn(
-                            'flex items-baseline justify-between gap-2',
-                            isTop ? 'text-[14px] font-bold text-on-surface' : 'text-[12px] text-on-surface/55',
-                          )}
-                        >
-                          <span className="truncate">{f.subject}</span>
-                          <span className="tabular-nums flex-shrink-0">{pct}%</span>
+                        <li key={f.subject} className="flex items-baseline justify-between gap-2">
+                          <span className={cn('truncate', isTop ? 'font-semibold text-ink' : 'text-ink-3')}>
+                            {f.subject}
+                          </span>
+                          <span className={cn('tabular-nums flex-shrink-0', isTop ? 'text-ink-2' : 'text-ink-3')}>
+                            · {pct}%
+                          </span>
                         </li>
                       );
                     })}
@@ -688,14 +717,32 @@ export const RestaurantDetailMobile: React.FC = () => {
         {!isHotel && (() => {
           const hasFriends = friendsStats.ratings.length > 0;
           const topFriends = friendsStats.ratings.slice(0, 3);
+          const scoreChipBg = (s: number) =>
+            s >= 8 ? 'bg-olive' : s >= 5 ? 'bg-amber-600' : 'bg-clay';
           return (
-            <section className="mb-10">
-              <div className="flex items-end justify-between mb-4">
+            <section className="mb-6">
+              <div className="flex items-end justify-between mb-3">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
-                    Your Circle
+                  <p
+                    className="uppercase text-ink-3 mb-1"
+                    style={{
+                      fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                      fontSize: '10px',
+                      letterSpacing: '0.14em',
+                    }}
+                  >
+                    Your circle
                   </p>
-                  <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight">
+                  <h2
+                    className="text-ink"
+                    style={{
+                      fontFamily: '"Fraunces", "Noto Serif", serif',
+                      fontSize: '22px',
+                      fontWeight: 500,
+                      letterSpacing: '-0.4px',
+                      lineHeight: 1.15,
+                    }}
+                  >
                     {hasFriends
                       ? `${friendsStats.totalRatings} friend${friendsStats.totalRatings === 1 ? '' : 's'} rated here`
                       : 'No friends yet'}
@@ -705,7 +752,8 @@ export const RestaurantDetailMobile: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowFriendsDetail(true)}
-                    className="text-[13px] font-medium text-accent active:opacity-70 transition-opacity flex-shrink-0"
+                    className="text-persimmon active:opacity-70 transition-opacity flex-shrink-0"
+                    style={{ fontSize: '13px', fontWeight: 500 }}
                   >
                     See all
                   </button>
@@ -726,31 +774,56 @@ export const RestaurantDetailMobile: React.FC = () => {
                         key={r.id}
                         type="button"
                         onClick={() => navigate(`/review/${r.id}`)}
-                        className="w-full rounded-2xl bg-white/60 border border-on-surface/10 px-3.5 py-3 text-left active:scale-[0.99] transition-transform"
+                        className="w-full rounded-[14px] bg-paper border border-line p-3.5 text-left active:scale-[0.99] transition-transform"
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                            <span className="text-sm font-serif font-bold text-primary">{initial}</span>
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-full bg-cream-2 flex items-center justify-center flex-shrink-0">
+                            <span
+                              className="text-ink"
+                              style={{
+                                fontFamily: '"Fraunces", "Noto Serif", serif',
+                                fontSize: '14px',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {initial}
+                            </span>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[14px] font-bold text-on-surface truncate">{name}</p>
+                            <p className="text-ink truncate" style={{ fontSize: '13px', fontWeight: 600 }}>
+                              {name}
+                            </p>
                             {visitLabel && (
-                              <p className="text-[11px] text-on-surface/50">
+                              <p className="text-ink-3" style={{ fontSize: '11px' }}>
                                 Visited {visitLabel}
                               </p>
                             )}
                           </div>
                           <div className={cn(
                             'flex-shrink-0 w-11 h-7 rounded-md flex items-center justify-center',
-                            Number(r.score) >= 8 ? 'bg-secondary' : Number(r.score) >= 5 ? 'bg-amber-600' : 'bg-red-500',
+                            scoreChipBg(Number(r.score)),
                           )}>
-                            <span className="text-[13px] font-bold text-white tabular-nums">
+                            <span
+                              className="text-white tabular-nums"
+                              style={{
+                                fontFamily: '"Fraunces", "Noto Serif", serif',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                              }}
+                            >
                               {Number(r.score).toFixed(1)}
                             </span>
                           </div>
                         </div>
                         {r.notes && (
-                          <p className="mt-2 text-[13px] italic font-serif text-on-surface/70 leading-snug line-clamp-2">
+                          <p
+                            className="italic text-ink-2 mt-2.5 line-clamp-2"
+                            style={{
+                              fontFamily: '"Fraunces", "Noto Serif", serif',
+                              fontSize: '14px',
+                              lineHeight: 1.45,
+                            }}
+                          >
                             "{r.notes}"
                           </p>
                         )}
@@ -759,15 +832,16 @@ export const RestaurantDetailMobile: React.FC = () => {
                   })}
                 </div>
               ) : (
-                <div className="rounded-2xl bg-white/60 border border-on-surface/10 px-4 py-6 text-center">
-                  <Users size={20} className="mx-auto text-on-surface/25 mb-2" />
-                  <p className="text-[13px] text-on-surface/55">
+                <div className="rounded-[14px] bg-paper border border-line px-4 py-6 text-center">
+                  <Users size={20} className="mx-auto text-ink-4 mb-2" />
+                  <p className="text-ink-3" style={{ fontSize: '13px' }}>
                     No friends have rated this yet
                   </p>
                   <button
                     type="button"
                     onClick={() => setSendToChatOpen(true)}
-                    className="mt-2 text-[12px] font-semibold text-primary active:opacity-70 transition-opacity"
+                    className="mt-2 text-persimmon active:opacity-70 transition-opacity"
+                    style={{ fontSize: '12px', fontWeight: 600 }}
                   >
                     Share with a friend
                   </button>
@@ -783,7 +857,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           <section className="mb-10">
             <div className="flex items-end justify-between mb-4">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
+                <p className="section-eyebrow mb-1">
                   Hotel Dining
                 </p>
                 <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight">
@@ -809,12 +883,12 @@ export const RestaurantDetailMobile: React.FC = () => {
             </div>
 
             {hotelDiningOptions.length === 0 ? (
-              <div className="rounded-2xl bg-white/60 border border-on-surface/10 py-8 text-center">
+              <div className="rounded-2xl bg-paper border border-line py-8 text-center">
                 <Building2 size={22} className="mx-auto text-on-surface/20 mb-2" />
                 <p className="text-[13px] text-on-surface/45">No dining options added yet</p>
               </div>
             ) : (
-              <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
+              <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
                 {hotelDiningOptions
                   .filter((d) => diningFilter === 'all' || d.dining_type === diningFilter)
                   .map((d) => {
@@ -879,7 +953,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             <section ref={myRatingRef} className="mb-10 scroll-mt-4">
               <div className="flex items-end justify-between mb-4">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
+                  <p className="section-eyebrow mb-1">
                     My Rating
                   </p>
                   <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight">
@@ -979,7 +1053,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 </div>
 
                 {/* Facts list — each row is its own tappable edit affordance */}
-                <ul className="border-t border-on-surface/[0.06] pt-4 space-y-2.5">
+                <ul className="border-t border-line pt-4 space-y-2.5">
                   {/* Score */}
                   <li>
                     <button
@@ -1140,68 +1214,114 @@ export const RestaurantDetailMobile: React.FC = () => {
           });
 
           return (
-            <section className="mb-10">
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
-                Visit History
+            <section className="mb-6">
+              <p
+                className="uppercase text-ink-3 mb-1"
+                style={{
+                  fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                  fontSize: '10px',
+                  letterSpacing: '0.14em',
+                }}
+              >
+                Visit history
               </p>
-              <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight mb-4">
+              <h2
+                className="text-ink mb-3"
+                style={{
+                  fontFamily: '"Fraunces", "Noto Serif", serif',
+                  fontSize: '22px',
+                  fontWeight: 500,
+                  letterSpacing: '-0.4px',
+                  lineHeight: 1.15,
+                }}
+              >
                 Your {entries.length} {entries.length === 1 ? 'visit' : 'visits'}
               </h2>
 
-              <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
-                {entries.map((e) => {
+              <ul className="rounded-[14px] bg-paper border border-line overflow-hidden">
+                {entries.map((e, idx) => {
                   const isExpanded = expandedVisit === e.id;
-                  const month = e.date ? MONTHS[e.date.getMonth()] : '—';
+                  const month = e.date ? MONTHS[e.date.getMonth()].toUpperCase() : '—';
                   const day = e.date ? e.date.getDate() : '';
                   const fullDate = e.date
                     ? e.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                     : 'No date';
+                  const isLast = idx === entries.length - 1;
                   return (
-                    <li key={e.id}>
+                    <li key={e.id} className={cn(!isLast && 'border-b border-line')}>
                       <button
                         type="button"
                         onClick={() => setExpandedVisit(isExpanded ? null : e.id)}
-                        className="w-full flex items-stretch text-left active:bg-on-surface/[0.015] transition-colors"
+                        className="w-full flex items-center gap-3 px-3.5 py-3 text-left active:bg-ink/[0.015] transition-colors"
                       >
-                        {/* Date badge with score-colored left accent */}
-                        <div className={cn(
-                          'flex-shrink-0 w-[60px] border-l-[3px] flex flex-col items-center justify-center py-3',
-                          scoreBorder(e.score),
-                        )}>
-                          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/55 leading-none">
+                        {/* Date badge — cream-2 fill, mono month above Fraunces day */}
+                        <div className="flex-shrink-0 w-11 h-11 rounded-[10px] bg-cream-2 flex flex-col items-center justify-center">
+                          <span
+                            className="text-ink-3 leading-none"
+                            style={{
+                              fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                              fontSize: '9px',
+                              letterSpacing: '0.1em',
+                            }}
+                          >
                             {month}
                           </span>
-                          <span className="text-[26px] font-serif font-bold text-on-surface leading-none mt-1 tabular-nums">
+                          <span
+                            className="text-ink leading-none mt-1 tabular-nums"
+                            style={{
+                              fontFamily: '"Fraunces", "Noto Serif", serif',
+                              fontSize: '16px',
+                              fontWeight: 500,
+                            }}
+                          >
                             {day}
                           </span>
                         </div>
 
-                        {/* Middle column — notes + date */}
-                        <div className="flex-1 min-w-0 px-3 py-3">
+                        {/* Middle — italic Fraunces quote + muted date */}
+                        <div className="flex-1 min-w-0">
                           {e.notes ? (
-                            <p className="text-[14px] italic font-serif text-on-surface/80 leading-snug line-clamp-2">
+                            <p
+                              className="italic text-ink-2 line-clamp-2"
+                              style={{
+                                fontFamily: '"Fraunces", "Noto Serif", serif',
+                                fontSize: '12px',
+                                lineHeight: 1.4,
+                              }}
+                            >
                               "{e.notes}"
                             </p>
                           ) : (
-                            <p className="text-[13px] italic text-on-surface/35">No notes</p>
+                            <p className="italic text-ink-4" style={{ fontSize: '12px' }}>No notes</p>
                           )}
-                          <p className="mt-1 text-[11px] text-on-surface/45">
+                          <p className="text-ink-3 mt-0.5" style={{ fontSize: '11px' }}>
                             {fullDate}
                           </p>
                         </div>
 
-                        {/* Score + trend on the right */}
-                        <div className="flex-shrink-0 px-3 py-3 flex items-center gap-1.5">
-                          {e.trend === 'up' && <TrendingUp size={13} className="text-green-600" />}
-                          {e.trend === 'down' && <TrendingDown size={13} className="text-red-500" />}
+                        {/* Score chip + optional olive trend arrow */}
+                        <div className="flex-shrink-0 flex items-center gap-1">
                           <div className={cn(
                             'w-11 h-7 rounded-md flex items-center justify-center',
                             scoreBadgeBg(e.score),
                           )}>
-                            <span className="text-[13px] font-bold text-white tabular-nums">
+                            <span
+                              className="text-white tabular-nums"
+                              style={{
+                                fontFamily: '"Fraunces", "Noto Serif", serif',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                              }}
+                            >
                               {e.score.toFixed(1)}
                             </span>
                           </div>
+                          {e.trend === 'up' && (
+                            <span className="text-olive leading-none" style={{ fontSize: '16px', fontWeight: 700 }}>↑</span>
+                          )}
+                          {e.trend === 'down' && (
+                            <span className="text-clay leading-none" style={{ fontSize: '16px', fontWeight: 700 }}>↓</span>
+                          )}
                         </div>
                       </button>
 
@@ -1214,11 +1334,11 @@ export const RestaurantDetailMobile: React.FC = () => {
                             transition={{ duration: 0.2 }}
                             className="overflow-hidden"
                           >
-                            <div className="px-4 pb-4 pl-[calc(60px+3px+1rem)] space-y-2.5">
+                            <div className="px-3.5 pb-4 pl-[calc(44px+1rem-0.125rem)] space-y-2.5">
                               {e.tags && e.tags.length > 0 && (
                                 <div className="flex flex-wrap gap-1.5">
                                   {e.tags.map((t) => (
-                                    <span key={t} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-primary/8 text-primary/75">{t}</span>
+                                    <span key={t} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-cream-2 text-ink-2">{t}</span>
                                   ))}
                                 </div>
                               )}
@@ -1230,10 +1350,10 @@ export const RestaurantDetailMobile: React.FC = () => {
                                 </div>
                               )}
                               {e.wouldReturn !== undefined && (
-                                <p className="text-xs font-semibold">
+                                <p style={{ fontSize: '11px', fontWeight: 600 }}>
                                   {e.wouldReturn
-                                    ? <span className="text-green-600">Would return</span>
-                                    : <span className="text-red-500">Wouldn't return</span>}
+                                    ? <span className="text-olive">Would return</span>
+                                    : <span className="text-clay">Wouldn't return</span>}
                                 </p>
                               )}
                             </div>
@@ -1254,13 +1374,13 @@ export const RestaurantDetailMobile: React.FC = () => {
             there are no expert ratings. ── */}
         {expertRecommendations.length > 0 && (
           <section className="mb-10">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
+            <p className="section-eyebrow mb-1">
               Expert Picks
             </p>
-            <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight mb-4">
+            <h2 className="section-title mb-3">
               {expertRecommendations.length === 1 ? 'An expert weighed in' : `${expertRecommendations.length} experts weighed in`}
             </h2>
-            <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
+            <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
               {expertRecommendations.map((rec) => {
                 const isExpanded = expandedExpertId === rec.id;
                 return (
@@ -1328,13 +1448,13 @@ export const RestaurantDetailMobile: React.FC = () => {
             current day emphasized. ── */}
         {place.hours.length > 0 && (
           <section className="mb-10">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
+            <p className="section-eyebrow mb-1">
               Hours
             </p>
-            <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight mb-4">
+            <h2 className="section-title mb-3">
               When they're open
             </h2>
-            <div className="rounded-2xl bg-white/60 border border-on-surface/10 overflow-hidden">
+            <div className="rounded-2xl bg-paper border border-line overflow-hidden">
               <button
                 onClick={() => setHoursOpen(!hoursOpen)}
                 className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-on-surface/[0.015] transition-colors"
@@ -1365,7 +1485,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="px-4 pb-4 pt-1 space-y-2 border-t border-on-surface/[0.06]">
+                    <div className="px-4 pb-4 pt-1 space-y-2 border-t border-line">
                       {place.hours.map((line, i) => {
                         const [day, ...timeParts] = line.split(': ');
                         const time = timeParts.join(': ');
@@ -1395,7 +1515,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight mb-4">
             Get in touch
           </h2>
-          <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
+          <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
             {place.phone && (
               <li>
                 <a href={`tel:${place.phone}`} className="flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.015] transition-colors">
@@ -1434,7 +1554,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight mb-4">
             Where to find it
           </h2>
-          <div className="rounded-2xl overflow-hidden border border-on-surface/10">
+          <div className="rounded-2xl overflow-hidden border border-line">
             <div className="relative w-full h-60">
               <div
                 ref={mapContainerRef}
@@ -1464,7 +1584,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 className="absolute inset-0 z-10 active:bg-on-surface/5 transition-colors"
               />
             </div>
-            <div className="px-4 py-3 flex items-center justify-between gap-3 bg-white/60 border-t border-on-surface/[0.06]">
+            <div className="px-4 py-3 flex items-center justify-between gap-3 bg-white/60 border-t border-line">
               <p className="text-[13px] text-on-surface/55 truncate flex-1">{place.address}</p>
               <a
                 href={mapsUrl}

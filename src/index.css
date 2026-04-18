@@ -12,6 +12,46 @@
   --color-secondary: #5c6144;
   --color-accent: #d4a373;
   --color-muted: #e5e1e0;
+
+  /* Editorial tokens used by the restaurant detail redesign.
+     `cream` is the warm page bg, `paper` is the card fill, `ink-*`
+     are the text tones, and `olive`/`clay`/`persimmon` map the
+     score-coded accent colors referenced by the design. */
+  --color-cream: #f7f2ea;
+  --color-cream-2: #ebe4d6;
+  --color-paper: #fdfaf4;
+  --color-line: #e5dfd2;
+  --color-line-2: #d8d0bd;
+  --color-ink: #1e1b1a;
+  --color-ink-2: #3d3835;
+  --color-ink-3: #6b6359;
+  --color-ink-4: #a19a8e;
+  --color-olive: #5c6144;
+  --color-clay: #9f3012;
+  --color-persimmon: #e85a2c;
+}
+
+@layer components {
+  /* Shared section header pattern used across the Restaurant Detail
+     redesign — small uppercase JetBrains Mono eyebrow, then a larger
+     Fraunces display title. Kept in CSS so the values live in one
+     place and every section stays consistent. */
+  .section-eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .section-title {
+    font-family: "Fraunces", "Noto Serif", serif;
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.4px;
+    line-height: 1.15;
+    color: var(--color-ink);
+  }
 }
 
 @layer base {
