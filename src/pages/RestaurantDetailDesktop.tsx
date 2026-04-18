@@ -1,18 +1,18 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Images, Users, UserCircle, Share2, Heart,
-  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, Plus, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
+  Navigation, ExternalLink, X, Users, UserCircle, Share2, Heart, Bookmark,
+  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { scoreColor, scoreDotBg } from '../lib/score';
+import { scoreColor } from '../lib/score';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getProfilesByIds, getCommunityStats, getFriends, type UserProfile as UP, type CommunityPhoto, type HotelDining, type DiningType, type ExpertRecommendation } from '../lib/supabase-community';
+import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
@@ -42,7 +42,24 @@ function getNextOpenTime(hours: string[]): string {
   return '';
 }
 import { RadarChart } from '../components/RadarChart';
-import { getFlavorProfile, getTopFlavors } from '../lib/flavorProfile';
+import { getFlavorProfile } from '../lib/flavorProfile';
+
+/** Short "last week / last month" style recency label. */
+function timeAgo(date: string): string {
+  if (!date) return '';
+  const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
+  const diff = Date.now() - d.getTime();
+  const days = Math.floor(diff / 86400000);
+  if (days < 1) return 'today';
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+  if (days < 14) return 'last week';
+  if (days < 45) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 75) return 'last month';
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} months ago`;
+  const years = Math.floor(days / 365);
+  return `${years} year${years === 1 ? '' : 's'} ago`;
+}
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 /* PhotoGallery is now a shared component — see ../components/PhotoGallery.tsx */
@@ -64,9 +81,12 @@ export const RestaurantDetailDesktop: React.FC = () => {
   // locally so the shared hook can keep its collapsed default elsewhere.
   const [hoursOpen, setHoursOpen] = useState(false);
 
-  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal, removeFromWishlist } = useLists();
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
+  // Ref on the "My Rating Details" section so the Your Rating summary
+  // card above can smooth-scroll down to it when tapped.
+  const myRatingRef = useRef<HTMLElement | null>(null);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   const [sendToChatOpen, setSendToChatOpen] = useState(false);
@@ -75,32 +95,15 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [addDiningOpen, setAddDiningOpen] = useState(false);
   const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
-  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
-  const [followedExpertProfiles, setFollowedExpertProfiles] = useState<Record<string, UP>>({});
+  // Profile lookup for the inline friend reviews under "Your Circle"
+  // — keyed by user_id so each card can show display name + initial.
+  const [friendReviewProfiles, setFriendReviewProfiles] = useState<Record<string, UP>>({});
 
   useEffect(() => {
-    if (!user?.id) return;
-    getFriends(user.id).then((friends) => setFollowedIds(new Set(friends.map((f) => f.friend_id))));
-  }, [user?.id]);
-
-  const followedRaterIds = useMemo(() => {
-    if (followedIds.size === 0 || communityStats.ratings.length === 0) return [];
-    return [...new Set(communityStats.ratings.map((r) => r.user_id).filter((id) => followedIds.has(id)))];
-  }, [communityStats.ratings, followedIds]);
-
-  useEffect(() => {
-    if (followedRaterIds.length === 0) return;
-    getProfilesByIds(followedRaterIds).then((profiles) => {
-      const experts: Record<string, UP> = {};
-      Object.values(profiles).forEach((p) => { if (p.is_expert) experts[p.user_id] = p; });
-      setFollowedExpertProfiles(experts);
-    });
-  }, [followedRaterIds]);
-
-  const followedExpertRatings = useMemo(
-    () => communityStats.ratings.filter((r) => !!followedExpertProfiles[r.user_id]),
-    [communityStats.ratings, followedExpertProfiles],
-  );
+    const ids = Array.from(new Set(friendsStats.ratings.map((r) => r.user_id))).filter(Boolean);
+    if (ids.length === 0) return;
+    getProfilesByIds(ids).then(setFriendReviewProfiles);
+  }, [friendsStats.ratings]);
 
   const myRating = place ? getRating(place.id) : undefined;
   // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
@@ -209,8 +212,27 @@ export const RestaurantDetailDesktop: React.FC = () => {
           <ArrowLeft size={20} />
         </button>
 
-        {/* Top-right actions */}
+        {/* Top-right actions — bookmark (wishlist) + share */}
         <div className="absolute top-6 right-6 flex items-center gap-2 z-10">
+          <button
+            onClick={() => {
+              if (!place) return;
+              if (isWishlisted(place.id)) {
+                removeFromWishlist(place.id);
+              } else {
+                openWishlistModal({
+                  id: place.id, name: place.name,
+                  image: place.photoUrl || '',
+                  cuisine, price: priceStr,
+                  address: place.address,
+                });
+              }
+            }}
+            aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
+            className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/40 transition-colors"
+          >
+            <Bookmark size={18} className={place && isWishlisted(place.id) ? 'fill-white text-white' : ''} />
+          </button>
           <button
             onClick={() => {
               if (navigator.share) {
@@ -219,19 +241,11 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 navigator.clipboard.writeText(window.location.href);
               }
             }}
+            aria-label="Share"
             className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/40 transition-colors"
           >
             <Share2 size={18} />
           </button>
-          {photos.length > 1 && (
-            <button
-              onClick={() => setGalleryOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-black/25 backdrop-blur-sm rounded-full text-white/80 text-xs font-medium hover:bg-black/40 transition-colors"
-            >
-              <Images size={14} />
-              {photos.length}
-            </button>
-          )}
         </div>
       </div>
 
@@ -244,266 +258,481 @@ export const RestaurantDetailDesktop: React.FC = () => {
           this width so nothing sprawls inconsistently. */}
       <main className="px-6 lg:px-8 pt-6 max-w-5xl mx-auto">
 
-        {/* Name + badges */}
-        <div className="mb-6">
-          <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-tight mb-2">{place.name}</h1>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{isHotel ? 'Hotel' : cuisine}</span>
-            {!isHotel && priceStr && (
-              <>
-                <span className="text-on-surface/35">·</span>
-                <span className="text-xs font-semibold text-on-surface/70 uppercase tracking-wider">{priceStr}</span>
-              </>
-            )}
-            {place.isOpen !== null && (
-              <>
-                <span className="text-on-surface/35">·</span>
-                {place.isOpen ? (
-                  <span className="text-xs font-semibold text-green-600">Open</span>
-                ) : (
-                  <span className="text-xs font-semibold text-red-500">
-                    Closed{(() => {
-                      const next = getNextOpenTime(place.hours);
-                      return next ? ` · Opens ${next}` : '';
-                    })()}
-                  </span>
+        {/* ── Name + metadata — large serif name on the left, prominent
+            circular score badge floating on the right. Score shows the
+            user's personal rating if present, otherwise the community
+            average. ── */}
+        {(() => {
+          const badgeScore = myRating?.score ?? (communityStats.totalRatings > 0 ? communityStats.avgScore : null);
+          const badgeIsPersonal = !!myRating;
+          const badgeColor = badgeScore != null
+            ? (badgeScore >= 8 ? 'bg-secondary' : badgeScore >= 5 ? 'bg-amber-600' : 'bg-red-500')
+            : '';
+          return (
+            <section className="mb-7">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/50 mb-2">
+                {isHotel ? 'Hotel' : cuisine}
+                {!isHotel && priceStr && <> · {priceStr}</>}
+              </p>
+              <div className="flex items-start gap-6">
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-[1.05] tracking-tight">
+                    {place.name}
+                  </h1>
+                  <p className="mt-3 text-sm text-on-surface/55">
+                    {place.address}
+                  </p>
+                  {place.isOpen !== null && (
+                    <div className="mt-2 flex items-center gap-2 text-sm">
+                      <span className={cn('inline-block w-2 h-2 rounded-full', place.isOpen ? 'bg-green-500' : 'bg-red-500')} />
+                      {place.isOpen ? (
+                        <span className="text-on-surface/70">
+                          <span className="font-semibold text-green-700">Open</span>
+                          {(() => {
+                            const line = getTodayHours(place.hours);
+                            const close = line.split(/\s*[–-]\s*/)[1];
+                            return close ? <span> · closes {close.trim()}</span> : null;
+                          })()}
+                        </span>
+                      ) : (
+                        <span className="text-on-surface/70">
+                          <span className="font-semibold text-red-600">Closed</span>
+                          {(() => {
+                            const next = getNextOpenTime(place.hours);
+                            return next ? <span> · opens {next}</span> : null;
+                          })()}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {badgeScore != null && (
+                  <div
+                    className={cn(
+                      'flex-shrink-0 w-20 h-20 rounded-full flex items-center justify-center shadow-sm',
+                      badgeColor,
+                    )}
+                    aria-label={badgeIsPersonal ? `Your rating ${badgeScore.toFixed(1)}` : `Community rating ${badgeScore.toFixed(1)}`}
+                  >
+                    <span className="text-[28px] font-serif font-bold text-white tabular-nums leading-none">
+                      {badgeScore.toFixed(1)}
+                    </span>
+                  </div>
                 )}
-              </>
-            )}
-          </div>
-        </div>
+              </div>
+            </section>
+          );
+        })()}
 
-        {/* Action buttons — Rate, Wishlist, Rate Again */}
-        <div className={cn("grid gap-2 mb-3", place && getRating(place.id) ? "grid-cols-3" : "grid-cols-2")}>
-          <button
-            onClick={() => place && openAddRestaurantModal({
-              id: place.id, name: place.name,
-              image: place.photoUrl || '',
-              cuisine, price: priceStr,
-              address: place.address,
-            })}
-            className={`flex items-center justify-center gap-1.5 py-3.5 rounded-2xl font-medium text-sm transition-colors ${
-              place && getRating(place.id) ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100' : 'bg-primary text-white hover:bg-primary/90'
-            }`}
-          >
-            <Star size={16} />
-            {place && getRating(place.id) ? `${getRating(place.id)!.score.toFixed(1)}` : 'Rate'}
-          </button>
-          {place && getRating(place.id) && (
-            <button
-              onClick={() => openAddRestaurantModal({
+        {/* ── Your Rating summary card — dark olive card with the user's
+            score, visit count and a short notes snippet. Tapping scrolls
+            to the full My Rating Details section below. If unrated, the
+            same card becomes a warm "Rate this restaurant" call-to-action
+            that opens the rating modal. ── */}
+        <button
+          type="button"
+          onClick={() => {
+            if (!place) return;
+            if (myRating) {
+              myRatingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+              openAddRestaurantModal({
                 id: place.id, name: place.name,
                 image: place.photoUrl || '',
                 cuisine, price: priceStr,
                 address: place.address,
-              }, 'new-visit')}
-              className="flex items-center justify-center gap-1.5 py-3.5 rounded-2xl font-medium text-sm transition-colors bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15"
-            >
-              <Plus size={14} />
-              Re-rate
-            </button>
+              });
+            }
+          }}
+          className="w-full mb-8 rounded-2xl px-5 py-4 flex items-center gap-4 text-left hover:brightness-110 transition-all"
+          style={{ backgroundColor: '#2f3425' }}
+        >
+          {myRating ? (
+            <>
+              <div
+                className={cn(
+                  'flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center',
+                  myRating.score >= 8 ? 'bg-[#d4a373]' : myRating.score >= 5 ? 'bg-amber-500' : 'bg-red-400',
+                )}
+              >
+                <span className="text-base font-serif font-bold text-[#2f3425] tabular-nums leading-none">
+                  {myRating.score.toFixed(1)}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/55">
+                  Your Rating · {visitCount + 1} {visitCount + 1 === 1 ? 'visit' : 'visits'}
+                </p>
+                {myRating.notes ? (
+                  <p className="mt-0.5 text-[15px] italic font-serif text-white/90 truncate leading-snug">
+                    "{myRating.notes}"
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-sm text-white/60 italic leading-snug">
+                    Tap to see your full review
+                  </p>
+                )}
+              </div>
+              <ChevronRight size={20} className="text-white/55 flex-shrink-0" />
+            </>
+          ) : (
+            <>
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#d4a373]/90 flex items-center justify-center">
+                <Star size={20} className="text-[#2f3425]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/55">
+                  Rate this restaurant
+                </p>
+                <p className="mt-0.5 text-[15px] font-serif text-white/90 leading-snug">
+                  Log your visit and score
+                </p>
+              </div>
+              <ChevronRight size={20} className="text-white/55 flex-shrink-0" />
+            </>
           )}
-          <button
-            onClick={() => place && openWishlistModal({
-              id: place.id, name: place.name,
-              image: place.photoUrl || '',
-              cuisine, price: priceStr,
-              address: place.address,
-            })}
-            className={`flex items-center justify-center gap-1.5 py-3.5 rounded-2xl font-medium text-sm transition-colors border ${
-              place && isWishlisted(place.id) ? 'bg-secondary/10 text-secondary border-secondary/30 hover:bg-secondary/20' : 'bg-white text-on-surface/60 border-on-surface/12 hover:bg-on-surface/[0.03]'
-            }`}
-          >
-            <Heart size={16} className={place && isWishlisted(place.id) ? 'fill-secondary' : ''} />
-            {place && isWishlisted(place.id) ? 'Saved' : 'Wishlist'}
-          </button>
-        </div>
+        </button>
 
-        {/* Action row — Directions, Website, Photos, Send */}
-        <div className="grid grid-cols-4 gap-3 mb-7">
+        {/* ── Action row — Call, Route, Web, Share.
+            Circular outlined icon buttons, Apple-Maps-style. Muted when
+            the underlying data isn't available. ── */}
+        <div className="grid grid-cols-4 gap-4 mb-10 max-w-md">
+          {place.phone ? (
+            <a
+              href={`tel:${place.phone}`}
+              className="flex flex-col items-center gap-2 hover:opacity-70 transition-opacity"
+            >
+              <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Phone size={20} className="text-on-surface" />
+              </span>
+              <span className="text-xs font-medium text-on-surface/75">Call</span>
+            </a>
+          ) : (
+            <div className="flex flex-col items-center gap-2 opacity-35">
+              <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Phone size={20} className="text-on-surface" />
+              </span>
+              <span className="text-xs font-medium text-on-surface">Call</span>
+            </div>
+          )}
           <a
             href={directionsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
+            className="flex flex-col items-center gap-2 hover:opacity-70 transition-opacity"
           >
-            <Navigation size={18} />
-            <span className="text-xs font-medium">Directions</span>
+            <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+              <Navigation size={20} className="text-on-surface" />
+            </span>
+            <span className="text-xs font-medium text-on-surface/75">Route</span>
           </a>
           {place.website ? (
             <a
               href={place.website}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
+              className="flex flex-col items-center gap-2 hover:opacity-70 transition-opacity"
             >
-              <Globe size={18} />
-              <span className="text-xs font-medium">Website</span>
+              <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Globe size={20} className="text-on-surface" />
+              </span>
+              <span className="text-xs font-medium text-on-surface/75">Web</span>
             </a>
           ) : (
-            <div className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/8 text-on-surface/30">
-              <Globe size={18} />
-              <span className="text-xs font-medium">Website</span>
+            <div className="flex flex-col items-center gap-2 opacity-35">
+              <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+                <Globe size={20} className="text-on-surface" />
+              </span>
+              <span className="text-xs font-medium text-on-surface">Web</span>
             </div>
           )}
           <button
-            onClick={() => setGalleryOpen(true)}
-            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
-          >
-            <Images size={18} />
-            <span className="text-xs font-medium">Photos</span>
-          </button>
-          <button
+            type="button"
             onClick={() => setSendToChatOpen(true)}
-            className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-on-surface/12 text-on-surface hover:bg-on-surface/[0.03] transition-colors"
+            className="flex flex-col items-center gap-2 hover:opacity-70 transition-opacity"
           >
-            <Send size={18} />
-            <span className="text-xs font-medium">Send</span>
+            <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
+              <Send size={20} className="text-on-surface" />
+            </span>
+            <span className="text-xs font-medium text-on-surface/75">Share</span>
           </button>
         </div>
 
-        {/* ── Ratings — prominent side-by-side tiles ──
-            Community and Friends get gently-enclosed side-by-side
-            containers (subtle bg + faint border, not dashboard cards)
-            with color-coded scores, so users can compare at a glance.
-            Google is visibly de-emphasized to a single muted line
-            underneath. Desktop uses larger padding and bigger numerals
-            to match the wider viewport. */}
-        <section className="mb-10">
-          {(() => {
-            const hasCommunity = communityStats.totalRatings > 0;
-            const hasFriends = !isHotel && friendsStats.totalRatings > 0;
-            const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
-            const communityLabel = isHotel ? 'Breakfast' : 'Community';
+        {/* ── The Community Says — three clean score boxes side-by-side:
+            EVERYONE, FRIENDS, EXPERTS. Each box has a warm surface,
+            subtle border, color-coded serif score, and a rating count.
+            Google gets a single muted note below the row, not its own
+            box. ── */}
+        {(() => {
+          const expertAvg = expertRecommendations.length > 0
+            ? expertRecommendations.reduce((sum, r) => sum + Number(r.rating), 0) / expertRecommendations.length
+            : 0;
+          const expertCount = expertRecommendations.length;
+          const hasCommunity = communityStats.totalRatings > 0;
+          const hasFriends = !isHotel && friendsStats.totalRatings > 0;
+          const hasExperts = expertCount > 0;
+          const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
-            return (
+          const Box = ({ label, score, count, countLabel, emptyCopy, onClick }: {
+            label: string;
+            score: number | null;
+            count: number;
+            countLabel: string;
+            emptyCopy: string;
+            onClick?: () => void;
+          }) => {
+            const body = (
               <>
-                <div className={cn('grid gap-5', isHotel ? 'grid-cols-1' : 'grid-cols-2')}>
-                  {/* Community / Breakfast tile */}
-                  <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">
-                      {communityLabel}
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/50 mb-3">
+                  {label}
+                </p>
+                {score != null ? (
+                  <>
+                    <p className={cn('text-[44px] font-serif font-bold leading-none tabular-nums', scoreColor(score))}>
+                      {score.toFixed(1)}
                     </p>
-                    {hasCommunity ? (
-                      <>
-                        <p className={cn('text-[56px] font-serif font-bold leading-none tabular-nums', scoreColor(communityStats.avgScore))}>
-                          {communityStats.avgScore.toFixed(1)}
-                        </p>
-                        <p className="mt-3 text-sm text-on-surface/50">
-                          {communityStats.totalRatings} {communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-[56px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
-                        <p className="mt-3 text-sm italic text-on-surface/45 leading-snug">
-                          Be the first to rate
-                        </p>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Friends tile (hidden for hotels) */}
-                  {!isHotel && (
-                    hasFriends ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowFriendsDetail(true)}
-                        className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6 text-left hover:bg-on-surface/[0.04] transition-colors group"
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Friends</p>
-                          <ChevronRight size={14} className="text-on-surface/30 group-hover:text-on-surface/50 transition-colors" />
-                        </div>
-                        <p className={cn('text-[56px] font-serif font-bold leading-none tabular-nums', scoreColor(friendsStats.avgScore))}>
-                          {friendsStats.avgScore.toFixed(1)}
-                        </p>
-                        <p className="mt-3 text-sm text-on-surface/50">
-                          {friendsStats.totalRatings} friend{friendsStats.totalRatings === 1 ? '' : 's'}
-                        </p>
-                      </button>
-                    ) : (
-                      <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">Friends</p>
-                        <p className="text-[56px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
-                        <p className="mt-3 text-sm italic text-on-surface/45 leading-snug">
-                          None of your friends have rated this yet
-                        </p>
-                      </div>
-                    )
-                  )}
-                </div>
-
-                {/* Google — a single muted line, visibly de-emphasized */}
-                {hasGoogle && (
-                  <p className="mt-4 flex items-baseline gap-1.5 text-[13px] text-on-surface/40">
-                    <Star size={12} className="fill-on-surface/25 text-on-surface/25 self-center flex-shrink-0" />
-                    <span>
-                      <span className="tabular-nums font-medium text-on-surface/55">{place.rating}</span>
-                      <span className="mx-1">on Google</span>
-                      <span className="text-on-surface/35">· {formatReviewCount(place.userRatingCount)} reviews</span>
-                    </span>
-                  </p>
+                    <p className="mt-2 text-sm text-on-surface/55">
+                      {count.toLocaleString()} {countLabel}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[44px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
+                    <p className="mt-2 text-sm italic text-on-surface/40 leading-snug">
+                      {emptyCopy}
+                    </p>
+                  </>
                 )}
               </>
             );
-          })()}
-        </section>
+            const classes = 'rounded-2xl bg-white/60 border border-on-surface/10 px-5 py-5 text-left';
+            return onClick ? (
+              <button type="button" onClick={onClick} className={cn(classes, 'hover:bg-white transition-colors')}>
+                {body}
+              </button>
+            ) : (
+              <div className={classes}>{body}</div>
+            );
+          };
 
-        {/* ── Followed Expert Rating — prominent callout ── */}
-        {followedExpertRatings.length > 0 && (
-          <section className="mb-10 space-y-3">
-            {followedExpertRatings.map((rating) => {
-              const prof = followedExpertProfiles[rating.user_id];
-              if (!prof) return null;
-              return (
-                <div key={rating.id} className="rounded-2xl border border-amber-200/60 bg-amber-50/40 p-5">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Link
-                      to={`/user/${prof.username}`}
-                      className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0"
-                    >
-                      <span className="text-base font-serif font-bold text-amber-700">{prof.display_name.charAt(0).toUpperCase()}</span>
-                    </Link>
-                    <div className="flex-1 min-w-0">
-                      <Link to={`/user/${prof.username}`} className="text-base font-bold text-on-surface hover:text-primary transition-colors truncate block">
-                        {prof.display_name}
-                      </Link>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-600">Expert Review</p>
-                    </div>
-                    <div className="flex items-baseline gap-0.5 flex-shrink-0">
-                      <span className={cn("text-2xl font-serif font-bold leading-none", scoreColor(Number(rating.score)))}>{Number(rating.score).toFixed(1)}</span>
-                      <span className="text-[10px] text-on-surface/30 font-semibold">/10</span>
-                    </div>
-                  </div>
+          return (
+            <section className="mb-12">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                The Community Says
+              </p>
+              <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+                {!hasCommunity && !hasFriends && !hasExperts ? 'No ratings yet' : 'Scores across your network'}
+              </h2>
 
-                  {rating.notes && (
-                    <p className="text-sm leading-relaxed text-on-surface/70 mb-3">{rating.notes}</p>
-                  )}
+              <div className={cn('grid gap-4', isHotel ? 'grid-cols-1' : 'grid-cols-3')}>
+                <Box
+                  label={isHotel ? 'Breakfast' : 'Everyone'}
+                  score={hasCommunity ? communityStats.avgScore : null}
+                  count={communityStats.totalRatings}
+                  countLabel={communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
+                  emptyCopy="Be the first"
+                />
+                {!isHotel && (
+                  <Box
+                    label="Friends"
+                    score={hasFriends ? friendsStats.avgScore : null}
+                    count={friendsStats.totalRatings}
+                    countLabel={friendsStats.totalRatings === 1 ? 'rating' : 'ratings'}
+                    emptyCopy="No friends yet"
+                    onClick={hasFriends ? () => setShowFriendsDetail(true) : undefined}
+                  />
+                )}
+                {!isHotel && (
+                  <Box
+                    label="Experts"
+                    score={hasExperts ? expertAvg : null}
+                    count={expertCount}
+                    countLabel={expertCount === 1 ? 'rating' : 'ratings'}
+                    emptyCopy="No expert picks"
+                  />
+                )}
+              </div>
 
-                  {rating.tags && rating.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {rating.tags.map((tag) => (
-                        <span key={tag} className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-white/80 border border-amber-200/50 text-amber-800">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+              {hasGoogle && (
+                <p className="mt-4 text-sm text-on-surface/40">
+                  <span className="text-on-surface/50">Google:</span>{' '}
+                  <span className="tabular-nums font-medium text-on-surface/60">{place.rating}</span>
+                  <span className="ml-1 text-on-surface/35">({formatReviewCount(place.userRatingCount)} reviews)</span>
+                </p>
+              )}
+            </section>
+          );
+        })()}
+
+        {/* ── Flavor Profile — radar chart on the left, ranked flavor
+            list on the right. Hidden entirely for cuisines we don't
+            have a profile for so we don't fabricate taste data. ── */}
+        {(() => {
+          if (isHotel || !place) return null;
+          const knownCuisines = [
+            'italian','french','japanese','sushi','chinese','korean','thai','indian',
+            'mexican','mediterranean','american','seafood','steakhouse','pizza','cafe',
+            'bakery','vegan','bar & grill','breakfast','caribbean',
+          ];
+          const hasKnown = place.types.some((t) =>
+            knownCuisines.includes(t.toLowerCase().replace(/_/g, ' ').replace('restaurant', '').trim())
+          );
+          if (!hasKnown) return null;
+          const flavorData = getFlavorProfile(place.types, place.name);
+          const ranked = [...flavorData].sort((a, b) => b.value - a.value);
+          const topFlavorNames = new Set(ranked.slice(0, 3).map((f) => f.subject));
+          return (
+            <section className="mb-12">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                Flavor Profile
+              </p>
+              <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+                What people taste here
+              </h2>
+              <div className="rounded-2xl bg-white/60 border border-on-surface/10 px-6 py-6">
+                <div className="flex items-center gap-8">
+                  <RadarChart
+                    data={flavorData}
+                    color="#9f3012"
+                    showLabels={false}
+                    className="w-56 h-56 flex-shrink-0"
+                  />
+                  <ul className="flex-1 min-w-0 space-y-2">
+                    {ranked.map((f) => {
+                      const pct = Math.round((f.value / f.fullMark) * 100);
+                      const isTop = topFlavorNames.has(f.subject);
+                      return (
+                        <li
+                          key={f.subject}
+                          className={cn(
+                            'flex items-baseline justify-between gap-3',
+                            isTop ? 'text-base font-bold text-on-surface' : 'text-sm text-on-surface/55',
+                          )}
+                        >
+                          <span className="truncate">{f.subject}</span>
+                          <span className="tabular-nums flex-shrink-0">{pct}%</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
-              );
-            })}
-          </section>
-        )}
+              </div>
+            </section>
+          );
+        })()}
 
-        {/* ── Hotel Dining — flat list with dividers, no per-row cards ── */}
+        {/* ── Your Circle — inline friend reviews as cards. Up to three
+            shown directly on the page; "See all" opens the full friend
+            ratings modal. Tapping a card navigates to the review
+            detail page. ── */}
+        {!isHotel && (() => {
+          const hasFriends = friendsStats.ratings.length > 0;
+          const topFriends = friendsStats.ratings.slice(0, 3);
+          return (
+            <section className="mb-12">
+              <div className="flex items-end justify-between mb-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                    Your Circle
+                  </p>
+                  <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight">
+                    {hasFriends
+                      ? `${friendsStats.totalRatings} friend${friendsStats.totalRatings === 1 ? '' : 's'} rated here`
+                      : 'No friends yet'}
+                  </h2>
+                </div>
+                {hasFriends && friendsStats.ratings.length > topFriends.length && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFriendsDetail(true)}
+                    className="text-sm font-medium text-accent hover:opacity-70 transition-opacity flex-shrink-0"
+                  >
+                    See all
+                  </button>
+                )}
+              </div>
+
+              {hasFriends ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {topFriends.map((r) => {
+                    const prof = friendReviewProfiles[r.user_id];
+                    const name = prof?.display_name || 'Friend';
+                    const initial = name.trim().charAt(0).toUpperCase() || 'F';
+                    const visitLabel = r.visit_date
+                      ? timeAgo(r.visit_date)
+                      : r.created_at ? timeAgo(r.created_at) : '';
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => navigate(`/review/${r.id}`)}
+                        className="rounded-2xl bg-white/60 border border-on-surface/10 px-4 py-4 text-left hover:bg-white transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <span className="text-base font-serif font-bold text-primary">{initial}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-base font-bold text-on-surface truncate">{name}</p>
+                            {visitLabel && (
+                              <p className="text-xs text-on-surface/50">
+                                Visited {visitLabel}
+                              </p>
+                            )}
+                          </div>
+                          <div className={cn(
+                            'flex-shrink-0 w-12 h-8 rounded-md flex items-center justify-center',
+                            Number(r.score) >= 8 ? 'bg-secondary' : Number(r.score) >= 5 ? 'bg-amber-600' : 'bg-red-500',
+                          )}>
+                            <span className="text-sm font-bold text-white tabular-nums">
+                              {Number(r.score).toFixed(1)}
+                            </span>
+                          </div>
+                        </div>
+                        {r.notes && (
+                          <p className="mt-2.5 text-sm italic font-serif text-on-surface/70 leading-snug line-clamp-2">
+                            "{r.notes}"
+                          </p>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-2xl bg-white/60 border border-on-surface/10 px-6 py-8 text-center">
+                  <Users size={22} className="mx-auto text-on-surface/25 mb-2" />
+                  <p className="text-sm text-on-surface/55">
+                    No friends have rated this yet
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSendToChatOpen(true)}
+                    className="mt-2 text-sm font-semibold text-primary hover:opacity-70 transition-opacity"
+                  >
+                    Share with a friend
+                  </button>
+                </div>
+              )}
+            </section>
+          );
+        })()}
+
+        {/* ── Hotel Dining — restaurants/bars/room service inside the
+            hotel. Matches the page's section header pattern. ── */}
         {isHotel && (
-          <section className="mb-10">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Hotel Dining</h3>
+          <section className="mb-12">
+            <div className="flex items-end justify-between mb-5">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                  Hotel Dining
+                </p>
+                <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight">
+                  Eat and drink on site
+                </h2>
+              </div>
               {user?.id && (
-                <button onClick={() => setAddDiningOpen(true)} className="text-xs font-bold uppercase tracking-wider text-primary hover:text-primary/80 transition-colors">
-                  + Add Option
+                <button onClick={() => setAddDiningOpen(true)} className="text-sm font-medium text-accent hover:opacity-70 transition-opacity flex-shrink-0">
+                  + Add
                 </button>
               )}
             </div>
@@ -511,8 +740,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3 -mx-1 px-1">
               {([{ value: 'all' as const, label: 'All' }, { value: 'restaurant' as const, label: 'Restaurants' }, { value: 'breakfast' as const, label: 'Breakfast' }, { value: 'bar' as const, label: 'Bars' }, { value: 'room_service' as const, label: 'Room Service' }, { value: 'pool_bar' as const, label: 'Pool Bar' }, { value: 'rooftop' as const, label: 'Rooftop' }] as const).map((f) => (
                 <button key={f.value} onClick={() => setDiningFilter(f.value)}
-                  className={cn("px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0",
-                    diningFilter === f.value ? "bg-primary text-white" : "bg-transparent text-on-surface/50 hover:text-on-surface/70"
+                  className={cn('px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0',
+                    diningFilter === f.value ? 'bg-primary text-white' : 'bg-transparent text-on-surface/50 hover:text-on-surface/70'
                   )}>
                   {f.label}
                 </button>
@@ -520,12 +749,12 @@ export const RestaurantDetailDesktop: React.FC = () => {
             </div>
 
             {hotelDiningOptions.length === 0 ? (
-              <div className="py-10 text-center">
-                <Building2 size={24} className="mx-auto text-on-surface/15 mb-2" />
-                <p className="text-sm text-on-surface/35">No dining options added yet</p>
+              <div className="rounded-2xl bg-white/60 border border-on-surface/10 py-10 text-center">
+                <Building2 size={24} className="mx-auto text-on-surface/20 mb-2" />
+                <p className="text-sm text-on-surface/45">No dining options added yet</p>
               </div>
             ) : (
-              <ul className="divide-y divide-on-surface/[0.06]">
+              <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
                 {hotelDiningOptions
                   .filter((d) => diningFilter === 'all' || d.dining_type === diningFilter)
                   .map((d) => {
@@ -535,25 +764,30 @@ export const RestaurantDetailDesktop: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => navigate(`/restaurant/${d.restaurant_place_id}`)}
-                          className="w-full flex items-start justify-between gap-3 py-4 text-left hover:bg-on-surface/[0.02] transition-colors"
+                          className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left hover:bg-on-surface/[0.015] transition-colors"
                         >
                           <div className="min-w-0 flex-1">
                             <h4 className="font-serif font-bold text-base truncate">{d.restaurant_name}</h4>
                             <p className={cn(
-                              "mt-0.5 text-xs font-bold uppercase tracking-[0.15em]",
-                              d.dining_type === 'restaurant' ? "text-primary/70" :
-                              d.dining_type === 'breakfast' ? "text-amber-600" :
-                              d.dining_type === 'bar' ? "text-violet-600" :
-                              d.dining_type === 'rooftop' ? "text-sky-600" :
-                              "text-on-surface/50"
+                              'mt-0.5 text-[11px] font-bold uppercase tracking-[0.18em]',
+                              d.dining_type === 'restaurant' ? 'text-primary/70' :
+                              d.dining_type === 'breakfast' ? 'text-amber-600' :
+                              d.dining_type === 'bar' ? 'text-violet-600' :
+                              d.dining_type === 'rooftop' ? 'text-sky-600' :
+                              'text-on-surface/50'
                             )}>
                               {d.dining_type.replace('_', ' ')}
                             </p>
                           </div>
                           {score != null && (
-                            <span className={cn("text-xl font-serif font-bold flex-shrink-0 pt-0.5", scoreColor(score))}>
-                              {score.toFixed(1)}
-                            </span>
+                            <div className={cn(
+                              'flex-shrink-0 w-14 h-9 rounded-md flex items-center justify-center',
+                              score >= 8 ? 'bg-secondary' : score >= 5 ? 'bg-amber-600' : 'bg-red-500',
+                            )}>
+                              <span className="text-sm font-bold text-white tabular-nums">
+                                {score.toFixed(1)}
+                              </span>
+                            </div>
                           )}
                         </button>
                       </li>
@@ -564,150 +798,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </section>
         )}
 
-        {/* ── Expert Picks — flat list with dividers, no per-item cards ── */}
-        {expertRecommendations.length > 0 && (
-          <section className="mb-10">
-            <div className="flex items-center gap-2 mb-2">
-              <Star size={14} className="text-amber-600 fill-amber-600 flex-shrink-0" />
-              <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-amber-700">Expert Picks</h3>
-              <span className="text-xs font-semibold text-on-surface/30">· {expertRecommendations.length}</span>
-            </div>
-            <ul className="divide-y divide-on-surface/[0.06]">
-              {expertRecommendations.map((rec) => {
-                const isExpanded = expandedExpertId === rec.id;
-                return (
-                  <li key={rec.id}>
-                    <button
-                      onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
-                      className="w-full py-4 text-left hover:bg-on-surface/[0.02] transition-colors"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Link
-                              to={`/user/${rec.expert_username}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-base font-serif font-bold text-on-surface hover:text-primary truncate"
-                            >
-                              {rec.expert_name}
-                            </Link>
-                            <span className="text-xs font-bold uppercase tracking-[0.15em] text-amber-600">Expert</span>
-                          </div>
-                          <p className={cn("text-sm mt-1 leading-relaxed text-on-surface/65", isExpanded ? "" : "line-clamp-2")}>{rec.recommendation_text}</p>
-                        </div>
-                        <div className="flex items-baseline gap-1 flex-shrink-0 pt-0.5">
-                          <span className={cn("text-2xl font-serif font-bold leading-none", scoreColor(Number(rec.rating)))}>{Number(rec.rating).toFixed(1)}</span>
-                          <span className="text-xs text-on-surface/30 font-semibold">/10</span>
-                        </div>
-                      </div>
-                      <AnimatePresence>
-                        {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="pt-3">
-                              <p className="text-xs font-bold uppercase tracking-[0.15em] text-amber-600/70 mb-2">Highlight Dishes</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {rec.highlight_dishes.map((dish) => (
-                                  <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
-                                    {dish}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
 
-        {/* ── Hours — flat accordion, no card wrapper ── */}
-        {place.hours.length > 0 && (
-          <section className="mb-10">
-            <button
-              onClick={() => setHoursOpen(!hoursOpen)}
-              className="w-full flex items-center gap-3 py-1 text-left hover:opacity-70 transition-opacity"
-            >
-              <Clock size={18} className="text-on-surface/40 flex-shrink-0" />
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                {place.isOpen !== null && (
-                  <span className={cn(
-                    "text-xs font-bold uppercase tracking-wider",
-                    place.isOpen ? 'text-green-600' : 'text-red-500'
-                  )}>
-                    {place.isOpen ? 'Open' : 'Closed'}
-                  </span>
-                )}
-                <span className="text-sm text-on-surface/60 truncate">· {getTodayHours(place.hours)}</span>
-              </div>
-              <ChevronDown size={16} className={cn("text-on-surface/30 flex-shrink-0 transition-transform duration-200", hoursOpen && "rotate-180")} />
-            </button>
-            <AnimatePresence>
-              {hoursOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
-                >
-                  <div className="pt-3 pl-8 space-y-1.5">
-                    {place.hours.map((line, i) => {
-                      const [day, ...timeParts] = line.split(': ');
-                      const time = timeParts.join(': ');
-                      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                      const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
-                      return (
-                        <div key={i} className={cn("flex justify-between text-sm", isToday ? 'font-semibold text-on-surface' : 'text-on-surface/45')}>
-                          <span>{day}</span>
-                          <span>{time}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </section>
-        )}
-
-        {/* ── Contact & Address — flat divider rows, no card wrapper ── */}
-        <section className="mb-10">
-          <ul className="divide-y divide-on-surface/[0.06]">
-            {place.phone && (
-              <li>
-                <a href={`tel:${place.phone}`} className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity">
-                  <Phone size={18} className="text-on-surface/40 flex-shrink-0" />
-                  <span className="text-sm text-on-surface/70">{place.phone}</span>
-                </a>
-              </li>
-            )}
-            {place.website && (
-              <li>
-                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity">
-                  <Globe size={18} className="text-on-surface/40 flex-shrink-0" />
-                  <span className="text-sm text-on-surface/70 truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
-                </a>
-              </li>
-            )}
-            <li>
-              <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity">
-                <MapPin size={18} className="text-on-surface/40 flex-shrink-0" />
-                <span className="text-sm text-on-surface/70 flex-1">{place.address}</span>
-                <Navigation size={14} className="text-primary flex-shrink-0" />
-              </a>
-            </li>
-          </ul>
-        </section>
 
         {/* ── My Rating Details — quiet editorial summary with ambient
             inline edit affordances. Each subsection heading carries a
@@ -727,14 +818,21 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const hasFriends = !isHotel && (myRating.friendIds?.length || 0) > 0;
           const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
           return (
-            <section className="mb-10">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">My Rating Details</h3>
+            <section ref={myRatingRef} className="mb-12 scroll-mt-4">
+              <div className="flex items-end justify-between mb-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                    My Rating
+                  </p>
+                  <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight">
+                    Your take on it
+                  </h2>
+                </div>
                 <button
                   onClick={() => openAt('main')}
-                  className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary hover:text-primary/80"
+                  className="flex items-center gap-1 text-sm font-medium text-accent hover:opacity-70 transition-opacity flex-shrink-0"
                 >
-                  <Edit3 size={12} /> Edit
+                  <Edit3 size={14} /> Edit
                 </button>
               </div>
 
@@ -743,14 +841,14 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 <div>
                   <button
                     onClick={() => openAt('notes')}
-                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 hover:text-on-surface/60 transition-colors"
+                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 hover:text-on-surface/60 transition-colors"
                   >
                     <StickyNote size={13} />
                     <span>Notes</span>
                     <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
                   </button>
                   {hasNotes ? (
-                    <p className="mt-2 text-base leading-relaxed italic text-on-surface/75 font-serif">
+                    <p className="mt-2 text-lg leading-relaxed italic text-on-surface/80 font-serif">
                       "{myRating.notes}"
                     </p>
                   ) : (
@@ -914,195 +1012,403 @@ export const RestaurantDetailDesktop: React.FC = () => {
           );
         })()}
 
-        {/* ── Visit History Timeline — minimal dots + 1px rail ── */}
+        {/* ── Visit History Timeline — date-badge style. Each visit
+            shows a MAR/4 date stack on the left with a score-colored
+            left accent, the user's quoted notes and full date in the
+            middle, and a score badge with an optional trend arrow on
+            the right. Rows expand inline to reveal tags, photos, and
+            would-return. ── */}
         {myRating && visitHistory.length > 0 && place && (() => {
-          const dotColor = scoreDotBg;
-          const textColor = scoreColor;
+          const scoreBadgeBg = (s: number) =>
+            s >= 8 ? 'bg-secondary' : s >= 5 ? 'bg-amber-600' : 'bg-red-500';
+          const scoreBorder = (s: number) =>
+            s >= 8 ? 'border-l-green-500' : s >= 5 ? 'border-l-amber-500' : 'border-l-red-500';
+          const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const parseDate = (d?: string | null) => {
+            if (!d) return null;
+            return new Date(d.length === 10 ? `${d}T12:00:00` : d);
+          };
+
+          type Entry = {
+            id: string;
+            score: number;
+            date: Date | null;
+            notes?: string;
+            tags?: string[];
+            photos?: { url: string }[];
+            wouldReturn?: boolean;
+            trend: 'up' | 'down' | null;
+          };
+
+          const entries: Entry[] = [];
+          const curDate = parseDate(myRating.visitDate);
+          const prevFromCurrent = visitHistory[0];
+          const curTrend: Entry['trend'] = prevFromCurrent
+            ? (myRating.score - prevFromCurrent.score > 0.1 ? 'up'
+              : myRating.score - prevFromCurrent.score < -0.1 ? 'down' : null)
+            : null;
+          entries.push({
+            id: 'current',
+            score: myRating.score,
+            date: curDate,
+            notes: myRating.notes,
+            tags: myRating.tags,
+            photos: myRating.photos,
+            wouldReturn: myRating.wouldReturn,
+            trend: curTrend,
+          });
+          visitHistory.forEach((v, idx) => {
+            const nextOlder = visitHistory[idx + 1];
+            const trend: Entry['trend'] = nextOlder
+              ? (v.score - nextOlder.score > 0.1 ? 'up'
+                : v.score - nextOlder.score < -0.1 ? 'down' : null)
+              : null;
+            entries.push({
+              id: v.id,
+              score: v.score,
+              date: parseDate(v.visit_date),
+              notes: v.notes,
+              tags: v.tags,
+              photos: v.photos,
+              wouldReturn: v.would_return,
+              trend,
+            });
+          });
+
           return (
-            <section className="mb-10">
-              <div className="flex items-center gap-2 mb-4">
-                <RotateCcw size={14} className="text-on-surface/30 flex-shrink-0" />
-                <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">Visit History</h3>
-                <span className="text-xs text-on-surface/30">· {visitHistory.length + 1} visits</span>
-              </div>
+            <section className="mb-12">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                Visit History
+              </p>
+              <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+                Your {entries.length} {entries.length === 1 ? 'visit' : 'visits'}
+              </h2>
 
-              <div className="relative">
-                <div className="absolute left-[3.5px] top-2 bottom-2 w-px bg-on-surface/10" />
+              <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
+                {entries.map((e) => {
+                  const isExpanded = expandedVisit === e.id;
+                  const month = e.date ? MONTHS[e.date.getMonth()] : '—';
+                  const day = e.date ? e.date.getDate() : '';
+                  const fullDate = e.date
+                    ? e.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                    : 'No date';
+                  return (
+                    <li key={e.id}>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedVisit(isExpanded ? null : e.id)}
+                        className="w-full flex items-stretch text-left hover:bg-on-surface/[0.015] transition-colors"
+                      >
+                        <div className={cn(
+                          'flex-shrink-0 w-[72px] border-l-[3px] flex flex-col items-center justify-center py-4',
+                          scoreBorder(e.score),
+                        )}>
+                          <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface/55 leading-none">
+                            {month}
+                          </span>
+                          <span className="text-[32px] font-serif font-bold text-on-surface leading-none mt-1 tabular-nums">
+                            {day}
+                          </span>
+                        </div>
 
-                <ul className="space-y-6">
-                  <li className="relative pl-7">
-                    <div className={cn("absolute left-0 top-2 w-2 h-2 rounded-full ring-4 ring-surface", dotColor(myRating.score))} />
-                    <div className="flex items-baseline gap-2 flex-wrap">
-                      <span className={cn("text-xl font-serif font-bold leading-none", textColor(myRating.score))}>
-                        {myRating.score.toFixed(1)}
-                      </span>
-                      <span className="text-xs font-bold uppercase tracking-[0.15em] text-primary">Current</span>
-                      {(() => {
-                        const prev = visitHistory[0];
-                        if (!prev) return null;
-                        const diff = myRating.score - prev.score;
-                        if (diff > 0.1) return <span className="inline-flex items-center gap-0.5 text-xs text-green-600 font-medium"><TrendingUp size={11} />+{diff.toFixed(1)}</span>;
-                        if (diff < -0.1) return <span className="inline-flex items-center gap-0.5 text-xs text-red-500 font-medium"><TrendingDown size={11} />{diff.toFixed(1)}</span>;
-                        return <span className="inline-flex items-center gap-0.5 text-xs text-on-surface/35 font-medium"><Minus size={11} />Same</span>;
-                      })()}
-                    </div>
-                    {myRating.visitDate && (
-                      <p className="mt-1 text-[13px] text-on-surface/45">
-                        {new Date(myRating.visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    )}
-                    {myRating.notes && (
-                      <p className="mt-1.5 text-sm italic text-on-surface/55 leading-relaxed line-clamp-2">"{myRating.notes}"</p>
-                    )}
-                    {myRating.wouldReturn !== undefined && (
-                      <p className="mt-1 text-xs font-semibold">
-                        {myRating.wouldReturn
-                          ? <span className="text-green-600">Would return</span>
-                          : <span className="text-red-500">Wouldn't return</span>}
-                      </p>
-                    )}
-                  </li>
+                        <div className="flex-1 min-w-0 px-5 py-4">
+                          {e.notes ? (
+                            <p className="text-base italic font-serif text-on-surface/80 leading-snug line-clamp-2">
+                              "{e.notes}"
+                            </p>
+                          ) : (
+                            <p className="text-sm italic text-on-surface/35">No notes</p>
+                          )}
+                          <p className="mt-1 text-[12px] text-on-surface/45">
+                            {fullDate}
+                          </p>
+                        </div>
 
-                  {/* Previous visits — each expandable inline; collapsed rows
-                      still show a 2-line notes preview and first-3 tag chips
-                      so people can skim without tapping. */}
-                  {visitHistory.map((visit, idx) => {
-                    const isExpanded = expandedVisit === visit.id;
-                    const prevVisit = visitHistory[idx + 1];
-                    const scoreDiff = prevVisit ? visit.score - prevVisit.score : 0;
-                    return (
-                      <li key={visit.id} className="relative pl-7">
-                        <div className={cn("absolute left-0 top-2 w-2 h-2 rounded-full ring-4 ring-surface", dotColor(visit.score))} />
-                        <button
-                          onClick={() => setExpandedVisit(isExpanded ? null : visit.id)}
-                          className="w-full text-left hover:opacity-70 transition-opacity"
-                        >
-                          <div className="flex items-baseline gap-2 flex-wrap">
-                            <span className={cn("text-lg font-serif font-bold leading-none", textColor(visit.score))}>
-                              {visit.score.toFixed(1)}
+                        <div className="flex-shrink-0 px-5 py-4 flex items-center gap-2">
+                          {e.trend === 'up' && <TrendingUp size={15} className="text-green-600" />}
+                          {e.trend === 'down' && <TrendingDown size={15} className="text-red-500" />}
+                          <div className={cn(
+                            'w-14 h-9 rounded-md flex items-center justify-center',
+                            scoreBadgeBg(e.score),
+                          )}>
+                            <span className="text-sm font-bold text-white tabular-nums">
+                              {e.score.toFixed(1)}
                             </span>
-                            {prevVisit && Math.abs(scoreDiff) > 0.1 && (
-                              scoreDiff > 0
-                                ? <TrendingUp size={13} className="text-green-500" />
-                                : <TrendingDown size={13} className="text-red-400" />
-                            )}
-                            <span className="text-[13px] text-on-surface/45">
-                              {visit.visit_date ? new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
-                            </span>
-                            <ChevronDown size={14} className={cn("ml-auto text-on-surface/25 transition-transform flex-shrink-0", isExpanded && "rotate-180")} />
                           </div>
-                          {!isExpanded && visit.notes && (
-                            <p className="mt-1 text-[13px] italic text-on-surface/45 leading-relaxed line-clamp-2">"{visit.notes}"</p>
-                          )}
-                          {!isExpanded && visit.tags && visit.tags.length > 0 && (
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                              {visit.tags.slice(0, 3).map((t) => (
-                                <span key={t} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/70">{t}</span>
-                              ))}
-                              {visit.tags.length > 3 && (
-                                <span className="text-xs text-on-surface/35 self-center">+{visit.tags.length - 3}</span>
+                        </div>
+                      </button>
+
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="px-5 pb-4 pl-[calc(72px+3px+1.25rem)] space-y-3">
+                              {e.tags && e.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {e.tags.map((t) => (
+                                    <span key={t} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-primary/8 text-primary/75">{t}</span>
+                                  ))}
+                                </div>
                               )}
-                            </div>
-                          )}
-                        </button>
-                        <AnimatePresence>
-                          {isExpanded && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2 }}
-                              className="overflow-hidden"
-                            >
-                              <div className="pt-2 space-y-2">
-                                {visit.notes && (
-                                  <p className="text-sm italic text-on-surface/55 leading-relaxed">"{visit.notes}"</p>
-                                )}
-                                {visit.tags && visit.tags.length > 0 && (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {visit.tags.map((t) => (
-                                      <span key={t} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/75">{t}</span>
-                                    ))}
-                                  </div>
-                                )}
-                                {visit.photos && visit.photos.length > 0 && (
-                                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar snap-x snap-mandatory">
-                                    {visit.photos.slice(0, 8).map((p, i) => (
-                                      <img key={i} src={p.url} className="w-20 h-20 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
-                                    ))}
-                                  </div>
-                                )}
+                              {e.photos && e.photos.length > 0 && (
+                                <div className="flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+                                  {e.photos.slice(0, 8).map((p, i) => (
+                                    <img key={i} src={p.url} className="w-24 h-24 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
+                                  ))}
+                                </div>
+                              )}
+                              {e.wouldReturn !== undefined && (
                                 <p className="text-xs font-semibold">
-                                  {visit.would_return
+                                  {e.wouldReturn
                                     ? <span className="text-green-600">Would return</span>
                                     : <span className="text-red-500">Wouldn't return</span>}
                                 </p>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </li>
+                  );
+                })}
+              </ul>
             </section>
           );
         })()}
 
-        {/* ── Map — full-bleed with caption, no card wrapper. The map
-            container itself renders mapbox; a transparent overlay button
-            sits above it to catch taps and route to the full /map page
-            (the mapbox instance below stays visible). ── */}
-        <section className="mb-10">
-          {/* h-[28rem] (448px) keeps a comfortable ~2.3:1 aspect ratio
-              now that the container is ~1024px wide — h-96 would be
-              too letterbox at this width. */}
-          <div className="relative w-full h-[28rem] rounded-2xl overflow-hidden">
-            {/* Inline width/height match Map.tsx — Mapbox's CSS sets
-                `.mapboxgl-map { position: relative }` which can override
-                Tailwind's `absolute` (equal specificity, source-order wins),
-                collapsing an inset-0 container to 0×0. Inline styles win
-                unconditionally and keep the canvas full-sized. */}
-            <div
-              ref={mapContainerRef}
-              className="absolute inset-0"
-              style={{ width: '100%', height: '100%' }}
-            />
-            <button
-              type="button"
-              onClick={() => navigate('/map', {
-                state: {
-                  focus: {
-                    id: place.id,
-                    name: place.name,
-                    lat: place.lat,
-                    lng: place.lng,
-                    address: place.address,
-                    fullAddress: place.fullAddress || place.address,
-                    photoUrl: place.photoUrl,
-                    priceLevel: place.priceLevel,
-                    rating: place.rating,
-                    types: place.types,
-                    userRatingCount: place.userRatingCount,
-                  },
-                },
+        {/* ── Expert Picks — editorial list of authoritative reviews.
+            Two-line header matches the rest of the page; each row has
+            the expert's name, recommendation, and score. Hidden when
+            there are no expert ratings. ── */}
+        {expertRecommendations.length > 0 && (
+          <section className="mb-12">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+              Expert Picks
+            </p>
+            <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+              {expertRecommendations.length === 1 ? 'An expert weighed in' : `${expertRecommendations.length} experts weighed in`}
+            </h2>
+            <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
+              {expertRecommendations.map((rec) => {
+                const isExpanded = expandedExpertId === rec.id;
+                return (
+                  <li key={rec.id}>
+                    <button
+                      onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
+                      className="w-full px-5 py-5 text-left hover:bg-on-surface/[0.015] transition-colors"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link
+                              to={`/user/${rec.expert_username}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-base font-serif font-bold text-on-surface hover:text-primary truncate"
+                            >
+                              {rec.expert_name}
+                            </Link>
+                            <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-amber-600">Expert</span>
+                          </div>
+                          <p className={cn('text-sm mt-1.5 leading-relaxed text-on-surface/70', isExpanded ? '' : 'line-clamp-2')}>{rec.recommendation_text}</p>
+                        </div>
+                        <div className={cn(
+                          'flex-shrink-0 w-14 h-9 rounded-md flex items-center justify-center',
+                          Number(rec.rating) >= 8 ? 'bg-secondary' : Number(rec.rating) >= 5 ? 'bg-amber-600' : 'bg-red-500',
+                        )}>
+                          <span className="text-sm font-bold text-white tabular-nums">
+                            {Number(rec.rating).toFixed(1)}
+                          </span>
+                        </div>
+                      </div>
+                      <AnimatePresence>
+                        {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="pt-3">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight Dishes</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {rec.highlight_dishes.map((dish) => (
+                                  <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
+                                    {dish}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  </li>
+                );
               })}
-              aria-label="Open full map"
-              className="absolute inset-0 z-10 hover:bg-on-surface/5 transition-colors"
-            />
-          </div>
-          <div className="pt-3 flex items-center justify-between">
-            <p className="text-[13px] text-on-surface/45 truncate flex-1">{place.address}</p>
-            <a
-              href={mapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary flex-shrink-0 ml-3"
-            >
-              Open in Maps
-              <ExternalLink size={12} />
-            </a>
+            </ul>
+          </section>
+        )}
+
+        {/* ── Hours — accordion inside a subtle container. ── */}
+        {place.hours.length > 0 && (
+          <section className="mb-12">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+              Hours
+            </p>
+            <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+              When they're open
+            </h2>
+            <div className="rounded-2xl bg-white/60 border border-on-surface/10 overflow-hidden">
+              <button
+                onClick={() => setHoursOpen(!hoursOpen)}
+                className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-on-surface/[0.015] transition-colors"
+              >
+                <Clock size={18} className="text-on-surface/40 flex-shrink-0" />
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {place.isOpen !== null && (
+                    <>
+                      <span className={cn('inline-block w-2 h-2 rounded-full flex-shrink-0', place.isOpen ? 'bg-green-500' : 'bg-red-500')} />
+                      <span className={cn(
+                        'text-sm font-semibold',
+                        place.isOpen ? 'text-green-700' : 'text-red-600',
+                      )}>
+                        {place.isOpen ? 'Open' : 'Closed'}
+                      </span>
+                    </>
+                  )}
+                  <span className="text-sm text-on-surface/55 truncate">· {getTodayHours(place.hours)}</span>
+                </div>
+                <ChevronDown size={16} className={cn('text-on-surface/30 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
+              </button>
+              <AnimatePresence>
+                {hoursOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-5 pb-5 pt-1 space-y-2 border-t border-on-surface/[0.06]">
+                      {place.hours.map((line, i) => {
+                        const [day, ...timeParts] = line.split(': ');
+                        const time = timeParts.join(': ');
+                        const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+                        const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
+                        return (
+                          <div key={i} className={cn('flex justify-between text-sm pt-2', isToday ? 'font-semibold text-on-surface' : 'text-on-surface/50')}>
+                            <span>{day}</span>
+                            <span className="tabular-nums">{time}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </section>
+        )}
+
+        {/* ── Contact & Address — quiet, functional. Muted icon + text
+            rows in a subtle container, not competing for attention. ── */}
+        <section className="mb-12">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+            Contact
+          </p>
+          <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+            Get in touch
+          </h2>
+          <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
+            {place.phone && (
+              <li>
+                <a href={`tel:${place.phone}`} className="flex items-center gap-3 px-5 py-4 hover:bg-on-surface/[0.015] transition-colors">
+                  <Phone size={18} className="text-on-surface/45 flex-shrink-0" />
+                  <span className="text-sm text-on-surface/75 flex-1 tabular-nums">{place.phone}</span>
+                </a>
+              </li>
+            )}
+            {place.website && (
+              <li>
+                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-5 py-4 hover:bg-on-surface/[0.015] transition-colors">
+                  <Globe size={18} className="text-on-surface/45 flex-shrink-0" />
+                  <span className="text-sm text-on-surface/75 flex-1 truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
+                  <ExternalLink size={13} className="text-on-surface/30 flex-shrink-0" />
+                </a>
+              </li>
+            )}
+            <li>
+              <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-5 py-4 hover:bg-on-surface/[0.015] transition-colors">
+                <MapPin size={18} className="text-on-surface/45 flex-shrink-0" />
+                <span className="text-sm text-on-surface/75 flex-1">{place.address}</span>
+                <Navigation size={14} className="text-primary flex-shrink-0" />
+              </a>
+            </li>
+          </ul>
+        </section>
+
+        {/* ── Map — rounded container with caption below. A transparent
+            overlay button catches taps and routes to /map with the
+            restaurant focused. Inline width/height keep the Mapbox
+            canvas full-sized; see Map.tsx for context. ── */}
+        <section className="mb-12">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+            Location
+          </p>
+          <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+            Where to find it
+          </h2>
+          <div className="rounded-2xl overflow-hidden border border-on-surface/10">
+            {/* h-96 (384px) gives a comfortable aspect ratio on desktop
+                while staying shorter than the old 448px to leave room
+                for other sections in view. */}
+            <div className="relative w-full h-96">
+              <div
+                ref={mapContainerRef}
+                className="absolute inset-0"
+                style={{ width: '100%', height: '100%' }}
+              />
+              <button
+                type="button"
+                onClick={() => navigate('/map', {
+                  state: {
+                    focus: {
+                      id: place.id,
+                      name: place.name,
+                      lat: place.lat,
+                      lng: place.lng,
+                      address: place.address,
+                      fullAddress: place.fullAddress || place.address,
+                      photoUrl: place.photoUrl,
+                      priceLevel: place.priceLevel,
+                      rating: place.rating,
+                      types: place.types,
+                      userRatingCount: place.userRatingCount,
+                    },
+                  },
+                })}
+                aria-label="Open full map"
+                className="absolute inset-0 z-10 hover:bg-on-surface/5 transition-colors"
+              />
+            </div>
+            <div className="px-5 py-3 flex items-center justify-between gap-3 bg-white/60 border-t border-on-surface/[0.06]">
+              <p className="text-sm text-on-surface/55 truncate flex-1">{place.address}</p>
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm font-semibold text-primary flex-shrink-0"
+              >
+                Open in Maps
+                <ExternalLink size={13} />
+              </a>
+            </div>
           </div>
         </section>
       </main>
