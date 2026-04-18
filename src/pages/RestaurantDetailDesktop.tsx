@@ -4,10 +4,10 @@ import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Heart, Bookmark,
-  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, Minus, RotateCcw, StickyNote,
+  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { scoreColor, scoreDotBg } from '../lib/score';
+import { scoreColor } from '../lib/score';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
@@ -717,14 +717,22 @@ export const RestaurantDetailDesktop: React.FC = () => {
           );
         })()}
 
-        {/* ── Hotel Dining — flat list with dividers, no per-row cards ── */}
+        {/* ── Hotel Dining — restaurants/bars/room service inside the
+            hotel. Matches the page's section header pattern. ── */}
         {isHotel && (
-          <section className="mb-10">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Hotel Dining</h3>
+          <section className="mb-12">
+            <div className="flex items-end justify-between mb-5">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                  Hotel Dining
+                </p>
+                <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight">
+                  Eat and drink on site
+                </h2>
+              </div>
               {user?.id && (
-                <button onClick={() => setAddDiningOpen(true)} className="text-xs font-bold uppercase tracking-wider text-primary hover:text-primary/80 transition-colors">
-                  + Add Option
+                <button onClick={() => setAddDiningOpen(true)} className="text-sm font-medium text-accent hover:opacity-70 transition-opacity flex-shrink-0">
+                  + Add
                 </button>
               )}
             </div>
@@ -732,8 +740,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3 -mx-1 px-1">
               {([{ value: 'all' as const, label: 'All' }, { value: 'restaurant' as const, label: 'Restaurants' }, { value: 'breakfast' as const, label: 'Breakfast' }, { value: 'bar' as const, label: 'Bars' }, { value: 'room_service' as const, label: 'Room Service' }, { value: 'pool_bar' as const, label: 'Pool Bar' }, { value: 'rooftop' as const, label: 'Rooftop' }] as const).map((f) => (
                 <button key={f.value} onClick={() => setDiningFilter(f.value)}
-                  className={cn("px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0",
-                    diningFilter === f.value ? "bg-primary text-white" : "bg-transparent text-on-surface/50 hover:text-on-surface/70"
+                  className={cn('px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex-shrink-0',
+                    diningFilter === f.value ? 'bg-primary text-white' : 'bg-transparent text-on-surface/50 hover:text-on-surface/70'
                   )}>
                   {f.label}
                 </button>
@@ -741,12 +749,12 @@ export const RestaurantDetailDesktop: React.FC = () => {
             </div>
 
             {hotelDiningOptions.length === 0 ? (
-              <div className="py-10 text-center">
-                <Building2 size={24} className="mx-auto text-on-surface/15 mb-2" />
-                <p className="text-sm text-on-surface/35">No dining options added yet</p>
+              <div className="rounded-2xl bg-white/60 border border-on-surface/10 py-10 text-center">
+                <Building2 size={24} className="mx-auto text-on-surface/20 mb-2" />
+                <p className="text-sm text-on-surface/45">No dining options added yet</p>
               </div>
             ) : (
-              <ul className="divide-y divide-on-surface/[0.06]">
+              <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
                 {hotelDiningOptions
                   .filter((d) => diningFilter === 'all' || d.dining_type === diningFilter)
                   .map((d) => {
@@ -756,25 +764,30 @@ export const RestaurantDetailDesktop: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => navigate(`/restaurant/${d.restaurant_place_id}`)}
-                          className="w-full flex items-start justify-between gap-3 py-4 text-left hover:bg-on-surface/[0.02] transition-colors"
+                          className="w-full flex items-center justify-between gap-3 px-5 py-4 text-left hover:bg-on-surface/[0.015] transition-colors"
                         >
                           <div className="min-w-0 flex-1">
                             <h4 className="font-serif font-bold text-base truncate">{d.restaurant_name}</h4>
                             <p className={cn(
-                              "mt-0.5 text-xs font-bold uppercase tracking-[0.15em]",
-                              d.dining_type === 'restaurant' ? "text-primary/70" :
-                              d.dining_type === 'breakfast' ? "text-amber-600" :
-                              d.dining_type === 'bar' ? "text-violet-600" :
-                              d.dining_type === 'rooftop' ? "text-sky-600" :
-                              "text-on-surface/50"
+                              'mt-0.5 text-[11px] font-bold uppercase tracking-[0.18em]',
+                              d.dining_type === 'restaurant' ? 'text-primary/70' :
+                              d.dining_type === 'breakfast' ? 'text-amber-600' :
+                              d.dining_type === 'bar' ? 'text-violet-600' :
+                              d.dining_type === 'rooftop' ? 'text-sky-600' :
+                              'text-on-surface/50'
                             )}>
                               {d.dining_type.replace('_', ' ')}
                             </p>
                           </div>
                           {score != null && (
-                            <span className={cn("text-xl font-serif font-bold flex-shrink-0 pt-0.5", scoreColor(score))}>
-                              {score.toFixed(1)}
-                            </span>
+                            <div className={cn(
+                              'flex-shrink-0 w-14 h-9 rounded-md flex items-center justify-center',
+                              score >= 8 ? 'bg-secondary' : score >= 5 ? 'bg-amber-600' : 'bg-red-500',
+                            )}>
+                              <span className="text-sm font-bold text-white tabular-nums">
+                                {score.toFixed(1)}
+                              </span>
+                            </div>
                           )}
                         </button>
                       </li>
@@ -785,150 +798,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </section>
         )}
 
-        {/* ── Expert Picks — flat list with dividers, no per-item cards ── */}
-        {expertRecommendations.length > 0 && (
-          <section className="mb-10">
-            <div className="flex items-center gap-2 mb-2">
-              <Star size={14} className="text-amber-600 fill-amber-600 flex-shrink-0" />
-              <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-amber-700">Expert Picks</h3>
-              <span className="text-xs font-semibold text-on-surface/30">· {expertRecommendations.length}</span>
-            </div>
-            <ul className="divide-y divide-on-surface/[0.06]">
-              {expertRecommendations.map((rec) => {
-                const isExpanded = expandedExpertId === rec.id;
-                return (
-                  <li key={rec.id}>
-                    <button
-                      onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
-                      className="w-full py-4 text-left hover:bg-on-surface/[0.02] transition-colors"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Link
-                              to={`/user/${rec.expert_username}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-base font-serif font-bold text-on-surface hover:text-primary truncate"
-                            >
-                              {rec.expert_name}
-                            </Link>
-                            <span className="text-xs font-bold uppercase tracking-[0.15em] text-amber-600">Expert</span>
-                          </div>
-                          <p className={cn("text-sm mt-1 leading-relaxed text-on-surface/65", isExpanded ? "" : "line-clamp-2")}>{rec.recommendation_text}</p>
-                        </div>
-                        <div className="flex items-baseline gap-1 flex-shrink-0 pt-0.5">
-                          <span className={cn("text-2xl font-serif font-bold leading-none", scoreColor(Number(rec.rating)))}>{Number(rec.rating).toFixed(1)}</span>
-                          <span className="text-xs text-on-surface/30 font-semibold">/10</span>
-                        </div>
-                      </div>
-                      <AnimatePresence>
-                        {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="pt-3">
-                              <p className="text-xs font-bold uppercase tracking-[0.15em] text-amber-600/70 mb-2">Highlight Dishes</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {rec.highlight_dishes.map((dish) => (
-                                  <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
-                                    {dish}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
 
-        {/* ── Hours — flat accordion, no card wrapper ── */}
-        {place.hours.length > 0 && (
-          <section className="mb-10">
-            <button
-              onClick={() => setHoursOpen(!hoursOpen)}
-              className="w-full flex items-center gap-3 py-1 text-left hover:opacity-70 transition-opacity"
-            >
-              <Clock size={18} className="text-on-surface/40 flex-shrink-0" />
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                {place.isOpen !== null && (
-                  <span className={cn(
-                    "text-xs font-bold uppercase tracking-wider",
-                    place.isOpen ? 'text-green-600' : 'text-red-500'
-                  )}>
-                    {place.isOpen ? 'Open' : 'Closed'}
-                  </span>
-                )}
-                <span className="text-sm text-on-surface/60 truncate">· {getTodayHours(place.hours)}</span>
-              </div>
-              <ChevronDown size={16} className={cn("text-on-surface/30 flex-shrink-0 transition-transform duration-200", hoursOpen && "rotate-180")} />
-            </button>
-            <AnimatePresence>
-              {hoursOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
-                >
-                  <div className="pt-3 pl-8 space-y-1.5">
-                    {place.hours.map((line, i) => {
-                      const [day, ...timeParts] = line.split(': ');
-                      const time = timeParts.join(': ');
-                      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                      const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
-                      return (
-                        <div key={i} className={cn("flex justify-between text-sm", isToday ? 'font-semibold text-on-surface' : 'text-on-surface/45')}>
-                          <span>{day}</span>
-                          <span>{time}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </section>
-        )}
-
-        {/* ── Contact & Address — flat divider rows, no card wrapper ── */}
-        <section className="mb-10">
-          <ul className="divide-y divide-on-surface/[0.06]">
-            {place.phone && (
-              <li>
-                <a href={`tel:${place.phone}`} className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity">
-                  <Phone size={18} className="text-on-surface/40 flex-shrink-0" />
-                  <span className="text-sm text-on-surface/70">{place.phone}</span>
-                </a>
-              </li>
-            )}
-            {place.website && (
-              <li>
-                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity">
-                  <Globe size={18} className="text-on-surface/40 flex-shrink-0" />
-                  <span className="text-sm text-on-surface/70 truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
-                </a>
-              </li>
-            )}
-            <li>
-              <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity">
-                <MapPin size={18} className="text-on-surface/40 flex-shrink-0" />
-                <span className="text-sm text-on-surface/70 flex-1">{place.address}</span>
-                <Navigation size={14} className="text-primary flex-shrink-0" />
-              </a>
-            </li>
-          </ul>
-        </section>
 
         {/* ── My Rating Details — quiet editorial summary with ambient
             inline edit affordances. Each subsection heading carries a
@@ -1142,195 +1012,403 @@ export const RestaurantDetailDesktop: React.FC = () => {
           );
         })()}
 
-        {/* ── Visit History Timeline — minimal dots + 1px rail ── */}
+        {/* ── Visit History Timeline — date-badge style. Each visit
+            shows a MAR/4 date stack on the left with a score-colored
+            left accent, the user's quoted notes and full date in the
+            middle, and a score badge with an optional trend arrow on
+            the right. Rows expand inline to reveal tags, photos, and
+            would-return. ── */}
         {myRating && visitHistory.length > 0 && place && (() => {
-          const dotColor = scoreDotBg;
-          const textColor = scoreColor;
+          const scoreBadgeBg = (s: number) =>
+            s >= 8 ? 'bg-secondary' : s >= 5 ? 'bg-amber-600' : 'bg-red-500';
+          const scoreBorder = (s: number) =>
+            s >= 8 ? 'border-l-green-500' : s >= 5 ? 'border-l-amber-500' : 'border-l-red-500';
+          const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const parseDate = (d?: string | null) => {
+            if (!d) return null;
+            return new Date(d.length === 10 ? `${d}T12:00:00` : d);
+          };
+
+          type Entry = {
+            id: string;
+            score: number;
+            date: Date | null;
+            notes?: string;
+            tags?: string[];
+            photos?: { url: string }[];
+            wouldReturn?: boolean;
+            trend: 'up' | 'down' | null;
+          };
+
+          const entries: Entry[] = [];
+          const curDate = parseDate(myRating.visitDate);
+          const prevFromCurrent = visitHistory[0];
+          const curTrend: Entry['trend'] = prevFromCurrent
+            ? (myRating.score - prevFromCurrent.score > 0.1 ? 'up'
+              : myRating.score - prevFromCurrent.score < -0.1 ? 'down' : null)
+            : null;
+          entries.push({
+            id: 'current',
+            score: myRating.score,
+            date: curDate,
+            notes: myRating.notes,
+            tags: myRating.tags,
+            photos: myRating.photos,
+            wouldReturn: myRating.wouldReturn,
+            trend: curTrend,
+          });
+          visitHistory.forEach((v, idx) => {
+            const nextOlder = visitHistory[idx + 1];
+            const trend: Entry['trend'] = nextOlder
+              ? (v.score - nextOlder.score > 0.1 ? 'up'
+                : v.score - nextOlder.score < -0.1 ? 'down' : null)
+              : null;
+            entries.push({
+              id: v.id,
+              score: v.score,
+              date: parseDate(v.visit_date),
+              notes: v.notes,
+              tags: v.tags,
+              photos: v.photos,
+              wouldReturn: v.would_return,
+              trend,
+            });
+          });
+
           return (
-            <section className="mb-10">
-              <div className="flex items-center gap-2 mb-4">
-                <RotateCcw size={14} className="text-on-surface/30 flex-shrink-0" />
-                <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">Visit History</h3>
-                <span className="text-xs text-on-surface/30">· {visitHistory.length + 1} visits</span>
-              </div>
+            <section className="mb-12">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                Visit History
+              </p>
+              <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+                Your {entries.length} {entries.length === 1 ? 'visit' : 'visits'}
+              </h2>
 
-              <div className="relative">
-                <div className="absolute left-[3.5px] top-2 bottom-2 w-px bg-on-surface/10" />
+              <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
+                {entries.map((e) => {
+                  const isExpanded = expandedVisit === e.id;
+                  const month = e.date ? MONTHS[e.date.getMonth()] : '—';
+                  const day = e.date ? e.date.getDate() : '';
+                  const fullDate = e.date
+                    ? e.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                    : 'No date';
+                  return (
+                    <li key={e.id}>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedVisit(isExpanded ? null : e.id)}
+                        className="w-full flex items-stretch text-left hover:bg-on-surface/[0.015] transition-colors"
+                      >
+                        <div className={cn(
+                          'flex-shrink-0 w-[72px] border-l-[3px] flex flex-col items-center justify-center py-4',
+                          scoreBorder(e.score),
+                        )}>
+                          <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface/55 leading-none">
+                            {month}
+                          </span>
+                          <span className="text-[32px] font-serif font-bold text-on-surface leading-none mt-1 tabular-nums">
+                            {day}
+                          </span>
+                        </div>
 
-                <ul className="space-y-6">
-                  <li className="relative pl-7">
-                    <div className={cn("absolute left-0 top-2 w-2 h-2 rounded-full ring-4 ring-surface", dotColor(myRating.score))} />
-                    <div className="flex items-baseline gap-2 flex-wrap">
-                      <span className={cn("text-xl font-serif font-bold leading-none", textColor(myRating.score))}>
-                        {myRating.score.toFixed(1)}
-                      </span>
-                      <span className="text-xs font-bold uppercase tracking-[0.15em] text-primary">Current</span>
-                      {(() => {
-                        const prev = visitHistory[0];
-                        if (!prev) return null;
-                        const diff = myRating.score - prev.score;
-                        if (diff > 0.1) return <span className="inline-flex items-center gap-0.5 text-xs text-green-600 font-medium"><TrendingUp size={11} />+{diff.toFixed(1)}</span>;
-                        if (diff < -0.1) return <span className="inline-flex items-center gap-0.5 text-xs text-red-500 font-medium"><TrendingDown size={11} />{diff.toFixed(1)}</span>;
-                        return <span className="inline-flex items-center gap-0.5 text-xs text-on-surface/35 font-medium"><Minus size={11} />Same</span>;
-                      })()}
-                    </div>
-                    {myRating.visitDate && (
-                      <p className="mt-1 text-[13px] text-on-surface/45">
-                        {new Date(myRating.visitDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    )}
-                    {myRating.notes && (
-                      <p className="mt-1.5 text-sm italic text-on-surface/55 leading-relaxed line-clamp-2">"{myRating.notes}"</p>
-                    )}
-                    {myRating.wouldReturn !== undefined && (
-                      <p className="mt-1 text-xs font-semibold">
-                        {myRating.wouldReturn
-                          ? <span className="text-green-600">Would return</span>
-                          : <span className="text-red-500">Wouldn't return</span>}
-                      </p>
-                    )}
-                  </li>
+                        <div className="flex-1 min-w-0 px-5 py-4">
+                          {e.notes ? (
+                            <p className="text-base italic font-serif text-on-surface/80 leading-snug line-clamp-2">
+                              "{e.notes}"
+                            </p>
+                          ) : (
+                            <p className="text-sm italic text-on-surface/35">No notes</p>
+                          )}
+                          <p className="mt-1 text-[12px] text-on-surface/45">
+                            {fullDate}
+                          </p>
+                        </div>
 
-                  {/* Previous visits — each expandable inline; collapsed rows
-                      still show a 2-line notes preview and first-3 tag chips
-                      so people can skim without tapping. */}
-                  {visitHistory.map((visit, idx) => {
-                    const isExpanded = expandedVisit === visit.id;
-                    const prevVisit = visitHistory[idx + 1];
-                    const scoreDiff = prevVisit ? visit.score - prevVisit.score : 0;
-                    return (
-                      <li key={visit.id} className="relative pl-7">
-                        <div className={cn("absolute left-0 top-2 w-2 h-2 rounded-full ring-4 ring-surface", dotColor(visit.score))} />
-                        <button
-                          onClick={() => setExpandedVisit(isExpanded ? null : visit.id)}
-                          className="w-full text-left hover:opacity-70 transition-opacity"
-                        >
-                          <div className="flex items-baseline gap-2 flex-wrap">
-                            <span className={cn("text-lg font-serif font-bold leading-none", textColor(visit.score))}>
-                              {visit.score.toFixed(1)}
+                        <div className="flex-shrink-0 px-5 py-4 flex items-center gap-2">
+                          {e.trend === 'up' && <TrendingUp size={15} className="text-green-600" />}
+                          {e.trend === 'down' && <TrendingDown size={15} className="text-red-500" />}
+                          <div className={cn(
+                            'w-14 h-9 rounded-md flex items-center justify-center',
+                            scoreBadgeBg(e.score),
+                          )}>
+                            <span className="text-sm font-bold text-white tabular-nums">
+                              {e.score.toFixed(1)}
                             </span>
-                            {prevVisit && Math.abs(scoreDiff) > 0.1 && (
-                              scoreDiff > 0
-                                ? <TrendingUp size={13} className="text-green-500" />
-                                : <TrendingDown size={13} className="text-red-400" />
-                            )}
-                            <span className="text-[13px] text-on-surface/45">
-                              {visit.visit_date ? new Date(visit.visit_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
-                            </span>
-                            <ChevronDown size={14} className={cn("ml-auto text-on-surface/25 transition-transform flex-shrink-0", isExpanded && "rotate-180")} />
                           </div>
-                          {!isExpanded && visit.notes && (
-                            <p className="mt-1 text-[13px] italic text-on-surface/45 leading-relaxed line-clamp-2">"{visit.notes}"</p>
-                          )}
-                          {!isExpanded && visit.tags && visit.tags.length > 0 && (
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                              {visit.tags.slice(0, 3).map((t) => (
-                                <span key={t} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/70">{t}</span>
-                              ))}
-                              {visit.tags.length > 3 && (
-                                <span className="text-xs text-on-surface/35 self-center">+{visit.tags.length - 3}</span>
+                        </div>
+                      </button>
+
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="px-5 pb-4 pl-[calc(72px+3px+1.25rem)] space-y-3">
+                              {e.tags && e.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {e.tags.map((t) => (
+                                    <span key={t} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-primary/8 text-primary/75">{t}</span>
+                                  ))}
+                                </div>
                               )}
-                            </div>
-                          )}
-                        </button>
-                        <AnimatePresence>
-                          {isExpanded && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2 }}
-                              className="overflow-hidden"
-                            >
-                              <div className="pt-2 space-y-2">
-                                {visit.notes && (
-                                  <p className="text-sm italic text-on-surface/55 leading-relaxed">"{visit.notes}"</p>
-                                )}
-                                {visit.tags && visit.tags.length > 0 && (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {visit.tags.map((t) => (
-                                      <span key={t} className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/8 text-primary/75">{t}</span>
-                                    ))}
-                                  </div>
-                                )}
-                                {visit.photos && visit.photos.length > 0 && (
-                                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar snap-x snap-mandatory">
-                                    {visit.photos.slice(0, 8).map((p, i) => (
-                                      <img key={i} src={p.url} className="w-20 h-20 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
-                                    ))}
-                                  </div>
-                                )}
+                              {e.photos && e.photos.length > 0 && (
+                                <div className="flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+                                  {e.photos.slice(0, 8).map((p, i) => (
+                                    <img key={i} src={p.url} className="w-24 h-24 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
+                                  ))}
+                                </div>
+                              )}
+                              {e.wouldReturn !== undefined && (
                                 <p className="text-xs font-semibold">
-                                  {visit.would_return
+                                  {e.wouldReturn
                                     ? <span className="text-green-600">Would return</span>
                                     : <span className="text-red-500">Wouldn't return</span>}
                                 </p>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </li>
+                  );
+                })}
+              </ul>
             </section>
           );
         })()}
 
-        {/* ── Map — full-bleed with caption, no card wrapper. The map
-            container itself renders mapbox; a transparent overlay button
-            sits above it to catch taps and route to the full /map page
-            (the mapbox instance below stays visible). ── */}
-        <section className="mb-10">
-          {/* h-[28rem] (448px) keeps a comfortable ~2.3:1 aspect ratio
-              now that the container is ~1024px wide — h-96 would be
-              too letterbox at this width. */}
-          <div className="relative w-full h-[28rem] rounded-2xl overflow-hidden">
-            {/* Inline width/height match Map.tsx — Mapbox's CSS sets
-                `.mapboxgl-map { position: relative }` which can override
-                Tailwind's `absolute` (equal specificity, source-order wins),
-                collapsing an inset-0 container to 0×0. Inline styles win
-                unconditionally and keep the canvas full-sized. */}
-            <div
-              ref={mapContainerRef}
-              className="absolute inset-0"
-              style={{ width: '100%', height: '100%' }}
-            />
-            <button
-              type="button"
-              onClick={() => navigate('/map', {
-                state: {
-                  focus: {
-                    id: place.id,
-                    name: place.name,
-                    lat: place.lat,
-                    lng: place.lng,
-                    address: place.address,
-                    fullAddress: place.fullAddress || place.address,
-                    photoUrl: place.photoUrl,
-                    priceLevel: place.priceLevel,
-                    rating: place.rating,
-                    types: place.types,
-                    userRatingCount: place.userRatingCount,
-                  },
-                },
+        {/* ── Expert Picks — editorial list of authoritative reviews.
+            Two-line header matches the rest of the page; each row has
+            the expert's name, recommendation, and score. Hidden when
+            there are no expert ratings. ── */}
+        {expertRecommendations.length > 0 && (
+          <section className="mb-12">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+              Expert Picks
+            </p>
+            <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+              {expertRecommendations.length === 1 ? 'An expert weighed in' : `${expertRecommendations.length} experts weighed in`}
+            </h2>
+            <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
+              {expertRecommendations.map((rec) => {
+                const isExpanded = expandedExpertId === rec.id;
+                return (
+                  <li key={rec.id}>
+                    <button
+                      onClick={() => setExpandedExpertId(isExpanded ? null : rec.id)}
+                      className="w-full px-5 py-5 text-left hover:bg-on-surface/[0.015] transition-colors"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link
+                              to={`/user/${rec.expert_username}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-base font-serif font-bold text-on-surface hover:text-primary truncate"
+                            >
+                              {rec.expert_name}
+                            </Link>
+                            <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-amber-600">Expert</span>
+                          </div>
+                          <p className={cn('text-sm mt-1.5 leading-relaxed text-on-surface/70', isExpanded ? '' : 'line-clamp-2')}>{rec.recommendation_text}</p>
+                        </div>
+                        <div className={cn(
+                          'flex-shrink-0 w-14 h-9 rounded-md flex items-center justify-center',
+                          Number(rec.rating) >= 8 ? 'bg-secondary' : Number(rec.rating) >= 5 ? 'bg-amber-600' : 'bg-red-500',
+                        )}>
+                          <span className="text-sm font-bold text-white tabular-nums">
+                            {Number(rec.rating).toFixed(1)}
+                          </span>
+                        </div>
+                      </div>
+                      <AnimatePresence>
+                        {isExpanded && rec.highlight_dishes && rec.highlight_dishes.length > 0 && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="pt-3">
+                              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600/70 mb-2">Highlight Dishes</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {rec.highlight_dishes.map((dish) => (
+                                  <span key={dish} className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
+                                    {dish}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  </li>
+                );
               })}
-              aria-label="Open full map"
-              className="absolute inset-0 z-10 hover:bg-on-surface/5 transition-colors"
-            />
-          </div>
-          <div className="pt-3 flex items-center justify-between">
-            <p className="text-[13px] text-on-surface/45 truncate flex-1">{place.address}</p>
-            <a
-              href={mapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary flex-shrink-0 ml-3"
-            >
-              Open in Maps
-              <ExternalLink size={12} />
-            </a>
+            </ul>
+          </section>
+        )}
+
+        {/* ── Hours — accordion inside a subtle container. ── */}
+        {place.hours.length > 0 && (
+          <section className="mb-12">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+              Hours
+            </p>
+            <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+              When they're open
+            </h2>
+            <div className="rounded-2xl bg-white/60 border border-on-surface/10 overflow-hidden">
+              <button
+                onClick={() => setHoursOpen(!hoursOpen)}
+                className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-on-surface/[0.015] transition-colors"
+              >
+                <Clock size={18} className="text-on-surface/40 flex-shrink-0" />
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {place.isOpen !== null && (
+                    <>
+                      <span className={cn('inline-block w-2 h-2 rounded-full flex-shrink-0', place.isOpen ? 'bg-green-500' : 'bg-red-500')} />
+                      <span className={cn(
+                        'text-sm font-semibold',
+                        place.isOpen ? 'text-green-700' : 'text-red-600',
+                      )}>
+                        {place.isOpen ? 'Open' : 'Closed'}
+                      </span>
+                    </>
+                  )}
+                  <span className="text-sm text-on-surface/55 truncate">· {getTodayHours(place.hours)}</span>
+                </div>
+                <ChevronDown size={16} className={cn('text-on-surface/30 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
+              </button>
+              <AnimatePresence>
+                {hoursOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-5 pb-5 pt-1 space-y-2 border-t border-on-surface/[0.06]">
+                      {place.hours.map((line, i) => {
+                        const [day, ...timeParts] = line.split(': ');
+                        const time = timeParts.join(': ');
+                        const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+                        const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
+                        return (
+                          <div key={i} className={cn('flex justify-between text-sm pt-2', isToday ? 'font-semibold text-on-surface' : 'text-on-surface/50')}>
+                            <span>{day}</span>
+                            <span className="tabular-nums">{time}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </section>
+        )}
+
+        {/* ── Contact & Address — quiet, functional. Muted icon + text
+            rows in a subtle container, not competing for attention. ── */}
+        <section className="mb-12">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+            Contact
+          </p>
+          <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+            Get in touch
+          </h2>
+          <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
+            {place.phone && (
+              <li>
+                <a href={`tel:${place.phone}`} className="flex items-center gap-3 px-5 py-4 hover:bg-on-surface/[0.015] transition-colors">
+                  <Phone size={18} className="text-on-surface/45 flex-shrink-0" />
+                  <span className="text-sm text-on-surface/75 flex-1 tabular-nums">{place.phone}</span>
+                </a>
+              </li>
+            )}
+            {place.website && (
+              <li>
+                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-5 py-4 hover:bg-on-surface/[0.015] transition-colors">
+                  <Globe size={18} className="text-on-surface/45 flex-shrink-0" />
+                  <span className="text-sm text-on-surface/75 flex-1 truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
+                  <ExternalLink size={13} className="text-on-surface/30 flex-shrink-0" />
+                </a>
+              </li>
+            )}
+            <li>
+              <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-5 py-4 hover:bg-on-surface/[0.015] transition-colors">
+                <MapPin size={18} className="text-on-surface/45 flex-shrink-0" />
+                <span className="text-sm text-on-surface/75 flex-1">{place.address}</span>
+                <Navigation size={14} className="text-primary flex-shrink-0" />
+              </a>
+            </li>
+          </ul>
+        </section>
+
+        {/* ── Map — rounded container with caption below. A transparent
+            overlay button catches taps and routes to /map with the
+            restaurant focused. Inline width/height keep the Mapbox
+            canvas full-sized; see Map.tsx for context. ── */}
+        <section className="mb-12">
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+            Location
+          </p>
+          <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+            Where to find it
+          </h2>
+          <div className="rounded-2xl overflow-hidden border border-on-surface/10">
+            {/* h-96 (384px) gives a comfortable aspect ratio on desktop
+                while staying shorter than the old 448px to leave room
+                for other sections in view. */}
+            <div className="relative w-full h-96">
+              <div
+                ref={mapContainerRef}
+                className="absolute inset-0"
+                style={{ width: '100%', height: '100%' }}
+              />
+              <button
+                type="button"
+                onClick={() => navigate('/map', {
+                  state: {
+                    focus: {
+                      id: place.id,
+                      name: place.name,
+                      lat: place.lat,
+                      lng: place.lng,
+                      address: place.address,
+                      fullAddress: place.fullAddress || place.address,
+                      photoUrl: place.photoUrl,
+                      priceLevel: place.priceLevel,
+                      rating: place.rating,
+                      types: place.types,
+                      userRatingCount: place.userRatingCount,
+                    },
+                  },
+                })}
+                aria-label="Open full map"
+                className="absolute inset-0 z-10 hover:bg-on-surface/5 transition-colors"
+              />
+            </div>
+            <div className="px-5 py-3 flex items-center justify-between gap-3 bg-white/60 border-t border-on-surface/[0.06]">
+              <p className="text-sm text-on-surface/55 truncate flex-1">{place.address}</p>
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm font-semibold text-primary flex-shrink-0"
+              >
+                Open in Maps
+                <ExternalLink size={13} />
+              </a>
+            </div>
           </div>
         </section>
       </main>
