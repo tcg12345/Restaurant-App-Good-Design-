@@ -277,25 +277,25 @@ export const RestaurantDetailMobile: React.FC = () => {
             ? (badgeScore >= 8 ? 'bg-secondary' : badgeScore >= 5 ? 'bg-amber-600' : 'bg-red-500')
             : '';
           return (
-            <section className="mb-5">
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/50 mb-1.5">
+            <section className="mb-6">
+              <p className="text-[12px] font-bold uppercase tracking-[0.16em] text-on-surface/55 mb-2.5">
                 {isHotel ? 'Hotel' : cuisine}
                 {!isHotel && priceStr && <> · {priceStr}</>}
               </p>
-              <div className="flex items-start gap-4">
+              <div className="flex items-center gap-4">
                 <div className="flex-1 min-w-0">
-                  <h1 className="text-[34px] font-serif font-bold text-on-surface leading-[1.05] tracking-tight">
+                  <h1 className="text-[40px] font-serif font-bold text-on-surface leading-[1] tracking-[-0.01em]">
                     {place.name}
                   </h1>
-                  <p className="mt-2 text-[13px] text-on-surface/55 truncate">
+                  <p className="mt-3 text-[14px] text-on-surface/60 truncate">
                     {place.address}
                   </p>
                   {place.isOpen !== null && (
-                    <div className="mt-1.5 flex items-center gap-1.5 text-[13px]">
-                      <span className={cn('inline-block w-1.5 h-1.5 rounded-full', place.isOpen ? 'bg-green-500' : 'bg-red-500')} />
+                    <div className="mt-2 flex items-center gap-2 text-[14px]">
+                      <span className={cn('inline-block w-2 h-2 rounded-full flex-shrink-0', place.isOpen ? 'bg-secondary' : 'bg-red-500')} />
                       {place.isOpen ? (
-                        <span className="text-on-surface/70">
-                          <span className="font-semibold text-green-700">Open</span>
+                        <span className="text-on-surface/65">
+                          <span className="font-semibold text-secondary">Open</span>
                           {(() => {
                             const line = getTodayHours(place.hours);
                             const close = line.split(/\s*[–-]\s*/)[1];
@@ -303,7 +303,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                           })()}
                         </span>
                       ) : (
-                        <span className="text-on-surface/70">
+                        <span className="text-on-surface/65">
                           <span className="font-semibold text-red-600">Closed</span>
                           {(() => {
                             const next = getNextOpenTime(place.hours);
@@ -317,12 +317,12 @@ export const RestaurantDetailMobile: React.FC = () => {
                 {badgeScore != null && (
                   <div
                     className={cn(
-                      'flex-shrink-0 w-[60px] h-[60px] rounded-full flex items-center justify-center shadow-sm',
+                      'flex-shrink-0 w-[72px] h-[72px] rounded-full flex items-center justify-center shadow-sm',
                       badgeColor,
                     )}
                     aria-label={badgeIsPersonal ? `Your rating ${badgeScore.toFixed(1)}` : `Community rating ${badgeScore.toFixed(1)}`}
                   >
-                    <span className="text-[22px] font-serif font-bold text-white tabular-nums leading-none">
+                    <span className="text-[26px] font-serif font-bold text-white tabular-nums leading-none">
                       {badgeScore.toFixed(1)}
                     </span>
                   </div>
