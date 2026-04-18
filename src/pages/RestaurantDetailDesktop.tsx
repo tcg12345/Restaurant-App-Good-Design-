@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
@@ -12,7 +12,7 @@ import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel 
 import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getProfilesByIds, getCommunityStats, getFriends, type UserProfile as UP, type CommunityPhoto, type HotelDining, type DiningType, type ExpertRecommendation } from '../lib/supabase-community';
+import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
@@ -42,7 +42,24 @@ function getNextOpenTime(hours: string[]): string {
   return '';
 }
 import { RadarChart } from '../components/RadarChart';
-import { getFlavorProfile, getTopFlavors } from '../lib/flavorProfile';
+import { getFlavorProfile } from '../lib/flavorProfile';
+
+/** Short "last week / last month" style recency label. */
+function timeAgo(date: string): string {
+  if (!date) return '';
+  const d = new Date(date.length === 10 ? `${date}T12:00:00` : date);
+  const diff = Date.now() - d.getTime();
+  const days = Math.floor(diff / 86400000);
+  if (days < 1) return 'today';
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+  if (days < 14) return 'last week';
+  if (days < 45) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 75) return 'last month';
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} months ago`;
+  const years = Math.floor(days / 365);
+  return `${years} year${years === 1 ? '' : 's'} ago`;
+}
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 /* PhotoGallery is now a shared component — see ../components/PhotoGallery.tsx */
@@ -78,32 +95,15 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [addDiningOpen, setAddDiningOpen] = useState(false);
   const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
-  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
-  const [followedExpertProfiles, setFollowedExpertProfiles] = useState<Record<string, UP>>({});
+  // Profile lookup for the inline friend reviews under "Your Circle"
+  // — keyed by user_id so each card can show display name + initial.
+  const [friendReviewProfiles, setFriendReviewProfiles] = useState<Record<string, UP>>({});
 
   useEffect(() => {
-    if (!user?.id) return;
-    getFriends(user.id).then((friends) => setFollowedIds(new Set(friends.map((f) => f.friend_id))));
-  }, [user?.id]);
-
-  const followedRaterIds = useMemo(() => {
-    if (followedIds.size === 0 || communityStats.ratings.length === 0) return [];
-    return [...new Set(communityStats.ratings.map((r) => r.user_id).filter((id) => followedIds.has(id)))];
-  }, [communityStats.ratings, followedIds]);
-
-  useEffect(() => {
-    if (followedRaterIds.length === 0) return;
-    getProfilesByIds(followedRaterIds).then((profiles) => {
-      const experts: Record<string, UP> = {};
-      Object.values(profiles).forEach((p) => { if (p.is_expert) experts[p.user_id] = p; });
-      setFollowedExpertProfiles(experts);
-    });
-  }, [followedRaterIds]);
-
-  const followedExpertRatings = useMemo(
-    () => communityStats.ratings.filter((r) => !!followedExpertProfiles[r.user_id]),
-    [communityStats.ratings, followedExpertProfiles],
-  );
+    const ids = Array.from(new Set(friendsStats.ratings.map((r) => r.user_id))).filter(Boolean);
+    if (ids.length === 0) return;
+    getProfilesByIds(ids).then(setFriendReviewProfiles);
+  }, [friendsStats.ratings]);
 
   const myRating = place ? getRating(place.id) : undefined;
   // Only treat as hotel if the primary type is hotel (types[0]) or the user rated it as Hotel Breakfast
@@ -458,139 +458,264 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </button>
         </div>
 
-        {/* ── Ratings — prominent side-by-side tiles ──
-            Community and Friends get gently-enclosed side-by-side
-            containers (subtle bg + faint border, not dashboard cards)
-            with color-coded scores, so users can compare at a glance.
-            Google is visibly de-emphasized to a single muted line
-            underneath. Desktop uses larger padding and bigger numerals
-            to match the wider viewport. */}
-        <section className="mb-10">
-          {(() => {
-            const hasCommunity = communityStats.totalRatings > 0;
-            const hasFriends = !isHotel && friendsStats.totalRatings > 0;
-            const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
-            const communityLabel = isHotel ? 'Breakfast' : 'Community';
+        {/* ── The Community Says — three clean score boxes side-by-side:
+            EVERYONE, FRIENDS, EXPERTS. Each box has a warm surface,
+            subtle border, color-coded serif score, and a rating count.
+            Google gets a single muted note below the row, not its own
+            box. ── */}
+        {(() => {
+          const expertAvg = expertRecommendations.length > 0
+            ? expertRecommendations.reduce((sum, r) => sum + Number(r.rating), 0) / expertRecommendations.length
+            : 0;
+          const expertCount = expertRecommendations.length;
+          const hasCommunity = communityStats.totalRatings > 0;
+          const hasFriends = !isHotel && friendsStats.totalRatings > 0;
+          const hasExperts = expertCount > 0;
+          const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
-            return (
+          const Box = ({ label, score, count, countLabel, emptyCopy, onClick }: {
+            label: string;
+            score: number | null;
+            count: number;
+            countLabel: string;
+            emptyCopy: string;
+            onClick?: () => void;
+          }) => {
+            const body = (
               <>
-                <div className={cn('grid gap-5', isHotel ? 'grid-cols-1' : 'grid-cols-2')}>
-                  {/* Community / Breakfast tile */}
-                  <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">
-                      {communityLabel}
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/50 mb-3">
+                  {label}
+                </p>
+                {score != null ? (
+                  <>
+                    <p className={cn('text-[44px] font-serif font-bold leading-none tabular-nums', scoreColor(score))}>
+                      {score.toFixed(1)}
                     </p>
-                    {hasCommunity ? (
-                      <>
-                        <p className={cn('text-[56px] font-serif font-bold leading-none tabular-nums', scoreColor(communityStats.avgScore))}>
-                          {communityStats.avgScore.toFixed(1)}
-                        </p>
-                        <p className="mt-3 text-sm text-on-surface/50">
-                          {communityStats.totalRatings} {communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-[56px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
-                        <p className="mt-3 text-sm italic text-on-surface/45 leading-snug">
-                          Be the first to rate
-                        </p>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Friends tile (hidden for hotels) */}
-                  {!isHotel && (
-                    hasFriends ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowFriendsDetail(true)}
-                        className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6 text-left hover:bg-on-surface/[0.04] transition-colors group"
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Friends</p>
-                          <ChevronRight size={14} className="text-on-surface/30 group-hover:text-on-surface/50 transition-colors" />
-                        </div>
-                        <p className={cn('text-[56px] font-serif font-bold leading-none tabular-nums', scoreColor(friendsStats.avgScore))}>
-                          {friendsStats.avgScore.toFixed(1)}
-                        </p>
-                        <p className="mt-3 text-sm text-on-surface/50">
-                          {friendsStats.totalRatings} friend{friendsStats.totalRatings === 1 ? '' : 's'}
-                        </p>
-                      </button>
-                    ) : (
-                      <div className="rounded-2xl bg-on-surface/[0.025] border border-on-surface/[0.07] px-6 py-6">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">Friends</p>
-                        <p className="text-[56px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
-                        <p className="mt-3 text-sm italic text-on-surface/45 leading-snug">
-                          None of your friends have rated this yet
-                        </p>
-                      </div>
-                    )
-                  )}
-                </div>
-
-                {/* Google — a single muted line, visibly de-emphasized */}
-                {hasGoogle && (
-                  <p className="mt-4 flex items-baseline gap-1.5 text-[13px] text-on-surface/40">
-                    <Star size={12} className="fill-on-surface/25 text-on-surface/25 self-center flex-shrink-0" />
-                    <span>
-                      <span className="tabular-nums font-medium text-on-surface/55">{place.rating}</span>
-                      <span className="mx-1">on Google</span>
-                      <span className="text-on-surface/35">· {formatReviewCount(place.userRatingCount)} reviews</span>
-                    </span>
-                  </p>
+                    <p className="mt-2 text-sm text-on-surface/55">
+                      {count.toLocaleString()} {countLabel}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[44px] font-serif font-bold leading-none text-on-surface/15 tabular-nums">—</p>
+                    <p className="mt-2 text-sm italic text-on-surface/40 leading-snug">
+                      {emptyCopy}
+                    </p>
+                  </>
                 )}
               </>
             );
-          })()}
-        </section>
+            const classes = 'rounded-2xl bg-white/60 border border-on-surface/10 px-5 py-5 text-left';
+            return onClick ? (
+              <button type="button" onClick={onClick} className={cn(classes, 'hover:bg-white transition-colors')}>
+                {body}
+              </button>
+            ) : (
+              <div className={classes}>{body}</div>
+            );
+          };
 
-        {/* ── Followed Expert Rating — prominent callout ── */}
-        {followedExpertRatings.length > 0 && (
-          <section className="mb-10 space-y-3">
-            {followedExpertRatings.map((rating) => {
-              const prof = followedExpertProfiles[rating.user_id];
-              if (!prof) return null;
-              return (
-                <div key={rating.id} className="rounded-2xl border border-amber-200/60 bg-amber-50/40 p-5">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Link
-                      to={`/user/${prof.username}`}
-                      className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0"
-                    >
-                      <span className="text-base font-serif font-bold text-amber-700">{prof.display_name.charAt(0).toUpperCase()}</span>
-                    </Link>
-                    <div className="flex-1 min-w-0">
-                      <Link to={`/user/${prof.username}`} className="text-base font-bold text-on-surface hover:text-primary transition-colors truncate block">
-                        {prof.display_name}
-                      </Link>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-600">Expert Review</p>
-                    </div>
-                    <div className="flex items-baseline gap-0.5 flex-shrink-0">
-                      <span className={cn("text-2xl font-serif font-bold leading-none", scoreColor(Number(rating.score)))}>{Number(rating.score).toFixed(1)}</span>
-                      <span className="text-[10px] text-on-surface/30 font-semibold">/10</span>
-                    </div>
-                  </div>
+          return (
+            <section className="mb-12">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                The Community Says
+              </p>
+              <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+                {!hasCommunity && !hasFriends && !hasExperts ? 'No ratings yet' : 'Scores across your network'}
+              </h2>
 
-                  {rating.notes && (
-                    <p className="text-sm leading-relaxed text-on-surface/70 mb-3">{rating.notes}</p>
-                  )}
+              <div className={cn('grid gap-4', isHotel ? 'grid-cols-1' : 'grid-cols-3')}>
+                <Box
+                  label={isHotel ? 'Breakfast' : 'Everyone'}
+                  score={hasCommunity ? communityStats.avgScore : null}
+                  count={communityStats.totalRatings}
+                  countLabel={communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
+                  emptyCopy="Be the first"
+                />
+                {!isHotel && (
+                  <Box
+                    label="Friends"
+                    score={hasFriends ? friendsStats.avgScore : null}
+                    count={friendsStats.totalRatings}
+                    countLabel={friendsStats.totalRatings === 1 ? 'rating' : 'ratings'}
+                    emptyCopy="No friends yet"
+                    onClick={hasFriends ? () => setShowFriendsDetail(true) : undefined}
+                  />
+                )}
+                {!isHotel && (
+                  <Box
+                    label="Experts"
+                    score={hasExperts ? expertAvg : null}
+                    count={expertCount}
+                    countLabel={expertCount === 1 ? 'rating' : 'ratings'}
+                    emptyCopy="No expert picks"
+                  />
+                )}
+              </div>
 
-                  {rating.tags && rating.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {rating.tags.map((tag) => (
-                        <span key={tag} className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-white/80 border border-amber-200/50 text-amber-800">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+              {hasGoogle && (
+                <p className="mt-4 text-sm text-on-surface/40">
+                  <span className="text-on-surface/50">Google:</span>{' '}
+                  <span className="tabular-nums font-medium text-on-surface/60">{place.rating}</span>
+                  <span className="ml-1 text-on-surface/35">({formatReviewCount(place.userRatingCount)} reviews)</span>
+                </p>
+              )}
+            </section>
+          );
+        })()}
+
+        {/* ── Flavor Profile — radar chart on the left, ranked flavor
+            list on the right. Hidden entirely for cuisines we don't
+            have a profile for so we don't fabricate taste data. ── */}
+        {(() => {
+          if (isHotel || !place) return null;
+          const knownCuisines = [
+            'italian','french','japanese','sushi','chinese','korean','thai','indian',
+            'mexican','mediterranean','american','seafood','steakhouse','pizza','cafe',
+            'bakery','vegan','bar & grill','breakfast','caribbean',
+          ];
+          const hasKnown = place.types.some((t) =>
+            knownCuisines.includes(t.toLowerCase().replace(/_/g, ' ').replace('restaurant', '').trim())
+          );
+          if (!hasKnown) return null;
+          const flavorData = getFlavorProfile(place.types, place.name);
+          const ranked = [...flavorData].sort((a, b) => b.value - a.value);
+          const topFlavorNames = new Set(ranked.slice(0, 3).map((f) => f.subject));
+          return (
+            <section className="mb-12">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                Flavor Profile
+              </p>
+              <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
+                What people taste here
+              </h2>
+              <div className="rounded-2xl bg-white/60 border border-on-surface/10 px-6 py-6">
+                <div className="flex items-center gap-8">
+                  <RadarChart
+                    data={flavorData}
+                    color="#9f3012"
+                    showLabels={false}
+                    className="w-56 h-56 flex-shrink-0"
+                  />
+                  <ul className="flex-1 min-w-0 space-y-2">
+                    {ranked.map((f) => {
+                      const pct = Math.round((f.value / f.fullMark) * 100);
+                      const isTop = topFlavorNames.has(f.subject);
+                      return (
+                        <li
+                          key={f.subject}
+                          className={cn(
+                            'flex items-baseline justify-between gap-3',
+                            isTop ? 'text-base font-bold text-on-surface' : 'text-sm text-on-surface/55',
+                          )}
+                        >
+                          <span className="truncate">{f.subject}</span>
+                          <span className="tabular-nums flex-shrink-0">{pct}%</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
-              );
-            })}
-          </section>
-        )}
+              </div>
+            </section>
+          );
+        })()}
+
+        {/* ── Your Circle — inline friend reviews as cards. Up to three
+            shown directly on the page; "See all" opens the full friend
+            ratings modal. Tapping a card navigates to the review
+            detail page. ── */}
+        {!isHotel && (() => {
+          const hasFriends = friendsStats.ratings.length > 0;
+          const topFriends = friendsStats.ratings.slice(0, 3);
+          return (
+            <section className="mb-12">
+              <div className="flex items-end justify-between mb-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                    Your Circle
+                  </p>
+                  <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight">
+                    {hasFriends
+                      ? `${friendsStats.totalRatings} friend${friendsStats.totalRatings === 1 ? '' : 's'} rated here`
+                      : 'No friends yet'}
+                  </h2>
+                </div>
+                {hasFriends && friendsStats.ratings.length > topFriends.length && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFriendsDetail(true)}
+                    className="text-sm font-medium text-accent hover:opacity-70 transition-opacity flex-shrink-0"
+                  >
+                    See all
+                  </button>
+                )}
+              </div>
+
+              {hasFriends ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {topFriends.map((r) => {
+                    const prof = friendReviewProfiles[r.user_id];
+                    const name = prof?.display_name || 'Friend';
+                    const initial = name.trim().charAt(0).toUpperCase() || 'F';
+                    const visitLabel = r.visit_date
+                      ? timeAgo(r.visit_date)
+                      : r.created_at ? timeAgo(r.created_at) : '';
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => navigate(`/review/${r.id}`)}
+                        className="rounded-2xl bg-white/60 border border-on-surface/10 px-4 py-4 text-left hover:bg-white transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <span className="text-base font-serif font-bold text-primary">{initial}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-base font-bold text-on-surface truncate">{name}</p>
+                            {visitLabel && (
+                              <p className="text-xs text-on-surface/50">
+                                Visited {visitLabel}
+                              </p>
+                            )}
+                          </div>
+                          <div className={cn(
+                            'flex-shrink-0 w-12 h-8 rounded-md flex items-center justify-center',
+                            Number(r.score) >= 8 ? 'bg-secondary' : Number(r.score) >= 5 ? 'bg-amber-600' : 'bg-red-500',
+                          )}>
+                            <span className="text-sm font-bold text-white tabular-nums">
+                              {Number(r.score).toFixed(1)}
+                            </span>
+                          </div>
+                        </div>
+                        {r.notes && (
+                          <p className="mt-2.5 text-sm italic font-serif text-on-surface/70 leading-snug line-clamp-2">
+                            "{r.notes}"
+                          </p>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-2xl bg-white/60 border border-on-surface/10 px-6 py-8 text-center">
+                  <Users size={22} className="mx-auto text-on-surface/25 mb-2" />
+                  <p className="text-sm text-on-surface/55">
+                    No friends have rated this yet
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setSendToChatOpen(true)}
+                    className="mt-2 text-sm font-semibold text-primary hover:opacity-70 transition-opacity"
+                  >
+                    Share with a friend
+                  </button>
+                </div>
+              )}
+            </section>
+          );
+        })()}
 
         {/* ── Hotel Dining — flat list with dividers, no per-row cards ── */}
         {isHotel && (
@@ -823,14 +948,21 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const hasFriends = !isHotel && (myRating.friendIds?.length || 0) > 0;
           const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
           return (
-            <section ref={myRatingRef} className="mb-10 scroll-mt-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">My Rating Details</h3>
+            <section ref={myRatingRef} className="mb-12 scroll-mt-4">
+              <div className="flex items-end justify-between mb-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
+                    My Rating
+                  </p>
+                  <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight">
+                    Your take on it
+                  </h2>
+                </div>
                 <button
                   onClick={() => openAt('main')}
-                  className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-primary hover:text-primary/80"
+                  className="flex items-center gap-1 text-sm font-medium text-accent hover:opacity-70 transition-opacity flex-shrink-0"
                 >
-                  <Edit3 size={12} /> Edit
+                  <Edit3 size={14} /> Edit
                 </button>
               </div>
 
@@ -839,14 +971,14 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 <div>
                   <button
                     onClick={() => openAt('notes')}
-                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40 hover:text-on-surface/60 transition-colors"
+                    className="group flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 hover:text-on-surface/60 transition-colors"
                   >
                     <StickyNote size={13} />
                     <span>Notes</span>
                     <Edit3 size={10} className="text-on-surface/25 group-hover:text-on-surface/50 ml-0.5 transition-colors" />
                   </button>
                   {hasNotes ? (
-                    <p className="mt-2 text-base leading-relaxed italic text-on-surface/75 font-serif">
+                    <p className="mt-2 text-lg leading-relaxed italic text-on-surface/80 font-serif">
                       "{myRating.notes}"
                     </p>
                   ) : (
