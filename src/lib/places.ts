@@ -355,6 +355,7 @@ export async function searchPlacesByText(
   lng: number,
   locationNameOrRadius?: string | number,
   useRestriction = false,
+  radiusOverride?: number,
 ): Promise<PlaceResult[]> {
   // Backward compat: 4th arg can be locationName (string) or radiusMeters (number)
   let radiusMeters = 10000;
@@ -364,6 +365,7 @@ export async function searchPlacesByText(
   } else if (typeof locationNameOrRadius === 'number') {
     radiusMeters = locationNameOrRadius;
   }
+  if (typeof radiusOverride === 'number') radiusMeters = radiusOverride;
 
   const hasLocation = !!locationName && locationName !== 'Current Location';
   const shouldRestrict = useRestriction || hasLocation;

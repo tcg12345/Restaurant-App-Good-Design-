@@ -472,6 +472,7 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
           opts.target.lng,
           opts.target.label || undefined,
           /* useRestriction */ true,
+          opts.radiusMeters,
         ).catch(() => [] as PlaceResult[]),
       ),
     ),
