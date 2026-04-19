@@ -3287,7 +3287,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                               )}
                             </div>
                             <p className="mt-0.5 text-[10px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                              {cuisine}{(place as any).priceLevel > 0 && <span className="text-on-surface/25 mx-1.5">·</span>}{(place as any).priceLevel > 0 && priceLevelToString((place as any).priceLevel)}
+                              {cuisine}{cuisine && <span className="text-on-surface/25 mx-1.5">·</span>}{priceLevelToString((place as any).priceLevel || 0)}
                             </p>
                           </div>
                         </div>
@@ -3937,7 +3937,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                                   )}
                                 </div>
                                 <p className="mt-0.5 text-[9px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                                  {cuisine}{(place as any).priceLevel > 0 && <span className="text-on-surface/25 mx-1">·</span>}{(place as any).priceLevel > 0 && priceLevelToString((place as any).priceLevel)}
+                                  {cuisine}{cuisine && <span className="text-on-surface/25 mx-1">·</span>}{priceLevelToString((place as any).priceLevel || 0)}
                                 </p>
                               </div>
                             </div>
