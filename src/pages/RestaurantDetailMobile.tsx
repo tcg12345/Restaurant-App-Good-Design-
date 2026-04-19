@@ -1418,38 +1418,37 @@ export const RestaurantDetailMobile: React.FC = () => {
           </section>
         )}
 
-        {/* ── Contact & Address — quiet, functional. Muted icon + text
-            rows in a subtle container, not competing for attention. ── */}
-        <section className="mb-10">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
+        {/* ── Contact & Address — flat rows on the page surface,
+            separated by hairline dividers. No card wrapper. ── */}
+        <section className="mb-6">
+          <p className="section-eyebrow mb-4">
             Contact
           </p>
-          <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight mb-4">
-            Get in touch
-          </h2>
-          <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
+          <ul className="divide-y divide-line">
             {place.phone && (
               <li>
-                <a href={`tel:${place.phone}`} className="flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.015] transition-colors">
-                  <Phone size={16} className="text-on-surface/45 flex-shrink-0" />
-                  <span className="text-[13px] text-on-surface/75 flex-1 tabular-nums">{place.phone}</span>
+                <a href={`tel:${place.phone}`} className="flex items-center gap-3 py-3 active:opacity-70 transition-opacity">
+                  <Phone size={16} className="text-ink-3 flex-shrink-0" />
+                  <span className="text-ink-2 flex-1 tabular-nums" style={{ fontSize: '13px' }}>{place.phone}</span>
                 </a>
               </li>
             )}
             {place.website && (
               <li>
-                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.015] transition-colors">
-                  <Globe size={16} className="text-on-surface/45 flex-shrink-0" />
-                  <span className="text-[13px] text-on-surface/75 flex-1 truncate">{place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}</span>
-                  <ExternalLink size={12} className="text-on-surface/30 flex-shrink-0" />
+                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 active:opacity-70 transition-opacity">
+                  <Globe size={16} className="text-ink-3 flex-shrink-0" />
+                  <span className="text-ink-2 flex-1 truncate" style={{ fontSize: '13px' }}>
+                    {place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}
+                  </span>
+                  <ExternalLink size={13} className="text-ink-4 flex-shrink-0" />
                 </a>
               </li>
             )}
             <li>
-              <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 px-4 py-3.5 active:bg-on-surface/[0.015] transition-colors">
-                <MapPin size={16} className="text-on-surface/45 flex-shrink-0" />
-                <span className="text-[13px] text-on-surface/75 flex-1">{place.address}</span>
-                <Navigation size={13} className="text-primary flex-shrink-0" />
+              <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 active:opacity-70 transition-opacity">
+                <MapPin size={16} className="text-ink-3 flex-shrink-0" />
+                <span className="text-ink-2 flex-1" style={{ fontSize: '13px' }}>{place.address}</span>
+                <Navigation size={14} className="text-persimmon flex-shrink-0" />
               </a>
             </li>
           </ul>
