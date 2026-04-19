@@ -14,6 +14,8 @@ import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
+import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
+import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { Link } from 'react-router-dom';
@@ -282,9 +284,27 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-[1.05] tracking-tight">
                     {place.name}
                   </h1>
-                  <p className="mt-3 text-sm text-on-surface/55">
-                    {place.address}
-                  </p>
+                  {(() => {
+                    // Only show a distance suffix when the user has anchored
+                    // to a precise street address — a city-level pick (or
+                    // nothing saved) wouldn't produce a meaningful number.
+                    const home = loadLastSelectedLocation();
+                    const dist =
+                      isExactAddress(home) && Number.isFinite(place.lat) && Number.isFinite(place.lng)
+                        ? formatDistance(haversineDistanceMi(home!.lat, home!.lng, place.lat, place.lng))
+                        : '';
+                    return (
+                      <p className="mt-3 text-sm text-on-surface/55 flex items-baseline gap-1.5 min-w-0">
+                        <span className="truncate">{place.address}</span>
+                        {dist && (
+                          <>
+                            <span className="text-on-surface/30 flex-shrink-0">·</span>
+                            <span className="flex-shrink-0">{dist}</span>
+                          </>
+                        )}
+                      </p>
+                    );
+                  })()}
                   {place.isOpen !== null && (
                     <div className="mt-2 flex items-center gap-2 text-sm">
                       <span className={cn('inline-block w-2 h-2 rounded-full', place.isOpen ? 'bg-green-500' : 'bg-red-500')} />

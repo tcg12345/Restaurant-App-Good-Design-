@@ -56,6 +56,15 @@ export function saveLastSelectedLocation(loc: HomeLocation) {
   } catch {}
 }
 
+// True when the saved location looks like a street address rather than a
+// city / neighborhood / POI. Mapbox address features (and our reverse-geocode
+// output) always start with the house number, so a leading digit is a robust
+// proxy. Used to gate distance UI that only makes sense from a precise origin.
+export function isExactAddress(loc: HomeLocation | null | undefined): boolean {
+  if (!loc) return false;
+  return /^\s*\d/.test(loc.label || '');
+}
+
 // Reverse-geocode a coordinate into a street-address label
 // ("123 Main St, San Francisco, CA") using Mapbox. Falls back to the
 // city/locality label if no address feature is returned, and to
