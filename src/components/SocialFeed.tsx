@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
@@ -78,6 +78,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Client-side infinite-scroll pagination — the full feed is fetched once,
+  // this cursor just controls how many rows are currently rendered.
+  const FEED_CHUNK = 10;
+  const [visibleCount, setVisibleCount] = useState(FEED_CHUNK);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
   const [openComments, setOpenComments] = useState<string | null>(null);
   const [comments, setComments] = useState<ActivityComment[]>([]);
   const [commentProfiles, setCommentProfiles] = useState<Record<string, UserProfile>>({});
@@ -113,8 +119,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     if (friends.length === 0) { setLoading(false); return; }
 
     const friendIds = friends.map((f) => f.friend_id);
+    // Pull the full friend history in a single Supabase query. The list is
+    // paginated client-side with an IntersectionObserver sentinel so
+    // scrolling doesn't trigger extra API calls.
     const [act, meals] = await Promise.all([
-      getFriendActivity(friendIds, 15),
+      getFriendActivity(friendIds, 500),
       getFriendsPublicHomeMeals(friendIds),
     ]);
     setActivity(act);
@@ -178,6 +187,32 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     }
     return b.sortTime - a.sortTime;
   });
+
+  // Reset the visible window whenever the underlying data or sort order
+  // changes (new fetch, feedMode switch, location anchor change) — otherwise
+  // the first page would be whatever was rendered previously.
+  useEffect(() => {
+    setVisibleCount(FEED_CHUNK);
+  }, [activity.length, homeMeals.length, centerLat, centerLng]);
+
+  // Grow the visible window when the sentinel scrolls into view. Purely
+  // client-side — no network calls are issued per page.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((c) => (c >= feedItems.length ? c : Math.min(c + FEED_CHUNK, feedItems.length)));
+        }
+      },
+      { rootMargin: '400px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [feedItems.length]);
+
+  const visibleItems = feedItems.slice(0, visibleCount);
 
   const handleLike = async (ratingId: string) => {
     if (!userId || !ratingId) return;
@@ -453,7 +488,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         )
       ) : (
       <ul className="divide-y divide-on-surface/10">
-        {feedItems.map((item) => {
+        {visibleItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
@@ -728,6 +763,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           );
         })}
       </ul>
+      )}
+
+      {/* Infinite-scroll sentinel — grows the visible window client-side when
+          it scrolls into view. No network calls per page. */}
+      {feedMode !== 'recipes' && visibleCount < feedItems.length && (
+        <div ref={sentinelRef} className="py-4 flex items-center justify-center">
+          <div className="h-4 w-4 border-2 border-on-surface/15 border-t-on-surface/35 rounded-full animate-spin" />
+        </div>
       )}
 
       <ShareRecipeSheet
