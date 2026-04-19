@@ -203,10 +203,25 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // before the bump (IntersectionObserver only fires on transitions, so
   // without this the first bump would be the only one when the user sits at
   // the bottom of the list).
+  //
+  // Uses the nearest scrollable ancestor as the observer root instead of the
+  // viewport — the home page scrolls inside a `flex-1 overflow-y-auto`
+  // container rather than at window level, so a viewport-rooted observer
+  // never sees the sentinel cross any boundary and stays stuck after the
+  // first bump.
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     if (visibleCount >= feedItems.length) return;
+
+    let scrollParent: HTMLElement | null = el.parentElement;
+    while (scrollParent && scrollParent !== document.body) {
+      const style = window.getComputedStyle(scrollParent);
+      if (/(auto|scroll|overlay)/.test(style.overflowY) || /(auto|scroll|overlay)/.test(style.overflow)) break;
+      scrollParent = scrollParent.parentElement;
+    }
+    const root = scrollParent && scrollParent !== document.body ? scrollParent : null;
+
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
@@ -215,10 +230,30 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           );
         }
       },
-      { rootMargin: '600px' },
+      { root, rootMargin: '600px' },
     );
     observer.observe(el);
-    return () => observer.disconnect();
+
+    // Belt-and-braces fallback: also listen for scroll on the scroll parent
+    // and bump when the sentinel approaches the bottom edge. Covers the
+    // cases where a transform/animation on an ancestor breaks intersection
+    // detection mid-animation.
+    const scrollEl = root || window;
+    const onScroll = () => {
+      const rect = el.getBoundingClientRect();
+      const viewportBottom = root ? root.getBoundingClientRect().bottom : window.innerHeight;
+      if (rect.top < viewportBottom + 600) {
+        setVisibleCount((c) =>
+          c >= feedItems.length ? c : Math.min(c + FEED_CHUNK, feedItems.length),
+        );
+      }
+    };
+    scrollEl.addEventListener('scroll', onScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      scrollEl.removeEventListener('scroll', onScroll);
+    };
   }, [feedItems.length, visibleCount]);
 
   const visibleItems = feedItems.slice(0, visibleCount);
