@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -91,23 +91,40 @@ const REC_RADIUS_STORAGE_KEY = 'gourmad-rec-radius-miles';
 const RecRadiusPicker: React.FC<{
   value: RadiusMiles;
   onChange: (n: RadiusMiles) => void;
-}> = ({ value, onChange }) => (
-  <div className="flex items-center gap-1 bg-on-surface/[0.04] rounded-full p-0.5" role="radiogroup" aria-label="Search radius">
-    {RADIUS_OPTIONS.map((n) => (
-      <button
-        key={n}
-        type="button"
-        role="radio"
-        aria-checked={value === n}
-        onClick={() => onChange(n)}
-        className={cn(
-          'px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors',
-          value === n ? 'bg-white text-primary shadow-sm' : 'text-on-surface/50 hover:text-on-surface/80',
-        )}
-      >
-        {n} mi
-      </button>
-    ))}
+  onRefresh: () => void;
+  refreshing: boolean;
+}> = ({ value, onChange, onRefresh, refreshing }) => (
+  <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1 bg-on-surface/[0.04] rounded-full p-0.5" role="radiogroup" aria-label="Search radius">
+      {RADIUS_OPTIONS.map((n) => (
+        <button
+          key={n}
+          type="button"
+          role="radio"
+          aria-checked={value === n}
+          onClick={() => onChange(n)}
+          className={cn(
+            'px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors',
+            value === n ? 'bg-white text-primary shadow-sm' : 'text-on-surface/50 hover:text-on-surface/80',
+          )}
+        >
+          {n} mi
+        </button>
+      ))}
+    </div>
+    <button
+      type="button"
+      onClick={onRefresh}
+      disabled={refreshing}
+      aria-label="Refresh recommendations"
+      title="Refresh recommendations"
+      className={cn(
+        'flex items-center justify-center w-7 h-7 rounded-full bg-on-surface/[0.04] text-on-surface/60 transition-colors',
+        refreshing ? 'cursor-not-allowed opacity-60' : 'hover:bg-on-surface/[0.08] hover:text-on-surface/80',
+      )}
+    >
+      <RefreshCw size={13} className={refreshing ? 'animate-spin' : undefined} />
+    </button>
   </div>
 );
 
@@ -552,6 +569,34 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     setRecRadiusMiles(n);
     try { localStorage.setItem(REC_RADIUS_STORAGE_KEY, String(n)); } catch { /* ignore */ }
   }, []);
+
+  // Manual refresh for the Recommended For You row. Drops every cache layer
+  // for the current location (session + Supabase) so the next fetch goes
+  // straight to Google with the picked radius. Resets the dedup/cursor refs
+  // so a refetched batch can re-add the same place ids cleanly. The nonce
+  // bump is what re-runs the orchestrating effect.
+  const refreshRecs = useCallback(() => {
+    if (!homeLocation) return;
+    const locKey = locationKey(homeLocation.lat, homeLocation.lng);
+    delete sessionRecsCache[locKey];
+    if (userId && supabaseConfigured) {
+      // Fire-and-forget — we don't block the user on a cache delete.
+      supabase.from('home_rec_cache')
+        .delete().eq('user_id', userId).eq('location_key', locKey)
+        .then(undefined, () => { /* ignore */ });
+    }
+    recsFetchedRef.current = false;
+    recsSeenIdsRef.current = new Set();
+    recsQueryCursorRef.current = 0;
+    recsExhaustedRef.current = false;
+    setApiRecommendations([]);
+    setRecRefreshNonce((n) => n + 1);
+  }, [homeLocation, userId]);
+
+  // Bumped by the refresh button. The orchestrating recs effect lists this in
+  // its deps so we get a re-fetch even when nothing else changed (location +
+  // radius + prefs all the same), after we've torn down the cached pool.
+  const [recRefreshNonce, setRecRefreshNonce] = useState(0);
 
   // Social signals for scoreCandidates — refetched once per (userId, home city)
   // change and reused across every load-more batch. expertRecRestaurantIds is
@@ -1044,7 +1089,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
     // Anonymous home, or map mode — just run the live path.
     runLiveFetch();
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, recRefreshNonce]);
 
   // Load more recommendations — called when the horizontal scroll nears the
   // end. Fetches one query at a time so the infinite scroll paces itself
@@ -3254,7 +3299,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       <Sparkles size={15} className="text-primary/60" />
                       <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                     </div>
-                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} />}
+                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
                   </div>
                   <div className="flex items-center justify-center py-8">
                     <Loader2 size={20} className="text-primary/40 animate-spin" />
@@ -3268,7 +3313,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       <Sparkles size={15} className="text-primary/60" />
                       <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                     </div>
-                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} />}
+                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
                   </div>
                   <div
                     className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
@@ -3913,7 +3958,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} />}
+                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div className="flex items-center justify-center py-6">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
@@ -3927,7 +3972,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} />}
+                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div
                         className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
