@@ -497,24 +497,38 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   }, [myRatings]);
 
   // Build a list of personalised search queries from the user's preferences.
-  const buildRecQueries = useCallback(() => {
+  //
+  // cityOverride lets the home-page location anchor replace the user's
+  // historical topCities in the query strings. This matters because Google
+  // Places honours an explicit "in New York" in the query text even when the
+  // locationBias is pointed elsewhere — we'd end up with NYC results while
+  // anchoring to LA. Pass the selected home city here and the queries track
+  // the dropdown.
+  const buildRecQueries = useCallback((cityOverride?: string | null) => {
     const { topCuisines, topPrices, topCities } = userPreferences;
     const priceSymbols = ['', '$', '$$', '$$$', '$$$$'];
     const seen = new Set<string>();
     const queries: string[] = [];
     const push = (q: string) => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
-    for (const city of topCities) {
+    const cities = cityOverride ? [cityOverride] : topCities;
+    for (const city of cities) {
       for (const cuisine of topCuisines) push(`best ${cuisine} restaurants in ${city}`);
     }
     for (const cuisine of topCuisines) {
-      for (const price of topPrices) push(`best ${priceSymbols[price]} ${cuisine} restaurants`);
+      for (const price of topPrices) push(`best ${priceSymbols[price]} ${cuisine} restaurants in ${cities[0] || ''}`.trim().replace(/\s+in\s*$/, ''));
     }
     for (const cuisine of topCuisines) {
-      push(`top rated ${cuisine} restaurants`);
-      push(`${cuisine} fine dining`);
-      push(`hidden gem ${cuisine} restaurants`);
+      if (cities[0]) {
+        push(`top rated ${cuisine} restaurants in ${cities[0]}`);
+        push(`${cuisine} fine dining ${cities[0]}`);
+        push(`hidden gem ${cuisine} restaurants ${cities[0]}`);
+      } else {
+        push(`top rated ${cuisine} restaurants`);
+        push(`${cuisine} fine dining`);
+        push(`hidden gem ${cuisine} restaurants`);
+      }
     }
-    for (const city of topCities) {
+    for (const city of cities) {
       push(`best restaurants in ${city}`);
       push(`trending restaurants ${city}`);
     }
@@ -602,20 +616,24 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     window.setTimeout(() => setHomeLocationRefreshing(false), 450);
   }, []);
 
-  // "Use current location" from the picker — geolocation + reverse geocode
-  // then flow through the same change path as any other pick.
-  const handleHomeUseCurrent = useCallback(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
-    setHomeLocationRefreshing(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        const label = await reverseGeocode(lat, lng);
-        handleHomeLocationChange({ label, lat, lng });
-      },
-      () => setHomeLocationRefreshing(false),
-      { maximumAge: 60 * 1000, timeout: 8000 },
-    );
+  // "Use current location" from the picker — returns a Promise so the picker
+  // can show a spinner while it resolves and surface a clear error if the
+  // browser denies / can't find a fix (otherwise the button just silently
+  // closed and the user had no feedback).
+  const handleHomeUseCurrent = useCallback(async (): Promise<void> => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      throw new Error('Geolocation is not available in this browser.');
+    }
+    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        maximumAge: 60 * 1000,
+        timeout: 10000,
+        enableHighAccuracy: false,
+      });
+    });
+    const { latitude: lat, longitude: lng } = pos.coords;
+    const label = await reverseGeocode(lat, lng);
+    handleHomeLocationChange({ label, lat, lng });
   }, [handleHomeLocationChange]);
 
   // Initial / location-driven recommendations fetch — personalised if the user
@@ -632,8 +650,15 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     setRecsLoading(true);
     setApiRecommendations([]);
 
+    // In home mode, force the queries to target the selected home city so
+    // the API doesn't return NYC results just because the user's historical
+    // topCities is "New York, NY".
+    const homeCityOverride = mode === 'home' && homeLocation
+      ? homeLocation.label.split(',').slice(0, 2).join(', ').trim()
+      : null;
+
     if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
-      const queries = buildRecQueries();
+      const queries = buildRecQueries(homeCityOverride);
       const initialBatch = queries.slice(0, 3);
       recsQueryCursorRef.current = initialBatch.length;
       fetchRecBatch(initialBatch).then((fresh) => {
@@ -669,7 +694,10 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   // Load more recommendations — called when the horizontal scroll nears the end.
   const loadMoreRecommendations = useCallback(async () => {
     if (recsLoadingMore || recsExhaustedRef.current) return;
-    const queries = buildRecQueries();
+    const homeCityOverride = mode === 'home' && homeLocation
+      ? homeLocation.label.split(',').slice(0, 2).join(', ').trim()
+      : null;
+    const queries = buildRecQueries(homeCityOverride);
     if (recsQueryCursorRef.current >= queries.length) {
       recsExhaustedRef.current = true;
       return;
@@ -680,7 +708,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     const fresh = await fetchRecBatch(batch);
     setApiRecommendations((prev) => [...prev, ...fresh]);
     setRecsLoadingMore(false);
-  }, [recsLoadingMore, buildRecQueries, fetchRecBatch]);
+  }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);

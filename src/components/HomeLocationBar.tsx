@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronDown, Search, MapPin, X, Navigation } from 'lucide-react';
+import { ChevronDown, Search, MapPin, X, Navigation, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../pages/useRestaurantDetail';
 
@@ -79,7 +79,9 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string> 
 interface Props {
   location: HomeLocation | null;
   onChange: (loc: HomeLocation) => void;
-  onUseCurrent: () => void;
+  // Returns a Promise so the picker can show a spinner and surface an error
+  // if the browser denies or can't resolve a fix.
+  onUseCurrent: () => Promise<void>;
 }
 
 export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent }) => {
@@ -88,6 +90,8 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
   const [results, setResults] = useState<HomeLocation[]>([]);
   const [searching, setSearching] = useState(false);
   const [recents, setRecents] = useState<HomeLocation[]>(() => loadRecentLocations());
+  const [currentLoading, setCurrentLoading] = useState(false);
+  const [currentError, setCurrentError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -159,9 +163,27 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
     saveRecentLocations([]);
   }, []);
 
-  const useCurrent = useCallback(() => {
-    onUseCurrent();
-    setOpen(false);
+  const useCurrent = useCallback(async () => {
+    setCurrentError(null);
+    setCurrentLoading(true);
+    try {
+      await onUseCurrent();
+      setOpen(false);
+    } catch (err: any) {
+      // GeolocationPositionError codes: 1 = permission denied, 2 = unavailable,
+      // 3 = timeout. Surface something human instead of failing silently.
+      if (err?.code === 1) {
+        setCurrentError("Location access is blocked. Enable it in your browser settings or pick a city below.");
+      } else if (err?.code === 2) {
+        setCurrentError("Couldn't determine your location. Try picking a city below.");
+      } else if (err?.code === 3) {
+        setCurrentError('Getting your location timed out. Try again or pick a city below.');
+      } else {
+        setCurrentError(err?.message || 'Unable to get your current location.');
+      }
+    } finally {
+      setCurrentLoading(false);
+    }
   }, [onUseCurrent]);
 
   const shortLabel = location?.label?.split(',').slice(0, 2).join(',').trim() || 'Select a location';
@@ -261,16 +283,26 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                       </p>
                       <button
                         onClick={useCurrent}
-                        className="w-full flex items-center gap-3 py-2.5 text-left hover:bg-on-surface/[0.03] rounded-lg px-2 transition-colors"
+                        disabled={currentLoading}
+                        className="w-full flex items-center gap-3 py-2.5 text-left hover:bg-on-surface/[0.03] rounded-lg px-2 transition-colors disabled:opacity-60"
                       >
                         <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center flex-shrink-0">
-                          <Navigation size={16} className="text-accent" />
+                          {currentLoading ? (
+                            <Loader2 size={16} className="text-accent animate-spin" />
+                          ) : (
+                            <Navigation size={16} className="text-accent" />
+                          )}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-serif font-bold text-base">Current location</p>
+                          <p className="font-serif font-bold text-base">
+                            {currentLoading ? 'Locating…' : 'Current location'}
+                          </p>
                           <p className="text-xs text-on-surface/50 mt-0.5">Use your device's GPS</p>
                         </div>
                       </button>
+                      {currentError && (
+                        <p className="mt-1 px-2 text-[11px] text-red-600 leading-snug">{currentError}</p>
+                      )}
                     </div>
 
                     {recents.length > 0 && (
