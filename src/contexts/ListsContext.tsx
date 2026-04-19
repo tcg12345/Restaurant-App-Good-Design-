@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
-import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, getUserRatings } from '../lib/supabase-community';
+import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 
 /* ── Types ── */
@@ -170,6 +170,11 @@ interface ListsContextValue {
   updateRating: (restaurantId: string, rating: Partial<RestaurantRating>) => void;
   removeRating: (restaurantId: string) => void;
   getRating: (restaurantId: string) => RestaurantRating | undefined;
+  /** Delete a single visit from the history timeline. If the visit
+   *  being deleted is the current (active) rating, the newest prior
+   *  visit is promoted to become the current rating — so the card
+   *  above always reflects the user's most recent kept visit. */
+  deleteVisit: (restaurantId: string, visitId: string) => void;
 
   // Custom lists
   lists: CustomList[];
@@ -319,6 +324,20 @@ function appendLocalVisitRecord(restaurantId: string, rec: Omit<LocalVisitRecord
 export function readLocalVisitHistory(restaurantId: string): LocalVisitRecord[] {
   const all = loadLocalVisitHistory();
   return all[restaurantId] || [];
+}
+
+/** Remove a single local visit record by id. No-op if the id isn't
+ *  local (remote records are deleted through deleteVisitRecord). */
+function removeLocalVisitRecord(restaurantId: string, visitId: string) {
+  try {
+    const all = loadLocalVisitHistory();
+    const list = all[restaurantId] || [];
+    const next = list.filter((r) => r.id !== visitId);
+    if (next.length === list.length) return;
+    if (next.length === 0) delete all[restaurantId];
+    else all[restaurantId] = next;
+    localStorage.setItem(STORAGE_KEY_VISIT_HISTORY, JSON.stringify(all));
+  } catch (err) { console.warn('[VisitHistory] removeLocal failed', err); }
 }
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -985,6 +1004,101 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const getRating = useCallback((restaurantId: string) => ratings.find((r) => r.restaurantId === restaurantId), [ratings]);
 
+  // Delete a single visit from the timeline. The timeline lists the
+  // current (active) rating alongside historical records; the id
+  // 'current' targets the active rating. Deleting the active visit
+  // promotes the newest remaining visit back to being the current
+  // rating so the user's most recent kept visit stays on the card.
+  const deleteVisit = useCallback(async (restaurantId: string, visitId: string) => {
+    if (visitId === 'current') {
+      // Find the newest remaining historical visit from both local
+      // storage and Supabase, and promote it.
+      const localRecs = readLocalVisitHistory(restaurantId);
+      let remoteRecs: any[] = [];
+      if (userIdRef.current) {
+        try { remoteRecs = await getVisitHistory(userIdRef.current, restaurantId); } catch {}
+      }
+      const byId = new Map<string, any>();
+      for (const r of [...localRecs, ...remoteRecs]) byId.set(r.id, r);
+      const sorted = Array.from(byId.values()).sort((a, b) => {
+        const ad = a.visit_date || a.created_at || '';
+        const bd = b.visit_date || b.created_at || '';
+        return bd.localeCompare(ad);
+      });
+      const promote = sorted[0];
+      if (!promote) {
+        // No other visits — remove the rating entirely.
+        removeRating(restaurantId);
+        return;
+      }
+      // Pull the promoted record OUT of history (both stores) so it
+      // doesn't appear twice once it becomes the active rating.
+      removeLocalVisitRecord(restaurantId, promote.id);
+      if (userIdRef.current && !String(promote.id).startsWith('local-')) {
+        deleteVisitRecord(userIdRef.current, promote.id).catch(() => {});
+      }
+      // Rewrite the current rating using the promoted visit's data,
+      // keeping the restaurant metadata from the active rating so
+      // fields like address / cuisine / lists are preserved.
+      let promotedForPublish: RestaurantRating | null = null;
+      setRatings((prev) => {
+        const existing = prev.find((r) => r.restaurantId === restaurantId);
+        if (!existing) return prev;
+        const promoted: RestaurantRating = {
+          ...existing,
+          score: Number(promote.score),
+          notes: promote.notes || '',
+          visitDate: promote.visit_date || '',
+          tags: promote.tags || [],
+          wouldReturn: promote.would_return !== undefined ? !!promote.would_return : existing.wouldReturn,
+          photos: promote.photos || [],
+          friendIds: promote.friend_ids || [],
+          createdAt: Date.now(),
+        };
+        promotedForPublish = promoted;
+        const next = [promoted, ...prev.filter((r) => r.restaurantId !== restaurantId)];
+        saveToStorage(STORAGE_KEY_RATINGS, next);
+        syncRatingsToCloud(next);
+        return next;
+      });
+      // Keep the community-published row in sync with the promoted data.
+      if (userIdRef.current && promotedForPublish) {
+        const p = promotedForPublish;
+        publishCommunityRating(userIdRef.current, restaurantId, {
+          name: p.name,
+          score: p.score,
+          notes: p.notes,
+          cuisine: p.cuisine,
+          price: p.price,
+          address: p.address,
+          visitDate: p.visitDate,
+          tags: p.tags,
+          wouldReturn: p.wouldReturn,
+          friendIds: p.friendIds || [],
+          photoUrl: p.image || '',
+        });
+      }
+      return;
+    }
+
+    // Historical visit — just drop it from both stores.
+    removeLocalVisitRecord(restaurantId, visitId);
+    if (userIdRef.current && !String(visitId).startsWith('local-')) {
+      deleteVisitRecord(userIdRef.current, visitId).catch(() => {});
+    }
+    // Bump the fingerprint trigger so useRestaurantDetail refetches.
+    setRatings((prev) => {
+      const existing = prev.find((r) => r.restaurantId === restaurantId);
+      if (!existing) return prev;
+      const next = prev.map((r) => r.restaurantId === restaurantId
+        ? { ...r, createdAt: Date.now() }
+        : r);
+      saveToStorage(STORAGE_KEY_RATINGS, next);
+      syncRatingsToCloud(next);
+      return next;
+    });
+  }, [removeRating, syncRatingsToCloud]);
+
   // Lists
   const createList = useCallback((name: string, emoji: string, type?: CustomList['type']) => {
     setLists((prev) => {
@@ -1228,7 +1342,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   return (
     <ListsContext.Provider value={{
-      ratings, rateRestaurant, updateRating, removeRating, getRating,
+      ratings, rateRestaurant, updateRating, removeRating, getRating, deleteVisit,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
       restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
       wishlist, addToWishlist, removeFromWishlist, isWishlisted, getWishlistItem,
