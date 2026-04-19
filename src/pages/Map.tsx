@@ -45,6 +45,12 @@ import {
 // constructor — fine in dev but a TDZ ReferenceError in the prod bundle.
 const sessionRecsCache: Record<string, HomeRecCacheEntry> = {};
 
+// Non-shadowed alias for the global Map constructor. Same shadowing caveat
+// as the comment above — any `new Map(...)` inside this module would resolve
+// to the exported <Map/> component, not the built-in. Grabbing the ctor off
+// globalThis avoids that whether we're at module load or inside a hook.
+const NativeMap = globalThis.Map;
+
 // Per-session cache of community cover-photo lookups (restaurant_id → url).
 // Avoids re-querying Supabase every time the same restaurant appears across
 // the recs row, search, etc.
@@ -553,7 +559,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     expertUserIds: new Set(),
     followedExpertIds: new Set(),
     friendUserIds: new Set(),
-    communityByRestaurant: new Map(),
+    communityByRestaurant: new NativeMap(),
     expertRecRestaurantIds: new Set(),
   }));
 
@@ -688,7 +694,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       if (cancelled) return;
       const expertUserIds = new Set(experts.map((e: UserProfile) => e.user_id));
       const friendUserIds = new Set(friendRatings.map((r) => r.user_id));
-      const communityByRestaurant = new Map<string, CommunityRating[]>();
+      const communityByRestaurant = new NativeMap<string, CommunityRating[]>();
       for (const row of [...tagSim, ...exprecs, ...friendRatings]) {
         const arr = communityByRestaurant.get(row.restaurant_id);
         if (arr) arr.push(row);
