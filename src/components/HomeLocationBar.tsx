@@ -146,8 +146,12 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
       try {
+        // Bias address-level matches toward whatever the user is currently
+        // anchored to (their last picked / GPS location) so "Main St" surfaces
+        // the nearby Main St rather than a random one across the country.
+        const proximity = location ? `&proximity=${location.lng},${location.lat}` : '';
         const res = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,district&limit=8`,
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=address,place,locality,neighborhood,district,postcode&limit=8${proximity}`,
         );
         const data = await res.json();
         const items: HomeLocation[] = (data.features || []).map((f: any) => ({
@@ -165,7 +169,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+  }, [query, location]);
 
   const select = useCallback(
     (loc: HomeLocation) => {
@@ -289,7 +293,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search cities or neighborhoods"
+                    placeholder="Search address, city, or neighborhood"
                     className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-4 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06]"
                     autoCapitalize="off"
                     autoCorrect="off"
