@@ -1350,67 +1350,71 @@ export const RestaurantDetailMobile: React.FC = () => {
           </section>
         )}
 
-        {/* ── Hours — accordion inside a subtle container.
-            The trigger shows today's status (colored dot + Open/Closed)
-            and today's hours; expanded state lists every day with the
-            current day emphasized. ── */}
+        {/* ── Hours — flat accordion on the page surface. Mono eyebrow,
+            then a compact trigger row with today's status, expanding
+            inline to a full-week list with the current day emphasized.
+            No card wrapper — just hairline dividers. ── */}
         {place.hours.length > 0 && (
-          <section className="mb-10">
-            <p className="section-eyebrow mb-1">
+          <section className="mb-6">
+            <p className="section-eyebrow mb-4">
               Hours
             </p>
-            <h2 className="section-title mb-3">
-              When they're open
-            </h2>
-            <div className="rounded-2xl bg-paper border border-line overflow-hidden">
-              <button
-                onClick={() => setHoursOpen(!hoursOpen)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-on-surface/[0.015] transition-colors"
-              >
-                <Clock size={16} className="text-on-surface/40 flex-shrink-0" />
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  {place.isOpen !== null && (
-                    <>
-                      <span className={cn('inline-block w-1.5 h-1.5 rounded-full flex-shrink-0', place.isOpen ? 'bg-green-500' : 'bg-red-500')} />
-                      <span className={cn(
-                        'text-[13px] font-semibold',
-                        place.isOpen ? 'text-green-700' : 'text-red-600',
-                      )}>
-                        {place.isOpen ? 'Open' : 'Closed'}
-                      </span>
-                    </>
-                  )}
-                  <span className="text-[13px] text-on-surface/55 truncate">· {getTodayHours(place.hours)}</span>
-                </div>
-                <ChevronDown size={15} className={cn('text-on-surface/30 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
-              </button>
-              <AnimatePresence>
-                {hoursOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-4 pb-4 pt-1 space-y-2 border-t border-line">
-                      {place.hours.map((line, i) => {
-                        const [day, ...timeParts] = line.split(': ');
-                        const time = timeParts.join(': ');
-                        const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-                        const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
-                        return (
-                          <div key={i} className={cn('flex justify-between text-[13px] pt-2', isToday ? 'font-semibold text-on-surface' : 'text-on-surface/50')}>
-                            <span>{day}</span>
-                            <span className="tabular-nums">{time}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
+            <button
+              onClick={() => setHoursOpen(!hoursOpen)}
+              className="w-full flex items-center gap-3 py-2 text-left active:opacity-70 transition-opacity"
+            >
+              <Clock size={16} className="text-ink-3 flex-shrink-0" />
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {place.isOpen !== null && (
+                  <>
+                    <span className={cn('inline-block w-1.5 h-1.5 rounded-full flex-shrink-0', place.isOpen ? 'bg-olive' : 'bg-clay')} />
+                    <span
+                      className={cn('font-semibold', place.isOpen ? 'text-olive' : 'text-clay')}
+                      style={{ fontSize: '13px' }}
+                    >
+                      {place.isOpen ? 'Open' : 'Closed'}
+                    </span>
+                  </>
                 )}
-              </AnimatePresence>
-            </div>
+                <span className="text-ink-3 truncate" style={{ fontSize: '13px' }}>
+                  · {getTodayHours(place.hours)}
+                </span>
+              </div>
+              <ChevronDown size={15} className={cn('text-ink-3 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
+            </button>
+            <AnimatePresence>
+              {hoursOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <ul className="pt-2 divide-y divide-line">
+                    {place.hours.map((line, i) => {
+                      const [day, ...timeParts] = line.split(': ');
+                      const time = timeParts.join(': ');
+                      const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+                      const isToday = today.startsWith(day.toLowerCase().slice(0, 3));
+                      return (
+                        <li
+                          key={i}
+                          className={cn(
+                            'flex justify-between items-baseline py-2.5',
+                            isToday ? 'font-semibold text-ink' : 'text-ink-3',
+                          )}
+                          style={{ fontSize: '13px' }}
+                        >
+                          <span>{day}</span>
+                          <span className="tabular-nums">{time}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </section>
         )}
 
