@@ -747,7 +747,13 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           const { latitude: lat, longitude: lng } = pos.coords;
           const label = await reverseGeocode(lat, lng);
           if (cancelled) return;
-          setHomeLocation({ label, lat, lng });
+          const loc = { label, lat, lng };
+          setHomeLocation(loc);
+          // Persist the GPS-resolved address to the same localStorage slot
+          // the picker uses, so other surfaces (restaurant detail distance,
+          // map default centre, etc.) can read the precise origin instead
+          // of falling back to a stale city-level label.
+          saveLastSelectedLocation(loc);
         },
         () => setFromFallback(),
         { maximumAge: 5 * 60 * 1000, timeout: 15000, enableHighAccuracy: true },
