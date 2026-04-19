@@ -13,6 +13,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
+import { buildTasteProfile, getRecommendations, type ScoredPlace } from '../lib/recommendations';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { Link } from 'react-router-dom';
 import { SocialFeed } from '../components/SocialFeed';
@@ -157,7 +158,7 @@ function clearSearchState() {
 
 export const Home: React.FC = () => {
   const { phoneMode, setHideBottomNav } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings } = useLists();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings, wishlist, lists } = useLists();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
 
@@ -191,70 +192,13 @@ export const Home: React.FC = () => {
     try { localStorage.setItem('gourmad-rec-radius-miles', String(n)); } catch { /* ignore */ }
   }, []);
 
-  // Build preference profile from user's ratings
-  const userPreferences = useMemo(() => {
-    const cuisineCounts: Record<string, number> = {};
-    const priceCounts: Record<number, number> = {};
-    const topCuisines: string[] = [];
+  const profile = useMemo(
+    () => buildTasteProfile(ratings, wishlist, lists, recentViews),
+    [ratings, wishlist, lists, recentViews],
+  );
 
-    ratings.forEach((r) => {
-      const weight = r.score >= 7 ? 2 : 1;
-      if (r.cuisine) {
-        cuisineCounts[r.cuisine] = (cuisineCounts[r.cuisine] || 0) + weight;
-      }
-      r.tags.forEach((t) => { cuisineCounts[t] = (cuisineCounts[t] || 0) + weight; });
-      const priceNum = r.price.length;
-      priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
-    });
-
-    // Get top 3 cuisines by weighted count
-    const sorted = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]);
-    sorted.slice(0, 3).forEach(([cuisine]) => topCuisines.push(cuisine));
-
-    return { cuisineCounts, priceCounts, topCuisines };
-  }, [ratings]);
-
-  // Score-based recommendations from recentViews
-  const recentRecommendations = useMemo(() => {
-    if (recentViews.length === 0) return [];
-    const ratedIds = new Set(ratings.map((r) => r.restaurantId));
-    const candidates = recentViews.filter((v) => !ratedIds.has(v.id));
-
-    const scored = candidates.map((place) => {
-      let score = 0;
-      (place.types || []).forEach((t: string) => {
-        const label = t.replace(/_/g, ' ').replace(/restaurant/g, '').trim();
-        Object.entries(userPreferences.cuisineCounts).forEach(([tag, count]) => {
-          if (tag.toLowerCase().includes(label) || label.includes(tag.toLowerCase())) {
-            score += count * 2;
-          }
-        });
-      });
-      if (userPreferences.priceCounts[place.priceLevel]) score += userPreferences.priceCounts[place.priceLevel];
-      score += (place.rating || 0) * 0.5;
-      score += Math.min((place.userRatingCount || 0) / 500, 2);
-      return { ...place, recScore: score };
-    });
-
-    scored.sort((a, b) => b.recScore - a.recScore);
-    return scored.slice(0, 8);
-  }, [recentViews, ratings, userPreferences]);
-
-  // Fetch API-based recommendations using user's top cuisines (effect moved after userLat/userLng declarations below)
-  const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
+  const [recs, setRecs] = useState<ScoredPlace[]>([]);
   const [recsLoading, setRecsLoading] = useState(false);
-  const recsFetchedRef = useRef(false);
-
-  // Combine recommendations: API-based first, then scored recent views
-  const recommendations = useMemo(() => {
-    const combined = [...apiRecommendations, ...recentRecommendations];
-    const seen = new Set<string>();
-    return combined.filter((p) => {
-      if (seen.has(p.id)) return false;
-      seen.add(p.id);
-      return true;
-    }).slice(0, 8);
-  }, [apiRecommendations, recentRecommendations]);
 
   // User's top rated restaurants (for when there's no other content)
   const topRated = useMemo(() => {
@@ -301,39 +245,23 @@ export const Home: React.FC = () => {
   const [locationLoading, setLocationLoading] = useState(false);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch API-based recommendations using user's top cuisines (or generic nearby if no ratings)
+  // Trigger a fetch whenever the picked location, radius, or taste profile changes.
+  // An AbortController cancels the previous fetch so a rapid radius toggle doesn't
+  // race an older response onto the screen.
   useEffect(() => {
-    if (recsFetchedRef.current) return;
-    recsFetchedRef.current = true;
-
-    const ratedIds = new Set(ratings.map((r) => r.restaurantId));
-    const recentIds = new Set(recentViews.map((v) => v.id));
-    const topCuisines = userPreferences.topCuisines;
-
+    const ctrl = new AbortController();
     setRecsLoading(true);
-
-    const queries = topCuisines.length > 0
-      ? topCuisines.slice(0, 2).map((cuisine) =>
-          searchPlacesByText(`best ${cuisine} restaurants`, userLat, userLng)
-            .catch(() => [] as PlaceResult[])
-        )
-      : [
-          searchNearbyRestaurants(userLat, userLng).catch(() => [] as PlaceResult[]),
-          searchPlacesByText('best restaurants', userLat, userLng).catch(() => [] as PlaceResult[]),
-        ];
-
-    Promise.all(queries).then((results) => {
-      const all = results.flat();
-      const seen = new Set<string>();
-      const fresh = all.filter((p) => {
-        if (seen.has(p.id) || ratedIds.has(p.id) || recentIds.has(p.id)) return false;
-        seen.add(p.id);
-        return true;
-      });
-      setApiRecommendations(fresh.slice(0, 8));
-      setRecsLoading(false);
-    });
-  }, [ratings, userPreferences.topCuisines, userLat, userLng, recentViews]);
+    getRecommendations({
+      userId: user?.id ?? null,
+      profile,
+      target: { label: locationLabel || '', lat: userLat, lng: userLng },
+      radiusMeters: recRadiusMiles * 1609.34,
+      signal: ctrl.signal,
+    })
+      .then((r) => { setRecs(r); setRecsLoading(false); })
+      .catch(() => { setRecsLoading(false); });
+    return () => ctrl.abort();
+  }, [user?.id, profile, locationLabel, userLat, userLng, recRadiusMiles]);
 
   // Save search state to sessionStorage whenever search is active (so it persists across navigation)
   useEffect(() => {
@@ -971,7 +899,7 @@ export const Home: React.FC = () => {
                           </div>
                           <LoadingSkeletonList count={4} variant="card" />
                         </section>
-                      ) : recommendations.length > 0 ? (
+                      ) : recs.length > 0 ? (
                         <section>
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
@@ -997,7 +925,7 @@ export const Home: React.FC = () => {
                             </div>
                           </div>
                           <div className={cn("grid gap-x-3 gap-y-6", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
-                            {recommendations.map((place) => {
+                            {recs.map((place) => {
                               const props = placeToCardProps(place as any);
                               return (
                                 <RestaurantCard key={place.id} {...props}
@@ -1061,7 +989,7 @@ export const Home: React.FC = () => {
                       )}
 
                       {/* Empty state — only if nothing at all to show */}
-                      {recommendations.length === 0 && topRated.length === 0 && !recsLoading && (
+                      {recs.length === 0 && topRated.length === 0 && !recsLoading && (
                         <div className="text-center py-16">
                           <Search size={32} className="mx-auto text-on-surface/15 mb-3" />
                           <p className="text-sm font-medium text-on-surface/40">Discover restaurants</p>
