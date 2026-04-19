@@ -354,28 +354,19 @@ export const RestaurantDetailMobile: React.FC = () => {
 
         {/* ── Your Rating callout — near-black card (ink) with a
             persimmon score circle, JetBrains Mono label, and italic
-            Fraunces note quote. Tapping scrolls to the full My Rating
-            Details section or opens the rating modal when unrated. ── */}
+            Fraunces note quote. Tapping opens the rating modal so the
+            user can update their current rating or log a new visit
+            directly (regardless of whether they've rated yet). ── */}
         <button
           type="button"
           onClick={() => {
             if (!place) return;
-            if (myRating) {
-              setMyRatingOpen(true);
-              // Wait a frame so the dropdown starts expanding before we
-              // scroll — otherwise the section's collapsed height makes
-              // the scroll target line up wrong.
-              requestAnimationFrame(() => {
-                myRatingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              });
-            } else {
-              openAddRestaurantModal({
-                id: place.id, name: place.name,
-                image: place.photoUrl || '',
-                cuisine, price: priceStr,
-                address: place.address,
-              });
-            }
+            openAddRestaurantModal({
+              id: place.id, name: place.name,
+              image: place.photoUrl || '',
+              cuisine, price: priceStr,
+              address: place.address,
+            });
           }}
           className="w-full mb-5 rounded-[14px] bg-ink text-cream p-4 flex items-center gap-3.5 text-left active:scale-[0.99] transition-transform"
         >
@@ -413,7 +404,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     lineHeight: 1.3,
                   }}
                 >
-                  "{myRating.notes || 'Tap to see your full review'}"
+                  "{myRating.notes || 'Tap to update or log a new visit'}"
                 </p>
               </div>
               <ChevronRight size={18} className="text-white/55 flex-shrink-0" />
