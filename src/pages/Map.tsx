@@ -23,6 +23,20 @@ import {
   reverseGeocode,
   type HomeLocation,
 } from '../components/HomeLocationBar';
+import {
+  locationKey,
+  preferencesHash,
+  getHomeRecsCache,
+  saveHomeRecsCache,
+  type HomeRecCacheEntry,
+} from '../lib/supabase-rec-cache';
+
+// Session-scoped in-memory cache — a tap back to a city we already loaded
+// this session skips both Google and Supabase.
+const sessionRecsCache = new Map<string, HomeRecCacheEntry>();
+
+// Max age we'll trust a Supabase cache entry before refetching from Google.
+const HOME_RECS_CACHE_TTL = 14 * 24 * 60 * 60 * 1000; // 14 days
 
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
@@ -604,7 +618,18 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
   // Explicit location pick from the picker — persist so the next denied-perms
   // session can restore it, then trigger a quick fade while recs refetch.
+  // Picking the same location you're already on is a no-op so we don't spend
+  // API budget on a round-trip that wouldn't change anything.
   const handleHomeLocationChange = useCallback((loc: HomeLocation) => {
+    if (homeLocation && locationKey(homeLocation.lat, homeLocation.lng) === locationKey(loc.lat, loc.lng)) {
+      // Just update the label in case user picked a more specific spelling,
+      // but skip the refetch / fade entirely.
+      if (homeLocation.label !== loc.label) {
+        setHomeLocation(loc);
+        saveLastSelectedLocation(loc);
+      }
+      return;
+    }
     setHomeLocationRefreshing(true);
     setHomeLocation(loc);
     saveLastSelectedLocation(loc);
@@ -614,7 +639,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     recsQueryCursorRef.current = 0;
     recsExhaustedRef.current = false;
     window.setTimeout(() => setHomeLocationRefreshing(false), 450);
-  }, []);
+  }, [homeLocation]);
 
   // "Use current location" from the picker — returns a Promise so the picker
   // can show a spinner while it resolves and surface a clear error if the
@@ -636,10 +661,19 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     handleHomeLocationChange({ label, lat, lng });
   }, [handleHomeLocationChange]);
 
-  // Initial / location-driven recommendations fetch — personalised if the user
-  // has preferences, generic nearby otherwise. In home mode we wait for the
-  // home location to resolve so the first fetch is already anchored to the
-  // right city, and we refetch whenever the user swaps locations.
+  // Initial / location-driven recommendations — personalised if the user has
+  // preferences, generic nearby otherwise. In home mode the load flow is:
+  //
+  //   1. Check the session in-memory cache (instant, zero calls).
+  //   2. Check the Supabase `home_rec_cache` row for this location key
+  //      (network, but no Places API spend).
+  //   3. If the cache is recent AND the user's preferences haven't drifted,
+  //      use it as-is.
+  //   4. If the cache exists but prefs drifted, keep the cache and add a
+  //      single top-up call for the new top cuisine.
+  //   5. Otherwise do a full fresh fetch (3 queries) and persist it.
+  //
+  // Map mode always goes to the live API — it's not the expensive path.
   useEffect(() => {
     if (recsFetchedRef.current) return;
     if (mode === 'home' && !homeLocation) return;
@@ -650,46 +684,143 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     setRecsLoading(true);
     setApiRecommendations([]);
 
-    // In home mode, force the queries to target the selected home city so
-    // the API doesn't return NYC results just because the user's historical
+    // In home mode, force the queries to target the selected home city so the
+    // API doesn't return NYC results just because the user's historical
     // topCities is "New York, NY".
     const homeCityOverride = mode === 'home' && homeLocation
       ? homeLocation.label.split(',').slice(0, 2).join(', ').trim()
       : null;
 
-    if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
-      const queries = buildRecQueries(homeCityOverride);
-      const initialBatch = queries.slice(0, 3);
-      recsQueryCursorRef.current = initialBatch.length;
-      fetchRecBatch(initialBatch).then((fresh) => {
+    const uid = userId;
+    const locKey = mode === 'home' && homeLocation
+      ? locationKey(homeLocation.lat, homeLocation.lng)
+      : null;
+    const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices);
+
+    const applyCachedResults = (entry: HomeRecCacheEntry, prependFresh?: PlaceResult[]) => {
+      const merged = prependFresh && prependFresh.length > 0
+        ? [...prependFresh, ...entry.places].filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i)
+        : entry.places;
+      // Seed the dedup set so loadMore doesn't re-surface these.
+      for (const p of merged) recsSeenIdsRef.current.add(p.id);
+      setApiRecommendations(merged);
+      setRecsLoading(false);
+      // The cache already holds enough for the horizontal row — signal that
+      // loadMore should not spend API budget unless the user explicitly
+      // exhausts this view.
+      recsExhaustedRef.current = true;
+      recsQueryCursorRef.current = Number.MAX_SAFE_INTEGER;
+    };
+
+    const runLiveFetch = async () => {
+      if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
+        const queries = buildRecQueries(homeCityOverride);
+        const initialBatch = queries.slice(0, 3);
+        recsQueryCursorRef.current = initialBatch.length;
+        const fresh = await fetchRecBatch(initialBatch);
         setApiRecommendations(fresh);
         setRecsLoading(false);
-      });
-    } else {
-      // Prefer the home-location anchor when it's set (home mode); otherwise
-      // use the current map center (map mode).
-      let lat: number;
-      let lng: number;
-      if (mode === 'home' && homeLocation) {
-        lat = homeLocation.lat;
-        lng = homeLocation.lng;
+        // Persist only if we have a location key and a user — otherwise we
+        // have nowhere to file this.
+        if (uid && locKey && homeLocation && fresh.length > 0) {
+          const entry: HomeRecCacheEntry = {
+            places: fresh,
+            preferencesHash: prefsHash,
+            updatedAt: Date.now(),
+          };
+          sessionRecsCache.set(locKey, entry);
+          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, fresh);
+        }
       } else {
-        const center = mapRef.current?.getCenter();
-        lat = center?.lat ?? 40.735;
-        lng = center?.lng ?? -73.99;
-      }
-      Promise.all([
-        searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
-        searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
-      ]).then(([nearby, best]) => {
+        // No preferences yet — pull a generic "best / nearby" set. Two calls
+        // instead of the previous two still but no text-city search baked
+        // into the query string.
+        let lat: number;
+        let lng: number;
+        if (mode === 'home' && homeLocation) {
+          lat = homeLocation.lat;
+          lng = homeLocation.lng;
+        } else {
+          const center = mapRef.current?.getCenter();
+          lat = center?.lat ?? 40.735;
+          lng = center?.lng ?? -73.99;
+        }
+        const [nearby, best] = await Promise.all([
+          searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
+          searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
+        ]);
         const all = [...nearby, ...best];
         const seen = new Set<string>();
-        const fresh = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
-        setApiRecommendations(fresh.slice(0, 12));
+        const dedup = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+        const out = dedup.slice(0, 12);
+        setApiRecommendations(out);
         setRecsLoading(false);
-      });
+        if (uid && locKey && homeLocation && out.length > 0) {
+          const entry: HomeRecCacheEntry = {
+            places: out,
+            preferencesHash: prefsHash,
+            updatedAt: Date.now(),
+          };
+          sessionRecsCache.set(locKey, entry);
+          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, out);
+        }
+      }
+    };
+
+    // Home mode only: try caches before hitting Google.
+    if (mode === 'home' && locKey && homeLocation) {
+      // 1. Session in-memory cache — instant.
+      const sessionHit = sessionRecsCache.get(locKey);
+      if (sessionHit && Date.now() - sessionHit.updatedAt < HOME_RECS_CACHE_TTL) {
+        if (sessionHit.preferencesHash === prefsHash || userPreferences.topCuisines.length === 0) {
+          applyCachedResults(sessionHit);
+          return;
+        }
+      }
+      // 2. Supabase cache — one lightweight query, no Places spend.
+      if (uid) {
+        (async () => {
+          const cached = await getHomeRecsCache(uid, locKey);
+          const fresh = cached && Date.now() - cached.updatedAt < HOME_RECS_CACHE_TTL ? cached : null;
+          if (fresh && fresh.places.length > 0) {
+            if (fresh.preferencesHash === prefsHash || userPreferences.topCuisines.length === 0) {
+              // Straight cache hit — no Places API spend at all.
+              sessionRecsCache.set(locKey, fresh);
+              applyCachedResults(fresh);
+              return;
+            }
+            // Prefs drifted since the cache was built — keep most of the
+            // cache but top up with one fresh query for the new top cuisine
+            // so results reflect the change without a full refetch.
+            const topCuisine = userPreferences.topCuisines[0];
+            const topUpQueries = topCuisine
+              ? [`best ${topCuisine} restaurants in ${homeCityOverride || ''}`.trim().replace(/\s+$/, '')]
+              : [];
+            const topUpResults = topUpQueries.length > 0
+              ? await fetchRecBatch(topUpQueries)
+              : [];
+            const merged: PlaceResult[] = [...topUpResults, ...fresh.places]
+              .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
+            const entry: HomeRecCacheEntry = {
+              places: merged,
+              preferencesHash: prefsHash,
+              updatedAt: Date.now(),
+            };
+            sessionRecsCache.set(locKey, entry);
+            saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, merged);
+            applyCachedResults(entry);
+            return;
+          }
+          // Cache miss or stale — live fetch.
+          await runLiveFetch();
+        })();
+        return;
+      }
     }
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation]);
+
+    // Anonymous home, or map mode — just run the live path.
+    runLiveFetch();
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices]);
 
   // Load more recommendations — called when the horizontal scroll nears the end.
   const loadMoreRecommendations = useCallback(async () => {
