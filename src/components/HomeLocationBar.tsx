@@ -56,17 +56,40 @@ export function saveLastSelectedLocation(loc: HomeLocation) {
   } catch {}
 }
 
-// Reverse-geocode a coordinate into a "City, State" label using Mapbox.
-// Falls back to the raw place name or "Current location" if geocoding fails.
+// Reverse-geocode a coordinate into a street-address label
+// ("123 Main St, San Francisco, CA") using Mapbox. Falls back to the
+// city/locality label if no address feature is returned, and to
+// "Current location" if the geocoder is unreachable.
 export async function reverseGeocode(lat: number, lng: number): Promise<string> {
   try {
-    const res = await fetch(
+    const addrRes = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=address&limit=1`,
+    );
+    const addrData = await addrRes.json();
+    const a = addrData.features?.[0];
+    if (a) {
+      // Mapbox splits an address into `address` (house number) and `text`
+      // (street name). Combine them, then synthesise "{street}, {city},
+      // {region}" from the context array so the label stays compact.
+      const houseNumber = (a.address || '').toString().trim();
+      const streetName = (a.text || '').toString().trim();
+      const street = [houseNumber, streetName].filter(Boolean).join(' ').trim();
+      const place = (a.context || []).find((c: any) => c.id?.startsWith('place') || c.id?.startsWith('locality'));
+      const region = (a.context || []).find((c: any) => c.id?.startsWith('region'));
+      const city = place?.text;
+      const regionCode = region?.short_code?.split('-')?.[1] || region?.text;
+      if (street && city && regionCode) return `${street}, ${city}, ${regionCode}`;
+      if (street && city) return `${street}, ${city}`;
+      if (street) return street;
+      if (a.place_name) return a.place_name;
+    }
+    // No street match — fall back to the city/locality label.
+    const cityRes = await fetch(
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&limit=1`,
     );
-    const data = await res.json();
-    const f = data.features?.[0];
+    const cityData = await cityRes.json();
+    const f = cityData.features?.[0];
     if (!f) return 'Current location';
-    // Prefer "{city}, {region code}" — synthesize it from context when possible.
     const city = f.text;
     const region = (f.context || []).find((c: any) => c.id?.startsWith('region'));
     const regionCode = region?.short_code?.split('-')?.[1] || region?.text;
@@ -195,7 +218,10 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
     }
   }, [onUseCurrent]);
 
-  const shortLabel = location?.label?.split(',').slice(0, 2).join(',').trim() || 'Select a location';
+  // Show up to three label chunks so a reverse-geocoded street address
+  // ("123 Main St, San Francisco, CA") fits without losing the state.
+  // For shorter labels (popular cities, etc.) the slice is a no-op.
+  const shortLabel = location?.label?.split(',').slice(0, 3).join(',').trim() || 'Select a location';
 
   return (
     <>

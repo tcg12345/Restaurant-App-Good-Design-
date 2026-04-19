@@ -750,7 +750,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           setHomeLocation({ label, lat, lng });
         },
         () => setFromFallback(),
-        { maximumAge: 5 * 60 * 1000, timeout: 8000 },
+        { maximumAge: 5 * 60 * 1000, timeout: 15000, enableHighAccuracy: true },
       );
     } else {
       setFromFallback();
@@ -796,8 +796,8 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
         maximumAge: 60 * 1000,
-        timeout: 10000,
-        enableHighAccuracy: false,
+        timeout: 15000,
+        enableHighAccuracy: true,
       });
     });
     const { latitude: lat, longitude: lng } = pos.coords;
