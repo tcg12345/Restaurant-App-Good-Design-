@@ -12,6 +12,7 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 import { cn } from '../lib/utils';
+import { scoreColor, scoreBadgeBg } from '../lib/score';
 
 const CHUNK_SIZE = 15;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
@@ -437,7 +438,11 @@ export const FollowingFeed: React.FC = () => {
                     {/* Right rail — score pill + subtle action icons, aligned to the name */}
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <span
-                        className="inline-flex items-center justify-center min-w-[38px] h-7 px-2 rounded-full bg-on-surface/[0.05] text-[12px] font-bold text-on-surface/65 tabular-nums"
+                        className={cn(
+                          'inline-flex items-center justify-center min-w-[38px] h-7 px-2 rounded-full border text-[12px] font-bold tabular-nums',
+                          scoreBadgeBg(score),
+                          scoreColor(score),
+                        )}
                         aria-label={`Score ${score.toFixed(1)}`}
                       >
                         {score.toFixed(1)}
