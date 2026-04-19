@@ -41,7 +41,27 @@ type FeedItem =
   | { type: 'rating'; data: CommunityRating; sortTime: number }
   | { type: 'homeMeal'; data: FriendHomeMeal; sortTime: number };
 
-export const SocialFeed: React.FC = () => {
+// Great-circle distance between two coords in kilometres (Haversine). Used to
+// sort the Friend Activity feed so ratings near the home-page location anchor
+// float to the top.
+const haversineKm = (aLat: number, aLng: number, bLat: number, bLng: number): number => {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+};
+
+interface SocialFeedProps {
+  /** Distance-sort anchor. When set, friend activity sorts by proximity. */
+  centerLat?: number | null;
+  centerLng?: number | null;
+}
+
+export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null }) => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const navigate = useNavigate();
@@ -132,7 +152,15 @@ export const SocialFeed: React.FC = () => {
 
   useEffect(() => { loadFeed(); }, [loadFeed]);
 
-  // Merge and sort feed items by time
+  // Merge and sort feed items. When a location anchor is provided, sort so
+  // ratings nearest that anchor come first (then fall back to recency). Home
+  // meals don't have a location so they always sort by time.
+  const hasAnchor = centerLat != null && centerLng != null;
+  const distanceFor = (r: CommunityRating): number => {
+    if (!hasAnchor || r.lat == null || r.lng == null) return Infinity;
+    if (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1) return Infinity;
+    return haversineKm(centerLat!, centerLng!, r.lat, r.lng);
+  };
   const feedItems: FeedItem[] = [
     ...activity.map((r): FeedItem => ({
       type: 'rating', data: r,
@@ -142,7 +170,14 @@ export const SocialFeed: React.FC = () => {
       type: 'homeMeal', data: m,
       sortTime: m.createdAt,
     })),
-  ].sort((a, b) => b.sortTime - a.sortTime);
+  ].sort((a, b) => {
+    if (hasAnchor) {
+      const da = a.type === 'rating' ? distanceFor(a.data) : Infinity;
+      const db = b.type === 'rating' ? distanceFor(b.data) : Infinity;
+      if (da !== db) return da - db;
+    }
+    return b.sortTime - a.sortTime;
+  });
 
   const handleLike = async (ratingId: string) => {
     if (!userId || !ratingId) return;

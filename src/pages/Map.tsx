@@ -16,6 +16,13 @@ import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { SocialFeed } from '../components/SocialFeed';
 import { TopBar } from '../components/TopBar';
+import {
+  HomeLocationBar,
+  loadLastSelectedLocation,
+  saveLastSelectedLocation,
+  reverseGeocode,
+  type HomeLocation,
+} from '../components/HomeLocationBar';
 
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
@@ -390,6 +397,16 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const [nearbyShowCount, setNearbyShowCount] = useState(NEARBY_INITIAL);
   const preSearchPlacesRef = useRef<PlaceResult[]>([]);
 
+  // ── Home-page location anchor ──
+  // Drives the personalised Recommendations row, the Guides row, and the
+  // distance-sort order of the Friend Activity feed. Defaults to the device's
+  // current location on every app open (the user's last selection is only a
+  // fallback for when geolocation is denied). The in-session choice persists
+  // across navigation because it lives in component state.
+  const [homeLocation, setHomeLocation] = useState<HomeLocation | null>(null);
+  // Brief fade overlay applied while the feed refetches after a location swap.
+  const [homeLocationRefreshing, setHomeLocationRefreshing] = useState(false);
+
   // Recent views from localStorage
   const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
     try {
@@ -510,9 +527,18 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
     const wishlistedIds = new Set(myLists.flatMap((l: any) => l.wishlistIds || []));
     const recentIds = new Set(recentViews.map((v) => v.id));
-    const center = mapRef.current?.getCenter();
-    const lat = center?.lat ?? 40.735;
-    const lng = center?.lng ?? -73.99;
+    // Home mode has no live map — anchor recs to the user-selected home
+    // location instead so the results track the dropdown pick.
+    let lat: number;
+    let lng: number;
+    if (mode === 'home' && homeLocation) {
+      lat = homeLocation.lat;
+      lng = homeLocation.lng;
+    } else {
+      const center = mapRef.current?.getCenter();
+      lat = center?.lat ?? 40.735;
+      lng = center?.lng ?? -73.99;
+    }
     const results = await Promise.all(
       queryStrs.map((q) => searchPlacesByText(q, lat, lng, 50000).catch(() => [] as PlaceResult[]))
     );
@@ -529,16 +555,82 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       return true;
     });
     return fresh;
-  }, [myLocalRatings, myLists, recentViews]);
+  }, [myLocalRatings, myLists, recentViews, mode, homeLocation]);
 
-  // Initial recommendations fetch — personalised if user has preferences, generic nearby otherwise.
+  // Resolve the home-page location on mount. Preferred source is the device's
+  // GPS; when permission is denied (or geolocation is unavailable) we fall
+  // back to the last explicit selection from localStorage, and then to NYC.
+  useEffect(() => {
+    if (mode !== 'home' || homeLocation) return;
+    let cancelled = false;
+    const setFromFallback = () => {
+      if (cancelled) return;
+      const last = loadLastSelectedLocation();
+      setHomeLocation(last ?? { label: 'New York, NY', lat: 40.7128, lng: -74.006 });
+    };
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          if (cancelled) return;
+          const { latitude: lat, longitude: lng } = pos.coords;
+          const label = await reverseGeocode(lat, lng);
+          if (cancelled) return;
+          setHomeLocation({ label, lat, lng });
+        },
+        () => setFromFallback(),
+        { maximumAge: 5 * 60 * 1000, timeout: 8000 },
+      );
+    } else {
+      setFromFallback();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, homeLocation]);
+
+  // Explicit location pick from the picker — persist so the next denied-perms
+  // session can restore it, then trigger a quick fade while recs refetch.
+  const handleHomeLocationChange = useCallback((loc: HomeLocation) => {
+    setHomeLocationRefreshing(true);
+    setHomeLocation(loc);
+    saveLastSelectedLocation(loc);
+    // Reset the rec cursor so useEffect below refetches from scratch.
+    recsFetchedRef.current = false;
+    recsSeenIdsRef.current = new Set();
+    recsQueryCursorRef.current = 0;
+    recsExhaustedRef.current = false;
+    window.setTimeout(() => setHomeLocationRefreshing(false), 450);
+  }, []);
+
+  // "Use current location" from the picker — geolocation + reverse geocode
+  // then flow through the same change path as any other pick.
+  const handleHomeUseCurrent = useCallback(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    setHomeLocationRefreshing(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        const label = await reverseGeocode(lat, lng);
+        handleHomeLocationChange({ label, lat, lng });
+      },
+      () => setHomeLocationRefreshing(false),
+      { maximumAge: 60 * 1000, timeout: 8000 },
+    );
+  }, [handleHomeLocationChange]);
+
+  // Initial / location-driven recommendations fetch — personalised if the user
+  // has preferences, generic nearby otherwise. In home mode we wait for the
+  // home location to resolve so the first fetch is already anchored to the
+  // right city, and we refetch whenever the user swaps locations.
   useEffect(() => {
     if (recsFetchedRef.current) return;
+    if (mode === 'home' && !homeLocation) return;
     recsFetchedRef.current = true;
     recsSeenIdsRef.current = new Set();
     recsQueryCursorRef.current = 0;
     recsExhaustedRef.current = false;
     setRecsLoading(true);
+    setApiRecommendations([]);
 
     if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
       const queries = buildRecQueries();
@@ -549,9 +641,18 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         setRecsLoading(false);
       });
     } else {
-      const center = mapRef.current?.getCenter();
-      const lat = center?.lat ?? 40.735;
-      const lng = center?.lng ?? -73.99;
+      // Prefer the home-location anchor when it's set (home mode); otherwise
+      // use the current map center (map mode).
+      let lat: number;
+      let lng: number;
+      if (mode === 'home' && homeLocation) {
+        lat = homeLocation.lat;
+        lng = homeLocation.lng;
+      } else {
+        const center = mapRef.current?.getCenter();
+        lat = center?.lat ?? 40.735;
+        lng = center?.lng ?? -73.99;
+      }
       Promise.all([
         searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
         searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
@@ -563,7 +664,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         setRecsLoading(false);
       });
     }
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation]);
 
   // Load more recommendations — called when the horizontal scroll nears the end.
   const loadMoreRecommendations = useCallback(async () => {
@@ -2701,8 +2802,22 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
               )}
 
               {/* Feed content — hidden when searching */}
+              {!discoverSearchActive && mode === 'home' && (
+                <div className="mt-2">
+                  <HomeLocationBar
+                    location={homeLocation}
+                    onChange={handleHomeLocationChange}
+                    onUseCurrent={handleHomeUseCurrent}
+                  />
+                </div>
+              )}
               {!discoverSearchActive && (
-              <>
+              <div
+                className={cn(
+                  'transition-opacity duration-300',
+                  homeLocationRefreshing ? 'opacity-40' : 'opacity-100',
+                )}
+              >
               {/* Recommendations */}
               {recsLoading ? (
                 <section className="mt-5">
@@ -2826,9 +2941,12 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
               {/* Social Feed */}
               <div className="mt-5">
-                <SocialFeed />
+                <SocialFeed
+                  centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
+                  centerLng={mode === 'home' ? homeLocation?.lng ?? null : null}
+                />
               </div>
-              </>
+              </div>
               )}
             </div>
 
