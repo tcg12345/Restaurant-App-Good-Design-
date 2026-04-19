@@ -197,20 +197,29 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   // Grow the visible window when the sentinel scrolls into view. Purely
   // client-side — no network calls are issued per page.
+  //
+  // The observer is rebuilt whenever visibleCount changes so that it re-fires
+  // the "intersecting" callback even when the sentinel was already in view
+  // before the bump (IntersectionObserver only fires on transitions, so
+  // without this the first bump would be the only one when the user sits at
+  // the bottom of the list).
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
+    if (visibleCount >= feedItems.length) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          setVisibleCount((c) => (c >= feedItems.length ? c : Math.min(c + FEED_CHUNK, feedItems.length)));
+          setVisibleCount((c) =>
+            c >= feedItems.length ? c : Math.min(c + FEED_CHUNK, feedItems.length),
+          );
         }
       },
-      { rootMargin: '400px' },
+      { rootMargin: '600px' },
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [feedItems.length]);
+  }, [feedItems.length, visibleCount]);
 
   const visibleItems = feedItems.slice(0, visibleCount);
 
