@@ -656,10 +656,10 @@ export const RestaurantDetailMobile: React.FC = () => {
                 >
                   Your circle
                 </p>
-                {hasFriends && friendsStats.ratings.length > topFriends.length && (
+                {(hasFriends || expertRecommendations.length > 0) && place && (
                   <button
                     type="button"
-                    onClick={() => setShowFriendsDetail(true)}
+                    onClick={() => navigate(`/restaurant/${place.id}/circle`)}
                     className="text-persimmon active:opacity-70 transition-opacity flex-shrink-0"
                     style={{ fontSize: '13px', fontWeight: 500 }}
                   >
