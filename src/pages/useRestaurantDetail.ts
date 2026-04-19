@@ -5,6 +5,7 @@ import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
 import { getCommunityStats, getFriendsStats, getCommunityPhotos, getHotelDining, getVisitHistory, getExpertRecommendations, type CommunityStats, type FriendsStats, type CommunityPhoto, type HotelDining, type VisitRecord, type ExpertRecommendation } from '../lib/supabase-community';
 import { useAuth } from '../contexts/AuthContext';
+import { useLists } from '../contexts/ListsContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, priceLevelToString, CUISINE_TYPES, type PlaceDetails } from '../lib/places';
@@ -177,6 +178,18 @@ export function useRestaurantDetail() {
   const [hotelDiningOptions, setHotelDiningOptions] = useState<HotelDining[]>([]);
   const [visitHistory, setVisitHistory] = useState<VisitRecord[]>([]);
 
+  // Track the current user's rating for this place so we can re-fetch
+  // visit history whenever it changes (e.g. after saving a new visit,
+  // the previous rating is pushed into the visit_history table and we
+  // need to see it reflected on the page without a hard reload).
+  const { ratings } = useLists();
+  const myRatingForPlace = place ? ratings.find((r) => r.restaurantId === place.id) : null;
+  // A simple fingerprint that changes whenever the rating for this
+  // place is updated. Used as an effect dep below.
+  const ratingFingerprint = myRatingForPlace
+    ? `${myRatingForPlace.score}|${myRatingForPlace.visitDate}|${myRatingForPlace.notes}|${myRatingForPlace.createdAt ?? ''}`
+    : '';
+
   useEffect(() => {
     if (!place?.id) return;
     getCommunityStats(place.id).then(setCommunityStats);
@@ -189,7 +202,7 @@ export function useRestaurantDetail() {
     // Fetch hotel dining if this place looks like a hotel
     const isHotel = place.types[0] === 'hotel' || place.types[0] === 'lodging';
     if (isHotel) getHotelDining(place.id).then(setHotelDiningOptions);
-  }, [place?.id, user?.id]);
+  }, [place?.id, user?.id, ratingFingerprint]);
 
   const priceStr = place ? priceLevelToString(place.priceLevel) : '';
   const cuisine = place ? getCuisineLabel(place.types) : '';
