@@ -1,4 +1,5 @@
 import type { PlaceResult } from './places';
+import { extractCityState } from './places';
 import type { CommunityRating } from './supabase-community';
 import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/ListsContext';
 
@@ -50,3 +51,123 @@ export const DEFAULT_WEIGHTS = {
   distancePerKm: 0.05,     // soft: applies to distance beyond 50% of the radius
   negativePair: 2.0,
 } as const;
+
+export function buildTasteProfile(
+  ratings: RestaurantRating[],
+  wishlist: WishlistItem[],
+  lists: CustomList[],
+  recentViews: Array<{ id: string }>,
+): TasteProfile {
+  const cuisineScore: Record<string, number> = {};
+  const priceScore: Record<number, number> = {};
+  const pairScore: Record<string, number> = {};
+  const tagScore: Record<string, number> = {};
+  const cityScore: Record<string, number> = {};
+  let highRatedCount = 0;
+
+  for (const r of ratings) {
+    if (r.score <= 0) continue;
+    const centered = r.score - 7;
+    const weight = centered >= 0 ? centered + 1 : centered * 1.25;
+    const price = r.price.length;
+
+    if (r.cuisine) {
+      cuisineScore[r.cuisine] = (cuisineScore[r.cuisine] || 0) + weight;
+      if (price > 0) {
+        const key = `${r.cuisine}|${price}`;
+        pairScore[key] = (pairScore[key] || 0) + weight * 1.5;
+      }
+    }
+
+    for (const tag of r.tags) {
+      tagScore[tag] = (tagScore[tag] || 0) + weight * 0.75;
+    }
+
+    if (price > 0) {
+      priceScore[price] = (priceScore[price] || 0) + weight;
+    }
+
+    const city = extractCityState(r.address, r.address);
+    if (city) {
+      cityScore[city] = (cityScore[city] || 0) + Math.max(weight, 0);
+    }
+
+    if (r.score >= 8) highRatedCount++;
+  }
+
+  for (const w of wishlist) {
+    const price = w.price.length;
+    if (w.cuisine && price > 0) {
+      cuisineScore[w.cuisine] = (cuisineScore[w.cuisine] || 0) + 0.5;
+      priceScore[price] = (priceScore[price] || 0) + 0.25;
+    }
+  }
+
+  const LIST_TAG_MAP: Record<string, string> = {
+    'Date Nights': 'Date Night',
+    'Best Cocktails': 'Cocktails',
+    'Hidden Gems': 'Hidden Gem',
+    'Quick Bites': 'Quick Bite',
+  };
+  for (const list of lists) {
+    const tag = LIST_TAG_MAP[list.name];
+    if (tag && list.restaurantIds.length >= 1) {
+      tagScore[tag] = (tagScore[tag] || 0) + 0.5;
+    }
+  }
+
+  const topCuisines = Object.entries(cuisineScore)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([k]) => k);
+
+  const topPrices = Object.entries(priceScore)
+    .map(([k, v]) => [Number(k), v] as [number, number])
+    .filter(([k, v]) => v > 0 && k >= 1 && k <= 4)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([k]) => k);
+
+  const topPairs = Object.entries(pairScore)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([k]) => {
+      const [cuisine, priceStr] = k.split('|');
+      return { cuisine, price: Number(priceStr) };
+    });
+
+  const topTags = Object.entries(tagScore)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([k]) => k);
+
+  const topCities = Object.entries(cityScore)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([k]) => k);
+
+  const ratedIds = new Set(ratings.map((r) => r.restaurantId));
+  const wishlistedIds = new Set(wishlist.map((w) => w.restaurantId));
+  const recentlyViewedIds = new Set(recentViews.map((v) => v.id));
+
+  return {
+    cuisineScore,
+    priceScore,
+    pairScore,
+    tagScore,
+    cityScore,
+    topCuisines,
+    topPrices,
+    topPairs,
+    topTags,
+    topCities,
+    highRatedCount,
+    ratedIds,
+    wishlistedIds,
+    recentlyViewedIds,
+  };
+}
