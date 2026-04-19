@@ -23,6 +23,9 @@ const DEFAULT_LNG = -73.99;
 
 const QUICK_FILTERS = ['Near Me', 'Hotels', 'Italian', 'Fine Dining', 'Sushi', 'Mexican'];
 
+const RADIUS_OPTIONS = [1, 3, 5, 10, 25] as const;
+type RadiusMiles = typeof RADIUS_OPTIONS[number];
+
 type SortOption = 'popularity' | 'rating' | 'price_low' | 'price_high';
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
@@ -174,6 +177,19 @@ export const Home: React.FC = () => {
       return next;
     });
   }, [user]);
+
+  const [recRadiusMiles, setRecRadiusMiles] = useState<RadiusMiles>(() => {
+    try {
+      const raw = localStorage.getItem('gourmad-rec-radius-miles');
+      const n = raw ? Number(raw) : 5;
+      return (RADIUS_OPTIONS as readonly number[]).includes(n) ? (n as RadiusMiles) : 5;
+    } catch { return 5; }
+  });
+
+  const updateRecRadius = useCallback((n: RadiusMiles) => {
+    setRecRadiusMiles(n);
+    try { localStorage.setItem('gourmad-rec-radius-miles', String(n)); } catch { /* ignore */ }
+  }, []);
 
   // Build preference profile from user's ratings
   const userPreferences = useMemo(() => {
@@ -930,17 +946,55 @@ export const Home: React.FC = () => {
                       {/* Recommendations */}
                       {recsLoading ? (
                         <section>
-                          <div className="flex items-center gap-2 mb-3">
-                            <Sparkles size={15} className="text-primary/60" />
-                            <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <Sparkles size={15} className="text-primary/60" />
+                              <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                            </div>
+                            <div className="flex items-center gap-1 bg-on-surface/[0.04] rounded-full p-0.5" role="radiogroup" aria-label="Search radius">
+                              {RADIUS_OPTIONS.map((n) => (
+                                <button
+                                  key={n}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={recRadiusMiles === n}
+                                  onClick={() => updateRecRadius(n)}
+                                  className={cn(
+                                    "px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors",
+                                    recRadiusMiles === n ? "bg-white text-primary shadow-sm" : "text-on-surface/50 hover:text-on-surface/80",
+                                  )}
+                                >
+                                  {n} mi
+                                </button>
+                              ))}
+                            </div>
                           </div>
                           <LoadingSkeletonList count={4} variant="card" />
                         </section>
                       ) : recommendations.length > 0 ? (
                         <section>
-                          <div className="flex items-center gap-2 mb-3">
-                            <Sparkles size={15} className="text-primary/60" />
-                            <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <Sparkles size={15} className="text-primary/60" />
+                              <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                            </div>
+                            <div className="flex items-center gap-1 bg-on-surface/[0.04] rounded-full p-0.5" role="radiogroup" aria-label="Search radius">
+                              {RADIUS_OPTIONS.map((n) => (
+                                <button
+                                  key={n}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={recRadiusMiles === n}
+                                  onClick={() => updateRecRadius(n)}
+                                  className={cn(
+                                    "px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors",
+                                    recRadiusMiles === n ? "bg-white text-primary shadow-sm" : "text-on-surface/50 hover:text-on-surface/80",
+                                  )}
+                                >
+                                  {n} mi
+                                </button>
+                              ))}
+                            </div>
                           </div>
                           <div className={cn("grid gap-x-3 gap-y-6", phoneMode ? "grid-cols-2" : "grid-cols-2 lg:grid-cols-4")}>
                             {recommendations.map((place) => {
