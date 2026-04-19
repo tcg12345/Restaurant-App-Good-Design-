@@ -17,7 +17,6 @@ import { getMealCoverUrl } from '../lib/recipe-display';
 import mapboxgl from 'mapbox-gl';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { searchPlacesByText, type PlaceResult } from '../lib/places';
-import { getRestaurantMetaBatch, saveRestaurantMeta } from '../lib/supabase-restaurant-meta';
 
 // Simple in-memory cache to avoid re-fetching on back navigation
 const profileCache: Record<string, {
@@ -317,64 +316,28 @@ export const UserProfile: React.FC = () => {
 
       if (hasMarkers) map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
 
-      // Background: look up missing coordinates and add markers as they
-      // resolve. The shared restaurant_meta_cache is consulted first so one
-      // viewer's Places API spend covers every future viewer of every
-      // profile that links to the same restaurant.
+      // Background: look up missing coordinates and add markers as they resolve
       if (!coordsLookedUp.current) {
         coordsLookedUp.current = true;
         const missing = userRatings.filter((r) => !r.lat && !r.lng && !resolvedCoords[r.restaurant_id]);
-
-        const addMarker = (rr: any, lt: number, ln: number) => {
-          const el2 = document.createElement('div');
-          el2.style.cssText = 'width:36px;height:36px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;';
-          el2.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
-          const rid2 = rr.restaurant_id;
-          el2.addEventListener('click', () => { navigate(`/restaurant/${rid2}`); });
-          new mapboxgl.Marker({ element: el2, anchor: 'center' }).setLngLat([ln, lt]).addTo(map);
-        };
-
-        // Single batched DB read for every missing id. Rows that aren't in
-        // the cache yet simply come back absent and fall through to the
-        // throttled Places API path below.
-        const cachedMeta = await getRestaurantMetaBatch(missing.map((r) => r.restaurant_id));
-        const stillMissing: typeof missing = [];
-        for (const r of missing) {
-          const m = cachedMeta[r.restaurant_id];
-          if (m?.lat != null && m?.lng != null) {
-            addMarker(r, m.lat, m.lng);
-          } else {
-            stillMissing.push(r);
-          }
-        }
-
-        // Only what the shared cache doesn't yet know gets a live Places
-        // lookup — capped and throttled exactly like before. Every success
-        // populates the cache so nobody else pays for the same restaurant.
-        for (const r of stillMissing.slice(0, 15)) {
+        for (const r of missing.slice(0, 15)) {
           try {
             const results = await searchPlacesByText(r.restaurant_name + ' ' + (r.address?.split(',').slice(-1)[0]?.trim() || ''), 0, 0);
             if (results[0]?.lat && results[0]?.lng) {
               const lt = results[0].lat, ln = results[0].lng;
-              addMarker(r, lt, ln);
-              // Shared cache — every future viewer skips the API call.
-              saveRestaurantMeta({
-                restaurantId: r.restaurant_id,
-                lat: lt,
-                lng: ln,
-                photoUrl: results[0].photoUrl || r.photo_url || null,
-                name: r.restaurant_name,
-                address: r.address,
-              });
-              // Best-effort backfill of the owner's rating row so their
-              // future profile loads skip even the cache read. RLS means
-              // this only succeeds for the owner viewing their own profile;
-              // silently no-ops for everyone else.
+              // Add marker to map
+              const el2 = document.createElement('div');
+              el2.style.cssText = 'width:36px;height:36px;border-radius:50%;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;cursor:pointer;';
+              el2.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
+              const rid2 = r.restaurant_id;
+              el2.addEventListener('click', () => { navigate(`/restaurant/${rid2}`); });
+              new mapboxgl.Marker({ element: el2, anchor: 'center' }).setLngLat([ln, lt]).addTo(map);
+              // Save coords to DB
               publishCommunityRating(r.user_id, r.restaurant_id, {
                 name: r.restaurant_name, score: Number(r.score), notes: r.notes, cuisine: r.cuisine,
                 price: r.price, address: r.address, visitDate: r.visit_date, tags: r.tags,
                 wouldReturn: r.would_return, friendIds: r.friend_ids || [],
-                photoUrl: r.photo_url || results[0].photoUrl || '', lat: lt, lng: ln,
+                photoUrl: r.photo_url || '', lat: lt, lng: ln,
               });
             }
           } catch {}
