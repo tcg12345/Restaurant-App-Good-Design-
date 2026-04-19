@@ -5,7 +5,7 @@ import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
 import { getCommunityStats, getFriendsStats, getCommunityPhotos, getHotelDining, getVisitHistory, getExpertRecommendations, type CommunityStats, type FriendsStats, type CommunityPhoto, type HotelDining, type VisitRecord, type ExpertRecommendation } from '../lib/supabase-community';
 import { useAuth } from '../contexts/AuthContext';
-import { useLists } from '../contexts/ListsContext';
+import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../contexts/ListsContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { getPlaceDetails, priceLevelToString, CUISINE_TYPES, type PlaceDetails } from '../lib/places';
@@ -195,9 +195,45 @@ export function useRestaurantDetail() {
     getCommunityStats(place.id).then(setCommunityStats);
     getCommunityPhotos(place.id).then(setCommunityPhotos);
     getExpertRecommendations(place.id).then(setExpertRecommendations);
+
+    // Seed visit history from localStorage first so the UI reflects a
+    // newly-saved visit immediately (Supabase write is async and may
+    // not have completed yet, and the user may not be signed in at
+    // all). Then fetch remote and merge, de-duping by id.
+    const localRecs = readLocalVisitHistory(place.id);
+    const toRecord = (l: LocalVisitRecord): VisitRecord => ({
+      id: l.id,
+      user_id: user?.id || 'local',
+      restaurant_id: l.restaurantId,
+      score: l.score,
+      notes: l.notes,
+      visit_date: l.visit_date,
+      tags: l.tags,
+      would_return: l.would_return,
+      photos: l.photos,
+      friend_ids: l.friend_ids,
+      created_at: l.created_at,
+    });
+    const localMapped = localRecs.map(toRecord);
+    setVisitHistory(localMapped);
+
     if (user?.id) {
       getFriendsStats(user.id, place.id).then(setFriendsStats);
-      getVisitHistory(user.id, place.id).then(setVisitHistory);
+      getVisitHistory(user.id, place.id).then((remote) => {
+        // Merge by id, then sort newest first by visit_date (fall back
+        // to created_at so records without an explicit visit date
+        // still land in a stable spot).
+        const byId = new Map<string, VisitRecord>();
+        for (const r of [...localMapped, ...remote]) {
+          byId.set(r.id, r);
+        }
+        const merged = Array.from(byId.values()).sort((a, b) => {
+          const ad = a.visit_date || a.created_at || '';
+          const bd = b.visit_date || b.created_at || '';
+          return bd.localeCompare(ad);
+        });
+        setVisitHistory(merged);
+      });
     }
     // Fetch hotel dining if this place looks like a hotel
     const isHotel = place.types[0] === 'hotel' || place.types[0] === 'lodging';

@@ -275,6 +275,51 @@ const STORAGE_KEY_WISHLIST = 'gourmad-wishlist';
 const STORAGE_KEY_META = 'gourmad-restaurant-meta';
 const STORAGE_KEY_TRIPS = 'gourmad-trips';
 const STORAGE_KEY_CUSTOM_ORDER = 'gourmad-custom-order';
+// Local-only mirror of the visit_history table so visit records
+// persist even when Supabase is unavailable or the user isn't signed
+// in yet. Keyed by restaurantId so the detail page can read it back.
+const STORAGE_KEY_VISIT_HISTORY = 'gourmad-visit-history';
+
+export interface LocalVisitRecord {
+  id: string;
+  restaurantId: string;
+  score: number;
+  notes: string;
+  visit_date: string;
+  tags: string[];
+  would_return: boolean;
+  photos: { url: string; caption: string; isFavorite: boolean }[];
+  friend_ids: string[];
+  created_at: string;
+}
+
+function loadLocalVisitHistory(): Record<string, LocalVisitRecord[]> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_VISIT_HISTORY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function appendLocalVisitRecord(restaurantId: string, rec: Omit<LocalVisitRecord, 'id' | 'created_at' | 'restaurantId'>) {
+  try {
+    const all = loadLocalVisitHistory();
+    const list = all[restaurantId] || [];
+    const entry: LocalVisitRecord = {
+      ...rec,
+      restaurantId,
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      created_at: new Date().toISOString(),
+    };
+    all[restaurantId] = [entry, ...list];
+    localStorage.setItem(STORAGE_KEY_VISIT_HISTORY, JSON.stringify(all));
+  } catch (err) { console.warn('[VisitHistory] appendLocal failed', err); }
+}
+
+/** Read local visit records for a restaurant (newest first). */
+export function readLocalVisitHistory(restaurantId: string): LocalVisitRecord[] {
+  const all = loadLocalVisitHistory();
+  return all[restaurantId] || [];
+}
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -832,19 +877,37 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Ratings
   const rateRestaurant = useCallback((rating: RestaurantRating) => {
     setRatings((prev) => {
-      // Save old rating to visit history before overwriting
+      // Save old rating to visit history before overwriting. Writes to
+      // BOTH localStorage (synchronous, always works) and Supabase
+      // (async, cross-device) so visit records persist regardless of
+      // sign-in status or network state.
       const existing = prev.find((r) => r.restaurantId === rating.restaurantId);
-      if (existing && userIdRef.current) {
-        saveVisitRecord(userIdRef.current, {
-          restaurantId: existing.restaurantId,
+      if (existing) {
+        appendLocalVisitRecord(existing.restaurantId, {
           score: existing.score,
           notes: existing.notes,
-          visitDate: existing.visitDate,
+          visit_date: existing.visitDate,
           tags: existing.tags,
-          wouldReturn: existing.wouldReturn,
-          photos: existing.photos || [],
-          friendIds: existing.friendIds || [],
-        }).catch(() => console.warn('[VisitHistory] Failed to save visit record'));
+          would_return: existing.wouldReturn,
+          photos: (existing.photos || []).map((p) => ({
+            url: p.url,
+            caption: p.caption || '',
+            isFavorite: !!p.isFavorite,
+          })),
+          friend_ids: existing.friendIds || [],
+        });
+        if (userIdRef.current) {
+          saveVisitRecord(userIdRef.current, {
+            restaurantId: existing.restaurantId,
+            score: existing.score,
+            notes: existing.notes,
+            visitDate: existing.visitDate,
+            tags: existing.tags,
+            wouldReturn: existing.wouldReturn,
+            photos: existing.photos || [],
+            friendIds: existing.friendIds || [],
+          }).catch(() => console.warn('[VisitHistory] Failed to save visit record'));
+        }
       }
       const next = [rating, ...prev.filter((r) => r.restaurantId !== rating.restaurantId)];
       saveToStorage(STORAGE_KEY_RATINGS, next);
