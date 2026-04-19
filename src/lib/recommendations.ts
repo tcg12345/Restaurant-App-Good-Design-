@@ -1,20 +1,15 @@
 import type { PlaceResult } from './places';
 import { extractCityState, CUISINE_TYPES, searchPlacesByText } from './places';
 import type { CommunityRating } from './supabase-community';
-import { getExpertRatings, getAllFriendRatings, getExpertProfiles } from './supabase-community';
+import {
+  getExpertRatings,
+  getAllFriendRatings,
+  getExpertProfiles,
+  getTagSimilarRestaurants,
+  getFollowedExpertIds,
+} from './supabase-community';
 import { locationKey, preferencesHash, getHomeRecsCache, saveHomeRecsCache } from './supabase-rec-cache';
 import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/ListsContext';
-
-// Stubs — real implementations land in the next commit.
-const getTagSimilarRestaurants = async (
-  _topTags: string[],
-  _locationLabel: string,
-  _viewerId: string,
-  _limit: number,
-): Promise<CommunityRating[]> => [];
-
-const getFollowedExpertIds = async (_userId: string): Promise<Set<string>> =>
-  new Set<string>();
 
 export interface TasteProfile {
   cuisineScore: Record<string, number>;
