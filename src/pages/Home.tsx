@@ -948,7 +948,6 @@ export const Home: React.FC = () => {
                               return (
                                 <RestaurantCard key={place.id} {...props}
                                   isWishlisted={isWishlisted(place.id)}
-                                  imageClassName="aspect-[16/15] sm:aspect-[16/9]"
                                   onAdd={() => openAddRestaurantModal({
                                     id: place.id, name: place.name, image: props.image,
                                     cuisine: props.cuisine, price: props.price, address: place.address,
