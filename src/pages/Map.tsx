@@ -37,6 +37,21 @@ const sessionRecsCache = new Map<string, HomeRecCacheEntry>();
 
 // Max age we'll trust a Supabase cache entry before refetching from Google.
 const HOME_RECS_CACHE_TTL = 14 * 24 * 60 * 60 * 1000; // 14 days
+// After this age, we keep the cache but slide in one fresh variation query
+// so the feed stays alive between full refetches.
+const HOME_RECS_TOPUP_AGE = 3 * 24 * 60 * 60 * 1000; // 3 days
+
+/**
+ * Fisher-Yates in-place shuffle. Used to reshuffle the cached recommendation
+ * pool on every load so the row feels fresh without any API calls.
+ */
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
@@ -525,26 +540,59 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     const queries: string[] = [];
     const push = (q: string) => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
     const cities = cityOverride ? [cityOverride] : topCities;
-    for (const city of cities) {
-      for (const cuisine of topCuisines) push(`best ${cuisine} restaurants in ${city}`);
+    const city = cities[0] || '';
+
+    // Interleave so the FIRST queries are cuisine+price matches — the
+    // initial batch is what gets fetched live and cached, so putting price
+    // signals up front means a user whose top price is $$$$ actually sees
+    // mostly $$$$ recs (and vice versa for $).
+    if (topPrices.length > 0) {
+      for (const cuisine of topCuisines) {
+        for (const price of topPrices) {
+          const pfx = priceSymbols[price];
+          const q = city
+            ? `best ${pfx} ${cuisine} restaurants in ${city}`
+            : `best ${pfx} ${cuisine} restaurants`;
+          push(q.replace(/\s+/g, ' ').trim());
+        }
+      }
+      // Sprinkle in a "fine dining" anchor when the top price is expensive,
+      // or "cheap eats" when the top price is $ — gives the pool a spine
+      // that matches their wallet even before cuisine is considered.
+      const highestTopPrice = Math.max(...topPrices);
+      const lowestTopPrice = Math.min(...topPrices);
+      if (highestTopPrice >= 3) {
+        for (const cuisine of topCuisines.slice(0, 2)) {
+          push(city ? `${cuisine} fine dining ${city}` : `${cuisine} fine dining`);
+        }
+        push(city ? `fine dining ${city}` : 'fine dining restaurants');
+      }
+      if (lowestTopPrice <= 2) {
+        for (const cuisine of topCuisines.slice(0, 2)) {
+          push(city ? `cheap ${cuisine} ${city}` : `cheap ${cuisine} restaurants`);
+        }
+      }
     }
+
+    // Then generic cuisine queries without price — gives the pool variety
+    // while still cuisine-weighted.
     for (const cuisine of topCuisines) {
-      for (const price of topPrices) push(`best ${priceSymbols[price]} ${cuisine} restaurants in ${cities[0] || ''}`.trim().replace(/\s+in\s*$/, ''));
+      push(city ? `best ${cuisine} restaurants in ${city}` : `best ${cuisine} restaurants`);
     }
+
+    // Tail: "top rated", "hidden gem" variants for diversity.
     for (const cuisine of topCuisines) {
-      if (cities[0]) {
-        push(`top rated ${cuisine} restaurants in ${cities[0]}`);
-        push(`${cuisine} fine dining ${cities[0]}`);
-        push(`hidden gem ${cuisine} restaurants ${cities[0]}`);
+      if (city) {
+        push(`top rated ${cuisine} restaurants in ${city}`);
+        push(`hidden gem ${cuisine} restaurants ${city}`);
       } else {
         push(`top rated ${cuisine} restaurants`);
-        push(`${cuisine} fine dining`);
         push(`hidden gem ${cuisine} restaurants`);
       }
     }
-    for (const city of cities) {
-      push(`best restaurants in ${city}`);
-      push(`trending restaurants ${city}`);
+    for (const c of cities) {
+      push(`best restaurants in ${c}`);
+      push(`trending restaurants ${c}`);
     }
     return queries;
   }, [userPreferences]);
@@ -698,9 +746,13 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices);
 
     const applyCachedResults = (entry: HomeRecCacheEntry, prependFresh?: PlaceResult[]) => {
+      // Shuffle the cached pool on every load so the user sees different
+      // ordering even when nothing new was fetched. Any freshly-fetched
+      // top-ups stay at the top (they're the newest / most relevant).
+      const shuffledCache = shuffleInPlace([...entry.places]);
       const merged = prependFresh && prependFresh.length > 0
-        ? [...prependFresh, ...entry.places].filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i)
-        : entry.places;
+        ? [...prependFresh, ...shuffledCache].filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i)
+        : shuffledCache;
       // Seed the dedup set so loadMore doesn't re-surface these.
       for (const p of merged) recsSeenIdsRef.current.add(p.id);
       setApiRecommendations(merged);
@@ -715,10 +767,15 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     const runLiveFetch = async () => {
       if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
         const queries = buildRecQueries(homeCityOverride);
-        const initialBatch = queries.slice(0, 3);
+        // Pull a larger initial pool — five queries weighted across the
+        // user's top cuisines / prices / cities. Mixing these up means the
+        // cached pool covers enough variety that reshuffling on reload
+        // actually produces visibly different recs without any more calls.
+        const initialBatch = queries.slice(0, 5);
         recsQueryCursorRef.current = initialBatch.length;
         const fresh = await fetchRecBatch(initialBatch);
-        setApiRecommendations(fresh);
+        const shuffled = shuffleInPlace([...fresh]);
+        setApiRecommendations(shuffled);
         setRecsLoading(false);
         // Persist only if we have a location key and a user — otherwise we
         // have nowhere to file this.
@@ -783,21 +840,42 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           const cached = await getHomeRecsCache(uid, locKey);
           const fresh = cached && Date.now() - cached.updatedAt < HOME_RECS_CACHE_TTL ? cached : null;
           if (fresh && fresh.places.length > 0) {
-            if (fresh.preferencesHash === prefsHash || userPreferences.topCuisines.length === 0) {
-              // Straight cache hit — no Places API spend at all.
+            const age = Date.now() - fresh.updatedAt;
+            const prefsMatch = fresh.preferencesHash === prefsHash || userPreferences.topCuisines.length === 0;
+
+            if (prefsMatch && age < HOME_RECS_TOPUP_AGE) {
+              // Straight cache hit — no Places API spend at all, and the
+              // cache is recent enough that we don't even need a variation
+              // top-up. Shuffle provides the reload variation.
               sessionRecsCache.set(locKey, fresh);
               applyCachedResults(fresh);
               return;
             }
-            // Prefs drifted since the cache was built — keep most of the
-            // cache but top up with one fresh query for the new top cuisine
-            // so results reflect the change without a full refetch.
-            const topCuisine = userPreferences.topCuisines[0];
-            const topUpQueries = topCuisine
-              ? [`best ${topCuisine} restaurants in ${homeCityOverride || ''}`.trim().replace(/\s+$/, '')]
-              : [];
-            const topUpResults = topUpQueries.length > 0
-              ? await fetchRecBatch(topUpQueries)
+
+            // Build exactly ONE top-up query so the feed gets fresh blood
+            // without blowing the API budget. The query picked rotates via a
+            // random index into the user's full rec-query list so the new
+            // places surfaced aren't the same ones we fetched initially, and
+            // so users with a strong price preference (e.g. $$$$) keep
+            // getting high-end picks rather than drifting toward generic.
+            const allQueries = buildRecQueries(homeCityOverride);
+            // When prefs drifted, force the top-up to target the new top
+            // cuisine so the change is immediately visible; otherwise cycle
+            // through the tail of the query list we haven't exhausted yet.
+            let topUpQuery: string | null = null;
+            if (!prefsMatch) {
+              const topCuisine = userPreferences.topCuisines[0];
+              topUpQuery = topCuisine
+                ? `best ${topCuisine} restaurants in ${homeCityOverride || ''}`.trim().replace(/\s+in\s*$/, '')
+                : null;
+            } else if (allQueries.length > 5) {
+              topUpQuery = allQueries[5 + Math.floor(Math.random() * Math.max(1, allQueries.length - 5))];
+            } else if (allQueries.length > 0) {
+              topUpQuery = allQueries[Math.floor(Math.random() * allQueries.length)];
+            }
+
+            const topUpResults = topUpQuery
+              ? (await fetchRecBatch([topUpQuery])).filter((p) => !fresh.places.some((q) => q.id === p.id))
               : [];
             const merged: PlaceResult[] = [...topUpResults, ...fresh.places]
               .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
@@ -808,7 +886,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
             };
             sessionRecsCache.set(locKey, entry);
             saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, merged);
-            applyCachedResults(entry);
+            applyCachedResults(entry, topUpResults);
             return;
           }
           // Cache miss or stale — live fetch.
