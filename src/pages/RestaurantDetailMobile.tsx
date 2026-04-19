@@ -1276,13 +1276,6 @@ export const RestaurantDetailMobile: React.FC = () => {
                                   ))}
                                 </div>
                               )}
-                              {e.wouldReturn !== undefined && (
-                                <p style={{ fontSize: '11px', fontWeight: 600 }}>
-                                  {e.wouldReturn
-                                    ? <span className="text-olive">Would return</span>
-                                    : <span className="text-clay">Wouldn't return</span>}
-                                </p>
-                              )}
                             </div>
                           </motion.div>
                         )}

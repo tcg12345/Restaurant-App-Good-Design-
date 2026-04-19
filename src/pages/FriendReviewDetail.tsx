@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, MapPin, Heart, MessageSquare, Send, X,
-  CornerDownLeft, Loader2, Calendar, ChevronLeft, ChevronRight,
+  Loader2, Calendar, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreRingStrong, scoreGradientOverlay } from '../lib/score';
@@ -295,23 +295,14 @@ export const FriendReviewDetail: React.FC = () => {
           </div>
         </div>
 
-        {/* Would return + visit date */}
-        <div className="flex items-center gap-2 mt-4 flex-wrap">
-          {rating.would_return ? (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-green-700 bg-green-50 px-2.5 py-1 rounded-full">
-              <CornerDownLeft size={11} /> Would return
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-700 bg-red-50 px-2.5 py-1 rounded-full">
-              <X size={11} /> Wouldn&apos;t return
-            </span>
-          )}
-          {visitDate && (
+        {/* Visit date */}
+        {visitDate && (
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
             <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-on-surface/60 bg-on-surface/5 px-2.5 py-1 rounded-full">
               <Calendar size={11} /> {visitDate}
             </span>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Notes — editorial quote: floating accent bar + quotation mark, no card */}

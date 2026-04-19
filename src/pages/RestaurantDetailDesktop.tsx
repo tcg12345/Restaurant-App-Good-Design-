@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Users, UserCircle, Share2, Heart, Bookmark,
+  Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -935,19 +935,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
                     </button>
                   </li>
 
-                  {/* Would return */}
-                  <li>
-                    <button
-                      onClick={() => openAt('main')}
-                      className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
-                    >
-                      <Heart size={15} className="text-on-surface/35 flex-shrink-0" />
-                      <span className="text-on-surface/45 w-20 flex-shrink-0">Return?</span>
-                      <span className="text-on-surface/75 flex-1">{myRating.wouldReturn ? 'Yes' : 'Nah'}</span>
-                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
-                    </button>
-                  </li>
-
                   {/* Visited date */}
                   <li>
                     <button
@@ -1164,13 +1151,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
                                     <img key={i} src={p.url} className="w-24 h-24 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
                                   ))}
                                 </div>
-                              )}
-                              {e.wouldReturn !== undefined && (
-                                <p className="text-xs font-semibold">
-                                  {e.wouldReturn
-                                    ? <span className="text-green-600">Would return</span>
-                                    : <span className="text-red-500">Wouldn't return</span>}
-                                </p>
                               )}
                             </div>
                           </motion.div>
