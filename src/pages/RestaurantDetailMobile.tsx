@@ -159,11 +159,61 @@ export const RestaurantDetailMobile: React.FC = () => {
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#f7f2ea' }}>
 
+      {/* ── Sticky top bar — back / bookmark / share. Stays pinned to
+          the top of the scroll container as the page scrolls past the
+          hero. Uses glass pills so the icons stay legible both on top
+          of the photo and on the cream surface below. ── */}
+      <div className="sticky top-0 z-50 h-0">
+        <div className="absolute top-0 inset-x-0 px-4 pt-4 flex items-center justify-between pointer-events-none">
+          <button
+            onClick={() => navigate(-1)}
+            aria-label="Back"
+            className="pointer-events-auto p-2 bg-black/30 backdrop-blur-md rounded-full text-white/90 shadow-sm"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div className="pointer-events-auto flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (!place) return;
+                if (isWishlisted(place.id)) {
+                  removeFromWishlist(place.id);
+                } else {
+                  openWishlistModal({
+                    id: place.id, name: place.name,
+                    image: place.photoUrl || '',
+                    cuisine, price: priceStr,
+                    address: place.address,
+                  });
+                }
+              }}
+              aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
+              className="p-2 bg-black/30 backdrop-blur-md rounded-full text-white/90 shadow-sm"
+            >
+              <Bookmark size={16} className={place && isWishlisted(place.id) ? 'fill-white text-white' : ''} />
+            </button>
+            <button
+              onClick={() => {
+                if (navigator.share) {
+                  navigator.share({ title: place.name, url: window.location.href });
+                } else {
+                  navigator.clipboard.writeText(window.location.href);
+                }
+              }}
+              aria-label="Share"
+              className="p-2 bg-black/30 backdrop-blur-md rounded-full text-white/90 shadow-sm"
+            >
+              <Share2 size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* ── Hero — full-bleed image. Shorter than before (52vh) because
           the name + metadata moved out of the overlay and down onto
           the page surface. The dark gradient stays at the bottom for
-          a gentle fade, but nothing sits on top of it except the
-          carousel dots. ── */}
+          a gentle fade. Top-bar controls live outside the hero now so
+          they can stick to the top of the scroll container. ── */}
       <div className="relative w-full overflow-hidden" style={{ height: '39vh', maxHeight: '45vh' }}>
         {photos.length > 0 ? (
           <button
@@ -220,50 +270,6 @@ export const RestaurantDetailMobile: React.FC = () => {
             </div>
           </>
         )}
-
-        {/* Back button */}
-        <button
-          onClick={() => navigate(-1)}
-          className="absolute top-4 left-4 p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 z-10"
-        >
-          <ArrowLeft size={18} />
-        </button>
-
-        {/* Top-right actions — bookmark (wishlist) + share */}
-        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
-          <button
-            onClick={() => {
-              if (!place) return;
-              if (isWishlisted(place.id)) {
-                removeFromWishlist(place.id);
-              } else {
-                openWishlistModal({
-                  id: place.id, name: place.name,
-                  image: place.photoUrl || '',
-                  cuisine, price: priceStr,
-                  address: place.address,
-                });
-              }
-            }}
-            aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
-            className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80"
-          >
-            <Bookmark size={16} className={place && isWishlisted(place.id) ? 'fill-white text-white' : ''} />
-          </button>
-          <button
-            onClick={() => {
-              if (navigator.share) {
-                navigator.share({ title: place.name, url: window.location.href });
-              } else {
-                navigator.clipboard.writeText(window.location.href);
-              }
-            }}
-            aria-label="Share"
-            className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80"
-          >
-            <Share2 size={16} />
-          </button>
-        </div>
       </div>
 
       {/* ── Main Content ── */}
