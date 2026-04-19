@@ -10,8 +10,15 @@ import { scoreColor } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
+import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import {
+  buildTasteProfile,
+  buildCandidateQueries,
+  scoreCandidates,
+  type TasteProfile,
+  type CandidateSignals,
+} from '../lib/recommendations';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { SocialFeed } from '../components/SocialFeed';
@@ -68,6 +75,35 @@ async function applyCoverPhotos(
   }));
 }
 
+// Radius options (miles) for the "Recommended For You" scope picker.
+// Persisted per-user in localStorage so the choice survives reloads.
+const RADIUS_OPTIONS = [1, 3, 5, 10, 25] as const;
+type RadiusMiles = typeof RADIUS_OPTIONS[number];
+const REC_RADIUS_STORAGE_KEY = 'gourmad-rec-radius-miles';
+
+const RecRadiusPicker: React.FC<{
+  value: RadiusMiles;
+  onChange: (n: RadiusMiles) => void;
+}> = ({ value, onChange }) => (
+  <div className="flex items-center gap-1 bg-on-surface/[0.04] rounded-full p-0.5" role="radiogroup" aria-label="Search radius">
+    {RADIUS_OPTIONS.map((n) => (
+      <button
+        key={n}
+        type="button"
+        role="radio"
+        aria-checked={value === n}
+        onClick={() => onChange(n)}
+        className={cn(
+          'px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors',
+          value === n ? 'bg-white text-primary shadow-sm' : 'text-on-surface/50 hover:text-on-surface/80',
+        )}
+      >
+        {n} mi
+      </button>
+    ))}
+  </div>
+);
+
 // Max age we'll trust a Supabase cache entry before throwing it out and
 // building a fresh preference-weighted pool from scratch.
 const HOME_RECS_CACHE_TTL = 2 * 24 * 60 * 60 * 1000; // 2 days
@@ -87,7 +123,7 @@ function shuffleInPlace<T>(arr: T[]): T[] {
   return arr;
 }
 
-import { supabaseConfigured } from '../lib/supabase';
+import { supabase, supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -234,7 +270,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHideBottomNav, phoneMode } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings, lists: myLists } = useLists();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist } = useLists();
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
@@ -487,90 +523,39 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     });
   }, [userId]);
 
-  // Build preference profile from every rating the user has made — not just
-  // high-rated ones. We reward categories they've loved AND penalise
-  // categories they've consistently disliked so the recs don't just mirror
-  // whatever they've rated most often.
-  //
-  // Scoring model:
-  //   centered = score - 7   (7/10 is "neutral — fine but not a preference")
-  //   weight = centered if positive, else centered × 1.25 (penalise misses
-  //            a bit harder than rewards, so 9 low-rated French loses more
-  //            signal than 4 high-rated Mediterranean gains)
-  //
-  // We bucket this weight into THREE signals:
-  //   1. cuisineScores[cuisine]             → cuisine affinity
-  //   2. priceScores[priceLevel]            → price affinity
-  //   3. pairScores["cuisine|price"]        → the actually-loved combination
-  //      (e.g. $$$$ Mediterranean, not just "Mediterranean OR $$$$")
-  const userPreferences = useMemo(() => {
-    const cuisineScores: Record<string, number> = {};
-    const priceScores: Record<number, number> = {};
-    const pairScores: Record<string, number> = {};
-    let highRatedCount = 0;
+  // Taste profile is centralised in src/lib/recommendations.ts so Map.tsx and
+  // anything else that needs preference-weighted picks share the same weighting
+  // math (score-centered around 7, wishlist nudges, list-name → tag signals).
+  const userPreferences = useMemo<TasteProfile>(
+    () => buildTasteProfile(myLocalRatings, wishlist, myLists, recentViews),
+    [myLocalRatings, wishlist, myLists, recentViews],
+  );
 
-    myLocalRatings.forEach((r) => {
-      const score = Number(r.score) || 0;
-      if (score <= 0) return; // unrated
-      if (score >= 8) highRatedCount++;
+  // Radius scope for the Recommended For You row (miles). Persisted so the
+  // user's pick survives reloads and drives both the Google query radius and
+  // the post-score distance penalty in scoreCandidates.
+  const [recRadiusMiles, setRecRadiusMiles] = useState<RadiusMiles>(() => {
+    try {
+      const raw = localStorage.getItem(REC_RADIUS_STORAGE_KEY);
+      const n = raw ? Number(raw) : 5;
+      return (RADIUS_OPTIONS as readonly number[]).includes(n) ? (n as RadiusMiles) : 5;
+    } catch { return 5; }
+  });
+  const updateRecRadius = useCallback((n: RadiusMiles) => {
+    setRecRadiusMiles(n);
+    try { localStorage.setItem(REC_RADIUS_STORAGE_KEY, String(n)); } catch { /* ignore */ }
+  }, []);
 
-      const centered = score - 7;
-      const weight = centered >= 0 ? centered + 1 : centered * 1.25;
-      const price = r.price?.length || 0;
-
-      if (r.cuisine) {
-        cuisineScores[r.cuisine] = (cuisineScores[r.cuisine] || 0) + weight;
-        if (price > 0) {
-          const key = `${r.cuisine}|${price}`;
-          // Pair weight is amplified — a strong cuisine+price fit is the
-          // most actionable signal we have for building a query.
-          pairScores[key] = (pairScores[key] || 0) + weight * 1.5;
-        }
-      }
-      // Tags get partial credit toward cuisine affinity.
-      r.tags.forEach((t) => {
-        cuisineScores[t] = (cuisineScores[t] || 0) + weight * 0.5;
-      });
-      if (price > 0) {
-        priceScores[price] = (priceScores[price] || 0) + weight;
-      }
-    });
-
-    // Only surface positively-scored categories. A cuisine the user has
-    // consistently rated ≤6 ends up negative and gets dropped entirely — we
-    // want to avoid recommending more of what they don't like, not just
-    // avoid recommending it proportionally less.
-    const topCuisines = Object.entries(cuisineScores)
-      .filter(([_, s]) => s > 0)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([c]) => c);
-    const topPrices = Object.entries(priceScores)
-      .filter(([_, s]) => s > 0)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 2)
-      .map(([p]) => Number(p))
-      .filter((p) => p >= 1 && p <= 4);
-    const topPairs = Object.entries(pairScores)
-      .filter(([_, s]) => s > 0)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([k]) => {
-        const [cuisine, priceStr] = k.split('|');
-        return { cuisine, price: Number(priceStr) };
-      });
-
-    // Most common cities/states among high-rated restaurants, for location anchoring
-    const cityCounts: Record<string, number> = {};
-    myLocalRatings.forEach((r) => {
-      if (Number(r.score) < 7) return;
-      const city = extractCityState(r.address || '', r.address || '');
-      if (city) cityCounts[city] = (cityCounts[city] || 0) + 1;
-    });
-    const topCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
-    const topCity = topCities[0] || null;
-    return { cuisineScores, priceCounts: priceScores, priceScores, pairScores, topCuisines, topPrices, topPairs, topCities, topCity, highRatedCount };
-  }, [myLocalRatings]);
+  // Social signals for scoreCandidates — refetched once per (userId, home city)
+  // change and reused across every load-more batch. expertRecRestaurantIds is
+  // fetched once from the (small) expert_recommendations table, not per batch.
+  const [recSignals, setRecSignals] = useState<CandidateSignals>(() => ({
+    expertUserIds: new Set(),
+    followedExpertIds: new Set(),
+    friendUserIds: new Set(),
+    communityByRestaurant: new Map(),
+    expertRecRestaurantIds: new Set(),
+  }));
 
   // API-based curated recommendations (not derived from recently viewed).
   const [apiRecommendations, setApiRecommendations] = useState<PlaceResult[]>([]);
@@ -613,94 +598,25 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     return out;
   }, [myRatings]);
 
-  // Build a list of personalised search queries from the user's preferences.
-  //
-  // cityOverride lets the home-page location anchor replace the user's
-  // historical topCities in the query strings. This matters because Google
-  // Places honours an explicit "in New York" in the query text even when the
-  // locationBias is pointed elsewhere — we'd end up with NYC results while
-  // anchoring to LA. Pass the selected home city here and the queries track
-  // the dropdown.
+  // Thin wrapper around buildCandidateQueries — Map passes a city override
+  // from the home-location dropdown; the engine treats it as target.label so
+  // the queries read "best X in <selected city>" regardless of the user's
+  // historical topCities.
   const buildRecQueries = useCallback((cityOverride?: string | null) => {
-    const { topCuisines, topPrices, topPairs, topCities } = userPreferences;
-    const priceSymbols = ['', '$', '$$', '$$$', '$$$$'];
-    const seen = new Set<string>();
-    const queries: string[] = [];
-    const push = (q: string) => {
-      const cleaned = q.replace(/\s+/g, ' ').trim();
-      if (cleaned && !seen.has(cleaned)) { seen.add(cleaned); queries.push(cleaned); }
-    };
-    const cities = cityOverride ? [cityOverride] : topCities;
-    const city = cities[0] || '';
-
-    // Tier 1 — the strongest signal: (cuisine, price) pairs the user has
-    // actively loved. If they've rated $$$$ Mediterranean highly, this asks
-    // Google specifically for that, not just "Mediterranean OR $$$$".
-    for (const pair of topPairs) {
-      const pfx = priceSymbols[pair.price] || '';
-      push(city ? `best ${pfx} ${pair.cuisine} restaurants in ${city}` : `best ${pfx} ${pair.cuisine} restaurants`);
-    }
-
-    // Tier 2 — cuisine × price cross products for the remaining top
-    // cuisines not already covered by a specific pair. Keeps price signal
-    // on queries even when the user hasn't rated that cuisine at that
-    // price specifically.
-    for (const cuisine of topCuisines) {
-      if (topPairs.some((p) => p.cuisine === cuisine)) continue;
-      for (const price of topPrices) {
-        const pfx = priceSymbols[price] || '';
-        push(city ? `best ${pfx} ${cuisine} restaurants in ${city}` : `best ${pfx} ${cuisine} restaurants`);
-      }
-    }
-
-    // Tier 3 — price-only anchors. Users with a strong $$$$ preference get
-    // "fine dining" recs that may introduce new cuisines they'd love.
-    if (topPrices.length > 0) {
-      const highestTopPrice = Math.max(...topPrices);
-      const lowestTopPrice = Math.min(...topPrices);
-      if (highestTopPrice >= 3) {
-        for (const cuisine of topCuisines.slice(0, 2)) {
-          push(city ? `${cuisine} fine dining ${city}` : `${cuisine} fine dining`);
-        }
-        push(city ? `fine dining ${city}` : 'fine dining restaurants');
-      }
-      if (lowestTopPrice <= 2) {
-        for (const cuisine of topCuisines.slice(0, 2)) {
-          push(city ? `cheap ${cuisine} ${city}` : `cheap ${cuisine} restaurants`);
-        }
-      }
-    }
-
-    // Tier 4 — generic cuisine queries for variety.
-    for (const cuisine of topCuisines) {
-      push(city ? `best ${cuisine} restaurants in ${city}` : `best ${cuisine} restaurants`);
-    }
-
-    // Tier 5 — tail: "top rated", "hidden gem" variants for diversity.
-    for (const cuisine of topCuisines) {
-      if (city) {
-        push(`top rated ${cuisine} restaurants in ${city}`);
-        push(`hidden gem ${cuisine} restaurants ${city}`);
-      } else {
-        push(`top rated ${cuisine} restaurants`);
-        push(`hidden gem ${cuisine} restaurants`);
-      }
-    }
-    for (const c of cities) {
-      push(`best restaurants in ${c}`);
-      push(`trending restaurants ${c}`);
-    }
-    return queries;
+    const label = cityOverride ?? userPreferences.topCity ?? '';
+    // buildCandidateQueries only reads target.label; lat/lng are unused here.
+    return buildCandidateQueries(userPreferences, { label, lat: 0, lng: 0 });
   }, [userPreferences]);
 
-  // Fetch a batch of recommendations using map center as location anchor.
+  // Fetch a batch of recommendations. Home mode anchors to the selected home
+  // location and scopes Google to the picked radius; browse mode still uses
+  // the map centre and the original 50 km bias so existing map behaviour is
+  // untouched.
   const fetchRecBatch = useCallback(async (queryStrs: string[]) => {
     if (queryStrs.length === 0) return [] as PlaceResult[];
     const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
     const wishlistedIds = new Set(myLists.flatMap((l: any) => l.wishlistIds || []));
     const recentIds = new Set(recentViews.map((v) => v.id));
-    // Home mode has no live map — anchor recs to the user-selected home
-    // location instead so the results track the dropdown pick.
     let lat: number;
     let lng: number;
     if (mode === 'home' && homeLocation) {
@@ -711,14 +627,22 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       lat = center?.lat ?? 40.735;
       lng = center?.lng ?? -73.99;
     }
+    const radiusMeters = mode === 'home' ? recRadiusMiles * 1609.34 : 50000;
+    const locationLabel = mode === 'home' ? homeLocation?.label : undefined;
     const results = await Promise.all(
-      queryStrs.map((q) => searchPlacesByText(q, lat, lng, 50000).catch(() => [] as PlaceResult[]))
+      queryStrs.map((q) =>
+        searchPlacesByText(q, lat, lng, locationLabel, /* useRestriction */ mode === 'home', radiusMeters)
+          .catch(() => [] as PlaceResult[])
+      ),
     );
     const interleaved: PlaceResult[] = [];
     const maxLen = Math.max(0, ...results.map((r) => r.length));
     for (let i = 0; i < maxLen; i++) {
       for (const list of results) if (list[i]) interleaved.push(list[i]);
     }
+    // Dedup + skip things the user has already rated/wishlisted/seen + quality
+    // floor. The floor runs BEFORE scoring so scoreCandidates doesn't waste
+    // work on places the user wouldn't have ever been shown anyway.
     const fresh = interleaved.filter((p) => {
       if (recsSeenIdsRef.current.has(p.id)) return false;
       if (ratedIds.has(p.id) || wishlistedIds.has(p.id) || recentIds.has(p.id)) return false;
@@ -726,8 +650,61 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       recsSeenIdsRef.current.add(p.id);
       return true;
     });
-    return fresh;
-  }, [myLocalRatings, myLists, recentViews, mode, homeLocation]);
+    // Browse mode keeps the old "quality-filtered Google results only" path.
+    // Home mode runs the new scorer so taste profile + social signals + the
+    // radius-based distance penalty all influence final ordering.
+    if (mode !== 'home' || !homeLocation) return fresh;
+    const target = { label: homeLocation.label, lat: homeLocation.lat, lng: homeLocation.lng };
+    return scoreCandidates(fresh, userPreferences, recSignals, target, radiusMeters);
+  }, [myLocalRatings, myLists, recentViews, mode, homeLocation, recRadiusMiles, userPreferences, recSignals]);
+
+  // Refresh scoring signals on home-mode + (userId, home city, top tags)
+  // change. Fetches in parallel so one slow endpoint doesn't block the rest.
+  // Browse mode skips this entirely — scoreCandidates isn't called there.
+  useEffect(() => {
+    if (mode !== 'home') return;
+    let cancelled = false;
+    const city = homeLocation?.label.split(',')[0].trim() || '';
+    (async () => {
+      const [experts, followed, friendRatings, tagSim, exprecs, exprecRows] = await Promise.all([
+        getExpertProfiles().catch(() => []),
+        userId ? getFollowedExpertIds(userId).catch(() => new Set<string>()) : Promise.resolve(new Set<string>()),
+        userId ? getAllFriendRatings(userId).catch(() => [] as CommunityRating[]) : Promise.resolve([] as CommunityRating[]),
+        userPreferences.topTags.length > 0
+          ? getTagSimilarRestaurants(userPreferences.topTags, city || null, userId ?? '', 40).catch(() => [] as CommunityRating[])
+          : Promise.resolve([] as CommunityRating[]),
+        getExpertRatings(100).catch(() => [] as CommunityRating[]),
+        // One-shot fetch of all expert-recommended restaurant ids. Table is
+        // expert-only so it's small; keeping this per (userId, city) memo
+        // avoids a per-batch round-trip in fetchRecBatch.
+        (async () => {
+          if (!userId || !supabaseConfigured) return [] as { restaurant_id: string }[];
+          try {
+            const { data } = await supabase.from('expert_recommendations').select('restaurant_id');
+            return (data || []) as { restaurant_id: string }[];
+          } catch { return []; }
+        })(),
+      ]);
+      if (cancelled) return;
+      const expertUserIds = new Set(experts.map((e: UserProfile) => e.user_id));
+      const friendUserIds = new Set(friendRatings.map((r) => r.user_id));
+      const communityByRestaurant = new Map<string, CommunityRating[]>();
+      for (const row of [...tagSim, ...exprecs, ...friendRatings]) {
+        const arr = communityByRestaurant.get(row.restaurant_id);
+        if (arr) arr.push(row);
+        else communityByRestaurant.set(row.restaurant_id, [row]);
+      }
+      const expertRecRestaurantIds = new Set(exprecRows.map((r) => r.restaurant_id));
+      setRecSignals({
+        expertUserIds,
+        followedExpertIds: followed,
+        friendUserIds,
+        communityByRestaurant,
+        expertRecRestaurantIds,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [mode, userId, homeLocation?.label, userPreferences.topTags]);
 
   // Resolve the home-page location on mount. Preferred source is the device's
   // GPS; when permission is denied (or geolocation is unavailable) we fall
@@ -832,6 +809,15 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   //   5. Otherwise do a full fresh fetch (3 queries) and persist it.
   //
   // Map mode always goes to the live API — it's not the expensive path.
+
+  // Changing the radius chip has to refetch — reset the once-guard so the
+  // effect below runs again. Dedup/cursor state is reset inside the effect
+  // itself, so we only touch the guard here.
+  useEffect(() => {
+    if (mode !== 'home') return;
+    recsFetchedRef.current = false;
+  }, [recRadiusMiles, mode]);
+
   useEffect(() => {
     if (recsFetchedRef.current) return;
     if (mode === 'home' && !homeLocation) return;
@@ -853,7 +839,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     const locKey = mode === 'home' && homeLocation
       ? locationKey(homeLocation.lat, homeLocation.lng)
       : null;
-    const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices);
+    const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices) + '|r=' + Math.round(recRadiusMiles * 1609.34);
 
     const applyCachedResults = (entry: HomeRecCacheEntry, prependFresh?: PlaceResult[]) => {
       // Shuffle the cached pool on every load so the user sees different
@@ -1027,7 +1013,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
     // Anonymous home, or map mode — just run the live path.
     runLiveFetch();
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices]);
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
 
   // Load more recommendations — called when the horizontal scroll nears the
   // end. Fetches one query at a time so the infinite scroll paces itself
@@ -1057,7 +1043,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     // city get them without another Places call.
     if (mode === 'home' && userId && homeLocation) {
       const locKey = locationKey(homeLocation.lat, homeLocation.lng);
-      const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices);
+      const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices) + '|r=' + Math.round(recRadiusMiles * 1609.34);
       const existing = sessionRecsCache[locKey]?.places || [];
       const mergedPool = [...existing, ...freshWithCovers]
         .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
@@ -1072,7 +1058,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       );
     }
     setRecsLoadingMore(false);
-  }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices]);
+  }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);
@@ -3232,9 +3218,12 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
               {/* Recommendations */}
               {recsLoading ? (
                 <section className="mt-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles size={15} className="text-primary/60" />
-                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={15} className="text-primary/60" />
+                      <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                    </div>
+                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} />}
                   </div>
                   <div className="flex items-center justify-center py-8">
                     <Loader2 size={20} className="text-primary/40 animate-spin" />
@@ -3243,9 +3232,12 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                 </section>
               ) : recommendations.length > 0 ? (
                 <section className="mt-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles size={15} className="text-primary/60" />
-                    <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={15} className="text-primary/60" />
+                      <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                    </div>
+                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} />}
                   </div>
                   <div
                     className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
@@ -3885,9 +3877,12 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                   {/* Recommendations */}
                   {recsLoading ? (
                     <section>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Sparkles size={13} className="text-primary/60" />
-                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Sparkles size={13} className="text-primary/60" />
+                          <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                        </div>
+                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} />}
                       </div>
                       <div className="flex items-center justify-center py-6">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
@@ -3896,9 +3891,12 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                     </section>
                   ) : recommendations.length > 0 ? (
                     <section>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Sparkles size={13} className="text-primary/60" />
-                        <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Sparkles size={13} className="text-primary/60" />
+                          <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                        </div>
+                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} />}
                       </div>
                       <div
                         className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"

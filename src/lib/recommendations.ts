@@ -14,6 +14,7 @@ import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/Lis
 export interface TasteProfile {
   cuisineScore: Record<string, number>;
   priceScore: Record<number, number>;
+  priceCounts: Record<number, number>;       // legacy alias for priceScore (Map.tsx consumers)
   pairScore: Record<string, number>;         // "cuisine|price"
   tagScore: Record<string, number>;
   cityScore: Record<string, number>;
@@ -22,6 +23,7 @@ export interface TasteProfile {
   topPairs: { cuisine: string; price: number }[];
   topTags: string[];
   topCities: string[];
+  topCity: string | null;                    // first element of topCities, or null
   highRatedCount: number;
   ratedIds: Set<string>;
   wishlistedIds: Set<string>;
@@ -165,6 +167,7 @@ export function buildTasteProfile(
   return {
     cuisineScore,
     priceScore,
+    priceCounts: priceScore,
     pairScore,
     tagScore,
     cityScore,
@@ -173,6 +176,7 @@ export function buildTasteProfile(
     topPairs,
     topTags,
     topCities,
+    topCity: topCities[0] ?? null,
     highRatedCount,
     ratedIds,
     wishlistedIds,
