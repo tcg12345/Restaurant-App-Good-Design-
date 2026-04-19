@@ -1430,46 +1430,10 @@ export const RestaurantDetailMobile: React.FC = () => {
           </section>
         )}
 
-        {/* ── Contact & Address — flat rows on the page surface,
-            separated by hairline dividers. No card wrapper. ── */}
-        <section className="mb-6">
-          <p className="section-eyebrow mb-4">
-            Contact
-          </p>
-          <ul className="divide-y divide-line">
-            {place.phone && (
-              <li>
-                <a href={`tel:${place.phone}`} className="flex items-center gap-3 py-3 active:opacity-70 transition-opacity">
-                  <Phone size={16} className="text-ink-3 flex-shrink-0" />
-                  <span className="text-ink-2 flex-1 tabular-nums" style={{ fontSize: '13px' }}>{place.phone}</span>
-                </a>
-              </li>
-            )}
-            {place.website && (
-              <li>
-                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 active:opacity-70 transition-opacity">
-                  <Globe size={16} className="text-ink-3 flex-shrink-0" />
-                  <span className="text-ink-2 flex-1 truncate" style={{ fontSize: '13px' }}>
-                    {place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}
-                  </span>
-                  <ExternalLink size={13} className="text-ink-4 flex-shrink-0" />
-                </a>
-              </li>
-            )}
-            <li>
-              <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 py-3 active:opacity-70 transition-opacity">
-                <MapPin size={16} className="text-ink-3 flex-shrink-0" />
-                <span className="text-ink-2 flex-1" style={{ fontSize: '13px' }}>{place.address}</span>
-                <Navigation size={14} className="text-persimmon flex-shrink-0" />
-              </a>
-            </li>
-          </ul>
-        </section>
-
-        {/* ── Flavor Profile — collapsible dropdown. Trigger shows only
-            "Flavor profile"; expanded state reveals the radar + ranked
-            flavor list inline. Hidden entirely for cuisines without a
-            defined profile. ── */}
+        {/* ── Flavor Profile — flat collapsible on the page surface.
+            Trigger is a row with the JetBrains Mono label + chevron,
+            matching Hours and My Rating. Hidden entirely for cuisines
+            without a defined profile. ── */}
         {(() => {
           if (isHotel || !place) return null;
           const knownCuisines = [
@@ -1486,69 +1450,56 @@ export const RestaurantDetailMobile: React.FC = () => {
           const topFlavorNames = new Set(ranked.slice(0, 3).map((f) => f.subject));
           return (
             <section className="mb-6">
-              <div className="rounded-[14px] bg-paper border border-line overflow-hidden">
-                <button
-                  onClick={() => setFlavorOpen(!flavorOpen)}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-ink/[0.015] transition-colors"
-                >
-                  <span
-                    className="flex-1 text-ink"
-                    style={{
-                      fontFamily: '"Fraunces", "Noto Serif", serif',
-                      fontSize: '16px',
-                      fontWeight: 500,
-                    }}
+              <button
+                onClick={() => setFlavorOpen(!flavorOpen)}
+                className="w-full flex items-center justify-between py-2 text-left active:opacity-70 transition-opacity"
+              >
+                <span className="section-eyebrow">Flavor profile</span>
+                <ChevronDown size={16} className={cn('text-ink-3 flex-shrink-0 transition-transform duration-200', flavorOpen && 'rotate-180')} />
+              </button>
+              <AnimatePresence>
+                {flavorOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
                   >
-                    Flavor profile
-                  </span>
-                  <ChevronDown size={15} className={cn('text-ink-3 flex-shrink-0 transition-transform duration-200', flavorOpen && 'rotate-180')} />
-                </button>
-                <AnimatePresence>
-                  {flavorOpen && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="px-4 pb-4 pt-1 border-t border-line">
-                        <div className="flex items-center gap-4 pt-3">
-                          <RadarChart
-                            data={flavorData}
-                            color="#e85a2c"
-                            showLabels={false}
-                            className="w-[104px] h-[104px] flex-shrink-0"
-                          />
-                          <ul
-                            className="flex-1 min-w-0 space-y-1"
-                            style={{
-                              fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-                              fontSize: '12px',
-                              lineHeight: 1.5,
-                            }}
-                          >
-                            {ranked.map((f) => {
-                              const pct = Math.round((f.value / f.fullMark) * 100);
-                              const isTop = topFlavorNames.has(f.subject);
-                              return (
-                                <li key={f.subject} className="flex items-baseline gap-1.5">
-                                  <span className={cn('truncate', isTop ? 'font-semibold text-ink' : 'text-ink-3')}>
-                                    {f.subject}
-                                  </span>
-                                  <span className={cn('tabular-nums flex-shrink-0', isTop ? 'text-ink-2' : 'text-ink-3')}>
-                                    · {pct}%
-                                  </span>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+                    <div className="flex items-center gap-4 pt-3">
+                      <RadarChart
+                        data={flavorData}
+                        color="#e85a2c"
+                        showLabels={false}
+                        className="w-[104px] h-[104px] flex-shrink-0"
+                      />
+                      <ul
+                        className="flex-1 min-w-0 space-y-1"
+                        style={{
+                          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                          fontSize: '12px',
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {ranked.map((f) => {
+                          const pct = Math.round((f.value / f.fullMark) * 100);
+                          const isTop = topFlavorNames.has(f.subject);
+                          return (
+                            <li key={f.subject} className="flex items-baseline gap-1.5">
+                              <span className={cn('truncate', isTop ? 'font-semibold text-ink' : 'text-ink-3')}>
+                                {f.subject}
+                              </span>
+                              <span className={cn('tabular-nums flex-shrink-0', isTop ? 'text-ink-2' : 'text-ink-3')}>
+                                · {pct}%
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </section>
           );
         })()}
@@ -1563,7 +1514,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           the canvas itself truly extends to the very edge of the page.
           Inline width/height keep the Mapbox canvas full-sized; see
           Map.tsx for context. ── */}
-      <section className="relative w-full h-[420px]">
+      <section className="relative w-full h-[210px]">
         <div
           ref={mapContainerRef}
           className="absolute inset-0"
