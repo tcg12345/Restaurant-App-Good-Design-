@@ -1,7 +1,20 @@
 import type { PlaceResult } from './places';
-import { extractCityState, CUISINE_TYPES } from './places';
+import { extractCityState, CUISINE_TYPES, searchPlacesByText } from './places';
 import type { CommunityRating } from './supabase-community';
+import { getExpertRatings, getAllFriendRatings, getExpertProfiles } from './supabase-community';
+import { locationKey, preferencesHash, getHomeRecsCache, saveHomeRecsCache } from './supabase-rec-cache';
 import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/ListsContext';
+
+// Stubs — real implementations land in the next commit.
+const getTagSimilarRestaurants = async (
+  _topTags: string[],
+  _locationLabel: string,
+  _viewerId: string,
+  _limit: number,
+): Promise<CommunityRating[]> => [];
+
+const getFollowedExpertIds = async (_userId: string): Promise<Set<string>> =>
+  new Set<string>();
 
 export interface TasteProfile {
   cuisineScore: Record<string, number>;
@@ -404,4 +417,165 @@ export function scoreCandidates(
   scored.sort((a, b) => b.recScore - a.recScore);
 
   return scored.slice(0, 12);
+}
+
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[]> {
+  const prefsHash =
+    preferencesHash(opts.profile.topCuisines, opts.profile.topPrices) +
+    '|r=' +
+    opts.radiusMeters;
+  const locKey = locationKey(opts.target.lat, opts.target.lng);
+
+  let mergeCached: PlaceResult[] = [];
+  if (opts.userId) {
+    const cached = await getHomeRecsCache(opts.userId, locKey);
+    if (cached) {
+      const ageMs = Date.now() - cached.updatedAt;
+      const fresh = ageMs < 2 * 24 * 60 * 60 * 1000;
+      if (fresh && cached.preferencesHash === prefsHash) {
+        const shuffled = shuffleInPlace([...cached.places]);
+        return shuffled.slice(0, 12).map((p) => ({
+          ...p,
+          recScore: 0,
+          sources: ['google'] as ScoredPlace['sources'],
+        }));
+      }
+      if (fresh) mergeCached = cached.places;
+    }
+  }
+
+  if (opts.signal?.aborted) return [];
+
+  const queries = buildCandidateQueries(opts.profile, opts.target).slice(0, 5);
+
+  const [
+    googleBatches,
+    tagSimilar,
+    expertRatings,
+    friendRatings,
+    experts,
+    followedExperts,
+  ] = await Promise.all([
+    Promise.all(
+      queries.map((q) =>
+        searchPlacesByText(
+          q,
+          opts.target.lat,
+          opts.target.lng,
+          opts.target.label || undefined,
+          /* useRestriction */ true,
+        ).catch(() => [] as PlaceResult[]),
+      ),
+    ),
+    getTagSimilarRestaurants(
+      opts.profile.topTags,
+      opts.target.label,
+      opts.userId ?? '',
+      40,
+    ).catch(() => [] as CommunityRating[]),
+    getExpertRatings(100).catch(() => [] as CommunityRating[]),
+    opts.userId
+      ? getAllFriendRatings(opts.userId).catch(() => [] as CommunityRating[])
+      : Promise.resolve([] as CommunityRating[]),
+    getExpertProfiles().catch(() => []),
+    opts.userId
+      ? getFollowedExpertIds(opts.userId).catch(() => new Set<string>())
+      : Promise.resolve(new Set<string>()),
+  ]);
+
+  if (opts.signal?.aborted) return [];
+
+  const expertUserIds = new Set<string>(experts.map((e) => e.user_id));
+  const friendUserIds = new Set<string>(friendRatings.map((r) => r.user_id));
+
+  const allCommunityRows: CommunityRating[] = [
+    ...tagSimilar,
+    ...expertRatings,
+    ...friendRatings,
+  ];
+  const communityByRestaurant = new Map<string, CommunityRating[]>();
+  for (const row of allCommunityRows) {
+    const arr = communityByRestaurant.get(row.restaurant_id);
+    if (arr) arr.push(row);
+    else communityByRestaurant.set(row.restaurant_id, [row]);
+  }
+
+  const signals: CandidateSignals = {
+    expertUserIds,
+    followedExpertIds: followedExperts,
+    friendUserIds,
+    communityByRestaurant,
+    expertRecRestaurantIds: new Set<string>(),
+  };
+
+  // Candidate pool: Google results win on id conflicts (richer metadata),
+  // then cached places, then pseudo-places from community rows.
+  const byId = new Map<string, PlaceResult>();
+  for (const batch of googleBatches) {
+    for (const p of batch) {
+      if (!byId.has(p.id)) byId.set(p.id, p);
+    }
+  }
+  for (const p of mergeCached) {
+    if (!byId.has(p.id)) byId.set(p.id, p);
+  }
+  for (const row of allCommunityRows) {
+    if (byId.has(row.restaurant_id)) continue;
+    byId.set(row.restaurant_id, {
+      id: row.restaurant_id,
+      name: row.restaurant_name,
+      lat: row.lat ?? 0,
+      lng: row.lng ?? 0,
+      rating: 0,
+      priceLevel: row.price?.length ?? 0,
+      address: row.address,
+      fullAddress: row.address,
+      photoUrl: null,
+      types: [],
+      userRatingCount: 0,
+    });
+  }
+
+  // Post-filter by radius with 25% slack; the distance penalty handles the rest.
+  const radiusKm = opts.radiusMeters / 1000;
+  const slackKm = radiusKm * 1.25;
+  const candidates: PlaceResult[] = [];
+  for (const c of byId.values()) {
+    const dist = haversineKm(
+      { lat: c.lat, lng: c.lng },
+      { lat: opts.target.lat, lng: opts.target.lng },
+    );
+    if (dist <= slackKm) candidates.push(c);
+  }
+
+  const scored = scoreCandidates(
+    candidates,
+    opts.profile,
+    signals,
+    opts.target,
+    opts.radiusMeters,
+  );
+  const top12 = scored.slice(0, 12);
+
+  if (opts.userId) {
+    void saveHomeRecsCache(
+      opts.userId,
+      locKey,
+      opts.target.label,
+      opts.target.lat,
+      opts.target.lng,
+      prefsHash,
+      top12,
+    );
+  }
+
+  return top12;
 }
