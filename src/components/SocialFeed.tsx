@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2, Loader2 } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -41,6 +41,8 @@ type FeedItem =
   | { type: 'rating'; data: CommunityRating; sortTime: number }
   | { type: 'homeMeal'; data: FriendHomeMeal; sortTime: number };
 
+const CHUNK_SIZE = 15;
+
 export const SocialFeed: React.FC = () => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
@@ -57,6 +59,9 @@ export const SocialFeed: React.FC = () => {
   const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [visibleCount, setVisibleCount] = useState(CHUNK_SIZE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const [openComments, setOpenComments] = useState<string | null>(null);
   const [comments, setComments] = useState<ActivityComment[]>([]);
@@ -94,7 +99,7 @@ export const SocialFeed: React.FC = () => {
 
     const friendIds = friends.map((f) => f.friend_id);
     const [act, meals] = await Promise.all([
-      getFriendActivity(friendIds, 15),
+      getFriendActivity(friendIds, 500),
       getFriendsPublicHomeMeals(friendIds),
     ]);
     setActivity(act);
@@ -222,6 +227,37 @@ export const SocialFeed: React.FC = () => {
 
   const currentOption = FEED_OPTIONS.find((o) => o.value === feedMode)!;
 
+  // Total items for the currently visible tab — drives the sentinel and
+  // the infinite-scroll window.
+  const activeTotal =
+    feedMode === 'recipes' ? homeMeals.length : feedItems.length;
+
+  // Reset infinite scroll window whenever the underlying list shape
+  // changes (tab switched, feed refetched, etc.).
+  useEffect(() => {
+    setVisibleCount(CHUNK_SIZE);
+  }, [feedMode, activeTotal]);
+
+  // Chunked infinite scroll via IntersectionObserver — mirrors the
+  // pattern used in FollowingFeed.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((c) => {
+            if (c >= activeTotal) return c;
+            return Math.min(c + CHUNK_SIZE, activeTotal);
+          });
+        }
+      },
+      { rootMargin: '300px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [activeTotal]);
+
   const SectionHeader: React.FC<{ count?: number }> = ({ count }) => (
     <div className="flex items-center gap-3 mb-2">
       <div className="relative" ref={feedDropdownRef}>
@@ -306,6 +342,9 @@ export const SocialFeed: React.FC = () => {
   // Recipes-only mode uses its own list rendered from homeMeals.
   const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
 
+  const visibleFeedItems = feedItems.slice(0, visibleCount);
+  const visibleRecipes = recipesSorted.slice(0, visibleCount);
+
   return (
     <section className="mb-8">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
@@ -323,8 +362,9 @@ export const SocialFeed: React.FC = () => {
             description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
           />
         ) : (
+          <>
           <ul className="divide-y divide-on-surface/[0.06]">
-            {recipesSorted.map((m) => {
+            {visibleRecipes.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
               return (
@@ -415,10 +455,17 @@ export const SocialFeed: React.FC = () => {
               );
             })}
           </ul>
+          {visibleCount < recipesSorted.length && (
+            <div ref={sentinelRef} className="py-4 flex items-center justify-center">
+              <Loader2 size={16} className="text-on-surface/30 animate-spin" />
+            </div>
+          )}
+          </>
         )
       ) : (
+      <>
       <ul>
-        {feedItems.map((item) => {
+        {visibleFeedItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
@@ -693,6 +740,12 @@ export const SocialFeed: React.FC = () => {
           );
         })}
       </ul>
+      {visibleCount < feedItems.length && (
+        <div ref={sentinelRef} className="py-4 flex items-center justify-center">
+          <Loader2 size={16} className="text-on-surface/30 animate-spin" />
+        </div>
+      )}
+      </>
       )}
 
       <ShareRecipeSheet
