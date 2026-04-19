@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -152,7 +152,7 @@ function placeToCardProps(place: PlaceResult) {
   return {
     id: place.id,
     name: place.name,
-    image: place.photoUrl || 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=800',
+    image: place.photoUrl || '',
     rating: place.rating,
     price: priceLevelToString(place.priceLevel),
     cuisine: extractCityState(place.fullAddress, place.address),
@@ -3032,7 +3032,10 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                             {(place as any).photoUrl ? (
                               <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
                             ) : (
-                              <div className="h-full w-full flex items-center justify-center"><MapPinned size={24} className="text-on-surface/15" /></div>
+                              <div className="h-full w-full flex flex-col items-center justify-center gap-1.5 text-on-surface/30">
+                                <ImageOff size={22} />
+                                <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-on-surface/40">No photos yet</span>
+                              </div>
                             )}
                             <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                               <button

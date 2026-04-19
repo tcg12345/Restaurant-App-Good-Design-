@@ -100,7 +100,7 @@ function placeToCardProps(place: PlaceResult) {
   return {
     id: place.id,
     name: place.name,
-    image: place.photoUrl || 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=800',
+    image: place.photoUrl || '',
     rating: place.rating,
     price: priceLevelToString(place.priceLevel),
     cuisine: extractCityState(place.fullAddress, place.address),

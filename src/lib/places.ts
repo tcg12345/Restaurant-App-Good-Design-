@@ -52,9 +52,13 @@ const PRICE_LEVEL_STRINGS: Record<number, string> = {
   4: 'PRICE_LEVEL_VERY_EXPENSIVE',
 };
 
-function photoUrl(photoName: string | undefined): string | null {
-  if (!photoName) return null;
-  return `${BASE_URL}/${photoName}/media?maxWidthPx=400&maxHeightPx=400&key=${GOOGLE_PLACES_KEY}`;
+function photoUrl(_photoName: string | undefined): string | null {
+  // Photos are intentionally disabled — requesting photo URLs from the Google
+  // Places media endpoint is a separate (and expensive) billed call, so every
+  // surface now shows user-uploaded photos only, with a "No photos added yet"
+  // placeholder otherwise. This helper always returns null so existing call
+  // sites keep working without changes.
+  return null;
 }
 
 interface GooglePlace {
@@ -96,7 +100,10 @@ function deduplicatePlaces(places: PlaceResult[]): PlaceResult[] {
   });
 }
 
-const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.photos,places.types,places.userRatingCount';
+// NOTE: places.photos is intentionally omitted — rendering any photoUrl
+// generated from it triggers a separate (billed) Places Photos media call
+// per image. The app now surfaces user-uploaded photos only.
+const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.types,places.userRatingCount';
 
 // Cuisine type mapping for Google Places API
 export const CUISINE_TYPES: { label: string; type: string }[] = [
@@ -441,7 +448,11 @@ export async function searchHotels(
   return mapPlaces(data.places || []);
 }
 
-const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,photos,types,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
+// NOTE: `photos` is intentionally omitted — the Places Photos media
+// endpoint is separately billed and every rendered image is its own call.
+// The detail page now surfaces user-uploaded photos only; if none exist it
+// shows a "No photos added yet" placeholder.
+const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,types,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
 
 // In-memory cache for place details (5 min TTL)
 const placeDetailsCache = new Map<string, { data: PlaceDetails; ts: number }>();
@@ -470,10 +481,9 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     throw new Error(`Place details failed: ${p.error?.message || res.status}`);
   }
 
-  const photos = (p.photos || []).slice(0, 5).map((photo: { name: string }) =>
-    `${BASE_URL}/${photo.name}/media?maxWidthPx=800&maxHeightPx=600&key=${GOOGLE_PLACES_KEY}`
-  );
-
+  // Photos intentionally disabled — every Photos media fetch is a separate
+  // billed Places call, so the detail page renders user-uploaded photos
+  // only (or a "No photos added yet" placeholder).
   const hours = p.currentOpeningHours?.weekdayDescriptions
     || p.regularOpeningHours?.weekdayDescriptions
     || [];
@@ -489,8 +499,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     priceLevel: parsePriceLevel(p.priceLevel),
     address: p.shortFormattedAddress || p.formattedAddress || '',
     fullAddress: p.formattedAddress || p.shortFormattedAddress || '',
-    photoUrl: photos[0] || null,
-    photoUrls: photos,
+    photoUrl: null,
+    photoUrls: [],
     types: p.types || [],
     userRatingCount: p.userRatingCount ?? 0,
     phone: p.nationalPhoneNumber || '',

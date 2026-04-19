@@ -1,7 +1,41 @@
 import React from 'react';
-import { Heart, Plus, Building2 } from 'lucide-react';
+import { Heart, Plus, Building2, ImageOff } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
+
+/**
+ * Cover image or "no photos added yet" placeholder. The app has intentionally
+ * stopped requesting photos from Google Places (every Photo URL fetch is a
+ * separately-billed API call); only user-uploaded photos survive. When a
+ * restaurant has none yet, render a tidy placeholder instead of a broken img.
+ */
+const CoverImage: React.FC<{
+  src?: string | null;
+  alt: string;
+  className?: string;
+  size?: 'sm' | 'md' | 'lg';
+}> = ({ src, alt, className, size = 'md' }) => {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+  return (
+    <div className={cn('flex flex-col items-center justify-center gap-1 text-on-surface/30', className)}>
+      <ImageOff size={size === 'sm' ? 14 : size === 'lg' ? 22 : 18} />
+      {size !== 'sm' && (
+        <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-on-surface/40 text-center px-1 leading-tight">
+          No photos yet
+        </span>
+      )}
+    </div>
+  );
+};
 
 /**
  * Visual variant.
@@ -139,11 +173,11 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
         )}
       >
         <div className="relative w-16 h-16 flex-shrink-0 overflow-hidden rounded-lg bg-on-surface/5">
-          <img
+          <CoverImage
             src={image}
             alt={name}
+            size="sm"
             className="h-full w-full object-cover"
-            referrerPolicy="no-referrer"
           />
           {isHotel && (
             <div className="absolute inset-x-0 bottom-0 px-1 py-0.5 bg-black/45 backdrop-blur-sm flex items-center justify-center gap-0.5">
@@ -183,11 +217,11 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
           className,
         )}
       >
-        <img
+        <CoverImage
           src={image}
           alt={name}
+          size="lg"
           className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
-          referrerPolicy="no-referrer"
         />
 
         {/* Bottom gradient for legibility under the title */}
@@ -237,11 +271,11 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
       className={cn('group block card-interactive overflow-hidden', className)}
     >
       <div className="relative aspect-[4/5] sm:aspect-[4/3] overflow-hidden bg-on-surface/5">
-        <img
+        <CoverImage
           src={image}
           alt={name}
+          size="md"
           className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.03]"
-          referrerPolicy="no-referrer"
         />
 
         {/* Top action row — hotel pill on the left, rate/wishlist on the right */}

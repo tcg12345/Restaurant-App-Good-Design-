@@ -4,7 +4,7 @@ import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
-  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote,
+  DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, ImageOff,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -166,8 +166,11 @@ export const RestaurantDetailDesktop: React.FC = () => {
             />
           </button>
         ) : (
-          <div className="h-full w-full bg-muted flex items-center justify-center">
-            <MapPin size={64} className="text-on-surface/20" />
+          <div className="h-full w-full bg-muted flex flex-col items-center justify-center gap-2 text-on-surface/30">
+            <ImageOff size={48} />
+            <span className="text-xs font-bold uppercase tracking-[0.15em] text-on-surface/40">
+              No photos added yet
+            </span>
           </div>
         )}
 
