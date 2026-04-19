@@ -25,55 +25,62 @@ const feedCache: {
   ts: number;
 } = { userId: null, ratings: [], profiles: {}, ts: 0 };
 
-// Street-address leader heuristics — used to skip parts like "100 E 63rd St",
-// "One N 19th St", "Tennyson 133", or garbage like "Parking lot" so we can
-// land on the real city in the remaining address parts.
-const STREET_SUFFIX_RE = /\b(st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|ct|court|pl|place|way|hwy|highway|pkwy|parkway|sq|square|plz|plaza|ter|terrace|cir|circle|expy|expressway|tpke|turnpike|ctr|center|mall|rte|route|row|alley|loop|walk|path|trail|crescent|mews)\b\.?$/i;
-const NUMBER_WORD_RE = /^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i;
-const NON_PLACE_RE = /\b(parking|garage|lot|building|floor|suite|unit|apt|apartment|ste|room|level|bldg)\b/i;
-const TRAILING_NUMBER_RE = /\s\d+[A-Za-z]?$/; // European "Tennyson 133" format
-
-function looksLikeStreet(part: string): boolean {
-  if (!part) return true;
-  if (/^\d/.test(part)) return true;
-  if (NUMBER_WORD_RE.test(part)) return true;
-  if (STREET_SUFFIX_RE.test(part)) return true;
-  if (NON_PLACE_RE.test(part)) return true;
-  if (TRAILING_NUMBER_RE.test(part)) return true;
-  return false;
-}
-
 // Reduce a full postal address down to a city (+ state when we can find one).
-// Handles the shapes our places source returns:
-//   "100 E 63rd St, New York, NY 10065, USA"    → "New York, NY"
-//   "One N 19th St, Philadelphia, PA 19107"     → "Philadelphia, PA"
-//   "Parking lot, New York, NY"                  → "New York, NY"
-//   "Tennyson 133, Amsterdam, Netherlands"       → "Amsterdam"
-//   "New York, NY"                                → "New York, NY"
-// Returns '' when no city-like part can be found so the filter only lists real
-// cities instead of addresses or garbage fragments.
+//
+// Approach: use the US state (+ optional ZIP) as an anchor. In well-formed US
+// addresses the state part ("NY", "NY 10019", "NY 10019-1234") is always
+// immediately preceded by the city — no matter what garbage comes before the
+// street (venue names like "The Shops at Columbus Circle", "Epic Tower",
+// "Washington Historic District", "Via Stella"...).
+//
+// For international addresses that lack a US state, we fall back to an
+// all-numeric postal-code anchor with the same rule: city is the part right
+// before the postal code.
+//
+// When neither anchor is present, we return '' rather than guess — the filter
+// would rather hide a rating than offer a bogus city option.
+//
+//   "The Shops at Columbus Circle, 10 Columbus Cir, New York, NY 10019, USA"
+//     → "New York, NY"
+//   "Epic Tower, 12345 Main St, Dallas, TX 75201, USA" → "Dallas, TX"
+//   "New York, NY"                                      → "New York, NY"
+//   "Brooklyn, NY 11201"                                → "Brooklyn, NY"
+//   "Via Stella 10, 00187 Rome, Italy"                  → "Rome"
+const US_STATE_RE = /^([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?$/;
+const NUMERIC_POSTAL_RE = /^\d{3,}(?:[-\s]\d+)?$/;
+
 function extractCity(address: string): string {
   const parts = (address || '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (parts.length === 0) return '';
+  if (parts.length < 2) return '';
 
-  // Walk past any leading street / non-place fragments to find the first
-  // part that actually looks like a place name.
-  let i = 0;
-  while (i < parts.length - 1 && looksLikeStreet(parts[i])) i++;
-  const rest = parts.slice(i);
-  if (rest.length === 0 || looksLikeStreet(rest[0])) return '';
-
-  // Three+ remaining parts means city + state + … + country — drop the trailing
-  // country so we don't end up with "City, Country".
-  const relevant = rest.length >= 3 ? rest.slice(0, -1) : rest;
-
-  const city = relevant[0];
-  if (!city) return '';
-  if (relevant.length >= 2) {
-    const state = relevant[1].replace(/\d+/g, '').trim();
-    if (state && state.length <= 3) return `${city}, ${state}`;
+  // Anchor on a US state (optionally with ZIP) — the most reliable signal.
+  for (let i = parts.length - 1; i > 0; i--) {
+    const m = parts[i].match(US_STATE_RE);
+    if (m) {
+      const city = parts[i - 1];
+      if (city) return `${city}, ${m[1]}`;
+    }
   }
-  return city;
+
+  // International fallback: anchor on a bare numeric postal code. Many
+  // European formats inline the postal code with the city ("00187 Rome"), so
+  // also try stripping a leading zip from the suspected city part.
+  for (let i = parts.length - 1; i > 0; i--) {
+    if (NUMERIC_POSTAL_RE.test(parts[i])) {
+      const city = parts[i - 1];
+      if (city) return city;
+    }
+    const inline = parts[i].match(/^\d{3,}\s+(.+)$/);
+    if (inline) return inline[1];
+  }
+
+  // Two-part fallback — "Street, City" with no state/zip. The last segment is
+  // almost always the city. Skips a "City, Country" pair in practice because
+  // restaurant data from our places source always includes a state/zip when
+  // the country is present.
+  if (parts.length === 2) return parts[1];
+
+  return '';
 }
 
 type SortOption = 'recent' | 'highest' | 'lowest';
