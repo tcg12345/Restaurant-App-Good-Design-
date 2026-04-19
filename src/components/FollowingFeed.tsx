@@ -24,23 +24,46 @@ const feedCache: {
   ts: number;
 } = { userId: null, ratings: [], profiles: {}, ts: 0 };
 
+// Street-address leader heuristics — used to skip parts like "100 E 63rd St",
+// "One N 19th St", "Tennyson 133", or garbage like "Parking lot" so we can
+// land on the real city in the remaining address parts.
+const STREET_SUFFIX_RE = /\b(st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|ct|court|pl|place|way|hwy|highway|pkwy|parkway|sq|square|plz|plaza|ter|terrace|cir|circle|expy|expressway|tpke|turnpike|ctr|center|mall|rte|route|row|alley|loop|walk|path|trail|crescent|mews)\b\.?$/i;
+const NUMBER_WORD_RE = /^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i;
+const NON_PLACE_RE = /\b(parking|garage|lot|building|floor|suite|unit|apt|apartment|ste|room|level|bldg)\b/i;
+const TRAILING_NUMBER_RE = /\s\d+[A-Za-z]?$/; // European "Tennyson 133" format
+
+function looksLikeStreet(part: string): boolean {
+  if (!part) return true;
+  if (/^\d/.test(part)) return true;
+  if (NUMBER_WORD_RE.test(part)) return true;
+  if (STREET_SUFFIX_RE.test(part)) return true;
+  if (NON_PLACE_RE.test(part)) return true;
+  if (TRAILING_NUMBER_RE.test(part)) return true;
+  return false;
+}
+
 // Reduce a full postal address down to a city (+ state when we can find one).
-// Handles the common shapes our places source returns:
-//   "100 E 63rd St, New York, NY 10065, USA" → "New York, NY"
-//   "100 E 63rd St, New York"                → "New York"
-//   "New York, NY"                            → "New York, NY"
-//   "1028 N Rush St, Chicago, IL 60611"       → "Chicago, IL"
-// The street-address leader is detected by a leading digit so we don't leak
-// specific addresses into the city filter list.
+// Handles the shapes our places source returns:
+//   "100 E 63rd St, New York, NY 10065, USA"    → "New York, NY"
+//   "One N 19th St, Philadelphia, PA 19107"     → "Philadelphia, PA"
+//   "Parking lot, New York, NY"                  → "New York, NY"
+//   "Tennyson 133, Amsterdam, Netherlands"       → "Amsterdam"
+//   "New York, NY"                                → "New York, NY"
+// Returns '' when no city-like part can be found so the filter only lists real
+// cities instead of addresses or garbage fragments.
 function extractCity(address: string): string {
   const parts = (address || '').split(',').map((s) => s.trim()).filter(Boolean);
   if (parts.length === 0) return '';
 
-  // Drop the street-address leader when it clearly starts with a number.
-  const rest = parts.length > 1 && /^\d/.test(parts[0]) ? parts.slice(1) : parts;
+  // Walk past any leading street / non-place fragments to find the first
+  // part that actually looks like a place name.
+  let i = 0;
+  while (i < parts.length - 1 && looksLikeStreet(parts[i])) i++;
+  const rest = parts.slice(i);
+  if (rest.length === 0 || looksLikeStreet(rest[0])) return '';
 
-  // Three post-street parts means we've got city + state + country — drop the
-  // country. Two or fewer means we're already at city (+ state).
+  // Three+ remaining parts means city + state + … + country — drop the trailing
+  // country so we don't end up with "City, Country".
   const relevant = rest.length >= 3 ? rest.slice(0, -1) : rest;
 
   const city = relevant[0];
