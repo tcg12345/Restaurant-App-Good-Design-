@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, ArrowRight, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Mail, Lock, Eye, EyeOff, Loader2, Smartphone } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
+import { cn } from '../lib/utils';
 
 type PasswordStrength = { score: 0 | 1 | 2 | 3 | 4; label: string; color: string };
 
@@ -29,6 +31,7 @@ function getPasswordStrength(password: string): PasswordStrength {
 
 export const Auth: React.FC = () => {
   const { signIn, signUp } = useAuth();
+  const { phoneMode, togglePhoneMode } = useSettings();
   const navigate = useNavigate();
   const [isSignUpMode, setIsSignUpMode] = useState(false);
   const [email, setEmail] = useState('');
@@ -265,6 +268,38 @@ export const Auth: React.FC = () => {
               {isSignUpMode ? 'Sign In' : 'Sign Up'}
             </button>
           </p>
+
+          {/* Phone-mode toggle — wraps the app in a portrait phone frame
+              on desktop. Choice is persisted to localStorage so it
+              survives the redirect after sign-in. */}
+          <button
+            type="button"
+            onClick={togglePhoneMode}
+            className={cn(
+              'mt-2 mx-auto flex items-center gap-2.5 px-4 py-2.5 rounded-full text-xs font-semibold transition-colors border',
+              phoneMode
+                ? 'bg-on-surface/[0.05] border-on-surface/15 text-on-surface'
+                : 'bg-transparent border-on-surface/10 text-on-surface/50 hover:text-on-surface/80 hover:border-on-surface/20',
+            )}
+            aria-pressed={phoneMode}
+          >
+            <Smartphone size={14} className={phoneMode ? 'text-primary' : 'text-on-surface/40'} />
+            <span>Phone preview</span>
+            {/* Compact pill-style toggle indicator */}
+            <span
+              className={cn(
+                'relative inline-flex h-4 w-7 rounded-full transition-colors',
+                phoneMode ? 'bg-primary' : 'bg-on-surface/15',
+              )}
+            >
+              <span
+                className={cn(
+                  'absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform',
+                  phoneMode ? 'translate-x-3.5' : 'translate-x-0.5',
+                )}
+              />
+            </span>
+          </button>
         </motion.form>
       </div>
     </div>

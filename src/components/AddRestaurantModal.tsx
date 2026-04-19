@@ -191,8 +191,21 @@ export const AddRestaurantModal: React.FC = () => {
     }
   };
 
+  // Fires when the user misses a required field (currently: no visit
+  // date on a Log New Visit save) so the Date sub-page opens and the
+  // save button briefly shakes.
+  const [dateError, setDateError] = useState(false);
+
   const handleSaveRating = () => {
     if (!restaurant) return;
+    // A visit date is required when logging a new visit — without it
+    // we can't sort the visit correctly in the history timeline and
+    // the card above the visit list would render with a blank date.
+    if (isNewVisit && !visitDate) {
+      setDateError(true);
+      setPage('date');
+      return;
+    }
     rateRestaurant({
       restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
       cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
@@ -201,6 +214,9 @@ export const AddRestaurantModal: React.FC = () => {
     });
     closeAddRestaurantModal();
   };
+
+  // Clear the date-error state as soon as the user picks one.
+  useEffect(() => { if (visitDate) setDateError(false); }, [visitDate]);
 
   const handleCreateList = () => {
     if (!newName.trim()) return;
@@ -401,20 +417,20 @@ export const AddRestaurantModal: React.FC = () => {
                       <p className="text-xs font-medium text-on-surface/40 mb-4">
                         {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
                       </p>
-                      <div className="w-full max-w-[260px] mb-5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 text-center mb-2">Would you go back?</p>
-                        <div className="flex gap-2">
-                          <button onClick={() => setWouldReturn(true)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", wouldReturn ? "bg-green-50 border-green-200 text-green-700" : "bg-white border-on-surface/10 text-on-surface/40")}>Yes!</button>
-                          <button onClick={() => setWouldReturn(false)} className={cn("flex-1 py-2 rounded-xl text-sm font-semibold border transition-all", !wouldReturn ? "bg-red-50 border-red-200 text-red-600" : "bg-white border-on-surface/10 text-on-surface/40")}>Nah</button>
-                        </div>
-                      </div>
                     </div>
                     <div className="border-t border-on-surface/6 pt-3 pb-2">
                       <p className="text-[10px] uppercase tracking-[0.14em] text-on-surface/40 font-medium mb-1.5">Add details</p>
                       <div className="bg-white rounded-xl border border-on-surface/8 overflow-hidden">
                         <DetailBtn icon={<StickyNote size={14} />} label="Notes" active={hasNotes} sub={hasNotes ? notes.slice(0, 15) + '...' : undefined} onClick={() => setPage('notes')} />
                         <DetailBtn icon={<DollarSign size={14} />} label="Price" active={hasPrice} sub={hasPrice ? PRICE_RANGES[priceIndex].signs : undefined} onClick={() => setPage('price')} />
-                        <DetailBtn icon={<CalendarDays size={14} />} label="Date" active={hasDate} sub={dateLabel} onClick={() => setPage('date')} />
+                        <DetailBtn
+                          icon={<CalendarDays size={14} />}
+                          label={isNewVisit ? 'Date *' : 'Date'}
+                          active={hasDate}
+                          sub={dateLabel || (isNewVisit && !hasDate ? 'Required' : undefined)}
+                          onClick={() => setPage('date')}
+                          error={dateError && isNewVisit && !hasDate}
+                        />
                         <DetailBtn icon={<Tag size={14} />} label="Tags" active={hasTags} sub={hasTags ? `${selectedTags.length} selected` : undefined} onClick={() => setPage('tags')} />
                         <DetailBtn icon={<Image size={14} />} label="Photos" active={hasPhotos} sub={hasPhotos ? `${photos.length} added` : undefined} onClick={handlePhotosClick} />
                         <DetailBtn icon={<Users size={14} />} label="Friends" active={hasFriends} sub={hasFriends ? `${selectedFriends.length} friends` : undefined} onClick={() => setPage('friends')} isLast />
@@ -422,6 +438,11 @@ export const AddRestaurantModal: React.FC = () => {
                     </div>
                   </div>
                   <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
+                    {dateError && isNewVisit && !hasDate && (
+                      <p className="text-xs text-red-600 font-medium text-center">
+                        Pick a visit date to save this visit.
+                      </p>
+                    )}
                     <button onClick={handleSaveRating} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                       {existing ? (isNewVisit ? 'Save New Visit' : 'Update Rating') : 'Save Rating'}
                     </button>
@@ -750,24 +771,25 @@ export const AddRestaurantModal: React.FC = () => {
 // parent container for the outer border/background and uses a bottom
 // divider between rows except on the last one.
 const DetailBtn: React.FC<{
-  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void; isLast?: boolean;
-}> = ({ icon, label, active, sub, onClick, isLast }) => (
+  icon: React.ReactNode; label: string; active: boolean; sub?: string; onClick: () => void; isLast?: boolean; error?: boolean;
+}> = ({ icon, label, active, sub, onClick, isLast, error }) => (
   <button
     onClick={onClick}
     className={cn(
       "w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-on-surface/[0.03] transition-colors",
       !isLast && "border-b border-on-surface/6",
+      error && "bg-red-50",
     )}
   >
     <span className={cn(
       "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
-      active ? "bg-primary/10 text-primary" : "bg-on-surface/[0.05] text-on-surface/45",
+      error ? "bg-red-100 text-red-600" : active ? "bg-primary/10 text-primary" : "bg-on-surface/[0.05] text-on-surface/45",
     )}>
       {icon}
     </span>
-    <span className={cn("text-[13px] font-medium flex-1", active ? "text-on-surface" : "text-on-surface/65")}>{label}</span>
-    {sub && <span className="text-[11px] text-primary/70 flex-shrink-0">{sub}</span>}
-    <ChevronRight size={13} className="text-on-surface/25 flex-shrink-0" />
+    <span className={cn("text-[13px] font-medium flex-1", error ? "text-red-600" : active ? "text-on-surface" : "text-on-surface/65")}>{label}</span>
+    {sub && <span className={cn("text-[11px] flex-shrink-0", error ? "text-red-600 font-semibold" : "text-primary/70")}>{sub}</span>}
+    <ChevronRight size={13} className={cn("flex-shrink-0", error ? "text-red-500" : "text-on-surface/25")} />
   </button>
 );
 

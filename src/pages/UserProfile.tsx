@@ -654,13 +654,10 @@ export const UserProfile: React.FC = () => {
                                 <p className="text-[13px] text-on-surface/65 leading-relaxed italic">&ldquo;{r.notes}&rdquo;</p>
                               )}
 
-                              {/* Would Return + Tags */}
-                              {(r.would_return || (r.tags && r.tags.length > 0)) && (
+                              {/* Tags */}
+                              {r.tags && r.tags.length > 0 && (
                                 <div className="flex flex-wrap items-center gap-1.5">
-                                  {r.would_return && (
-                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold">Would return</span>
-                                  )}
-                                  {r.tags?.map((t) => (
+                                  {r.tags.map((t) => (
                                     <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/[0.08] text-primary/70 font-medium">{t}</span>
                                   ))}
                                 </div>

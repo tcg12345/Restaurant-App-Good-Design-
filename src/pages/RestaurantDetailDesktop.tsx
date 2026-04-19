@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Users, UserCircle, Share2, Heart, Bookmark,
+  Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -935,19 +935,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
                     </button>
                   </li>
 
-                  {/* Would return */}
-                  <li>
-                    <button
-                      onClick={() => openAt('main')}
-                      className="group flex items-center gap-3 w-full text-left text-sm hover:opacity-80 transition-opacity"
-                    >
-                      <Heart size={15} className="text-on-surface/35 flex-shrink-0" />
-                      <span className="text-on-surface/45 w-20 flex-shrink-0">Return?</span>
-                      <span className="text-on-surface/75 flex-1">{myRating.wouldReturn ? 'Yes' : 'Nah'}</span>
-                      <Edit3 size={10} className="text-on-surface/20 group-hover:text-on-surface/45 flex-shrink-0 transition-colors" />
-                    </button>
-                  </li>
-
                   {/* Visited date */}
                   <li>
                     <button
@@ -1041,28 +1028,17 @@ export const RestaurantDetailDesktop: React.FC = () => {
           };
 
           const entries: Entry[] = [];
-          const curDate = parseDate(myRating.visitDate);
-          const prevFromCurrent = visitHistory[0];
-          const curTrend: Entry['trend'] = prevFromCurrent
-            ? (myRating.score - prevFromCurrent.score > 0.1 ? 'up'
-              : myRating.score - prevFromCurrent.score < -0.1 ? 'down' : null)
-            : null;
           entries.push({
             id: 'current',
             score: myRating.score,
-            date: curDate,
+            date: parseDate(myRating.visitDate),
             notes: myRating.notes,
             tags: myRating.tags,
             photos: myRating.photos,
             wouldReturn: myRating.wouldReturn,
-            trend: curTrend,
+            trend: null,
           });
-          visitHistory.forEach((v, idx) => {
-            const nextOlder = visitHistory[idx + 1];
-            const trend: Entry['trend'] = nextOlder
-              ? (v.score - nextOlder.score > 0.1 ? 'up'
-                : v.score - nextOlder.score < -0.1 ? 'down' : null)
-              : null;
+          visitHistory.forEach((v) => {
             entries.push({
               id: v.id,
               score: v.score,
@@ -1071,9 +1047,23 @@ export const RestaurantDetailDesktop: React.FC = () => {
               tags: v.tags,
               photos: v.photos,
               wouldReturn: v.would_return,
-              trend,
+              trend: null,
             });
           });
+
+          // Strictly sort by visit date DESC so the timeline stays
+          // chronological even when a user backfills an older visit.
+          entries.sort((a, b) => {
+            const at = a.date ? a.date.getTime() : 0;
+            const bt = b.date ? b.date.getTime() : 0;
+            return bt - at;
+          });
+          for (let i = 0; i < entries.length; i++) {
+            const older = entries[i + 1];
+            if (!older) { entries[i].trend = null; continue; }
+            const diff = entries[i].score - older.score;
+            entries[i].trend = diff > 0.1 ? 'up' : diff < -0.1 ? 'down' : null;
+          }
 
           return (
             <section className="mb-12">
@@ -1161,13 +1151,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
                                     <img key={i} src={p.url} className="w-24 h-24 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
                                   ))}
                                 </div>
-                              )}
-                              {e.wouldReturn !== undefined && (
-                                <p className="text-xs font-semibold">
-                                  {e.wouldReturn
-                                    ? <span className="text-green-600">Would return</span>
-                                    : <span className="text-red-500">Wouldn't return</span>}
-                                </p>
                               )}
                             </div>
                           </motion.div>

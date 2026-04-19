@@ -208,7 +208,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     setRatingCuisines([]);
     setRatingPrice(null);
     setRatingCities([]);
-    setWouldReturnFilter('all');
   };
   const [hotelPlaces, setHotelPlaces] = useState<PlaceResult[]>([]);
   const [hotelsLoading, setHotelsLoading] = useState(false);
@@ -268,7 +267,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const [ratingCuisines, setRatingCuisines] = useState<string[]>([]);
   const [ratingPrice, setRatingPrice] = useState<string | null>(null);
   const [ratingCities, setRatingCities] = useState<string[]>([]);
-  const [wouldReturnFilter, setWouldReturnFilter] = useState<'all' | 'yes' | 'no'>('all');
 
   // Filter state — hotels
   const [hotelStarFilter, setHotelStarFilter] = useState<number>(0); // 0=Any, 3/4/5
@@ -1140,7 +1138,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       return (selectedCuisines.length > 0 ? 1 : 0) + (selectedPrice > 0 ? 1 : 0) + (sortBy !== 'popularity' ? 1 : 0);
     }
     if (mapMode === 'myratings') {
-      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (wouldReturnFilter !== 'all' ? 1 : 0) + (selectedListId ? 1 : 0);
+      return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingPrice ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (ratingCities.length > 0 ? 1 : 0) + (selectedListId ? 1 : 0);
     }
     if (mapMode === 'friends') {
       return (ratingSortBy !== 'recent' ? 1 : 0) + (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) + (ratingCuisines.length > 0 ? 1 : 0) + (selectedFriendIds.size > 0 ? 1 : 0);
@@ -1152,7 +1150,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       return (hotelStarFilter > 0 ? 1 : 0) + (hotelPriceFilter > 0 ? 1 : 0) + (hotelSortBy !== 'popularity' ? 1 : 0);
     }
     return 0;
-  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, wouldReturnFilter, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy]);
+  }, [mapMode, selectedCuisines, selectedPrice, sortBy, discoverRadius, ratingSortBy, scoreRange, ratingPrice, ratingCuisines, ratingCities, selectedListId, selectedFriendIds, hotelStarFilter, hotelPriceFilter, hotelSortBy]);
 
   // Helper: filter and sort a CommunityRating array by the active rating-mode filters
   const filterRatings = useCallback((ratings: CommunityRating[]): CommunityRating[] => {
@@ -1178,10 +1176,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         return citySet.has(city);
       });
     }
-    // Would return (myratings only)
-    if (wouldReturnFilter !== 'all') {
-      filtered = filtered.filter((r) => wouldReturnFilter === 'yes' ? r.would_return === true : r.would_return === false);
-    }
     // Sort
     const sorted = [...filtered];
     switch (ratingSortBy) {
@@ -1191,7 +1185,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       case 'recent': default: sorted.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')); break;
     }
     return sorted;
-  }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, wouldReturnFilter, ratingSortBy]);
+  }, [scoreRange, ratingPrice, ratingCuisines, ratingCities, ratingSortBy]);
 
   // Filtered ratings for each mode
   const filteredMyRatings = useMemo(() => {
@@ -1758,7 +1752,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
             } else if (mapMode === 'hotels') {
               setHotelStarFilter(0); setHotelPriceFilter(0); setHotelSortBy('popularity');
             } else {
-              setRatingSortBy('recent'); setScoreRange([0, 10]); setRatingCuisines([]); setRatingPrice(null); setRatingCities([]); setWouldReturnFilter('all');
+              setRatingSortBy('recent'); setScoreRange([0, 10]); setRatingCuisines([]); setRatingPrice(null); setRatingCities([]);
               if (mapMode === 'friends') setSelectedFriendIds(new Set());
               if (mapMode === 'myratings') setSelectedListId(null);
             }
@@ -2059,15 +2053,6 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                     </div>
                     {cuisineDropdown(uniqueMyRatingCuisines, ratingCuisines, setRatingCuisines)}
                     {uniqueMyRatingCities.length > 0 && cityDropdown(uniqueMyRatingCities, ratingCities, setRatingCities)}
-                    <div>
-                      <p className={sectionLabel}>Would Return</p>
-                      <div className="flex gap-2">
-                        {([['all', 'All'], ['yes', 'Yes'], ['no', 'No']] as const).map(([key, label]) => (
-                          <button key={key} onClick={() => setWouldReturnFilter(key)}
-                            className={cn("flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2", wouldReturnFilter === key ? "border-primary bg-primary/5 text-primary" : chipInactive)}>{label}</button>
-                        ))}
-                      </div>
-                    </div>
                     {myLists.filter((l: any) => l.restaurantIds?.length > 0).length > 0 && (
                       <div>
                         <p className={sectionLabel}>List</p>

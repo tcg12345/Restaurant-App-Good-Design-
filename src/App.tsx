@@ -35,6 +35,7 @@ import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
 import { Messages } from './pages/Messages';
 import { FriendReviewDetail } from './pages/FriendReviewDetail';
+import { RestaurantCircleReviews } from './pages/RestaurantCircleReviews';
 import { MealRecipePage } from './pages/MealRecipePage';
 import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
@@ -138,6 +139,7 @@ const AppContent: React.FC = () => {
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/pantry" element={<Pantry />} />
                 <Route path="/restaurant/:id" element={<RestaurantDetail />} />
+                <Route path="/restaurant/:id/circle" element={<RestaurantCircleReviews />} />
                 <Route path="/onboarding" element={<Onboarding />} />
                 <Route path="/import" element={<ImportRestaurants />} />
                 <Route path="/reorder" element={<ReorderRatings />} />
