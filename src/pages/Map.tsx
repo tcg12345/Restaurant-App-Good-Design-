@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -10,12 +10,82 @@ import { scoreColor } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
+import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { SocialFeed } from '../components/SocialFeed';
 import { TopBar } from '../components/TopBar';
+import {
+  HomeLocationBar,
+  loadLastSelectedLocation,
+  saveLastSelectedLocation,
+  reverseGeocode,
+  type HomeLocation,
+} from '../components/HomeLocationBar';
+import {
+  locationKey,
+  preferencesHash,
+  getHomeRecsCache,
+  saveHomeRecsCache,
+  type HomeRecCacheEntry,
+} from '../lib/supabase-rec-cache';
+
+// Session-scoped in-memory cache — a tap back to a city we already loaded
+// this session skips both Google and Supabase. Uses a plain object instead
+// of `new Map()` because this file ALSO exports a component named `Map`,
+// and at module load time the local const binding shadows the global Map
+// constructor — fine in dev but a TDZ ReferenceError in the prod bundle.
+const sessionRecsCache: Record<string, HomeRecCacheEntry> = {};
+
+// Per-session cache of community cover-photo lookups (restaurant_id → url).
+// Avoids re-querying Supabase every time the same restaurant appears across
+// the recs row, search, etc.
+const sessionCoverPhotoCache: Record<string, string | null> = {};
+
+// Apply community cover photos to a batch of PlaceResult items in-place,
+// consulting the session cache first and filling in any misses with a
+// single Supabase query. When the current user has uploaded their own
+// photo it always wins over anyone else's.
+async function applyCoverPhotos(
+  places: PlaceResult[],
+  currentUserId: string | null,
+): Promise<PlaceResult[]> {
+  if (places.length === 0) return places;
+  const missing: string[] = [];
+  for (const p of places) {
+    if (sessionCoverPhotoCache[p.id] === undefined) missing.push(p.id);
+  }
+  if (missing.length > 0) {
+    const fresh = await getCoverPhotosBatch(missing, currentUserId);
+    for (const id of missing) {
+      sessionCoverPhotoCache[id] = fresh[id] || null;
+    }
+  }
+  return places.map((p) => ({
+    ...p,
+    photoUrl: sessionCoverPhotoCache[p.id] || p.photoUrl || null,
+  }));
+}
+
+// Max age we'll trust a Supabase cache entry before throwing it out and
+// building a fresh preference-weighted pool from scratch.
+const HOME_RECS_CACHE_TTL = 2 * 24 * 60 * 60 * 1000; // 2 days
+// After this age, we keep the cache but slide in one fresh variation query
+// so the feed stays alive between full refetches.
+const HOME_RECS_TOPUP_AGE = 12 * 60 * 60 * 1000; // 12 hours
+
+/**
+ * Fisher-Yates in-place shuffle. Used to reshuffle the cached recommendation
+ * pool on every load so the row feels fresh without any API calls.
+ */
+function shuffleInPlace<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
@@ -56,6 +126,59 @@ const PRICE_LEVELS = [
   { value: 4, label: '$$$$' },
 ];
 
+type Guide = {
+  id: string;
+  title: string;
+  author: string;
+  image: string;
+  count: number;
+};
+
+const MOCK_GUIDES: Guide[] = [
+  {
+    id: 'g-nyc-chinese',
+    title: 'Best Chinese Restaurants in NYC',
+    author: 'Jamie Lin',
+    image: 'https://images.unsplash.com/photo-1526318896980-cf78c088247c?auto=format&fit=crop&q=80&w=800',
+    count: 12,
+  },
+  {
+    id: 'g-rome-pasta',
+    title: 'Pasta Spots You Can\u2019t Miss in Rome',
+    author: 'Marco Rossi',
+    image: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&q=80&w=800',
+    count: 9,
+  },
+  {
+    id: 'g-tokyo-ramen',
+    title: 'Tokyo\u2019s Hidden Ramen Gems',
+    author: 'Aiko Tanaka',
+    image: 'https://images.unsplash.com/photo-1557872943-16a5ac26437e?auto=format&fit=crop&q=80&w=800',
+    count: 8,
+  },
+  {
+    id: 'g-paris-bistros',
+    title: 'Classic Paris Bistros',
+    author: 'Camille Durand',
+    image: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=800',
+    count: 10,
+  },
+  {
+    id: 'g-la-tacos',
+    title: 'The Best Tacos in Los Angeles',
+    author: 'Diego Ramirez',
+    image: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?auto=format&fit=crop&q=80&w=800',
+    count: 14,
+  },
+  {
+    id: 'g-austin-bbq',
+    title: 'Austin BBQ, Ranked',
+    author: 'Sam Hughes',
+    image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800',
+    count: 7,
+  },
+];
+
 function ratingToPlace(r: CommunityRating): PlaceResult | null {
   if (!r.lat || !r.lng) return null;
   const priceMap: Record<string, number> = { '$': 1, '$$': 2, '$$$': 3, '$$$$': 4 };
@@ -78,7 +201,7 @@ function placeToCardProps(place: PlaceResult) {
   return {
     id: place.id,
     name: place.name,
-    image: place.photoUrl || 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=800',
+    image: place.photoUrl || '',
     rating: place.rating,
     price: priceLevelToString(place.priceLevel),
     cuisine: extractCityState(place.fullAddress, place.address),
@@ -337,6 +460,16 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const [nearbyShowCount, setNearbyShowCount] = useState(NEARBY_INITIAL);
   const preSearchPlacesRef = useRef<PlaceResult[]>([]);
 
+  // ── Home-page location anchor ──
+  // Drives the personalised Recommendations row, the Guides row, and the
+  // distance-sort order of the Friend Activity feed. Defaults to the device's
+  // current location on every app open (the user's last selection is only a
+  // fallback for when geolocation is denied). The in-session choice persists
+  // across navigation because it lives in component state.
+  const [homeLocation, setHomeLocation] = useState<HomeLocation | null>(null);
+  // Brief fade overlay applied while the feed refetches after a location swap.
+  const [homeLocationRefreshing, setHomeLocationRefreshing] = useState(false);
+
   // Recent views from localStorage
   const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
     try {
@@ -354,35 +487,89 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     });
   }, [userId]);
 
-  // Build preference profile from user's HIGH-rated restaurants (score >= 7).
-  // Recommendations are only curated based on what the user actually loved.
+  // Build preference profile from every rating the user has made — not just
+  // high-rated ones. We reward categories they've loved AND penalise
+  // categories they've consistently disliked so the recs don't just mirror
+  // whatever they've rated most often.
+  //
+  // Scoring model:
+  //   centered = score - 7   (7/10 is "neutral — fine but not a preference")
+  //   weight = centered if positive, else centered × 1.25 (penalise misses
+  //            a bit harder than rewards, so 9 low-rated French loses more
+  //            signal than 4 high-rated Mediterranean gains)
+  //
+  // We bucket this weight into THREE signals:
+  //   1. cuisineScores[cuisine]             → cuisine affinity
+  //   2. priceScores[priceLevel]            → price affinity
+  //   3. pairScores["cuisine|price"]        → the actually-loved combination
+  //      (e.g. $$$$ Mediterranean, not just "Mediterranean OR $$$$")
   const userPreferences = useMemo(() => {
     const cuisineScores: Record<string, number> = {};
-    const priceCounts: Record<number, number> = {};
-    const highRated = myLocalRatings.filter((r) => r.score >= 7);
-    highRated.forEach((r) => {
-      // Weight by how much above 7 the score is (7→1, 10→4)
-      const weight = Math.max(1, r.score - 6);
-      if (r.cuisine) cuisineScores[r.cuisine] = (cuisineScores[r.cuisine] || 0) + weight;
-      r.tags.forEach((t) => { cuisineScores[t] = (cuisineScores[t] || 0) + weight * 0.5; });
-      const priceNum = r.price.length;
-      if (priceNum > 0) priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
+    const priceScores: Record<number, number> = {};
+    const pairScores: Record<string, number> = {};
+    let highRatedCount = 0;
+
+    myLocalRatings.forEach((r) => {
+      const score = Number(r.score) || 0;
+      if (score <= 0) return; // unrated
+      if (score >= 8) highRatedCount++;
+
+      const centered = score - 7;
+      const weight = centered >= 0 ? centered + 1 : centered * 1.25;
+      const price = r.price?.length || 0;
+
+      if (r.cuisine) {
+        cuisineScores[r.cuisine] = (cuisineScores[r.cuisine] || 0) + weight;
+        if (price > 0) {
+          const key = `${r.cuisine}|${price}`;
+          // Pair weight is amplified — a strong cuisine+price fit is the
+          // most actionable signal we have for building a query.
+          pairScores[key] = (pairScores[key] || 0) + weight * 1.5;
+        }
+      }
+      // Tags get partial credit toward cuisine affinity.
+      r.tags.forEach((t) => {
+        cuisineScores[t] = (cuisineScores[t] || 0) + weight * 0.5;
+      });
+      if (price > 0) {
+        priceScores[price] = (priceScores[price] || 0) + weight;
+      }
     });
-    const topCuisines = Object.entries(cuisineScores).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
-    const topPrices = Object.entries(priceCounts)
+
+    // Only surface positively-scored categories. A cuisine the user has
+    // consistently rated ≤6 ends up negative and gets dropped entirely — we
+    // want to avoid recommending more of what they don't like, not just
+    // avoid recommending it proportionally less.
+    const topCuisines = Object.entries(cuisineScores)
+      .filter(([_, s]) => s > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([c]) => c);
+    const topPrices = Object.entries(priceScores)
+      .filter(([_, s]) => s > 0)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 2)
       .map(([p]) => Number(p))
       .filter((p) => p >= 1 && p <= 4);
+    const topPairs = Object.entries(pairScores)
+      .filter(([_, s]) => s > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k]) => {
+        const [cuisine, priceStr] = k.split('|');
+        return { cuisine, price: Number(priceStr) };
+      });
+
     // Most common cities/states among high-rated restaurants, for location anchoring
     const cityCounts: Record<string, number> = {};
-    highRated.forEach((r) => {
+    myLocalRatings.forEach((r) => {
+      if (Number(r.score) < 7) return;
       const city = extractCityState(r.address || '', r.address || '');
       if (city) cityCounts[city] = (cityCounts[city] || 0) + 1;
     });
     const topCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
     const topCity = topCities[0] || null;
-    return { cuisineScores, priceCounts, topCuisines, topPrices, topCities, topCity, highRatedCount: highRated.length };
+    return { cuisineScores, priceCounts: priceScores, priceScores, pairScores, topCuisines, topPrices, topPairs, topCities, topCity, highRatedCount };
   }, [myLocalRatings]);
 
   // API-based curated recommendations (not derived from recently viewed).
@@ -427,26 +614,81 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   }, [myRatings]);
 
   // Build a list of personalised search queries from the user's preferences.
-  const buildRecQueries = useCallback(() => {
-    const { topCuisines, topPrices, topCities } = userPreferences;
+  //
+  // cityOverride lets the home-page location anchor replace the user's
+  // historical topCities in the query strings. This matters because Google
+  // Places honours an explicit "in New York" in the query text even when the
+  // locationBias is pointed elsewhere — we'd end up with NYC results while
+  // anchoring to LA. Pass the selected home city here and the queries track
+  // the dropdown.
+  const buildRecQueries = useCallback((cityOverride?: string | null) => {
+    const { topCuisines, topPrices, topPairs, topCities } = userPreferences;
     const priceSymbols = ['', '$', '$$', '$$$', '$$$$'];
     const seen = new Set<string>();
     const queries: string[] = [];
-    const push = (q: string) => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
-    for (const city of topCities) {
-      for (const cuisine of topCuisines) push(`best ${cuisine} restaurants in ${city}`);
+    const push = (q: string) => {
+      const cleaned = q.replace(/\s+/g, ' ').trim();
+      if (cleaned && !seen.has(cleaned)) { seen.add(cleaned); queries.push(cleaned); }
+    };
+    const cities = cityOverride ? [cityOverride] : topCities;
+    const city = cities[0] || '';
+
+    // Tier 1 — the strongest signal: (cuisine, price) pairs the user has
+    // actively loved. If they've rated $$$$ Mediterranean highly, this asks
+    // Google specifically for that, not just "Mediterranean OR $$$$".
+    for (const pair of topPairs) {
+      const pfx = priceSymbols[pair.price] || '';
+      push(city ? `best ${pfx} ${pair.cuisine} restaurants in ${city}` : `best ${pfx} ${pair.cuisine} restaurants`);
     }
+
+    // Tier 2 — cuisine × price cross products for the remaining top
+    // cuisines not already covered by a specific pair. Keeps price signal
+    // on queries even when the user hasn't rated that cuisine at that
+    // price specifically.
     for (const cuisine of topCuisines) {
-      for (const price of topPrices) push(`best ${priceSymbols[price]} ${cuisine} restaurants`);
+      if (topPairs.some((p) => p.cuisine === cuisine)) continue;
+      for (const price of topPrices) {
+        const pfx = priceSymbols[price] || '';
+        push(city ? `best ${pfx} ${cuisine} restaurants in ${city}` : `best ${pfx} ${cuisine} restaurants`);
+      }
     }
+
+    // Tier 3 — price-only anchors. Users with a strong $$$$ preference get
+    // "fine dining" recs that may introduce new cuisines they'd love.
+    if (topPrices.length > 0) {
+      const highestTopPrice = Math.max(...topPrices);
+      const lowestTopPrice = Math.min(...topPrices);
+      if (highestTopPrice >= 3) {
+        for (const cuisine of topCuisines.slice(0, 2)) {
+          push(city ? `${cuisine} fine dining ${city}` : `${cuisine} fine dining`);
+        }
+        push(city ? `fine dining ${city}` : 'fine dining restaurants');
+      }
+      if (lowestTopPrice <= 2) {
+        for (const cuisine of topCuisines.slice(0, 2)) {
+          push(city ? `cheap ${cuisine} ${city}` : `cheap ${cuisine} restaurants`);
+        }
+      }
+    }
+
+    // Tier 4 — generic cuisine queries for variety.
     for (const cuisine of topCuisines) {
-      push(`top rated ${cuisine} restaurants`);
-      push(`${cuisine} fine dining`);
-      push(`hidden gem ${cuisine} restaurants`);
+      push(city ? `best ${cuisine} restaurants in ${city}` : `best ${cuisine} restaurants`);
     }
-    for (const city of topCities) {
-      push(`best restaurants in ${city}`);
-      push(`trending restaurants ${city}`);
+
+    // Tier 5 — tail: "top rated", "hidden gem" variants for diversity.
+    for (const cuisine of topCuisines) {
+      if (city) {
+        push(`top rated ${cuisine} restaurants in ${city}`);
+        push(`hidden gem ${cuisine} restaurants ${city}`);
+      } else {
+        push(`top rated ${cuisine} restaurants`);
+        push(`hidden gem ${cuisine} restaurants`);
+      }
+    }
+    for (const c of cities) {
+      push(`best restaurants in ${c}`);
+      push(`trending restaurants ${c}`);
     }
     return queries;
   }, [userPreferences]);
@@ -457,9 +699,18 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     const ratedIds = new Set(myLocalRatings.map((r) => r.restaurantId));
     const wishlistedIds = new Set(myLists.flatMap((l: any) => l.wishlistIds || []));
     const recentIds = new Set(recentViews.map((v) => v.id));
-    const center = mapRef.current?.getCenter();
-    const lat = center?.lat ?? 40.735;
-    const lng = center?.lng ?? -73.99;
+    // Home mode has no live map — anchor recs to the user-selected home
+    // location instead so the results track the dropdown pick.
+    let lat: number;
+    let lng: number;
+    if (mode === 'home' && homeLocation) {
+      lat = homeLocation.lat;
+      lng = homeLocation.lng;
+    } else {
+      const center = mapRef.current?.getCenter();
+      lat = center?.lat ?? 40.735;
+      lng = center?.lng ?? -73.99;
+    }
     const results = await Promise.all(
       queryStrs.map((q) => searchPlacesByText(q, lat, lng, 50000).catch(() => [] as PlaceResult[]))
     );
@@ -476,57 +727,338 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       return true;
     });
     return fresh;
-  }, [myLocalRatings, myLists, recentViews]);
+  }, [myLocalRatings, myLists, recentViews, mode, homeLocation]);
 
-  // Initial recommendations fetch — personalised if user has preferences, generic nearby otherwise.
+  // Resolve the home-page location on mount. Preferred source is the device's
+  // GPS; when permission is denied (or geolocation is unavailable) we fall
+  // back to the last explicit selection from localStorage, and then to NYC.
+  useEffect(() => {
+    if (mode !== 'home' || homeLocation) return;
+    let cancelled = false;
+    const setFromFallback = () => {
+      if (cancelled) return;
+      const last = loadLastSelectedLocation();
+      setHomeLocation(last ?? { label: 'New York, NY', lat: 40.7128, lng: -74.006 });
+    };
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          if (cancelled) return;
+          const { latitude: lat, longitude: lng } = pos.coords;
+          const label = await reverseGeocode(lat, lng);
+          if (cancelled) return;
+          setHomeLocation({ label, lat, lng });
+        },
+        () => setFromFallback(),
+        { maximumAge: 5 * 60 * 1000, timeout: 8000 },
+      );
+    } else {
+      setFromFallback();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, homeLocation]);
+
+  // Explicit location pick from the picker — persist so the next denied-perms
+  // session can restore it, then trigger a quick fade while recs refetch.
+  // Picking the same location you're already on is a no-op so we don't spend
+  // API budget on a round-trip that wouldn't change anything.
+  const handleHomeLocationChange = useCallback((loc: HomeLocation) => {
+    if (homeLocation && locationKey(homeLocation.lat, homeLocation.lng) === locationKey(loc.lat, loc.lng)) {
+      // Just update the label in case user picked a more specific spelling,
+      // but skip the refetch / fade entirely.
+      if (homeLocation.label !== loc.label) {
+        setHomeLocation(loc);
+        saveLastSelectedLocation(loc);
+      }
+      return;
+    }
+    setHomeLocationRefreshing(true);
+    setHomeLocation(loc);
+    saveLastSelectedLocation(loc);
+    // Reset the rec cursor so useEffect below refetches from scratch.
+    recsFetchedRef.current = false;
+    recsSeenIdsRef.current = new Set();
+    recsQueryCursorRef.current = 0;
+    recsExhaustedRef.current = false;
+    window.setTimeout(() => setHomeLocationRefreshing(false), 450);
+  }, [homeLocation]);
+
+  // "Use current location" from the picker — returns a Promise so the picker
+  // can show a spinner while it resolves and surface a clear error if the
+  // browser denies / can't find a fix (otherwise the button just silently
+  // closed and the user had no feedback).
+  const handleHomeUseCurrent = useCallback(async (): Promise<void> => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      throw new Error('Geolocation is not available in this browser.');
+    }
+    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        maximumAge: 60 * 1000,
+        timeout: 10000,
+        enableHighAccuracy: false,
+      });
+    });
+    const { latitude: lat, longitude: lng } = pos.coords;
+    const label = await reverseGeocode(lat, lng);
+    handleHomeLocationChange({ label, lat, lng });
+  }, [handleHomeLocationChange]);
+
+  // Initial / location-driven recommendations — personalised if the user has
+  // preferences, generic nearby otherwise. In home mode the load flow is:
+  //
+  //   1. Check the session in-memory cache (instant, zero calls).
+  //   2. Check the Supabase `home_rec_cache` row for this location key
+  //      (network, but no Places API spend).
+  //   3. If the cache is recent AND the user's preferences haven't drifted,
+  //      use it as-is.
+  //   4. If the cache exists but prefs drifted, keep the cache and add a
+  //      single top-up call for the new top cuisine.
+  //   5. Otherwise do a full fresh fetch (3 queries) and persist it.
+  //
+  // Map mode always goes to the live API — it's not the expensive path.
   useEffect(() => {
     if (recsFetchedRef.current) return;
+    if (mode === 'home' && !homeLocation) return;
     recsFetchedRef.current = true;
     recsSeenIdsRef.current = new Set();
     recsQueryCursorRef.current = 0;
     recsExhaustedRef.current = false;
     setRecsLoading(true);
+    setApiRecommendations([]);
 
-    if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
-      const queries = buildRecQueries();
-      const initialBatch = queries.slice(0, 3);
-      recsQueryCursorRef.current = initialBatch.length;
-      fetchRecBatch(initialBatch).then((fresh) => {
-        setApiRecommendations(fresh);
-        setRecsLoading(false);
+    // In home mode, force the queries to target the selected home city so the
+    // API doesn't return NYC results just because the user's historical
+    // topCities is "New York, NY".
+    const homeCityOverride = mode === 'home' && homeLocation
+      ? homeLocation.label.split(',').slice(0, 2).join(', ').trim()
+      : null;
+
+    const uid = userId;
+    const locKey = mode === 'home' && homeLocation
+      ? locationKey(homeLocation.lat, homeLocation.lng)
+      : null;
+    const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices);
+
+    const applyCachedResults = (entry: HomeRecCacheEntry, prependFresh?: PlaceResult[]) => {
+      // Shuffle the cached pool on every load so the user sees different
+      // ordering even when nothing new was fetched. Any freshly-fetched
+      // top-ups stay at the top (they're the newest / most relevant).
+      const shuffledCache = shuffleInPlace([...entry.places]);
+      const merged = prependFresh && prependFresh.length > 0
+        ? [...prependFresh, ...shuffledCache].filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i)
+        : shuffledCache;
+      // Seed the dedup set so loadMore doesn't re-surface these.
+      for (const p of merged) recsSeenIdsRef.current.add(p.id);
+      // Apply community cover photos. This is non-blocking from the user's
+      // perspective — we set the recs immediately so the cards render
+      // placeholders, then swap in cover photos as soon as Supabase returns.
+      setApiRecommendations(merged);
+      setRecsLoading(false);
+      applyCoverPhotos(merged, uid).then((withCovers) => {
+        setApiRecommendations((prev) => {
+          // Only overwrite if the set of ids matches — otherwise the user
+          // has moved on (changed location, scrolled more queries in).
+          if (prev.length !== withCovers.length) return prev;
+          return withCovers;
+        });
       });
-    } else {
-      const center = mapRef.current?.getCenter();
-      const lat = center?.lat ?? 40.735;
-      const lng = center?.lng ?? -73.99;
-      Promise.all([
-        searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
-        searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
-      ]).then(([nearby, best]) => {
+      // Set the cursor past the initial batch so loadMoreRecommendations can
+      // continue fetching deeper queries (Tier 3 / 4 / 5) when the user
+      // scrolls past the cached pool — that's what keeps the row infinite.
+      recsExhaustedRef.current = false;
+      recsQueryCursorRef.current = 5;
+    };
+
+    const runLiveFetch = async () => {
+      if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
+        const queries = buildRecQueries(homeCityOverride);
+        // Pull a larger initial pool — five queries weighted across the
+        // user's top cuisines / prices / cities. Mixing these up means the
+        // cached pool covers enough variety that reshuffling on reload
+        // actually produces visibly different recs without any more calls.
+        const initialBatch = queries.slice(0, 5);
+        recsQueryCursorRef.current = initialBatch.length;
+        const fresh = await fetchRecBatch(initialBatch);
+        // Stamp cover photos onto the results BEFORE caching so returning
+        // users get them straight out of cache on the next visit.
+        const withCovers = await applyCoverPhotos(fresh, uid);
+        const shuffled = shuffleInPlace([...withCovers]);
+        setApiRecommendations(shuffled);
+        setRecsLoading(false);
+        if (uid && locKey && homeLocation && withCovers.length > 0) {
+          const entry: HomeRecCacheEntry = {
+            places: withCovers,
+            preferencesHash: prefsHash,
+            updatedAt: Date.now(),
+          };
+          sessionRecsCache[locKey] = entry;
+          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, withCovers);
+        }
+      } else {
+        // No preferences yet — pull a generic "best / nearby" set. Two calls
+        // instead of the previous two still but no text-city search baked
+        // into the query string.
+        let lat: number;
+        let lng: number;
+        if (mode === 'home' && homeLocation) {
+          lat = homeLocation.lat;
+          lng = homeLocation.lng;
+        } else {
+          const center = mapRef.current?.getCenter();
+          lat = center?.lat ?? 40.735;
+          lng = center?.lng ?? -73.99;
+        }
+        const [nearby, best] = await Promise.all([
+          searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
+          searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
+        ]);
         const all = [...nearby, ...best];
         const seen = new Set<string>();
-        const fresh = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
-        setApiRecommendations(fresh.slice(0, 12));
+        const dedup = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+        const out = await applyCoverPhotos(dedup.slice(0, 12), uid);
+        setApiRecommendations(out);
         setRecsLoading(false);
-      });
-    }
-  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch]);
+        if (uid && locKey && homeLocation && out.length > 0) {
+          const entry: HomeRecCacheEntry = {
+            places: out,
+            preferencesHash: prefsHash,
+            updatedAt: Date.now(),
+          };
+          sessionRecsCache[locKey] = entry;
+          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, out);
+        }
+      }
+    };
 
-  // Load more recommendations — called when the horizontal scroll nears the end.
+    // Home mode only: try caches before hitting Google.
+    if (mode === 'home' && locKey && homeLocation) {
+      // 1. Session in-memory cache — instant.
+      const sessionHit = sessionRecsCache[locKey];
+      if (sessionHit && Date.now() - sessionHit.updatedAt < HOME_RECS_CACHE_TTL) {
+        if (sessionHit.preferencesHash === prefsHash || userPreferences.topCuisines.length === 0) {
+          applyCachedResults(sessionHit);
+          return;
+        }
+      }
+      // 2. Supabase cache — one lightweight query, no Places spend.
+      if (uid) {
+        (async () => {
+          const cached = await getHomeRecsCache(uid, locKey);
+          const fresh = cached && Date.now() - cached.updatedAt < HOME_RECS_CACHE_TTL ? cached : null;
+          if (fresh && fresh.places.length > 0) {
+            const age = Date.now() - fresh.updatedAt;
+            const prefsMatch = fresh.preferencesHash === prefsHash || userPreferences.topCuisines.length === 0;
+
+            if (prefsMatch && age < HOME_RECS_TOPUP_AGE) {
+              // Straight cache hit — no Places API spend at all, and the
+              // cache is recent enough that we don't even need a variation
+              // top-up. Shuffle provides the reload variation.
+              sessionRecsCache[locKey] = fresh;
+              applyCachedResults(fresh);
+              return;
+            }
+
+            // Build exactly ONE top-up query so the feed gets fresh blood
+            // without blowing the API budget. The query picked rotates via a
+            // random index into the user's full rec-query list so the new
+            // places surfaced aren't the same ones we fetched initially, and
+            // so users with a strong price preference (e.g. $$$$) keep
+            // getting high-end picks rather than drifting toward generic.
+            const allQueries = buildRecQueries(homeCityOverride);
+            // When prefs drifted, force the top-up to target the new top
+            // cuisine so the change is immediately visible; otherwise cycle
+            // through the tail of the query list we haven't exhausted yet.
+            let topUpQuery: string | null = null;
+            if (!prefsMatch) {
+              const topCuisine = userPreferences.topCuisines[0];
+              topUpQuery = topCuisine
+                ? `best ${topCuisine} restaurants in ${homeCityOverride || ''}`.trim().replace(/\s+in\s*$/, '')
+                : null;
+            } else if (allQueries.length > 5) {
+              topUpQuery = allQueries[5 + Math.floor(Math.random() * Math.max(1, allQueries.length - 5))];
+            } else if (allQueries.length > 0) {
+              topUpQuery = allQueries[Math.floor(Math.random() * allQueries.length)];
+            }
+
+            const topUpResults = topUpQuery
+              ? (await fetchRecBatch([topUpQuery])).filter((p) => !fresh.places.some((q) => q.id === p.id))
+              : [];
+            const merged: PlaceResult[] = [...topUpResults, ...fresh.places]
+              .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
+            // Only reset the TTL clock when the underlying preferences changed
+            // — that's a real refresh. An age-based top-up just adds variety;
+            // the 2-day TTL keeps ticking so the pool still expires on time.
+            const nextUpdatedAt = prefsMatch ? fresh.updatedAt : Date.now();
+            const entry: HomeRecCacheEntry = {
+              places: merged,
+              preferencesHash: prefsHash,
+              updatedAt: nextUpdatedAt,
+            };
+            sessionRecsCache[locKey] = entry;
+            saveHomeRecsCache(
+              uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng,
+              prefsHash, merged, nextUpdatedAt,
+            );
+            applyCachedResults(entry, topUpResults);
+            return;
+          }
+          // Cache miss or stale — live fetch.
+          await runLiveFetch();
+        })();
+        return;
+      }
+    }
+
+    // Anonymous home, or map mode — just run the live path.
+    runLiveFetch();
+  }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices]);
+
+  // Load more recommendations — called when the horizontal scroll nears the
+  // end. Fetches one query at a time so the infinite scroll paces itself
+  // into smaller chunks, and writes every batch back into both caches so
+  // the user's next reload of this city already has the extended pool.
   const loadMoreRecommendations = useCallback(async () => {
     if (recsLoadingMore || recsExhaustedRef.current) return;
-    const queries = buildRecQueries();
+    const homeCityOverride = mode === 'home' && homeLocation
+      ? homeLocation.label.split(',').slice(0, 2).join(', ').trim()
+      : null;
+    const queries = buildRecQueries(homeCityOverride);
     if (recsQueryCursorRef.current >= queries.length) {
       recsExhaustedRef.current = true;
       return;
     }
     setRecsLoadingMore(true);
-    const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 3);
+    const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 1);
     recsQueryCursorRef.current += batch.length;
     const fresh = await fetchRecBatch(batch);
-    setApiRecommendations((prev) => [...prev, ...fresh]);
+    if (fresh.length === 0) {
+      setRecsLoadingMore(false);
+      return;
+    }
+    const freshWithCovers = await applyCoverPhotos(fresh, userId);
+    setApiRecommendations((prev) => [...prev, ...freshWithCovers]);
+    // Persist newly-surfaced places into the cache so future reloads of this
+    // city get them without another Places call.
+    if (mode === 'home' && userId && homeLocation) {
+      const locKey = locationKey(homeLocation.lat, homeLocation.lng);
+      const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices);
+      const existing = sessionRecsCache[locKey]?.places || [];
+      const mergedPool = [...existing, ...freshWithCovers]
+        .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
+      sessionRecsCache[locKey] = {
+        places: mergedPool,
+        preferencesHash: prefsHash,
+        updatedAt: sessionRecsCache[locKey]?.updatedAt ?? Date.now(),
+      };
+      saveHomeRecsCache(
+        userId, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng,
+        prefsHash, mergedPool, sessionRecsCache[locKey]?.updatedAt,
+      );
+    }
     setRecsLoadingMore(false);
-  }, [recsLoadingMore, buildRecQueries, fetchRecBatch]);
+  }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);
@@ -2648,8 +3180,35 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
               )}
 
               {/* Feed content — hidden when searching */}
+              {!discoverSearchActive && mode === 'home' && (
+                <div className="mt-2 flex items-end justify-between gap-3">
+                  <HomeLocationBar
+                    location={homeLocation}
+                    onChange={handleHomeLocationChange}
+                    onUseCurrent={handleHomeUseCurrent}
+                  />
+                  {homeLocation && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
+                        )
+                      }
+                      className="flex-shrink-0 text-[11px] font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors pb-1"
+                    >
+                      View all
+                    </button>
+                  )}
+                </div>
+              )}
               {!discoverSearchActive && (
-              <>
+              <div
+                className={cn(
+                  'transition-opacity duration-300',
+                  homeLocationRefreshing ? 'opacity-40' : 'opacity-100',
+                )}
+              >
               {/* Recommendations */}
               {recsLoading ? (
                 <section className="mt-5">
@@ -2688,11 +3247,14 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       };
                       return (
                         <div key={place.id} className="flex-shrink-0 w-44 group cursor-pointer snap-start" onClick={() => navigate(`/restaurant/${place.id}`)}>
-                          <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
+                          <div className="relative aspect-[6/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
                             {(place as any).photoUrl ? (
                               <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
                             ) : (
-                              <div className="h-full w-full flex items-center justify-center"><MapPinned size={24} className="text-on-surface/15" /></div>
+                              <div className="h-full w-full flex flex-col items-center justify-center gap-1.5 text-on-surface/30">
+                                <ImageOff size={22} />
+                                <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-on-surface/40">No photos yet</span>
+                              </div>
                             )}
                             <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                               <button
@@ -2740,11 +3302,45 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                 </section>
               ) : null}
 
+              {/* Guides — curated lists published by experts and members */}
+              <section className="mt-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <BookOpen size={13} className="text-primary/60" />
+                  <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Guides</h3>
+                </div>
+                <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                  {MOCK_GUIDES.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      className="flex-shrink-0 snap-start group text-left"
+                    >
+                      <div className="relative w-36 aspect-[4/5] rounded-xl overflow-hidden bg-on-surface/[0.05]">
+                        <img
+                          src={g.image}
+                          alt={g.title}
+                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+                        <div className="absolute inset-x-0 bottom-0 p-2.5">
+                          <p className="text-white text-[11px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
+                          <p className="text-white/75 text-[9px] font-medium mt-0.5 truncate">by {g.author}</p>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
               {/* Social Feed */}
               <div className="mt-5">
-                <SocialFeed />
+                <SocialFeed
+                  centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
+                  centerLng={mode === 'home' ? homeLocation?.lng ?? null : null}
+                />
               </div>
-              </>
+              </div>
               )}
             </div>
 

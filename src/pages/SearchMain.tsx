@@ -332,20 +332,8 @@ export const SearchMain: React.FC = () => {
                             handleSelectResult(place);
                           }
                         }}
-                        className="w-full flex gap-4 py-4 px-2 -mx-2 rounded-xl text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        className="w-full flex gap-3 py-4 px-2 -mx-2 rounded-xl text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       >
-                        <div className="w-20 h-20 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
-                          {place.photoUrl ? (
-                            <img
-                              src={place.photoUrl}
-                              alt={place.name}
-                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <span className="text-2xl font-serif font-bold text-on-surface/15">{place.name.charAt(0)}</span>
-                          )}
-                        </div>
                         <div className="flex-1 min-w-0 flex flex-col justify-center">
                           <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{place.name}</h3>
                           <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">

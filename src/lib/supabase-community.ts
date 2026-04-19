@@ -176,6 +176,66 @@ export async function getCommunityPhotos(restaurantId: string): Promise<Communit
   } catch (err) { console.error('[Community] getPhotos exception:', err); return []; }
 }
 
+/**
+ * Pick a single "cover" photo for a batch of restaurants in one query.
+ * Returns a map of restaurant_id → photo URL with this priority (highest
+ * wins):
+ *   1. A photo uploaded by the current viewer themselves — most recent first.
+ *   2. Any user's photo flagged is_favorite — most recent first.
+ *   3. The first (oldest) photo uploaded by anyone.
+ *
+ * Restaurants with no community photos at all are absent from the result
+ * so callers can fall back to the "No photos yet" placeholder.
+ */
+export async function getCoverPhotosBatch(
+  restaurantIds: string[],
+  currentUserId: string | null,
+): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  if (!supabaseConfigured || restaurantIds.length === 0) return out;
+  try {
+    // community_photos is world-readable, so we can fetch every photo for
+    // every restaurant in one query and pick a winner per bucket in JS.
+    const { data, error } = await supabase
+      .from('community_photos')
+      .select('restaurant_id, user_id, url, is_favorite, created_at')
+      .in('restaurant_id', restaurantIds);
+    if (error || !data) return out;
+
+    const buckets: Record<string, any[]> = {};
+    for (const row of data as any[]) {
+      const id = row.restaurant_id as string;
+      if (!buckets[id]) buckets[id] = [];
+      buckets[id].push(row);
+    }
+    for (const [id, rows] of Object.entries(buckets)) {
+      if (rows.length === 0) continue;
+      const mine = currentUserId
+        ? rows.filter((r) => r.user_id === currentUserId)
+        : [];
+      if (mine.length > 0) {
+        mine.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        out[id] = mine[0].url;
+        continue;
+      }
+      const favorites = rows.filter((r) => r.is_favorite);
+      if (favorites.length > 0) {
+        favorites.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        out[id] = favorites[0].url;
+        continue;
+      }
+      const oldest = [...rows].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+      out[id] = oldest[0].url;
+    }
+    return out;
+  } catch (err) {
+    console.warn('[Community] getCoverPhotosBatch error:', err);
+    return out;
+  }
+}
+
 /* ── User Profiles ── */
 
 export interface UserProfile {

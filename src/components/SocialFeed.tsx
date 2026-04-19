@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2, Loader2 } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2 } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -41,9 +41,27 @@ type FeedItem =
   | { type: 'rating'; data: CommunityRating; sortTime: number }
   | { type: 'homeMeal'; data: FriendHomeMeal; sortTime: number };
 
-const CHUNK_SIZE = 15;
+// Great-circle distance between two coords in kilometres (Haversine). Used to
+// sort the Friend Activity feed so ratings near the home-page location anchor
+// float to the top.
+const haversineKm = (aLat: number, aLng: number, bLat: number, bLng: number): number => {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+};
 
-export const SocialFeed: React.FC = () => {
+interface SocialFeedProps {
+  /** Distance-sort anchor. When set, friend activity sorts by proximity. */
+  centerLat?: number | null;
+  centerLng?: number | null;
+}
+
+export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null }) => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const navigate = useNavigate();
@@ -60,8 +78,11 @@ export const SocialFeed: React.FC = () => {
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [visibleCount, setVisibleCount] = useState(CHUNK_SIZE);
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  // Client-side infinite-scroll pagination — the full feed is fetched once,
+  // this cursor just controls how many rows are currently rendered.
+  const FEED_CHUNK = 10;
+  const [visibleCount, setVisibleCount] = useState(FEED_CHUNK);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const [openComments, setOpenComments] = useState<string | null>(null);
   const [comments, setComments] = useState<ActivityComment[]>([]);
@@ -98,6 +119,9 @@ export const SocialFeed: React.FC = () => {
     if (friends.length === 0) { setLoading(false); return; }
 
     const friendIds = friends.map((f) => f.friend_id);
+    // Pull the full friend history in a single Supabase query. The list is
+    // paginated client-side with an IntersectionObserver sentinel so
+    // scrolling doesn't trigger extra API calls.
     const [act, meals] = await Promise.all([
       getFriendActivity(friendIds, 500),
       getFriendsPublicHomeMeals(friendIds),
@@ -137,7 +161,15 @@ export const SocialFeed: React.FC = () => {
 
   useEffect(() => { loadFeed(); }, [loadFeed]);
 
-  // Merge and sort feed items by time
+  // Merge and sort feed items. When a location anchor is provided, sort so
+  // ratings nearest that anchor come first (then fall back to recency). Home
+  // meals don't have a location so they always sort by time.
+  const hasAnchor = centerLat != null && centerLng != null;
+  const distanceFor = (r: CommunityRating): number => {
+    if (!hasAnchor || r.lat == null || r.lng == null) return Infinity;
+    if (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1) return Infinity;
+    return haversineKm(centerLat!, centerLng!, r.lat, r.lng);
+  };
   const feedItems: FeedItem[] = [
     ...activity.map((r): FeedItem => ({
       type: 'rating', data: r,
@@ -147,7 +179,84 @@ export const SocialFeed: React.FC = () => {
       type: 'homeMeal', data: m,
       sortTime: m.createdAt,
     })),
-  ].sort((a, b) => b.sortTime - a.sortTime);
+  ].sort((a, b) => {
+    if (hasAnchor) {
+      const da = a.type === 'rating' ? distanceFor(a.data) : Infinity;
+      const db = b.type === 'rating' ? distanceFor(b.data) : Infinity;
+      if (da !== db) return da - db;
+    }
+    return b.sortTime - a.sortTime;
+  });
+
+  // Reset the visible window whenever the underlying data or sort order
+  // changes (new fetch, feedMode switch, location anchor change) — otherwise
+  // the first page would be whatever was rendered previously.
+  useEffect(() => {
+    setVisibleCount(FEED_CHUNK);
+  }, [activity.length, homeMeals.length, centerLat, centerLng]);
+
+  // Grow the visible window when the sentinel scrolls into view. Purely
+  // client-side — no network calls are issued per page.
+  //
+  // The observer is rebuilt whenever visibleCount changes so that it re-fires
+  // the "intersecting" callback even when the sentinel was already in view
+  // before the bump (IntersectionObserver only fires on transitions, so
+  // without this the first bump would be the only one when the user sits at
+  // the bottom of the list).
+  //
+  // Uses the nearest scrollable ancestor as the observer root instead of the
+  // viewport — the home page scrolls inside a `flex-1 overflow-y-auto`
+  // container rather than at window level, so a viewport-rooted observer
+  // never sees the sentinel cross any boundary and stays stuck after the
+  // first bump.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    if (visibleCount >= feedItems.length) return;
+
+    let scrollParent: HTMLElement | null = el.parentElement;
+    while (scrollParent && scrollParent !== document.body) {
+      const style = window.getComputedStyle(scrollParent);
+      if (/(auto|scroll|overlay)/.test(style.overflowY) || /(auto|scroll|overlay)/.test(style.overflow)) break;
+      scrollParent = scrollParent.parentElement;
+    }
+    const root = scrollParent && scrollParent !== document.body ? scrollParent : null;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((c) =>
+            c >= feedItems.length ? c : Math.min(c + FEED_CHUNK, feedItems.length),
+          );
+        }
+      },
+      { root, rootMargin: '600px' },
+    );
+    observer.observe(el);
+
+    // Belt-and-braces fallback: also listen for scroll on the scroll parent
+    // and bump when the sentinel approaches the bottom edge. Covers the
+    // cases where a transform/animation on an ancestor breaks intersection
+    // detection mid-animation.
+    const scrollEl = root || window;
+    const onScroll = () => {
+      const rect = el.getBoundingClientRect();
+      const viewportBottom = root ? root.getBoundingClientRect().bottom : window.innerHeight;
+      if (rect.top < viewportBottom + 600) {
+        setVisibleCount((c) =>
+          c >= feedItems.length ? c : Math.min(c + FEED_CHUNK, feedItems.length),
+        );
+      }
+    };
+    scrollEl.addEventListener('scroll', onScroll, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      scrollEl.removeEventListener('scroll', onScroll);
+    };
+  }, [feedItems.length, visibleCount]);
+
+  const visibleItems = feedItems.slice(0, visibleCount);
 
   const handleLike = async (ratingId: string) => {
     if (!userId || !ratingId) return;
@@ -226,37 +335,6 @@ export const SocialFeed: React.FC = () => {
   }, [feedDropdownOpen]);
 
   const currentOption = FEED_OPTIONS.find((o) => o.value === feedMode)!;
-
-  // Total items for the currently visible tab — drives the sentinel and
-  // the infinite-scroll window.
-  const activeTotal =
-    feedMode === 'recipes' ? homeMeals.length : feedItems.length;
-
-  // Reset infinite scroll window whenever the underlying list shape
-  // changes (tab switched, feed refetched, etc.).
-  useEffect(() => {
-    setVisibleCount(CHUNK_SIZE);
-  }, [feedMode, activeTotal]);
-
-  // Chunked infinite scroll via IntersectionObserver — mirrors the
-  // pattern used in FollowingFeed.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount((c) => {
-            if (c >= activeTotal) return c;
-            return Math.min(c + CHUNK_SIZE, activeTotal);
-          });
-        }
-      },
-      { rootMargin: '300px' },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [activeTotal]);
 
   const SectionHeader: React.FC<{ count?: number }> = ({ count }) => (
     <div className="flex items-center gap-3 mb-2">
@@ -342,9 +420,6 @@ export const SocialFeed: React.FC = () => {
   // Recipes-only mode uses its own list rendered from homeMeals.
   const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
 
-  const visibleFeedItems = feedItems.slice(0, visibleCount);
-  const visibleRecipes = recipesSorted.slice(0, visibleCount);
-
   return (
     <section className="mb-8">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
@@ -362,9 +437,8 @@ export const SocialFeed: React.FC = () => {
             description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
           />
         ) : (
-          <>
           <ul className="divide-y divide-on-surface/[0.06]">
-            {visibleRecipes.map((m) => {
+            {recipesSorted.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
               return (
@@ -455,17 +529,10 @@ export const SocialFeed: React.FC = () => {
               );
             })}
           </ul>
-          {visibleCount < recipesSorted.length && (
-            <div ref={sentinelRef} className="py-4 flex items-center justify-center">
-              <Loader2 size={16} className="text-on-surface/30 animate-spin" />
-            </div>
-          )}
-          </>
         )
       ) : (
-      <>
-      <ul>
-        {visibleFeedItems.map((item) => {
+      <ul className="divide-y divide-on-surface/10">
+        {visibleItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
@@ -740,12 +807,14 @@ export const SocialFeed: React.FC = () => {
           );
         })}
       </ul>
-      {visibleCount < feedItems.length && (
-        <div ref={sentinelRef} className="py-4 flex items-center justify-center">
-          <Loader2 size={16} className="text-on-surface/30 animate-spin" />
-        </div>
       )}
-      </>
+
+      {/* Infinite-scroll sentinel — grows the visible window client-side when
+          it scrolls into view. No network calls per page. */}
+      {feedMode !== 'recipes' && visibleCount < feedItems.length && (
+        <div ref={sentinelRef} className="py-4 flex items-center justify-center">
+          <div className="h-4 w-4 border-2 border-on-surface/15 border-t-on-surface/35 rounded-full animate-spin" />
+        </div>
       )}
 
       <ShareRecipeSheet
