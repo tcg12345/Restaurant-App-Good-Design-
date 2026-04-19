@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, ImageOff,
+  Car, Footprints,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -16,6 +17,7 @@ import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type Dinin
 import { priceLevelToString } from '../lib/places';
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { useTravelTimes, formatTravelTime } from '../lib/directions';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { Link } from 'react-router-dom';
@@ -79,6 +81,21 @@ export const RestaurantDetailDesktop: React.FC = () => {
     hotelDiningOptions, refreshHotelDining,
     visitHistory, visitCount,
   } = useRestaurantDetail();
+
+  // Resolve the user's anchored origin once per mount. The distance suffix
+  // and Mapbox Directions hook below both gate on isExactAddress, so a
+  // city-level / unset home renders nothing extra.
+  const homeLocationForDistance = React.useMemo(() => {
+    const h = loadLastSelectedLocation();
+    return isExactAddress(h) ? h : null;
+  }, []);
+  const destForDistance = place && Number.isFinite(place.lat) && Number.isFinite(place.lng)
+    ? { lat: place.lat, lng: place.lng }
+    : null;
+  const { driveMin, walkMin } = useTravelTimes(homeLocationForDistance, destForDistance);
+  const driveLabel = formatTravelTime(driveMin);
+  const walkLabel = formatTravelTime(walkMin);
+
   // Hours default to open — it's the most frequently checked info. Tracked
   // locally so the shared hook can keep its collapsed default elsewhere.
   const [hoursOpen, setHoursOpen] = useState(false);
@@ -285,21 +302,34 @@ export const RestaurantDetailDesktop: React.FC = () => {
                     {place.name}
                   </h1>
                   {(() => {
-                    // Only show a distance suffix when the user has anchored
-                    // to a precise street address — a city-level pick (or
-                    // nothing saved) wouldn't produce a meaningful number.
-                    const home = loadLastSelectedLocation();
-                    const dist =
-                      isExactAddress(home) && Number.isFinite(place.lat) && Number.isFinite(place.lng)
-                        ? formatDistance(haversineDistanceMi(home!.lat, home!.lng, place.lat, place.lng))
-                        : '';
+                    const dist = homeLocationForDistance && destForDistance
+                      ? formatDistance(haversineDistanceMi(homeLocationForDistance.lat, homeLocationForDistance.lng, destForDistance.lat, destForDistance.lng))
+                      : '';
                     return (
-                      <p className="mt-3 text-sm text-on-surface/55 flex items-baseline gap-1.5 min-w-0">
+                      <p className="mt-3 text-sm text-on-surface/55 flex items-baseline gap-1.5 min-w-0 flex-wrap">
                         <span className="truncate">{place.address}</span>
                         {dist && (
                           <>
                             <span className="text-on-surface/30 flex-shrink-0">·</span>
                             <span className="flex-shrink-0">{dist}</span>
+                          </>
+                        )}
+                        {driveLabel && (
+                          <>
+                            <span className="text-on-surface/30 flex-shrink-0">·</span>
+                            <span className="inline-flex items-center gap-1.5 flex-shrink-0">
+                              <Car size={14} className="text-on-surface/45" />
+                              {driveLabel}
+                            </span>
+                          </>
+                        )}
+                        {walkLabel && (
+                          <>
+                            <span className="text-on-surface/30 flex-shrink-0">·</span>
+                            <span className="inline-flex items-center gap-1.5 flex-shrink-0">
+                              <Footprints size={14} className="text-on-surface/45" />
+                              {walkLabel}
+                            </span>
                           </>
                         )}
                       </p>

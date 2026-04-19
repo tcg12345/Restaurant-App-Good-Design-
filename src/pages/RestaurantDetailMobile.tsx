@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, Trash2, ImageOff,
+  Car, Footprints,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -16,6 +17,7 @@ import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type Dinin
 import { priceLevelToString } from '../lib/places';
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { useTravelTimes, formatTravelTime } from '../lib/directions';
 import { Link } from 'react-router-dom';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
@@ -84,6 +86,20 @@ export const RestaurantDetailMobile: React.FC = () => {
   } = useRestaurantDetail();
 
   const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal, removeFromWishlist, deleteVisit } = useLists();
+
+  // Resolve the user's anchored origin once per mount. The distance suffix
+  // and Mapbox Directions hook below both gate on isExactAddress, so a
+  // city-level / unset home renders nothing extra.
+  const homeLocationForDistance = React.useMemo(() => {
+    const h = loadLastSelectedLocation();
+    return isExactAddress(h) ? h : null;
+  }, []);
+  const destForDistance = place && Number.isFinite(place.lat) && Number.isFinite(place.lng)
+    ? { lat: place.lat, lng: place.lng }
+    : null;
+  const { driveMin, walkMin } = useTravelTimes(homeLocationForDistance, destForDistance);
+  const driveLabel = formatTravelTime(driveMin);
+  const walkLabel = formatTravelTime(walkMin);
   const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
@@ -320,14 +336,9 @@ export const RestaurantDetailMobile: React.FC = () => {
                     {place.name}
                   </h1>
                   {(() => {
-                    // Only show a distance suffix when the user has anchored
-                    // to a precise street address — a city-level pick (or
-                    // nothing saved) wouldn't produce a meaningful number.
-                    const home = loadLastSelectedLocation();
-                    const dist =
-                      isExactAddress(home) && Number.isFinite(place.lat) && Number.isFinite(place.lng)
-                        ? formatDistance(haversineDistanceMi(home!.lat, home!.lng, place.lat, place.lng))
-                        : '';
+                    const dist = homeLocationForDistance && destForDistance
+                      ? formatDistance(haversineDistanceMi(homeLocationForDistance.lat, homeLocationForDistance.lng, destForDistance.lat, destForDistance.lng))
+                      : '';
                     return (
                       <p className="mt-3 text-[14px] text-on-surface/60 flex items-baseline gap-1.5 min-w-0">
                         <span className="truncate">{place.address}</span>
@@ -359,6 +370,23 @@ export const RestaurantDetailMobile: React.FC = () => {
                             const next = getNextOpenTime(place.hours);
                             return next ? <span> · opens {next}</span> : null;
                           })()}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {homeLocationForDistance && destForDistance && (driveLabel || walkLabel) && (
+                    <div className="mt-2 flex items-center gap-3 text-[13px] text-on-surface/65">
+                      {driveLabel && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Car size={14} className="text-on-surface/45" />
+                          {driveLabel}
+                        </span>
+                      )}
+                      {driveLabel && walkLabel && <span className="text-on-surface/25">·</span>}
+                      {walkLabel && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Footprints size={14} className="text-on-surface/45" />
+                          {walkLabel}
                         </span>
                       )}
                     </div>
