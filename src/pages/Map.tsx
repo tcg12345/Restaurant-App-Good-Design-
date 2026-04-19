@@ -38,11 +38,12 @@ import {
 // constructor — fine in dev but a TDZ ReferenceError in the prod bundle.
 const sessionRecsCache: Record<string, HomeRecCacheEntry> = {};
 
-// Max age we'll trust a Supabase cache entry before refetching from Google.
-const HOME_RECS_CACHE_TTL = 14 * 24 * 60 * 60 * 1000; // 14 days
+// Max age we'll trust a Supabase cache entry before throwing it out and
+// building a fresh preference-weighted pool from scratch.
+const HOME_RECS_CACHE_TTL = 2 * 24 * 60 * 60 * 1000; // 2 days
 // After this age, we keep the cache but slide in one fresh variation query
 // so the feed stays alive between full refetches.
-const HOME_RECS_TOPUP_AGE = 3 * 24 * 60 * 60 * 1000; // 3 days
+const HOME_RECS_TOPUP_AGE = 12 * 60 * 60 * 1000; // 12 hours
 
 /**
  * Fisher-Yates in-place shuffle. Used to reshuffle the cached recommendation
@@ -456,35 +457,89 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     });
   }, [userId]);
 
-  // Build preference profile from user's HIGH-rated restaurants (score >= 7).
-  // Recommendations are only curated based on what the user actually loved.
+  // Build preference profile from every rating the user has made — not just
+  // high-rated ones. We reward categories they've loved AND penalise
+  // categories they've consistently disliked so the recs don't just mirror
+  // whatever they've rated most often.
+  //
+  // Scoring model:
+  //   centered = score - 7   (7/10 is "neutral — fine but not a preference")
+  //   weight = centered if positive, else centered × 1.25 (penalise misses
+  //            a bit harder than rewards, so 9 low-rated French loses more
+  //            signal than 4 high-rated Mediterranean gains)
+  //
+  // We bucket this weight into THREE signals:
+  //   1. cuisineScores[cuisine]             → cuisine affinity
+  //   2. priceScores[priceLevel]            → price affinity
+  //   3. pairScores["cuisine|price"]        → the actually-loved combination
+  //      (e.g. $$$$ Mediterranean, not just "Mediterranean OR $$$$")
   const userPreferences = useMemo(() => {
     const cuisineScores: Record<string, number> = {};
-    const priceCounts: Record<number, number> = {};
-    const highRated = myLocalRatings.filter((r) => r.score >= 7);
-    highRated.forEach((r) => {
-      // Weight by how much above 7 the score is (7→1, 10→4)
-      const weight = Math.max(1, r.score - 6);
-      if (r.cuisine) cuisineScores[r.cuisine] = (cuisineScores[r.cuisine] || 0) + weight;
-      r.tags.forEach((t) => { cuisineScores[t] = (cuisineScores[t] || 0) + weight * 0.5; });
-      const priceNum = r.price.length;
-      if (priceNum > 0) priceCounts[priceNum] = (priceCounts[priceNum] || 0) + weight;
+    const priceScores: Record<number, number> = {};
+    const pairScores: Record<string, number> = {};
+    let highRatedCount = 0;
+
+    myLocalRatings.forEach((r) => {
+      const score = Number(r.score) || 0;
+      if (score <= 0) return; // unrated
+      if (score >= 8) highRatedCount++;
+
+      const centered = score - 7;
+      const weight = centered >= 0 ? centered + 1 : centered * 1.25;
+      const price = r.price?.length || 0;
+
+      if (r.cuisine) {
+        cuisineScores[r.cuisine] = (cuisineScores[r.cuisine] || 0) + weight;
+        if (price > 0) {
+          const key = `${r.cuisine}|${price}`;
+          // Pair weight is amplified — a strong cuisine+price fit is the
+          // most actionable signal we have for building a query.
+          pairScores[key] = (pairScores[key] || 0) + weight * 1.5;
+        }
+      }
+      // Tags get partial credit toward cuisine affinity.
+      r.tags.forEach((t) => {
+        cuisineScores[t] = (cuisineScores[t] || 0) + weight * 0.5;
+      });
+      if (price > 0) {
+        priceScores[price] = (priceScores[price] || 0) + weight;
+      }
     });
-    const topCuisines = Object.entries(cuisineScores).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
-    const topPrices = Object.entries(priceCounts)
+
+    // Only surface positively-scored categories. A cuisine the user has
+    // consistently rated ≤6 ends up negative and gets dropped entirely — we
+    // want to avoid recommending more of what they don't like, not just
+    // avoid recommending it proportionally less.
+    const topCuisines = Object.entries(cuisineScores)
+      .filter(([_, s]) => s > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([c]) => c);
+    const topPrices = Object.entries(priceScores)
+      .filter(([_, s]) => s > 0)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 2)
       .map(([p]) => Number(p))
       .filter((p) => p >= 1 && p <= 4);
+    const topPairs = Object.entries(pairScores)
+      .filter(([_, s]) => s > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k]) => {
+        const [cuisine, priceStr] = k.split('|');
+        return { cuisine, price: Number(priceStr) };
+      });
+
     // Most common cities/states among high-rated restaurants, for location anchoring
     const cityCounts: Record<string, number> = {};
-    highRated.forEach((r) => {
+    myLocalRatings.forEach((r) => {
+      if (Number(r.score) < 7) return;
       const city = extractCityState(r.address || '', r.address || '');
       if (city) cityCounts[city] = (cityCounts[city] || 0) + 1;
     });
     const topCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
     const topCity = topCities[0] || null;
-    return { cuisineScores, priceCounts, topCuisines, topPrices, topCities, topCity, highRatedCount: highRated.length };
+    return { cuisineScores, priceCounts: priceScores, priceScores, pairScores, topCuisines, topPrices, topPairs, topCities, topCity, highRatedCount };
   }, [myLocalRatings]);
 
   // API-based curated recommendations (not derived from recently viewed).
@@ -537,31 +592,40 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   // anchoring to LA. Pass the selected home city here and the queries track
   // the dropdown.
   const buildRecQueries = useCallback((cityOverride?: string | null) => {
-    const { topCuisines, topPrices, topCities } = userPreferences;
+    const { topCuisines, topPrices, topPairs, topCities } = userPreferences;
     const priceSymbols = ['', '$', '$$', '$$$', '$$$$'];
     const seen = new Set<string>();
     const queries: string[] = [];
-    const push = (q: string) => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
+    const push = (q: string) => {
+      const cleaned = q.replace(/\s+/g, ' ').trim();
+      if (cleaned && !seen.has(cleaned)) { seen.add(cleaned); queries.push(cleaned); }
+    };
     const cities = cityOverride ? [cityOverride] : topCities;
     const city = cities[0] || '';
 
-    // Interleave so the FIRST queries are cuisine+price matches — the
-    // initial batch is what gets fetched live and cached, so putting price
-    // signals up front means a user whose top price is $$$$ actually sees
-    // mostly $$$$ recs (and vice versa for $).
-    if (topPrices.length > 0) {
-      for (const cuisine of topCuisines) {
-        for (const price of topPrices) {
-          const pfx = priceSymbols[price];
-          const q = city
-            ? `best ${pfx} ${cuisine} restaurants in ${city}`
-            : `best ${pfx} ${cuisine} restaurants`;
-          push(q.replace(/\s+/g, ' ').trim());
-        }
+    // Tier 1 — the strongest signal: (cuisine, price) pairs the user has
+    // actively loved. If they've rated $$$$ Mediterranean highly, this asks
+    // Google specifically for that, not just "Mediterranean OR $$$$".
+    for (const pair of topPairs) {
+      const pfx = priceSymbols[pair.price] || '';
+      push(city ? `best ${pfx} ${pair.cuisine} restaurants in ${city}` : `best ${pfx} ${pair.cuisine} restaurants`);
+    }
+
+    // Tier 2 — cuisine × price cross products for the remaining top
+    // cuisines not already covered by a specific pair. Keeps price signal
+    // on queries even when the user hasn't rated that cuisine at that
+    // price specifically.
+    for (const cuisine of topCuisines) {
+      if (topPairs.some((p) => p.cuisine === cuisine)) continue;
+      for (const price of topPrices) {
+        const pfx = priceSymbols[price] || '';
+        push(city ? `best ${pfx} ${cuisine} restaurants in ${city}` : `best ${pfx} ${cuisine} restaurants`);
       }
-      // Sprinkle in a "fine dining" anchor when the top price is expensive,
-      // or "cheap eats" when the top price is $ — gives the pool a spine
-      // that matches their wallet even before cuisine is considered.
+    }
+
+    // Tier 3 — price-only anchors. Users with a strong $$$$ preference get
+    // "fine dining" recs that may introduce new cuisines they'd love.
+    if (topPrices.length > 0) {
       const highestTopPrice = Math.max(...topPrices);
       const lowestTopPrice = Math.min(...topPrices);
       if (highestTopPrice >= 3) {
@@ -577,13 +641,12 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       }
     }
 
-    // Then generic cuisine queries without price — gives the pool variety
-    // while still cuisine-weighted.
+    // Tier 4 — generic cuisine queries for variety.
     for (const cuisine of topCuisines) {
       push(city ? `best ${cuisine} restaurants in ${city}` : `best ${cuisine} restaurants`);
     }
 
-    // Tail: "top rated", "hidden gem" variants for diversity.
+    // Tier 5 — tail: "top rated", "hidden gem" variants for diversity.
     for (const cuisine of topCuisines) {
       if (city) {
         push(`top rated ${cuisine} restaurants in ${city}`);
@@ -760,11 +823,11 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       for (const p of merged) recsSeenIdsRef.current.add(p.id);
       setApiRecommendations(merged);
       setRecsLoading(false);
-      // The cache already holds enough for the horizontal row — signal that
-      // loadMore should not spend API budget unless the user explicitly
-      // exhausts this view.
-      recsExhaustedRef.current = true;
-      recsQueryCursorRef.current = Number.MAX_SAFE_INTEGER;
+      // Set the cursor past the initial batch so loadMoreRecommendations can
+      // continue fetching deeper queries (Tier 3 / 4 / 5) when the user
+      // scrolls past the cached pool — that's what keeps the row infinite.
+      recsExhaustedRef.current = false;
+      recsQueryCursorRef.current = 5;
     };
 
     const runLiveFetch = async () => {
@@ -882,13 +945,20 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
               : [];
             const merged: PlaceResult[] = [...topUpResults, ...fresh.places]
               .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
+            // Only reset the TTL clock when the underlying preferences changed
+            // — that's a real refresh. An age-based top-up just adds variety;
+            // the 2-day TTL keeps ticking so the pool still expires on time.
+            const nextUpdatedAt = prefsMatch ? fresh.updatedAt : Date.now();
             const entry: HomeRecCacheEntry = {
               places: merged,
               preferencesHash: prefsHash,
-              updatedAt: Date.now(),
+              updatedAt: nextUpdatedAt,
             };
             sessionRecsCache[locKey] = entry;
-            saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, merged);
+            saveHomeRecsCache(
+              uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng,
+              prefsHash, merged, nextUpdatedAt,
+            );
             applyCachedResults(entry, topUpResults);
             return;
           }
@@ -903,7 +973,10 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     runLiveFetch();
   }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices]);
 
-  // Load more recommendations — called when the horizontal scroll nears the end.
+  // Load more recommendations — called when the horizontal scroll nears the
+  // end. Fetches one query at a time so the infinite scroll paces itself
+  // into smaller chunks, and writes every batch back into both caches so
+  // the user's next reload of this city already has the extended pool.
   const loadMoreRecommendations = useCallback(async () => {
     if (recsLoadingMore || recsExhaustedRef.current) return;
     const homeCityOverride = mode === 'home' && homeLocation
@@ -915,12 +988,31 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       return;
     }
     setRecsLoadingMore(true);
-    const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 3);
+    const batch = queries.slice(recsQueryCursorRef.current, recsQueryCursorRef.current + 1);
     recsQueryCursorRef.current += batch.length;
     const fresh = await fetchRecBatch(batch);
+    if (fresh.length === 0) {
+      setRecsLoadingMore(false);
+      return;
+    }
     setApiRecommendations((prev) => [...prev, ...fresh]);
+    // Persist newly-surfaced places into the cache so future reloads of this
+    // city get them without another Places call.
+    if (mode === 'home' && userId && homeLocation) {
+      const locKey = locationKey(homeLocation.lat, homeLocation.lng);
+      const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices);
+      const existing = sessionRecsCache[locKey]?.places || [];
+      const mergedPool = [...existing, ...fresh]
+        .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
+      sessionRecsCache[locKey] = {
+        places: mergedPool,
+        preferencesHash: prefsHash,
+        updatedAt: Date.now(),
+      };
+      saveHomeRecsCache(userId, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, mergedPool);
+    }
     setRecsLoadingMore(false);
-  }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation]);
+  }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);

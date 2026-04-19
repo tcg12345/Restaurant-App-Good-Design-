@@ -62,7 +62,11 @@ export async function getHomeRecsCache(
   }
 }
 
-/** Upsert the cache slot for this user + location. */
+/**
+ * Upsert the cache slot for this user + location. Pass an explicit
+ * `updatedAtMs` to preserve the original fetch timestamp (used when an
+ * age-based top-up adds variety but shouldn't reset the 2-day TTL clock).
+ */
 export async function saveHomeRecsCache(
   userId: string,
   key: string,
@@ -71,6 +75,7 @@ export async function saveHomeRecsCache(
   lng: number,
   prefsHash: string,
   places: PlaceResult[],
+  updatedAtMs?: number,
 ): Promise<void> {
   if (!supabaseConfigured || !userId || places.length === 0) return;
   try {
@@ -83,7 +88,7 @@ export async function saveHomeRecsCache(
         location_lng: lng,
         preferences_hash: prefsHash,
         places_data: places,
-        updated_at: new Date().toISOString(),
+        updated_at: new Date(updatedAtMs ?? Date.now()).toISOString(),
       },
       { onConflict: 'user_id,location_key' },
     );
