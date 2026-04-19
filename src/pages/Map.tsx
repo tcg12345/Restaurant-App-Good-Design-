@@ -16,6 +16,7 @@ import {
   buildTasteProfile,
   buildCandidateQueries,
   scoreCandidates,
+  haversineKm,
   type TasteProfile,
   type CandidateSignals,
 } from '../lib/recommendations';
@@ -661,8 +662,24 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     // radius-based distance penalty all influence final ordering.
     if (mode !== 'home' || !homeLocation) return fresh;
     const target = { label: homeLocation.label, lat: homeLocation.lat, lng: homeLocation.lng };
-    return scoreCandidates(fresh, userPreferences, recSignals, target, radiusMeters);
+    // Hard radius cutoff BEFORE scoring so the scorer never surfaces places
+    // the user explicitly scoped away. Google's locationRestriction is
+    // usually tight but occasionally leaks — this enforces the chip value.
+    const inRadius = fresh.filter((p) =>
+      haversineKm({ lat: p.lat, lng: p.lng }, { lat: homeLocation.lat, lng: homeLocation.lng }) <= recRadiusMiles * 1.60934,
+    );
+    return scoreCandidates(inRadius, userPreferences, recSignals, target, radiusMeters);
   }, [myLocalRatings, myLists, recentViews, mode, homeLocation, recRadiusMiles, userPreferences, recSignals]);
+
+  // Hard radius filter used on cached / previously-stored places, which may
+  // have been built under a wider radius. Pass-through in browse mode.
+  const filterByRadius = useCallback((places: PlaceResult[]): PlaceResult[] => {
+    if (mode !== 'home' || !homeLocation) return places;
+    const radiusKm = recRadiusMiles * 1.60934;
+    return places.filter((p) =>
+      haversineKm({ lat: p.lat, lng: p.lng }, { lat: homeLocation.lat, lng: homeLocation.lng }) <= radiusKm,
+    );
+  }, [mode, homeLocation, recRadiusMiles]);
 
   // Refresh scoring signals on home-mode + (userId, home city, top tags)
   // change. Fetches in parallel so one slow endpoint doesn't block the rest.
@@ -852,9 +869,12 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       // ordering even when nothing new was fetched. Any freshly-fetched
       // top-ups stay at the top (they're the newest / most relevant).
       const shuffledCache = shuffleInPlace([...entry.places]);
-      const merged = prependFresh && prependFresh.length > 0
+      const combined = prependFresh && prependFresh.length > 0
         ? [...prependFresh, ...shuffledCache].filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i)
         : shuffledCache;
+      // Cached pools may have been built under a wider radius — enforce the
+      // current chip value before anything hits the screen.
+      const merged = filterByRadius(combined);
       // Seed the dedup set so loadMore doesn't re-surface these.
       for (const p of merged) recsSeenIdsRef.current.add(p.id);
       // Apply community cover photos. This is non-blocking from the user's
@@ -916,14 +936,19 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           lat = center?.lat ?? 40.735;
           lng = center?.lng ?? -73.99;
         }
+        // No-preferences fallback queries. In home mode we pass the chip's
+        // radius to both so results stay inside the picked scope; in browse
+        // mode we keep the old (unbounded) behaviour.
+        const fbRadius = mode === 'home' ? recRadiusMiles * 1609.34 : 2000;
         const [nearby, best] = await Promise.all([
-          searchNearbyRestaurants(lat, lng).catch(() => [] as PlaceResult[]),
-          searchPlacesByText('best restaurants', lat, lng).catch(() => [] as PlaceResult[]),
+          searchNearbyRestaurants(lat, lng, fbRadius).catch(() => [] as PlaceResult[]),
+          searchPlacesByText('best restaurants', lat, lng, homeLocation?.label, mode === 'home', fbRadius).catch(() => [] as PlaceResult[]),
         ]);
         const all = [...nearby, ...best];
         const seen = new Set<string>();
         const dedup = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
-        const out = await applyCoverPhotos(dedup.slice(0, 12), uid);
+        const withinRadius = filterByRadius(dedup);
+        const out = await applyCoverPhotos(withinRadius.slice(0, 12), uid);
         setApiRecommendations(out);
         setRecsLoading(false);
         if (uid && locKey && homeLocation && out.length > 0) {
