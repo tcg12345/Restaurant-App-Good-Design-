@@ -12,6 +12,8 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 import { cn } from '../lib/utils';
+import { scoreColor, scoreBadgeBg } from '../lib/score';
+import { extractCityState } from '../lib/places';
 
 const CHUNK_SIZE = 15;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
@@ -24,17 +26,13 @@ const feedCache: {
   ts: number;
 } = { userId: null, ratings: [], profiles: {}, ts: 0 };
 
+// Delegate to the shared extractCityState helper from lib/places so every
+// surface in the app (maps, search, detail) and this feed agree on how to
+// turn a Google Places formatted address into a short city label. That
+// helper handles US addresses, Italian / French / German / Japanese / UK /
+// Australian / Canadian formats, trailing province codes, etc.
 function extractCity(address: string): string {
-  const parts = (address || '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (parts.length >= 3) {
-    const city = parts[parts.length - 3];
-    const stateZip = parts[parts.length - 2];
-    const state = stateZip?.replace(/\d+/g, '').trim();
-    if (city && state && state.length <= 3) return `${city}, ${state}`;
-    if (city) return city;
-  }
-  if (parts.length >= 2) return parts.slice(-2).join(', ');
-  return parts[0] || '';
+  return extractCityState(address || '', address || '');
 }
 
 type SortOption = 'recent' | 'highest' | 'lowest';
@@ -42,7 +40,7 @@ type RoleFilter = 'all' | 'friends' | 'experts';
 
 export const FollowingFeed: React.FC = () => {
   const { user } = useAuth();
-  const { setHideBottomNav, phoneMode } = useSettings();
+  const { setHideBottomNav } = useSettings();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
   const navigate = useNavigate();
 
@@ -261,7 +259,7 @@ export const FollowingFeed: React.FC = () => {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 max-w-3xl mx-auto">
       {/* Search + filter row */}
       <div className="flex items-center gap-2">
         <div className="flex-1 relative">
@@ -344,12 +342,13 @@ export const FollowingFeed: React.FC = () => {
               </button>
             )}
           </div>
-          <ul className={cn("divide-y divide-on-surface/[0.06]", !phoneMode && "md:divide-y-0")}>
+          <ul className="divide-y divide-on-surface/[0.06]">
             {visible.map((r) => {
               const profile = profiles[r.user_id];
               const city = extractCity(r.address);
               const score = Number(r.score) || 0;
               const wishlisted = isWishlisted(r.restaurant_id);
+              const reviewer = profile?.display_name || profile?.username || '';
               const meta = {
                 id: r.restaurant_id,
                 name: r.restaurant_name || '',
@@ -358,6 +357,7 @@ export const FollowingFeed: React.FC = () => {
                 price: r.price || '',
                 address: r.address || '',
               };
+              const metaLine = [r.cuisine, r.price, city].filter(Boolean).join(' · ');
               return (
                 <li key={r.id}>
                   <div
@@ -370,143 +370,71 @@ export const FollowingFeed: React.FC = () => {
                         navigate(`/restaurant/${r.restaurant_id}`);
                       }
                     }}
-                    className="block w-full text-left group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
+                    className="flex items-start gap-4 py-5 sm:py-6 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded"
                   >
-                    {/* ── Mobile layout — info only, no photo ── */}
-                    <div className={cn("py-4", phoneMode ? "block" : "md:hidden")}>
-                      {/* Restaurant name + score */}
-                      <div className="flex items-start justify-between gap-3">
-                        <h4 className="font-serif text-[17px] font-bold text-on-surface leading-snug line-clamp-2 flex-1 min-w-0">
-                          {r.restaurant_name}
-                        </h4>
-                        <span className="flex items-center gap-0.5 text-sm font-bold text-primary flex-shrink-0 pt-0.5">
-                          <Star size={14} className="fill-primary" />
-                          {score.toFixed(1)}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                        {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
-                      </p>
-                      {profile && (
-                        <p className="text-sm text-on-surface/50 mt-1.5 truncate">
-                          via <span className="font-semibold text-on-surface/75">{profile.display_name || profile.username}</span>
+                    {/* Text column — name, metadata eyebrow, via line */}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-serif text-[19px] sm:text-xl font-bold text-on-surface leading-tight line-clamp-2 group-hover:text-primary transition-colors">
+                        {r.restaurant_name}
+                      </h4>
+                      {metaLine && (
+                        <p className="mt-1.5 text-[11px] text-on-surface/40 font-semibold uppercase tracking-[0.12em] truncate">
+                          {metaLine}
                         </p>
                       )}
-
-                      {/* Actions row */}
-                      <div className="flex items-center gap-1 mt-2 -ml-2">
-                        <div className="flex-1" />
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openAddRestaurantModal(meta);
-                          }}
-                          className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
-                        >
-                          <Plus size={14} /> Rate
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openWishlistModal(meta);
-                          }}
-                          className={cn(
-                            "inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded-full transition-colors",
-                            wishlisted
-                              ? "text-red-500 hover:bg-red-500/5"
-                              : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                      {reviewer && (
+                        <p className="mt-1.5 text-[13px] text-on-surface/55 truncate">
+                          via <span className="font-semibold text-on-surface/80">{reviewer}</span>
+                          {profile?.is_expert && (
+                            <span className="ml-2 text-[10px] font-bold uppercase tracking-[0.1em] text-accent">
+                              Expert
+                            </span>
                           )}
-                          aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                        >
-                          <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
-                        </button>
-                      </div>
+                        </p>
+                      )}
                     </div>
 
-                    {/* ── Desktop layout — unboxed horizontal card ── */}
-                    <div className={cn("py-3", phoneMode ? "hidden" : "hidden md:block")}>
-                      <div className="flex gap-4">
-                        {/* Photo thumbnail */}
-                        <div className="flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] relative flex items-center justify-center">
-                          <SearchIcon size={28} className="text-on-surface/20" />
-                          {r.photo_url && (
-                            <img
-                              src={r.photo_url}
-                              alt=""
-                              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
-                              loading="lazy"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).style.display = 'none';
-                              }}
-                            />
-                          )}
-                        </div>
-
-                        {/* Content stack — flex column so actions can dock to the bottom */}
-                        <div className="flex-1 min-w-0 flex flex-col">
-                          {/* Reviewer header */}
-                          {profile && (
-                            <div className="flex items-center gap-2 mb-2">
-                              <div className="w-7 h-7 rounded-full bg-on-surface/[0.06] flex items-center justify-center flex-shrink-0">
-                                <span className="text-[11px] font-serif font-bold text-on-surface/55">
-                                  {(profile.display_name || profile.username || 'U').charAt(0).toUpperCase()}
-                                </span>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[12px] font-bold leading-tight truncate">
-                                  {profile.display_name || profile.username}
-                                </p>
-                                <p className="text-[10px] text-on-surface/40 font-medium uppercase tracking-wider leading-tight mt-0.5">
-                                  {profile.is_expert
-                                    ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · Rated</span>
-                                    : <>Rated</>}
-                                </p>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Restaurant name + score inline */}
-                          <div className="flex items-start justify-between gap-3">
-                            <h4 className="font-serif font-bold text-[17px] leading-tight flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">
-                              {r.restaurant_name}
-                            </h4>
-                            <span className="flex items-center gap-0.5 text-lg font-serif font-bold text-primary flex-shrink-0 leading-none pt-0.5">
-                              <Star size={14} className="fill-primary" />
-                              {score.toFixed(1)}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                            {[r.cuisine, r.price, city].filter(Boolean).join(' · ')}
-                          </p>
-
-                          {/* Actions row — docked to bottom so it lines up with the photo's bottom edge */}
-                          <div className="flex items-center gap-1 mt-auto pt-2 -ml-2">
-                            <div className="flex-1" />
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openAddRestaurantModal(meta); }}
-                              className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
-                            >
-                              <Plus size={14} /> Rate
-                            </button>
-                            <button
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openWishlistModal(meta); }}
-                              className={cn(
-                                "inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded-full transition-colors",
-                                wishlisted
-                                  ? "text-red-500 hover:bg-red-500/5"
-                                  : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
-                              )}
-                              aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                            >
-                              <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                    {/* Right rail — score pill + subtle action icons, aligned to the name */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span
+                        className={cn(
+                          'inline-flex items-center justify-center min-w-[38px] h-7 px-2 rounded-full border text-[12px] font-bold tabular-nums',
+                          scoreBadgeBg(score),
+                          scoreColor(score),
+                        )}
+                        aria-label={`Score ${score.toFixed(1)}`}
+                      >
+                        {score.toFixed(1)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          openAddRestaurantModal(meta);
+                        }}
+                        className="w-8 h-8 flex items-center justify-center rounded-full text-on-surface/35 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
+                        aria-label="Rate"
+                      >
+                        <Plus size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          openWishlistModal(meta);
+                        }}
+                        className={cn(
+                          'w-8 h-8 flex items-center justify-center rounded-full transition-colors',
+                          wishlisted
+                            ? 'text-secondary hover:bg-secondary/10'
+                            : 'text-on-surface/35 hover:text-secondary hover:bg-on-surface/[0.04]',
+                        )}
+                        aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
+                      >
+                        <Heart size={16} className={wishlisted ? 'fill-secondary' : ''} />
+                      </button>
                     </div>
                   </div>
                 </li>

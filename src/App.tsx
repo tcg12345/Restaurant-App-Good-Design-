@@ -35,6 +35,7 @@ import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
 import { Messages } from './pages/Messages';
 import { FriendReviewDetail } from './pages/FriendReviewDetail';
+import { LocationPage } from './pages/LocationPage';
 import { RestaurantCircleReviews } from './pages/RestaurantCircleReviews';
 import { MealRecipePage } from './pages/MealRecipePage';
 import { ReorderRatings } from './pages/ReorderRatings';
@@ -148,6 +149,7 @@ const AppContent: React.FC = () => {
                 <Route path="/user/:username" element={<UserProfile />} />
                 <Route path="/messages" element={<Messages />} />
                 <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
+                <Route path="/location" element={<LocationPage />} />
               </Routes>
             </motion.div>
           </AnimatePresence>
