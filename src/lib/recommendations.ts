@@ -1,5 +1,5 @@
 import type { PlaceResult } from './places';
-import { extractCityState } from './places';
+import { extractCityState, CUISINE_TYPES } from './places';
 import type { CommunityRating } from './supabase-community';
 import type { RestaurantRating, WishlistItem, CustomList } from '../contexts/ListsContext';
 
@@ -249,4 +249,159 @@ export function buildCandidateQueries(
   }
 
   return out;
+}
+
+function haversineKm(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+export interface CandidateSignals {
+  expertUserIds: Set<string>;
+  followedExpertIds: Set<string>;
+  friendUserIds: Set<string>;
+  communityByRestaurant: Map<string, CommunityRating[]>;
+  expertRecRestaurantIds: Set<string>;
+}
+
+export function scoreCandidates(
+  candidates: PlaceResult[],
+  profile: TasteProfile,
+  signals: CandidateSignals,
+  target: RecTargetLocation,
+  radiusMeters: number,
+): ScoredPlace[] {
+  const W = DEFAULT_WEIGHTS;
+
+  const googleTypeToLabel: Record<string, string> = {};
+  for (const entry of CUISINE_TYPES) {
+    if (entry.type) googleTypeToLabel[entry.type] = entry.label;
+  }
+  const inferCuisine = (types: string[]): string => {
+    for (const t of types) {
+      if (googleTypeToLabel[t]) return googleTypeToLabel[t];
+    }
+    return '';
+  };
+
+  const coldStart = profile.highRatedCount < 3;
+  const radiusKm = radiusMeters / 1000;
+  const skipIds = new Set<string>();
+  profile.ratedIds.forEach((id) => skipIds.add(id));
+  profile.wishlistedIds.forEach((id) => skipIds.add(id));
+  profile.recentlyViewedIds.forEach((id) => skipIds.add(id));
+
+  const scored: ScoredPlace[] = [];
+
+  for (const c of candidates) {
+    if (skipIds.has(c.id)) continue;
+
+    const cuisine = inferCuisine(c.types);
+    const price = c.priceLevel;
+    const pairKey = `${cuisine}|${price}`;
+    const distKm = haversineKm(
+      { lat: c.lat, lng: c.lng },
+      { lat: target.lat, lng: target.lng },
+    );
+    const communityRows = signals.communityByRestaurant.get(c.id) || [];
+
+    let score = 0;
+    const sources: ScoredPlace['sources'] = ['google'];
+
+    if (!coldStart) {
+      score += W.cuisine * (profile.cuisineScore[cuisine] ?? 0);
+      score += W.price * (profile.priceScore[price] ?? 0);
+      score += W.pair * (profile.pairScore[pairKey] ?? 0);
+
+      // Tag overlap (capped)
+      const tagSet = new Set<string>();
+      for (const row of communityRows) {
+        for (const t of row.tags || []) tagSet.add(t);
+      }
+      let tagBonus = 0;
+      for (const t of tagSet) {
+        const ts = profile.tagScore[t];
+        if (ts !== undefined) tagBonus += W.tagOverlap * ts;
+      }
+      const tagCap = W.tagOverlap * 6;
+      if (tagBonus > tagCap) tagBonus = tagCap;
+      score += tagBonus;
+      if (tagBonus > 0) sources.push('tagSimilar');
+
+      // Negative pair suppression
+      const pairVal = profile.pairScore[pairKey] ?? 0;
+      if (pairVal < 0) score -= W.negativePair * Math.abs(pairVal);
+
+      score += W.popularity * Math.log1p(c.userRatingCount);
+      score += W.quality * (c.rating - 3.5);
+    } else {
+      score += W.quality * (c.rating - 3.5);
+      score += W.popularity * Math.log1p(c.userRatingCount);
+    }
+
+    // Expert signal
+    let expertRaw = 0;
+    for (const row of communityRows) {
+      if (row.score >= 8 && signals.expertUserIds.has(row.user_id)) {
+        const mult = signals.followedExpertIds.has(row.user_id) ? 0.75 : 0.5;
+        expertRaw += mult;
+      }
+    }
+    const hasExpertRec = signals.expertRecRestaurantIds.has(c.id);
+    if (hasExpertRec) expertRaw += 1;
+    if (expertRaw > 3) expertRaw = 3;
+    const expertContribution = W.expert * expertRaw;
+    if (expertContribution > 0) {
+      score += expertContribution;
+      sources.push('expert');
+      if (hasExpertRec) sources.push('expertRec');
+    }
+
+    // Friend signal
+    let friendRaw = 0;
+    for (const row of communityRows) {
+      if (row.score >= 8 && signals.friendUserIds.has(row.user_id)) {
+        friendRaw += 0.3;
+      }
+    }
+    if (friendRaw > 2) friendRaw = 2;
+    const friendContribution = W.friend * friendRaw;
+    if (friendContribution > 0) {
+      score += friendContribution;
+      sources.push('friend');
+    }
+
+    // Distance penalty (soft, beyond 50% of radius)
+    const extra = Math.max(0, distKm - radiusKm * 0.5);
+    score -= W.distancePerKm * extra;
+
+    scored.push({ ...c, recScore: score, sources });
+  }
+
+  scored.sort((a, b) => b.recScore - a.recScore);
+
+  // Diversity pass: in top 10, penalize 4th+ occurrence of the same cuisine
+  const cuisineCounts: Record<string, number> = {};
+  const top = Math.min(10, scored.length);
+  for (let i = 0; i < top; i++) {
+    const cu = inferCuisine(scored[i].types);
+    cuisineCounts[cu] = (cuisineCounts[cu] || 0) + 1;
+    if (cuisineCounts[cu] >= 4) {
+      scored[i].recScore -= 1.5;
+    }
+  }
+  scored.sort((a, b) => b.recScore - a.recScore);
+
+  return scored.slice(0, 12);
 }
