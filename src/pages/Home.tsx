@@ -963,6 +963,41 @@ export const Home: React.FC = () => {
                         </section>
                       ) : null}
 
+                      {/* Guides — curated lists published by experts and members */}
+                      <section>
+                        <div className="flex items-center gap-2 mb-3">
+                          <BookOpen size={15} className="text-primary/60" />
+                          <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Guides</h3>
+                        </div>
+                        <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                          {MOCK_GUIDES.map((g) => (
+                            <button
+                              key={g.id}
+                              type="button"
+                              className="flex-shrink-0 snap-start group text-left"
+                            >
+                              <div className="relative w-56 aspect-[4/5] rounded-2xl overflow-hidden bg-muted">
+                                <img
+                                  src={g.image}
+                                  alt={g.title}
+                                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+                                <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 backdrop-blur-sm text-[10px] font-bold uppercase tracking-wider text-on-surface/70">
+                                  <BookOpen size={10} />
+                                  Guide
+                                </div>
+                                <div className="absolute inset-x-0 bottom-0 p-3">
+                                  <p className="text-white text-[15px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
+                                  <p className="text-white/80 text-[11px] font-medium mt-1 truncate">by {g.author} · {g.count} spots</p>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+
                       {/* Your Top Rated — shown when user has ratings */}
                       {topRated.length > 0 && (
                         <section>
