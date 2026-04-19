@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, Star, MapPin, Clock, Phone, Globe,
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Users, UserCircle, Share2, Heart, Bookmark,
+  Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -971,100 +971,106 @@ export const RestaurantDetailMobile: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Facts list — each row is its own tappable edit affordance */}
-                        <ul className="border-t border-line pt-4 space-y-3">
-                          {/* Score */}
-                          <li>
-                            <button
-                              onClick={() => openAt('main')}
-                              className="flex items-center gap-3 w-full text-left active:opacity-60 transition-opacity"
-                              style={{ fontSize: '14px' }}
-                            >
-                              <Star size={15} className="text-ink-3 flex-shrink-0" />
-                              <span className="text-ink-2 w-20 flex-shrink-0">Score</span>
-                              <span className="text-ink flex-1 tabular-nums font-medium">
-                                {myRating.score.toFixed(1)} <span className="text-ink-3 font-normal">/ 10</span>
-                              </span>
-                              <Edit3 size={12} className="text-ink-3 flex-shrink-0" />
-                            </button>
-                          </li>
-
-                          {/* Would return */}
-                          <li>
-                            <button
-                              onClick={() => openAt('main')}
-                              className="flex items-center gap-3 w-full text-left active:opacity-60 transition-opacity"
-                              style={{ fontSize: '14px' }}
-                            >
-                              <Heart size={15} className="text-ink-3 flex-shrink-0" />
-                              <span className="text-ink-2 w-20 flex-shrink-0">Return?</span>
-                              <span className="text-ink flex-1 font-medium">{myRating.wouldReturn ? 'Yes' : 'Nah'}</span>
-                              <Edit3 size={12} className="text-ink-3 flex-shrink-0" />
-                            </button>
-                          </li>
-
-                          {/* Visited date */}
-                          <li>
+                        {/* Visited date — matches the Notes/Tags/Photos layout */}
+                        <div>
+                          <button
+                            onClick={() => openAt('date')}
+                            className="flex items-center gap-1.5 uppercase text-ink-2 active:opacity-60 transition-opacity"
+                            style={{
+                              fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              letterSpacing: '0.14em',
+                            }}
+                          >
+                            <CalendarDays size={13} />
+                            <span>Visited</span>
+                            <Edit3 size={11} className="text-ink-3 ml-0.5" />
+                          </button>
+                          {hasDate ? (
+                            <p className="mt-2 text-ink font-medium" style={{ fontSize: '14px' }}>
+                              {dateLabel}
+                            </p>
+                          ) : (
                             <button
                               onClick={() => openAt('date')}
-                              className="flex items-center gap-3 w-full text-left active:opacity-60 transition-opacity"
+                              className="mt-2 block italic text-ink-3 active:text-ink-2 transition-colors"
                               style={{ fontSize: '14px' }}
                             >
-                              <CalendarDays size={15} className="text-ink-3 flex-shrink-0" />
-                              <span className="text-ink-2 w-20 flex-shrink-0">Visited</span>
-                              <span className={cn('flex-1', hasDate ? 'text-ink font-medium' : 'text-ink-3 italic')}>
-                                {hasDate ? dateLabel : 'Add date…'}
-                              </span>
-                              <Edit3 size={12} className="text-ink-3 flex-shrink-0" />
+                              Add date…
                             </button>
-                          </li>
+                          )}
+                        </div>
 
-                          {/* Price (skip for hotels) */}
-                          {!isHotel && (
-                            <li>
+                        {/* Price (skip for hotels) */}
+                        {!isHotel && (
+                          <div>
+                            <button
+                              onClick={() => openAt('price')}
+                              className="flex items-center gap-1.5 uppercase text-ink-2 active:opacity-60 transition-opacity"
+                              style={{
+                                fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                letterSpacing: '0.14em',
+                              }}
+                            >
+                              <DollarSign size={13} />
+                              <span>Price</span>
+                              <Edit3 size={11} className="text-ink-3 ml-0.5" />
+                            </button>
+                            {hasPrice ? (
+                              <p className="mt-2 text-ink font-medium tabular-nums" style={{ fontSize: '14px' }}>
+                                {myRating.price}
+                              </p>
+                            ) : (
                               <button
                                 onClick={() => openAt('price')}
-                                className="flex items-center gap-3 w-full text-left active:opacity-60 transition-opacity"
+                                className="mt-2 block italic text-ink-3 active:text-ink-2 transition-colors"
                                 style={{ fontSize: '14px' }}
                               >
-                                <DollarSign size={15} className="text-ink-3 flex-shrink-0" />
-                                <span className="text-ink-2 w-20 flex-shrink-0">Price</span>
-                                <span className={cn('flex-1', hasPrice ? 'text-ink font-medium' : 'text-ink-3 italic')}>
-                                  {hasPrice ? myRating.price : 'Add price…'}
-                                </span>
-                                <Edit3 size={12} className="text-ink-3 flex-shrink-0" />
+                                Add price…
                               </button>
-                            </li>
-                          )}
+                            )}
+                          </div>
+                        )}
 
-                          {/* Friends / companions (skip for hotels) */}
-                          {!isHotel && (
-                            <li>
+                        {/* Friends / companions (skip for hotels) */}
+                        {!isHotel && (
+                          <div>
+                            <button
+                              onClick={() => openAt('friends')}
+                              className="flex items-center gap-1.5 uppercase text-ink-2 active:opacity-60 transition-opacity"
+                              style={{
+                                fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                letterSpacing: '0.14em',
+                              }}
+                            >
+                              <Users size={13} />
+                              <span>With</span>
+                              <Edit3 size={11} className="text-ink-3 ml-0.5" />
+                            </button>
+                            {hasFriends ? (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {myRating.friendIds.map((fid) => (
+                                  <span key={fid} className="text-xs font-medium px-2.5 py-1 rounded-full bg-cream-2 text-ink-2">
+                                    {friendNames[fid] || fid.slice(0, 8)}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
                               <button
                                 onClick={() => openAt('friends')}
-                                className="flex items-start gap-3 w-full text-left active:opacity-60 transition-opacity"
+                                className="mt-2 block italic text-ink-3 active:text-ink-2 transition-colors"
                                 style={{ fontSize: '14px' }}
                               >
-                                <Users size={15} className="text-ink-3 flex-shrink-0 mt-0.5" />
-                                <span className="text-ink-2 w-20 flex-shrink-0 pt-0.5">With</span>
-                                <span className="flex-1">
-                                  {hasFriends ? (
-                                    <span className="flex flex-wrap gap-1.5">
-                                      {myRating.friendIds.map((fid) => (
-                                        <span key={fid} className="text-xs font-medium px-2 py-0.5 rounded-full bg-cream-2 text-ink-2">
-                                          {friendNames[fid] || fid.slice(0, 8)}
-                                        </span>
-                                      ))}
-                                    </span>
-                                  ) : (
-                                    <span className="text-ink-3 italic">Add companions…</span>
-                                  )}
-                                </span>
-                                <Edit3 size={12} className="text-ink-3 flex-shrink-0 mt-1" />
+                                Add companions…
                               </button>
-                            </li>
-                          )}
-                        </ul>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </motion.div>
