@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, ImageOff,
+  Car, Footprints,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -14,6 +15,9 @@ import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
+import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
+import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { useTravelTimes, formatTravelTime } from '../lib/directions';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { Link } from 'react-router-dom';
@@ -77,6 +81,21 @@ export const RestaurantDetailDesktop: React.FC = () => {
     hotelDiningOptions, refreshHotelDining,
     visitHistory, visitCount,
   } = useRestaurantDetail();
+
+  // Resolve the user's anchored origin once per mount. The distance suffix
+  // and Mapbox Directions hook below both gate on isExactAddress, so a
+  // city-level / unset home renders nothing extra.
+  const homeLocationForDistance = React.useMemo(() => {
+    const h = loadLastSelectedLocation();
+    return isExactAddress(h) ? h : null;
+  }, []);
+  const destForDistance = place && Number.isFinite(place.lat) && Number.isFinite(place.lng)
+    ? { lat: place.lat, lng: place.lng }
+    : null;
+  const { driveMin, walkMin } = useTravelTimes(homeLocationForDistance, destForDistance);
+  const driveLabel = formatTravelTime(driveMin);
+  const walkLabel = formatTravelTime(walkMin);
+
   // Hours default to open — it's the most frequently checked info. Tracked
   // locally so the shared hook can keep its collapsed default elsewhere.
   const [hoursOpen, setHoursOpen] = useState(false);
@@ -282,9 +301,40 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   <h1 className="text-4xl lg:text-5xl font-serif font-bold text-on-surface leading-[1.05] tracking-tight">
                     {place.name}
                   </h1>
-                  <p className="mt-3 text-sm text-on-surface/55">
-                    {place.address}
-                  </p>
+                  {(() => {
+                    const dist = homeLocationForDistance && destForDistance
+                      ? formatDistance(haversineDistanceMi(homeLocationForDistance.lat, homeLocationForDistance.lng, destForDistance.lat, destForDistance.lng))
+                      : '';
+                    return (
+                      <p className="mt-3 text-sm text-on-surface/55 flex items-baseline gap-1.5 min-w-0 flex-wrap">
+                        <span className="truncate">{place.address}</span>
+                        {dist && (
+                          <>
+                            <span className="text-on-surface/30 flex-shrink-0">·</span>
+                            <span className="flex-shrink-0">{dist}</span>
+                          </>
+                        )}
+                        {driveLabel && (
+                          <>
+                            <span className="text-on-surface/30 flex-shrink-0">·</span>
+                            <span className="inline-flex items-center gap-1.5 flex-shrink-0">
+                              <Car size={14} className="text-on-surface/45" />
+                              {driveLabel}
+                            </span>
+                          </>
+                        )}
+                        {walkLabel && (
+                          <>
+                            <span className="text-on-surface/30 flex-shrink-0">·</span>
+                            <span className="inline-flex items-center gap-1.5 flex-shrink-0">
+                              <Footprints size={14} className="text-on-surface/45" />
+                              {walkLabel}
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    );
+                  })()}
                   {place.isOpen !== null && (
                     <div className="mt-2 flex items-center gap-2 text-sm">
                       <span className={cn('inline-block w-2 h-2 rounded-full', place.isOpen ? 'bg-green-500' : 'bg-red-500')} />

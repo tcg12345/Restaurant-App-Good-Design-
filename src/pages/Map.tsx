@@ -735,10 +735,18 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   useEffect(() => {
     if (mode !== 'home' || homeLocation) return;
     let cancelled = false;
+    // If the user has already picked (or previously GPS-resolved) a
+    // location, restore it on mount and skip the GPS request entirely —
+    // otherwise navigating back to the home page would silently overwrite
+    // their explicit pick with their current location.
+    const last = loadLastSelectedLocation();
+    if (last) {
+      setHomeLocation(last);
+      return;
+    }
     const setFromFallback = () => {
       if (cancelled) return;
-      const last = loadLastSelectedLocation();
-      setHomeLocation(last ?? { label: 'New York, NY', lat: 40.7128, lng: -74.006 });
+      setHomeLocation({ label: 'New York, NY', lat: 40.7128, lng: -74.006 });
     };
     if (typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -747,10 +755,16 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           const { latitude: lat, longitude: lng } = pos.coords;
           const label = await reverseGeocode(lat, lng);
           if (cancelled) return;
-          setHomeLocation({ label, lat, lng });
+          const loc = { label, lat, lng };
+          setHomeLocation(loc);
+          // Persist the GPS-resolved address to the same localStorage slot
+          // the picker uses, so other surfaces (restaurant detail distance,
+          // map default centre, etc.) can read the precise origin instead
+          // of falling back to a stale city-level label.
+          saveLastSelectedLocation(loc);
         },
         () => setFromFallback(),
-        { maximumAge: 5 * 60 * 1000, timeout: 8000 },
+        { maximumAge: 5 * 60 * 1000, timeout: 15000, enableHighAccuracy: true },
       );
     } else {
       setFromFallback();
@@ -796,8 +810,8 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
         maximumAge: 60 * 1000,
-        timeout: 10000,
-        enableHighAccuracy: false,
+        timeout: 15000,
+        enableHighAccuracy: true,
       });
     });
     const { latitude: lat, longitude: lng } = pos.coords;
@@ -1384,9 +1398,15 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     // Focus-only deep-link: open the map already centred on the target
     // restaurant so no camera animation is needed.
     const focusOnlyInit = isFocusOnlyRef.current && initialFocus;
+    // Default the camera to the location the user picked on the home page
+    // (persisted to localStorage by HomeLocationBar) so the Map tab opens
+    // wherever they were last browsing instead of always snapping to NYC.
+    const savedHome = focusOnlyInit ? null : loadLastSelectedLocation();
     const initialCenter: [number, number] = focusOnlyInit
       ? [initialFocus.lng, initialFocus.lat]
-      : [-73.99, 40.735];
+      : savedHome
+        ? [savedHome.lng, savedHome.lat]
+        : [-73.99, 40.735];
     const initialZoom = focusOnlyInit ? 15 : 12.5;
 
     const map = new mapboxgl.Map({
@@ -3287,7 +3307,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                               )}
                             </div>
                             <p className="mt-0.5 text-[10px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                              {cuisine}{(place as any).priceLevel > 0 && <span className="text-on-surface/25 mx-1.5">·</span>}{(place as any).priceLevel > 0 && priceLevelToString((place as any).priceLevel)}
+                              {cuisine}{cuisine && <span className="text-on-surface/25 mx-1.5">·</span>}{priceLevelToString((place as any).priceLevel || 0)}
                             </p>
                           </div>
                         </div>
@@ -3937,7 +3957,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                                   )}
                                 </div>
                                 <p className="mt-0.5 text-[9px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                                  {cuisine}{(place as any).priceLevel > 0 && <span className="text-on-surface/25 mx-1">·</span>}{(place as any).priceLevel > 0 && priceLevelToString((place as any).priceLevel)}
+                                  {cuisine}{cuisine && <span className="text-on-surface/25 mx-1">·</span>}{priceLevelToString((place as any).priceLevel || 0)}
                                 </p>
                               </div>
                             </div>
