@@ -1158,35 +1158,22 @@ export const RestaurantDetailMobile: React.FC = () => {
 
           return (
             <section className="mb-6">
-              <p className="section-eyebrow mb-1">Visit history</p>
-              <h2
-                className="text-ink mb-3"
-                style={{
-                  fontFamily: '"Fraunces", "Noto Serif", serif',
-                  fontSize: '22px',
-                  fontWeight: 500,
-                  letterSpacing: '-0.4px',
-                  lineHeight: 1.15,
-                }}
-              >
-                Your {entries.length} {entries.length === 1 ? 'visit' : 'visits'}
-              </h2>
+              <p className="section-eyebrow mb-4">Visit history</p>
 
-              <ul className="rounded-[14px] bg-paper border border-line overflow-hidden">
-                {entries.map((e, idx) => {
+              <ul className="divide-y divide-line">
+                {entries.map((e) => {
                   const isExpanded = expandedVisit === e.id;
                   const month = e.date ? MONTHS[e.date.getMonth()].toUpperCase() : '—';
                   const day = e.date ? e.date.getDate() : '';
                   const fullDate = e.date
                     ? e.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                     : 'No date';
-                  const isLast = idx === entries.length - 1;
                   return (
-                    <li key={e.id} className={cn(!isLast && 'border-b border-line')}>
+                    <li key={e.id}>
                       <button
                         type="button"
                         onClick={() => setExpandedVisit(isExpanded ? null : e.id)}
-                        className="w-full flex items-center gap-3 px-3.5 py-3 text-left active:bg-ink/[0.015] transition-colors"
+                        className="w-full flex items-center gap-3 py-3.5 text-left active:opacity-70 transition-opacity"
                       >
                         {/* Date badge — cream-2 fill, mono month above Fraunces day */}
                         <div className="flex-shrink-0 w-11 h-11 rounded-[10px] bg-cream-2 flex flex-col items-center justify-center">
@@ -1268,7 +1255,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                             transition={{ duration: 0.2 }}
                             className="overflow-hidden"
                           >
-                            <div className="px-3.5 pb-4 pl-[calc(44px+1rem-0.125rem)] space-y-2.5">
+                            <div className="pb-4 pl-[calc(44px+0.75rem)] space-y-2.5">
                               {e.tags && e.tags.length > 0 && (
                                 <div className="flex flex-wrap gap-1.5">
                                   {e.tags.map((t) => (
