@@ -645,33 +645,17 @@ export const RestaurantDetailMobile: React.FC = () => {
             s >= 8 ? 'bg-olive' : s >= 5 ? 'bg-amber-600' : 'bg-clay';
           return (
             <section className="mb-6">
-              <div className="flex items-end justify-between mb-3">
-                <div>
-                  <p
-                    className="uppercase text-ink-3 mb-1"
-                    style={{
-                      fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-                      fontSize: '10px',
-                      letterSpacing: '0.14em',
-                    }}
-                  >
-                    Your circle
-                  </p>
-                  <h2
-                    className="text-ink"
-                    style={{
-                      fontFamily: '"Fraunces", "Noto Serif", serif',
-                      fontSize: '22px',
-                      fontWeight: 500,
-                      letterSpacing: '-0.4px',
-                      lineHeight: 1.15,
-                    }}
-                  >
-                    {hasFriends
-                      ? `${friendsStats.totalRatings} friend${friendsStats.totalRatings === 1 ? '' : 's'} rated here`
-                      : 'No friends yet'}
-                  </h2>
-                </div>
+              <div className="flex items-end justify-between mb-4">
+                <p
+                  className="uppercase text-ink-3"
+                  style={{
+                    fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                    fontSize: '10px',
+                    letterSpacing: '0.14em',
+                  }}
+                >
+                  Your circle
+                </p>
                 {hasFriends && friendsStats.ratings.length > topFriends.length && (
                   <button
                     type="button"
@@ -685,7 +669,7 @@ export const RestaurantDetailMobile: React.FC = () => {
               </div>
 
               {hasFriends ? (
-                <div className="space-y-2.5">
+                <div className="divide-y divide-line">
                   {topFriends.map((r) => {
                     const prof = friendReviewProfiles[r.user_id];
                     const name = prof?.display_name || 'Friend';
@@ -698,15 +682,15 @@ export const RestaurantDetailMobile: React.FC = () => {
                         key={r.id}
                         type="button"
                         onClick={() => navigate(`/review/${r.id}`)}
-                        className="w-full rounded-[14px] bg-paper border border-line p-3.5 text-left active:scale-[0.99] transition-transform"
+                        className="w-full py-4 first:pt-0 last:pb-0 text-left active:opacity-70 transition-opacity"
                       >
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-full bg-cream-2 flex items-center justify-center flex-shrink-0">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-cream-2 flex items-center justify-center flex-shrink-0">
                             <span
                               className="text-ink"
                               style={{
                                 fontFamily: '"Fraunces", "Noto Serif", serif',
-                                fontSize: '14px',
+                                fontSize: '15px',
                                 fontWeight: 600,
                               }}
                             >
@@ -714,7 +698,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                             </span>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-ink truncate" style={{ fontSize: '13px', fontWeight: 600 }}>
+                            <p className="text-ink truncate" style={{ fontSize: '14px', fontWeight: 600 }}>
                               {name}
                             </p>
                             {visitLabel && (
@@ -741,7 +725,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         </div>
                         {r.notes && (
                           <p
-                            className="italic text-ink-2 mt-2.5 line-clamp-2"
+                            className="italic text-ink-2 mt-3 line-clamp-2"
                             style={{
                               fontFamily: '"Fraunces", "Noto Serif", serif',
                               fontSize: '14px',
