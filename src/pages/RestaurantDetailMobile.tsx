@@ -565,28 +565,7 @@ export const RestaurantDetailMobile: React.FC = () => {
 
           return (
             <section className="mb-6">
-              <p
-                className="uppercase text-ink-3 mb-1"
-                style={{
-                  fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-                  fontSize: '10px',
-                  letterSpacing: '0.14em',
-                }}
-              >
-                The community says
-              </p>
-              <h2
-                className="text-ink mb-3"
-                style={{
-                  fontFamily: '"Fraunces", "Noto Serif", serif',
-                  fontSize: '22px',
-                  fontWeight: 500,
-                  letterSpacing: '-0.4px',
-                  lineHeight: 1.15,
-                }}
-              >
-                Scores across your network
-              </h2>
+              <p className="section-eyebrow mb-4">Ratings</p>
               <div className={cn('grid gap-2.5', isHotel ? 'grid-cols-1' : 'grid-cols-3')}>
                 <Box
                   label={isHotel ? 'Breakfast' : 'Everyone'}
@@ -646,16 +625,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           return (
             <section className="mb-6">
               <div className="flex items-end justify-between mb-4">
-                <p
-                  className="uppercase text-ink-3"
-                  style={{
-                    fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-                    fontSize: '10px',
-                    letterSpacing: '0.14em',
-                  }}
-                >
-                  Your circle
-                </p>
+                <p className="section-eyebrow">Your circle</p>
                 {(hasFriends || expertRecommendations.length > 0) && place && (
                   <button
                     type="button"
@@ -1123,16 +1093,7 @@ export const RestaurantDetailMobile: React.FC = () => {
 
           return (
             <section className="mb-6">
-              <p
-                className="uppercase text-ink-3 mb-1"
-                style={{
-                  fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-                  fontSize: '10px',
-                  letterSpacing: '0.14em',
-                }}
-              >
-                Visit history
-              </p>
+              <p className="section-eyebrow mb-1">Visit history</p>
               <h2
                 className="text-ink mb-3"
                 style={{
