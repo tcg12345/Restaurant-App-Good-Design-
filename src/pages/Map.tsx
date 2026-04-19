@@ -2831,12 +2831,25 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
               {/* Feed content — hidden when searching */}
               {!discoverSearchActive && mode === 'home' && (
-                <div className="mt-2">
+                <div className="mt-2 flex items-end justify-between gap-3">
                   <HomeLocationBar
                     location={homeLocation}
                     onChange={handleHomeLocationChange}
                     onUseCurrent={handleHomeUseCurrent}
                   />
+                  {homeLocation && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
+                        )
+                      }
+                      className="flex-shrink-0 text-[11px] font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors pb-1"
+                    >
+                      View all
+                    </button>
+                  )}
                 </div>
               )}
               {!discoverSearchActive && (
