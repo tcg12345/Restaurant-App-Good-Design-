@@ -32,8 +32,11 @@ import {
 } from '../lib/supabase-rec-cache';
 
 // Session-scoped in-memory cache — a tap back to a city we already loaded
-// this session skips both Google and Supabase.
-const sessionRecsCache = new Map<string, HomeRecCacheEntry>();
+// this session skips both Google and Supabase. Uses a plain object instead
+// of `new Map()` because this file ALSO exports a component named `Map`,
+// and at module load time the local const binding shadows the global Map
+// constructor — fine in dev but a TDZ ReferenceError in the prod bundle.
+const sessionRecsCache: Record<string, HomeRecCacheEntry> = {};
 
 // Max age we'll trust a Supabase cache entry before refetching from Google.
 const HOME_RECS_CACHE_TTL = 14 * 24 * 60 * 60 * 1000; // 14 days
@@ -785,7 +788,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
             preferencesHash: prefsHash,
             updatedAt: Date.now(),
           };
-          sessionRecsCache.set(locKey, entry);
+          sessionRecsCache[locKey] = entry;
           saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, fresh);
         }
       } else {
@@ -818,7 +821,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
             preferencesHash: prefsHash,
             updatedAt: Date.now(),
           };
-          sessionRecsCache.set(locKey, entry);
+          sessionRecsCache[locKey] = entry;
           saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, out);
         }
       }
@@ -827,7 +830,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     // Home mode only: try caches before hitting Google.
     if (mode === 'home' && locKey && homeLocation) {
       // 1. Session in-memory cache — instant.
-      const sessionHit = sessionRecsCache.get(locKey);
+      const sessionHit = sessionRecsCache[locKey];
       if (sessionHit && Date.now() - sessionHit.updatedAt < HOME_RECS_CACHE_TTL) {
         if (sessionHit.preferencesHash === prefsHash || userPreferences.topCuisines.length === 0) {
           applyCachedResults(sessionHit);
@@ -847,7 +850,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
               // Straight cache hit — no Places API spend at all, and the
               // cache is recent enough that we don't even need a variation
               // top-up. Shuffle provides the reload variation.
-              sessionRecsCache.set(locKey, fresh);
+              sessionRecsCache[locKey] = fresh;
               applyCachedResults(fresh);
               return;
             }
@@ -884,7 +887,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
               preferencesHash: prefsHash,
               updatedAt: Date.now(),
             };
-            sessionRecsCache.set(locKey, entry);
+            sessionRecsCache[locKey] = entry;
             saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, merged);
             applyCachedResults(entry, topUpResults);
             return;
