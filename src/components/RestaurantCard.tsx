@@ -30,6 +30,8 @@ interface RestaurantCardProps {
   isHotel?: boolean;
   variant?: RestaurantCardVariant;
   className?: string;
+  /** Override the image-wrapper aspect ratio on the default 'card' variant. */
+  imageClassName?: string;
 }
 
 /* ── Score badge ────────────────────────────────────────────────────────────
@@ -85,6 +87,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   isHotel = false,
   variant = 'card',
   className,
+  imageClassName,
 }) => {
   // Shared click-stopper for in-card buttons so they don't trigger the Link.
   const stop = (e: React.MouseEvent, fn?: () => void) => {
@@ -236,7 +239,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
       to={`/restaurant/${id}`}
       className={cn('group block card-interactive overflow-hidden', className)}
     >
-      <div className="relative aspect-[4/5] sm:aspect-[4/3] overflow-hidden bg-on-surface/5">
+      <div className={cn('relative aspect-[4/5] sm:aspect-[4/3] overflow-hidden bg-on-surface/5', imageClassName)}>
         <img
           src={image}
           alt={name}
