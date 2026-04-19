@@ -504,14 +504,6 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
     else communityByRestaurant.set(row.restaurant_id, [row]);
   }
 
-  const signals: CandidateSignals = {
-    expertUserIds,
-    followedExpertIds: followedExperts,
-    friendUserIds,
-    communityByRestaurant,
-    expertRecRestaurantIds: new Set<string>(),
-  };
-
   // Candidate pool: Google results win on id conflicts (richer metadata),
   // then cached places, then pseudo-places from community rows.
   const byId = new Map<string, PlaceResult>();
@@ -551,6 +543,30 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
     );
     if (dist <= slackKm) candidates.push(c);
   }
+
+  // Only fetch if we actually have candidates to look up. One batched query.
+  const candidateIds = candidates.map((c) => c.id);
+  const expertRecIds = new Set<string>();
+  if (candidateIds.length > 0 && opts.userId) {
+    try {
+      const { supabase, supabaseConfigured } = await import('./supabase');
+      if (supabaseConfigured) {
+        const { data } = await supabase
+          .from('expert_recommendations')
+          .select('restaurant_id')
+          .in('restaurant_id', candidateIds);
+        for (const row of data || []) expertRecIds.add((row as { restaurant_id: string }).restaurant_id);
+      }
+    } catch { /* ignore */ }
+  }
+
+  const signals: CandidateSignals = {
+    expertUserIds,
+    followedExpertIds: followedExperts,
+    friendUserIds,
+    communityByRestaurant,
+    expertRecRestaurantIds: expertRecIds,
+  };
 
   const scored = scoreCandidates(
     candidates,
