@@ -735,10 +735,18 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   useEffect(() => {
     if (mode !== 'home' || homeLocation) return;
     let cancelled = false;
+    // If the user has already picked (or previously GPS-resolved) a
+    // location, restore it on mount and skip the GPS request entirely —
+    // otherwise navigating back to the home page would silently overwrite
+    // their explicit pick with their current location.
+    const last = loadLastSelectedLocation();
+    if (last) {
+      setHomeLocation(last);
+      return;
+    }
     const setFromFallback = () => {
       if (cancelled) return;
-      const last = loadLastSelectedLocation();
-      setHomeLocation(last ?? { label: 'New York, NY', lat: 40.7128, lng: -74.006 });
+      setHomeLocation({ label: 'New York, NY', lat: 40.7128, lng: -74.006 });
     };
     if (typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
