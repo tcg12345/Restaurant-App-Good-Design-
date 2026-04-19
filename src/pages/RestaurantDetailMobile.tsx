@@ -1101,32 +1101,21 @@ export const RestaurantDetailMobile: React.FC = () => {
           };
 
           const entries: Entry[] = [];
-          // The active rating is the most recent visit, so it leads the
-          // timeline. Its trend compares against the newest historical
-          // visit below it.
-          const curDate = parseDate(myRating.visitDate);
-          const prevFromCurrent = visitHistory[0];
-          const curTrend: Entry['trend'] = prevFromCurrent
-            ? (myRating.score - prevFromCurrent.score > 0.1 ? 'up'
-              : myRating.score - prevFromCurrent.score < -0.1 ? 'down' : 'same')
-            : null;
+          // The active rating is a visit too — push it first, we'll
+          // sort everything chronologically afterward so a backfilled
+          // visit can legitimately outrank the current one.
           entries.push({
             id: 'current',
             score: myRating.score,
-            date: curDate,
+            date: parseDate(myRating.visitDate),
             notes: myRating.notes,
             tags: myRating.tags,
             photos: myRating.photos,
             wouldReturn: myRating.wouldReturn,
-            trend: curTrend,
+            trend: null,
             isCurrent: true,
           });
-          visitHistory.forEach((v, idx) => {
-            const nextOlder = visitHistory[idx + 1];
-            const trend: Entry['trend'] = nextOlder
-              ? (v.score - nextOlder.score > 0.1 ? 'up'
-                : v.score - nextOlder.score < -0.1 ? 'down' : null)
-              : null;
+          visitHistory.forEach((v) => {
             entries.push({
               id: v.id,
               score: v.score,
@@ -1135,10 +1124,30 @@ export const RestaurantDetailMobile: React.FC = () => {
               tags: v.tags,
               photos: v.photos,
               wouldReturn: v.would_return,
-              trend,
+              trend: null, // filled in below after sorting
               isCurrent: false,
             });
           });
+
+          // Strictly sort by visit date DESC so the timeline is always
+          // chronological even if a user backfilled an older visit
+          // (getVisitHistory returns by created_at, not visit_date).
+          entries.sort((a, b) => {
+            const at = a.date ? a.date.getTime() : 0;
+            const bt = b.date ? b.date.getTime() : 0;
+            return bt - at;
+          });
+
+          // Recompute the trend now that entries are in chronological
+          // order — each entry's trend compares it against the next
+          // older one in the list.
+          for (let i = 0; i < entries.length; i++) {
+            const cur = entries[i];
+            const older = entries[i + 1];
+            if (!older) { cur.trend = null; continue; }
+            const diff = cur.score - older.score;
+            cur.trend = diff > 0.1 ? 'up' : diff < -0.1 ? 'down' : cur.isCurrent ? 'same' : null;
+          }
 
           return (
             <section className="mb-6">

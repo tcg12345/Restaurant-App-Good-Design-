@@ -1041,28 +1041,17 @@ export const RestaurantDetailDesktop: React.FC = () => {
           };
 
           const entries: Entry[] = [];
-          const curDate = parseDate(myRating.visitDate);
-          const prevFromCurrent = visitHistory[0];
-          const curTrend: Entry['trend'] = prevFromCurrent
-            ? (myRating.score - prevFromCurrent.score > 0.1 ? 'up'
-              : myRating.score - prevFromCurrent.score < -0.1 ? 'down' : null)
-            : null;
           entries.push({
             id: 'current',
             score: myRating.score,
-            date: curDate,
+            date: parseDate(myRating.visitDate),
             notes: myRating.notes,
             tags: myRating.tags,
             photos: myRating.photos,
             wouldReturn: myRating.wouldReturn,
-            trend: curTrend,
+            trend: null,
           });
-          visitHistory.forEach((v, idx) => {
-            const nextOlder = visitHistory[idx + 1];
-            const trend: Entry['trend'] = nextOlder
-              ? (v.score - nextOlder.score > 0.1 ? 'up'
-                : v.score - nextOlder.score < -0.1 ? 'down' : null)
-              : null;
+          visitHistory.forEach((v) => {
             entries.push({
               id: v.id,
               score: v.score,
@@ -1071,9 +1060,23 @@ export const RestaurantDetailDesktop: React.FC = () => {
               tags: v.tags,
               photos: v.photos,
               wouldReturn: v.would_return,
-              trend,
+              trend: null,
             });
           });
+
+          // Strictly sort by visit date DESC so the timeline stays
+          // chronological even when a user backfills an older visit.
+          entries.sort((a, b) => {
+            const at = a.date ? a.date.getTime() : 0;
+            const bt = b.date ? b.date.getTime() : 0;
+            return bt - at;
+          });
+          for (let i = 0; i < entries.length; i++) {
+            const older = entries[i + 1];
+            if (!older) { entries[i].trend = null; continue; }
+            const diff = entries[i].score - older.score;
+            entries[i].trend = diff > 0.1 ? 'up' : diff < -0.1 ? 'down' : null;
+          }
 
           return (
             <section className="mb-12">
