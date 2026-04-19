@@ -10,7 +10,7 @@ import { scoreColor } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
+import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
@@ -37,6 +37,36 @@ import {
 // and at module load time the local const binding shadows the global Map
 // constructor — fine in dev but a TDZ ReferenceError in the prod bundle.
 const sessionRecsCache: Record<string, HomeRecCacheEntry> = {};
+
+// Per-session cache of community cover-photo lookups (restaurant_id → url).
+// Avoids re-querying Supabase every time the same restaurant appears across
+// the recs row, search, etc.
+const sessionCoverPhotoCache: Record<string, string | null> = {};
+
+// Apply community cover photos to a batch of PlaceResult items in-place,
+// consulting the session cache first and filling in any misses with a
+// single Supabase query. When the current user has uploaded their own
+// photo it always wins over anyone else's.
+async function applyCoverPhotos(
+  places: PlaceResult[],
+  currentUserId: string | null,
+): Promise<PlaceResult[]> {
+  if (places.length === 0) return places;
+  const missing: string[] = [];
+  for (const p of places) {
+    if (sessionCoverPhotoCache[p.id] === undefined) missing.push(p.id);
+  }
+  if (missing.length > 0) {
+    const fresh = await getCoverPhotosBatch(missing, currentUserId);
+    for (const id of missing) {
+      sessionCoverPhotoCache[id] = fresh[id] || null;
+    }
+  }
+  return places.map((p) => ({
+    ...p,
+    photoUrl: sessionCoverPhotoCache[p.id] || p.photoUrl || null,
+  }));
+}
 
 // Max age we'll trust a Supabase cache entry before throwing it out and
 // building a fresh preference-weighted pool from scratch.
@@ -821,8 +851,19 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         : shuffledCache;
       // Seed the dedup set so loadMore doesn't re-surface these.
       for (const p of merged) recsSeenIdsRef.current.add(p.id);
+      // Apply community cover photos. This is non-blocking from the user's
+      // perspective — we set the recs immediately so the cards render
+      // placeholders, then swap in cover photos as soon as Supabase returns.
       setApiRecommendations(merged);
       setRecsLoading(false);
+      applyCoverPhotos(merged, uid).then((withCovers) => {
+        setApiRecommendations((prev) => {
+          // Only overwrite if the set of ids matches — otherwise the user
+          // has moved on (changed location, scrolled more queries in).
+          if (prev.length !== withCovers.length) return prev;
+          return withCovers;
+        });
+      });
       // Set the cursor past the initial batch so loadMoreRecommendations can
       // continue fetching deeper queries (Tier 3 / 4 / 5) when the user
       // scrolls past the cached pool — that's what keeps the row infinite.
@@ -840,19 +881,20 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         const initialBatch = queries.slice(0, 5);
         recsQueryCursorRef.current = initialBatch.length;
         const fresh = await fetchRecBatch(initialBatch);
-        const shuffled = shuffleInPlace([...fresh]);
+        // Stamp cover photos onto the results BEFORE caching so returning
+        // users get them straight out of cache on the next visit.
+        const withCovers = await applyCoverPhotos(fresh, uid);
+        const shuffled = shuffleInPlace([...withCovers]);
         setApiRecommendations(shuffled);
         setRecsLoading(false);
-        // Persist only if we have a location key and a user — otherwise we
-        // have nowhere to file this.
-        if (uid && locKey && homeLocation && fresh.length > 0) {
+        if (uid && locKey && homeLocation && withCovers.length > 0) {
           const entry: HomeRecCacheEntry = {
-            places: fresh,
+            places: withCovers,
             preferencesHash: prefsHash,
             updatedAt: Date.now(),
           };
           sessionRecsCache[locKey] = entry;
-          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, fresh);
+          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, withCovers);
         }
       } else {
         // No preferences yet — pull a generic "best / nearby" set. Two calls
@@ -875,7 +917,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         const all = [...nearby, ...best];
         const seen = new Set<string>();
         const dedup = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
-        const out = dedup.slice(0, 12);
+        const out = await applyCoverPhotos(dedup.slice(0, 12), uid);
         setApiRecommendations(out);
         setRecsLoading(false);
         if (uid && locKey && homeLocation && out.length > 0) {
@@ -995,21 +1037,25 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       setRecsLoadingMore(false);
       return;
     }
-    setApiRecommendations((prev) => [...prev, ...fresh]);
+    const freshWithCovers = await applyCoverPhotos(fresh, userId);
+    setApiRecommendations((prev) => [...prev, ...freshWithCovers]);
     // Persist newly-surfaced places into the cache so future reloads of this
     // city get them without another Places call.
     if (mode === 'home' && userId && homeLocation) {
       const locKey = locationKey(homeLocation.lat, homeLocation.lng);
       const prefsHash = preferencesHash(userPreferences.topCuisines, userPreferences.topPrices);
       const existing = sessionRecsCache[locKey]?.places || [];
-      const mergedPool = [...existing, ...fresh]
+      const mergedPool = [...existing, ...freshWithCovers]
         .filter((p, i, arr) => arr.findIndex((q) => q.id === p.id) === i);
       sessionRecsCache[locKey] = {
         places: mergedPool,
         preferencesHash: prefsHash,
-        updatedAt: Date.now(),
+        updatedAt: sessionRecsCache[locKey]?.updatedAt ?? Date.now(),
       };
-      saveHomeRecsCache(userId, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, mergedPool);
+      saveHomeRecsCache(
+        userId, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng,
+        prefsHash, mergedPool, sessionRecsCache[locKey]?.updatedAt,
+      );
     }
     setRecsLoadingMore(false);
   }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices]);
