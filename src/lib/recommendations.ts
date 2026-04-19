@@ -171,3 +171,82 @@ export function buildTasteProfile(
     recentlyViewedIds,
   };
 }
+
+export function buildCandidateQueries(
+  profile: TasteProfile,
+  target: RecTargetLocation,
+): string[] {
+  const { topCuisines, topPrices, topPairs } = profile;
+  const label = target.label.trim();
+  const isCurrent = !label || label === 'Current Location';
+  const city = isCurrent
+    ? ''
+    : label
+        .split(',')
+        .slice(0, 2)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join(', ');
+
+  const PRICE_SYMBOLS = ['', '$', '$$', '$$$', '$$$$'];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (raw: string) => {
+    const q = raw.trim().replace(/\s+/g, ' ');
+    if (!q) return;
+    const key = q.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(q);
+  };
+
+  // Tier 1: pairs
+  for (const pair of topPairs) {
+    const sym = PRICE_SYMBOLS[pair.price] ?? '';
+    push(`best ${sym} ${pair.cuisine} restaurants${city ? ' in ' + city : ''}`);
+  }
+
+  // Tier 2: cuisine × price cross (only for cuisines not in a top pair)
+  const pairedCuisines = new Set(topPairs.map((p) => p.cuisine));
+  for (const cuisine of topCuisines) {
+    if (pairedCuisines.has(cuisine)) continue;
+    for (const price of topPrices) {
+      const sym = PRICE_SYMBOLS[price] ?? '';
+      push(`best ${sym} ${cuisine} restaurants${city ? ' in ' + city : ''}`);
+    }
+  }
+
+  // Tier 3: price anchors
+  if (topPrices.length > 0) {
+    const maxP = Math.max(...topPrices);
+    const minP = Math.min(...topPrices);
+    if (maxP >= 3) {
+      push(`fine dining${city ? ' ' + city : ' restaurants'}`);
+      for (const cuisine of topCuisines.slice(0, 3)) {
+        push(`${cuisine} fine dining${city ? ' ' + city : ''}`);
+      }
+    }
+    if (minP <= 2) {
+      for (const cuisine of topCuisines.slice(0, 3)) {
+        push(`cheap ${cuisine}${city ? ' ' + city : ' restaurants'}`);
+      }
+    }
+  }
+
+  // Tier 4: variety
+  for (const cuisine of topCuisines) {
+    push(`best ${cuisine} restaurants${city ? ' in ' + city : ''}`);
+  }
+
+  // Tier 5: tail
+  for (const cuisine of topCuisines) {
+    push(`top rated ${cuisine} restaurants${city ? ' in ' + city : ''}`);
+    push(`hidden gem ${cuisine} restaurants${city ? ' ' + city : ''}`);
+  }
+  if (city) {
+    push(`trending restaurants ${city}`);
+    push(`popular restaurants ${city}`);
+  }
+
+  return out;
+}
