@@ -24,17 +24,32 @@ const feedCache: {
   ts: number;
 } = { userId: null, ratings: [], profiles: {}, ts: 0 };
 
+// Reduce a full postal address down to a city (+ state when we can find one).
+// Handles the common shapes our places source returns:
+//   "100 E 63rd St, New York, NY 10065, USA" → "New York, NY"
+//   "100 E 63rd St, New York"                → "New York"
+//   "New York, NY"                            → "New York, NY"
+//   "1028 N Rush St, Chicago, IL 60611"       → "Chicago, IL"
+// The street-address leader is detected by a leading digit so we don't leak
+// specific addresses into the city filter list.
 function extractCity(address: string): string {
   const parts = (address || '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (parts.length >= 3) {
-    const city = parts[parts.length - 3];
-    const stateZip = parts[parts.length - 2];
-    const state = stateZip?.replace(/\d+/g, '').trim();
-    if (city && state && state.length <= 3) return `${city}, ${state}`;
-    if (city) return city;
+  if (parts.length === 0) return '';
+
+  // Drop the street-address leader when it clearly starts with a number.
+  const rest = parts.length > 1 && /^\d/.test(parts[0]) ? parts.slice(1) : parts;
+
+  // Three post-street parts means we've got city + state + country — drop the
+  // country. Two or fewer means we're already at city (+ state).
+  const relevant = rest.length >= 3 ? rest.slice(0, -1) : rest;
+
+  const city = relevant[0];
+  if (!city) return '';
+  if (relevant.length >= 2) {
+    const state = relevant[1].replace(/\d+/g, '').trim();
+    if (state && state.length <= 3) return `${city}, ${state}`;
   }
-  if (parts.length >= 2) return parts.slice(-2).join(', ');
-  return parts[0] || '';
+  return city;
 }
 
 type SortOption = 'recent' | 'highest' | 'lowest';
