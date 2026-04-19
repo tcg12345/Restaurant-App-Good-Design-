@@ -6,6 +6,7 @@ import { cn } from '../lib/utils';
 import { LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
 import { useLists } from '../contexts/ListsContext';
+import { useSettings } from '../contexts/SettingsContext';
 
 const RECENT_SEARCHES_KEY = 'gourmet-canvas-recent-searches-v2';
 const MAX_RECENT = 10;
@@ -113,6 +114,7 @@ function placeToRecent(place: PlaceResult): RecentSearch {
 export const SearchMain: React.FC = () => {
   const navigate = useNavigate();
   const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
+  const { phoneMode } = useSettings();
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>(() => readRecentSearches());
   const [results, setResults] = useState<PlaceResult[]>([]);
@@ -260,7 +262,7 @@ export const SearchMain: React.FC = () => {
         </div>
       </header>
 
-      <main className="px-4 pt-2 md:max-w-2xl md:mx-auto">
+      <main className={cn("pt-2 md:max-w-2xl md:mx-auto md:px-4", !phoneMode && "px-4")}>
         {hasQuery ? (
           // ── Search results ──
           <>
@@ -268,7 +270,7 @@ export const SearchMain: React.FC = () => {
                 today; TODO: merge in user's rated restaurants, cuisine
                 preferences, and neighborhood history for richer suggestions. */}
             {matchingRecents.length > 0 && (
-              <section className="mb-4 pt-2">
+              <section className={cn("mb-4 pt-2", phoneMode && "px-4")}>
                 <p className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em] mb-1">
                   From your history
                 </p>
@@ -296,7 +298,7 @@ export const SearchMain: React.FC = () => {
             )}
 
             {loading && results.length === 0 ? (
-              <LoadingSkeletonList count={5} variant="list-item" className="divide-y divide-on-surface/[0.06]" />
+              <LoadingSkeletonList count={5} variant="list-item" className={cn("divide-y divide-on-surface/[0.06]", phoneMode && "px-4")} />
             ) : results.length === 0 ? (
               <EmptyState
                 icon={<SearchIcon size={48} />}
@@ -332,7 +334,10 @@ export const SearchMain: React.FC = () => {
                             handleSelectResult(place);
                           }
                         }}
-                        className="w-full flex gap-3 py-4 px-2 -mx-2 rounded-xl text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        className={cn(
+                          "w-full flex gap-3 py-4 text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                          phoneMode ? "px-4" : "px-2 -mx-2 rounded-xl",
+                        )}
                       >
                         <div className="flex-1 min-w-0 flex flex-col justify-center">
                           <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{place.name}</h3>
@@ -390,7 +395,7 @@ export const SearchMain: React.FC = () => {
         ) : recentSearches.length > 0 ? (
           // ── Recent searches — thin restaurant cards ──
           <section>
-            <div className="flex items-center justify-between mb-2 mt-2">
+            <div className={cn("flex items-center justify-between mb-2 mt-2", phoneMode && "px-4")}>
               <div className="flex items-center gap-2">
                 <Clock size={13} className="text-on-surface/40" />
                 <h2 className="text-xs font-bold text-on-surface/40 uppercase tracking-[0.15em]">Recent Searches</h2>
@@ -403,14 +408,19 @@ export const SearchMain: React.FC = () => {
                 Clear All
               </button>
             </div>
-            <div className="space-y-2">
+            <div className={cn(phoneMode ? "divide-y divide-on-surface/[0.06] border-y border-on-surface/[0.06] bg-white" : "space-y-2")}>
               {recentSearches.map((r) => {
                 const wishlisted = isWishlisted(r.id);
                 const location = extractCityState(r.address, r.address);
                 return (
                   <div
                     key={r.id}
-                    className="flex items-center gap-3 rounded-xl bg-white border border-on-surface/[0.06] shadow-sm overflow-hidden cursor-pointer transition-all hover:shadow-md active:scale-[0.99]"
+                    className={cn(
+                      "flex items-center gap-3 cursor-pointer transition-all",
+                      phoneMode
+                        ? "bg-white active:bg-on-surface/[0.03]"
+                        : "rounded-xl bg-white border border-on-surface/[0.06] shadow-sm overflow-hidden hover:shadow-md active:scale-[0.99]",
+                    )}
                     onClick={() => handleRecentClick(r)}
                   >
                     {/* Thumbnail */}
