@@ -155,7 +155,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   }
 
   return (
-    <div className="pb-32 min-h-screen" style={{ backgroundColor: '#f7f2ea' }}>
+    <div className="min-h-screen" style={{ backgroundColor: '#f7f2ea' }}>
 
       {/* ── Hero — full-bleed image. Shorter than before (52vh) because
           the name + metadata moved out of the overlay and down onto
@@ -1502,62 +1502,56 @@ export const RestaurantDetailMobile: React.FC = () => {
           );
         })()}
 
-        {/* ── Map — rounded container with caption below. A transparent
-            overlay button catches taps and routes to /map with the
-            restaurant focused. Inline width/height keep the Mapbox
-            canvas full-sized; see Map.tsx for context. ── */}
-        <section className="mb-10">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
-            Location
-          </p>
-          <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight mb-4">
-            Where to find it
-          </h2>
-          <div className="rounded-2xl overflow-hidden border border-line">
-            <div className="relative w-full h-60">
-              <div
-                ref={mapContainerRef}
-                className="absolute inset-0"
-                style={{ width: '100%', height: '100%' }}
-              />
-              <button
-                type="button"
-                onClick={() => navigate('/map', {
-                  state: {
-                    focus: {
-                      id: place.id,
-                      name: place.name,
-                      lat: place.lat,
-                      lng: place.lng,
-                      address: place.address,
-                      fullAddress: place.fullAddress || place.address,
-                      photoUrl: place.photoUrl,
-                      priceLevel: place.priceLevel,
-                      rating: place.rating,
-                      types: place.types,
-                      userRatingCount: place.userRatingCount,
-                    },
-                  },
-                })}
-                aria-label="Open full map"
-                className="absolute inset-0 z-10 active:bg-on-surface/5 transition-colors"
-              />
-            </div>
-            <div className="px-4 py-3 flex items-center justify-between gap-3 bg-white/60 border-t border-line">
-              <p className="text-[13px] text-on-surface/55 truncate flex-1">{place.address}</p>
-              <a
-                href={mapsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-[12px] font-semibold text-primary flex-shrink-0"
-              >
-                Open in Maps
-                <ExternalLink size={12} />
-              </a>
-            </div>
-          </div>
-        </section>
+        {/* Location eyebrow sits inside the padded main; the map below
+            breaks out of the page gutter to bleed edge-to-edge. */}
+        <p className="section-eyebrow mb-3">Location</p>
       </main>
+
+      {/* ── Map — full-bleed canvas flush with the page bottom. Address
+          + Open in Maps sit as a compact pill overlay on top-right so
+          the canvas itself truly extends to the very edge of the page.
+          Inline width/height keep the Mapbox canvas full-sized; see
+          Map.tsx for context. ── */}
+      <section className="relative w-full h-[420px]">
+        <div
+          ref={mapContainerRef}
+          className="absolute inset-0"
+          style={{ width: '100%', height: '100%' }}
+        />
+        <button
+          type="button"
+          onClick={() => navigate('/map', {
+            state: {
+              focus: {
+                id: place.id,
+                name: place.name,
+                lat: place.lat,
+                lng: place.lng,
+                address: place.address,
+                fullAddress: place.fullAddress || place.address,
+                photoUrl: place.photoUrl,
+                priceLevel: place.priceLevel,
+                rating: place.rating,
+                types: place.types,
+                userRatingCount: place.userRatingCount,
+              },
+            },
+          })}
+          aria-label="Open full map"
+          className="absolute inset-0 z-10 active:bg-on-surface/5 transition-colors"
+        />
+        <a
+          href={mapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-3 right-3 z-20 flex items-center gap-1 px-3 py-1.5 rounded-full bg-paper border border-line text-primary shadow-sm active:opacity-80 transition-opacity"
+          style={{ fontSize: '12px', fontWeight: 600 }}
+        >
+          Open in Maps
+          <ExternalLink size={12} />
+        </a>
+      </section>
 
       {/* Photo Gallery Bottom Sheet */}
       <AnimatePresence>
