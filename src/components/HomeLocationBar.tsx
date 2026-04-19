@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronDown, Search, MapPin, X, Navigation, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../pages/useRestaurantDetail';
+import { useSettings } from '../contexts/SettingsContext';
 
 export type HomeLocation = { label: string; lat: number; lng: number };
 
@@ -85,6 +86,7 @@ interface Props {
 }
 
 export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent }) => {
+  const { setHideBottomNav } = useSettings();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<HomeLocation[]>([]);
@@ -94,6 +96,13 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
   const [currentError, setCurrentError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Hide the floating bottom nav while the picker is open so it doesn't
+  // overlap the sheet content.
+  useEffect(() => {
+    setHideBottomNav(open);
+    return () => setHideBottomNav(false);
+  }, [open, setHideBottomNav]);
 
   useEffect(() => {
     if (!open) return;
@@ -228,7 +237,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               onDragEnd={(_: any, info: any) => {
                 if (info.offset.y > 100 || info.velocity.y > 300) setOpen(false);
               }}
-              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
             >
               <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
                 <div className="w-10 h-1 rounded-full bg-on-surface/15" />
