@@ -1384,9 +1384,15 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     // Focus-only deep-link: open the map already centred on the target
     // restaurant so no camera animation is needed.
     const focusOnlyInit = isFocusOnlyRef.current && initialFocus;
+    // Default the camera to the location the user picked on the home page
+    // (persisted to localStorage by HomeLocationBar) so the Map tab opens
+    // wherever they were last browsing instead of always snapping to NYC.
+    const savedHome = focusOnlyInit ? null : loadLastSelectedLocation();
     const initialCenter: [number, number] = focusOnlyInit
       ? [initialFocus.lng, initialFocus.lat]
-      : [-73.99, 40.735];
+      : savedHome
+        ? [savedHome.lng, savedHome.lat]
+        : [-73.99, 40.735];
     const initialZoom = focusOnlyInit ? 15 : 12.5;
 
     const map = new mapboxgl.Map({
