@@ -774,6 +774,47 @@ export async function getUserPublicHomeMeals(userId: string): Promise<HomeMeal[]
     return meals.filter((m) => m.isPublic).sort((a, b) => b.createdAt - a.createdAt);
   } catch (err) { console.error('[Community] getUserPublicHomeMeals exception:', err); return []; }
 }
+
+/** Community ratings that overlap the user's top tags, scoped to a city if provided. */
+export async function getTagSimilarRestaurants(
+  myTags: string[],
+  city: string | null,
+  excludeUserId: string,
+  limit = 40,
+): Promise<CommunityRating[]> {
+  if (!supabaseConfigured || myTags.length === 0) return [];
+  try {
+    let q = supabase
+      .from('community_ratings')
+      .select('*')
+      .overlaps('tags', myTags)
+      .gte('score', 7)
+      .order('score', { ascending: false })
+      .limit(limit);
+    if (excludeUserId) q = q.neq('user_id', excludeUserId);
+    if (city) q = q.ilike('address', `%${city.split(',')[0].trim()}%`);
+    const { data, error } = await q;
+    if (error) { console.warn('[Community] getTagSimilar error:', error.message); return []; }
+    return (data || []) as CommunityRating[];
+  } catch (err) { console.warn('[Community] getTagSimilar exception:', err); return []; }
+}
+
+/** Intersect the user's follows with users marked is_expert=true. */
+export async function getFollowedExpertIds(userId: string): Promise<Set<string>> {
+  if (!supabaseConfigured || !userId) return new Set();
+  try {
+    const friends = await getFriends(userId);
+    if (friends.length === 0) return new Set();
+    const ids = friends.map((f) => f.friend_id);
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('user_id')
+      .in('user_id', ids)
+      .eq('is_expert', true);
+    return new Set((data || []).map((r: any) => r.user_id));
+  } catch { return new Set(); }
+}
+
 /* ── Expert Recommendations ── */
 
 export interface ExpertRecommendation {
