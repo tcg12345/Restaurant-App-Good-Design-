@@ -386,6 +386,21 @@ export async function getAllFriendRatings(userId: string): Promise<CommunityRati
   } catch { return []; }
 }
 
+/** Get ratings from everyone the user follows — friends AND experts.
+ *  The Following feed uses this so followed experts aren't hidden. */
+export async function getAllFollowedRatings(userId: string): Promise<CommunityRating[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const friends = await getFriends(userId);
+    if (friends.length === 0) return [];
+    const ids = friends.map((f) => f.friend_id);
+    const { data, error } = await supabase.from('community_ratings')
+      .select('*').in('user_id', ids).order('updated_at', { ascending: false });
+    if (error) { console.error('[Community] getAllFollowedRatings error:', error); return []; }
+    return (data || []) as CommunityRating[];
+  } catch (err) { console.error('[Community] getAllFollowedRatings exception:', err); return []; }
+}
+
 /* ── Likes & Comments ── */
 
 export interface ActivityComment {

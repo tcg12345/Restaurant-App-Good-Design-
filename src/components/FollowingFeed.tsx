@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import {
-  getAllFriendRatings,
+  getAllFollowedRatings,
   getProfilesByIds,
   type CommunityRating,
   type UserProfile,
@@ -38,6 +38,7 @@ function extractCity(address: string): string {
 }
 
 type SortOption = 'recent' | 'highest' | 'lowest';
+type RoleFilter = 'all' | 'friends' | 'experts';
 
 export const FollowingFeed: React.FC = () => {
   const { user } = useAuth();
@@ -63,6 +64,11 @@ export const FollowingFeed: React.FC = () => {
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
   const [cuisineFilter, setCuisineFilter] = useState<string[]>([]);
   const [cityFilter, setCityFilter] = useState<string[]>([]);
+  // Role filter: all followed users / friends only / experts only
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
+  // Optional per-person picker (user_ids). Empty array = no per-person
+  // narrowing applied.
+  const [personFilter, setPersonFilter] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Infinite scroll chunk pointer
@@ -76,7 +82,9 @@ export const FollowingFeed: React.FC = () => {
     return () => setHideBottomNav(false);
   }, [filtersOpen, setHideBottomNav]);
 
-  // Fetch friend ratings (no Google API — all data comes from community_ratings rows)
+  // Fetch ratings from every user the current user follows — both
+  // friends and experts. Profile map includes is_expert so the feed
+  // and filter UI can tell them apart.
   useEffect(() => {
     if (!user?.id) return;
 
@@ -96,15 +104,15 @@ export const FollowingFeed: React.FC = () => {
     setLoading(true);
     (async () => {
       try {
-        const friendRatings = await getAllFriendRatings(user.id);
-        const uniqueIds = Array.from(new Set(friendRatings.map((r) => r.user_id)));
+        const followedRatings = await getAllFollowedRatings(user.id);
+        const uniqueIds = Array.from(new Set(followedRatings.map((r) => r.user_id)));
         const profileMap = uniqueIds.length ? await getProfilesByIds(uniqueIds) : {};
         if (cancelled) return;
         feedCache.userId = user.id;
-        feedCache.ratings = friendRatings;
+        feedCache.ratings = followedRatings;
         feedCache.profiles = profileMap;
         feedCache.ts = Date.now();
-        setRatings(friendRatings);
+        setRatings(followedRatings);
         setProfiles(profileMap);
       } finally {
         if (!cancelled) {
@@ -119,15 +127,35 @@ export const FollowingFeed: React.FC = () => {
     };
   }, [user?.id]);
 
-  // Dedupe by restaurant_id — friend ratings are already sorted by updated_at DESC,
-  // so the first occurrence is the most recent rating for each restaurant.
+  // Apply role + person filters first, then dedupe by restaurant_id
+  // so the top-most surviving rating for each restaurant represents
+  // the filtered-down feed (not a rating that got filtered out).
   const uniqueRestaurants = useMemo(() => {
+    const personSet = new Set(personFilter);
     const seen = new Map<string, CommunityRating>();
     for (const r of ratings) {
+      const prof = profiles[r.user_id];
+      if (roleFilter === 'friends' && prof?.is_expert) continue;
+      if (roleFilter === 'experts' && !prof?.is_expert) continue;
+      if (personSet.size > 0 && !personSet.has(r.user_id)) continue;
       if (!seen.has(r.restaurant_id)) seen.set(r.restaurant_id, r);
     }
     return Array.from(seen.values());
-  }, [ratings]);
+  }, [ratings, profiles, roleFilter, personFilter]);
+
+  // Universe of followed people, derived from who's actually in the
+  // ratings list we loaded. Sorted alphabetically for the picker.
+  const followedPeople = useMemo(() => {
+    const ids = Array.from(new Set(ratings.map((r) => r.user_id)));
+    return ids
+      .map((id) => ({ id, profile: profiles[id] }))
+      .filter((p) => !!p.profile)
+      .sort((a, b) => {
+        const an = (a.profile?.display_name || a.profile?.username || '').toLowerCase();
+        const bn = (b.profile?.display_name || b.profile?.username || '').toLowerCase();
+        return an.localeCompare(bn);
+      });
+  }, [ratings, profiles]);
 
   // Collect filter option universes
   const { allCuisines, allCities } = useMemo(() => {
@@ -182,7 +210,7 @@ export const FollowingFeed: React.FC = () => {
   // Reset infinite scroll window whenever the filtered list shape changes
   useEffect(() => {
     setVisibleCount(CHUNK_SIZE);
-  }, [query, sortBy, scoreRange, priceFilter, cuisineFilter, cityFilter, ratings.length]);
+  }, [query, sortBy, scoreRange, priceFilter, cuisineFilter, cityFilter, roleFilter, personFilter, ratings.length]);
 
   // Chunked infinite scroll via IntersectionObserver
   useEffect(() => {
@@ -210,13 +238,17 @@ export const FollowingFeed: React.FC = () => {
     cityFilter.length > 0 ||
     scoreRange[0] > 0 ||
     scoreRange[1] < 10 ||
-    sortBy !== 'recent';
+    sortBy !== 'recent' ||
+    roleFilter !== 'all' ||
+    personFilter.length > 0;
   const activeFilterCount =
     (priceFilter ? 1 : 0) +
     (cuisineFilter.length > 0 ? 1 : 0) +
     (cityFilter.length > 0 ? 1 : 0) +
     (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) +
-    (sortBy !== 'recent' ? 1 : 0);
+    (sortBy !== 'recent' ? 1 : 0) +
+    (roleFilter !== 'all' ? 1 : 0) +
+    (personFilter.length > 0 ? 1 : 0);
 
   const resetFilters = () => {
     setSortBy('recent');
@@ -224,6 +256,8 @@ export const FollowingFeed: React.FC = () => {
     setPriceFilter(null);
     setCuisineFilter([]);
     setCityFilter([]);
+    setRoleFilter('all');
+    setPersonFilter([]);
   };
 
   return (
@@ -503,6 +537,11 @@ export const FollowingFeed: React.FC = () => {
         onCityFilter={setCityFilter}
         allCuisines={allCuisines}
         allCities={allCities}
+        roleFilter={roleFilter}
+        onRoleFilter={setRoleFilter}
+        personFilter={personFilter}
+        onPersonFilter={setPersonFilter}
+        followedPeople={followedPeople}
         onReset={resetFilters}
       />
     </div>
@@ -525,6 +564,11 @@ const FollowingFilterSheet: React.FC<{
   onCityFilter: (v: string[]) => void;
   allCuisines: string[];
   allCities: string[];
+  roleFilter: RoleFilter;
+  onRoleFilter: (v: RoleFilter) => void;
+  personFilter: string[];
+  onPersonFilter: (v: string[]) => void;
+  followedPeople: { id: string; profile?: UserProfile }[];
   onReset: () => void;
 }> = ({
   open,
@@ -541,13 +585,20 @@ const FollowingFilterSheet: React.FC<{
   onCityFilter,
   allCuisines,
   allCities,
+  roleFilter,
+  onRoleFilter,
+  personFilter,
+  onPersonFilter,
+  followedPeople,
   onReset,
 }) => {
   const { phoneMode } = useSettings();
   const [cuisineSearch, setCuisineSearch] = useState('');
   const [citySearch, setCitySearch] = useState('');
+  const [personSearch, setPersonSearch] = useState('');
   const [cuisineOpen, setCuisineOpen] = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(false);
 
   const filteredCuisines = cuisineSearch.trim()
     ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase()))
@@ -555,6 +606,22 @@ const FollowingFilterSheet: React.FC<{
   const filteredCities = citySearch.trim()
     ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase()))
     : allCities;
+  // Role filter narrows the people picker so you can quickly jump
+  // into \"experts only\" and only see the experts you follow.
+  const visiblePeople = followedPeople
+    .filter((p) => {
+      if (roleFilter === 'friends' && p.profile?.is_expert) return false;
+      if (roleFilter === 'experts' && !p.profile?.is_expert) return false;
+      return true;
+    })
+    .filter((p) => {
+      if (!personSearch.trim()) return true;
+      const q = personSearch.toLowerCase();
+      return (
+        (p.profile?.display_name || '').toLowerCase().includes(q) ||
+        (p.profile?.username || '').toLowerCase().includes(q)
+      );
+    });
 
   return (
     <AnimatePresence>
@@ -627,6 +694,148 @@ const FollowingFilterSheet: React.FC<{
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Role — friends / experts / all */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">
+                  Who
+                </p>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      ['all', 'Everyone'],
+                      ['friends', 'Friends'],
+                      ['experts', 'Experts'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => onRoleFilter(key)}
+                      className={cn(
+                        'flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2',
+                        roleFilter === key
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Specific people picker — expands to a multi-select list
+                  narrowed by the role filter above. */}
+              <div>
+                <button
+                  onClick={() => setPeopleOpen(!peopleOpen)}
+                  className="flex items-center justify-between w-full mb-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">
+                      Specific people
+                    </p>
+                    {personFilter.length > 0 && (
+                      <span className="text-[10px] font-semibold text-primary">
+                        {personFilter.length} selected
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {personFilter.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPersonFilter([]);
+                        }}
+                        className="text-[10px] text-primary font-semibold"
+                      >
+                        Clear
+                      </button>
+                    )}
+                    <ChevronDown
+                      size={14}
+                      className={cn(
+                        'text-on-surface/30 transition-transform',
+                        peopleOpen && 'rotate-180',
+                      )}
+                    />
+                  </div>
+                </button>
+                <AnimatePresence>
+                  {peopleOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="relative mb-2">
+                        <SearchIcon
+                          size={13}
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30"
+                        />
+                        <input
+                          type="text"
+                          value={personSearch}
+                          onChange={(e) => setPersonSearch(e.target.value)}
+                          placeholder="Search people..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+                      <div className="max-h-44 overflow-y-auto pb-1 space-y-1">
+                        {visiblePeople.map((p) => {
+                          const name = p.profile?.display_name || p.profile?.username || 'User';
+                          const initial = name.charAt(0).toUpperCase();
+                          const selected = personFilter.includes(p.id);
+                          const isExpert = !!p.profile?.is_expert;
+                          return (
+                            <button
+                              key={p.id}
+                              onClick={() =>
+                                onPersonFilter(
+                                  selected
+                                    ? personFilter.filter((x) => x !== p.id)
+                                    : [...personFilter, p.id],
+                                )
+                              }
+                              className={cn(
+                                'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors text-left',
+                                selected ? 'bg-primary/5' : 'hover:bg-on-surface/[0.03]',
+                              )}
+                            >
+                              <div className="w-7 h-7 rounded-full bg-on-surface/[0.06] flex items-center justify-center flex-shrink-0">
+                                <span className="text-[11px] font-serif font-bold text-on-surface/55">{initial}</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className={cn(
+                                  'text-[13px] font-semibold truncate',
+                                  selected ? 'text-primary' : 'text-on-surface/80',
+                                )}>
+                                  {name}
+                                </p>
+                                <p className="text-[10px] font-medium uppercase tracking-wider text-on-surface/40 truncate">
+                                  {isExpert
+                                    ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert</span>
+                                    : 'Friend'}
+                                </p>
+                              </div>
+                              {selected && <span className="text-[11px] font-bold text-primary">✓</span>}
+                            </button>
+                          );
+                        })}
+                        {visiblePeople.length === 0 && (
+                          <p className="text-[11px] text-on-surface/30 py-2 px-2">
+                            {followedPeople.length === 0
+                              ? "You're not following anyone with ratings yet"
+                              : 'No one matches'}
+                          </p>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Score range */}
