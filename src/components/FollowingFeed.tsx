@@ -13,6 +13,7 @@ import {
 } from '../lib/supabase-community';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
+import { extractCityState } from '../lib/places';
 
 const CHUNK_SIZE = 15;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
@@ -25,62 +26,13 @@ const feedCache: {
   ts: number;
 } = { userId: null, ratings: [], profiles: {}, ts: 0 };
 
-// Reduce a full postal address down to a city (+ state when we can find one).
-//
-// Approach: use the US state (+ optional ZIP) as an anchor. In well-formed US
-// addresses the state part ("NY", "NY 10019", "NY 10019-1234") is always
-// immediately preceded by the city — no matter what garbage comes before the
-// street (venue names like "The Shops at Columbus Circle", "Epic Tower",
-// "Washington Historic District", "Via Stella"...).
-//
-// For international addresses that lack a US state, we fall back to an
-// all-numeric postal-code anchor with the same rule: city is the part right
-// before the postal code.
-//
-// When neither anchor is present, we return '' rather than guess — the filter
-// would rather hide a rating than offer a bogus city option.
-//
-//   "The Shops at Columbus Circle, 10 Columbus Cir, New York, NY 10019, USA"
-//     → "New York, NY"
-//   "Epic Tower, 12345 Main St, Dallas, TX 75201, USA" → "Dallas, TX"
-//   "New York, NY"                                      → "New York, NY"
-//   "Brooklyn, NY 11201"                                → "Brooklyn, NY"
-//   "Via Stella 10, 00187 Rome, Italy"                  → "Rome"
-const US_STATE_RE = /^([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?$/;
-const NUMERIC_POSTAL_RE = /^\d{3,}(?:[-\s]\d+)?$/;
-
+// Delegate to the shared extractCityState helper from lib/places so every
+// surface in the app (maps, search, detail) and this feed agree on how to
+// turn a Google Places formatted address into a short city label. That
+// helper handles US addresses, Italian / French / German / Japanese / UK /
+// Australian / Canadian formats, trailing province codes, etc.
 function extractCity(address: string): string {
-  const parts = (address || '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (parts.length < 2) return '';
-
-  // Anchor on a US state (optionally with ZIP) — the most reliable signal.
-  for (let i = parts.length - 1; i > 0; i--) {
-    const m = parts[i].match(US_STATE_RE);
-    if (m) {
-      const city = parts[i - 1];
-      if (city) return `${city}, ${m[1]}`;
-    }
-  }
-
-  // International fallback: anchor on a bare numeric postal code. Many
-  // European formats inline the postal code with the city ("00187 Rome"), so
-  // also try stripping a leading zip from the suspected city part.
-  for (let i = parts.length - 1; i > 0; i--) {
-    if (NUMERIC_POSTAL_RE.test(parts[i])) {
-      const city = parts[i - 1];
-      if (city) return city;
-    }
-    const inline = parts[i].match(/^\d{3,}\s+(.+)$/);
-    if (inline) return inline[1];
-  }
-
-  // Two-part fallback — "Street, City" with no state/zip. The last segment is
-  // almost always the city. Skips a "City, Country" pair in practice because
-  // restaurant data from our places source always includes a state/zip when
-  // the country is present.
-  if (parts.length === 2) return parts[1];
-
-  return '';
+  return extractCityState(address || '', address || '');
 }
 
 type SortOption = 'recent' | 'highest' | 'lowest';

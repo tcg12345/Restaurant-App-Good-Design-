@@ -417,7 +417,7 @@ export const SocialFeed: React.FC = () => {
           </ul>
         )
       ) : (
-      <ul>
+      <ul className="divide-y divide-on-surface/[0.06]">
         {feedItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
