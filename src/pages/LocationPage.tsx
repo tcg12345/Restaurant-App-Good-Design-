@@ -456,14 +456,30 @@ export const LocationPage: React.FC = () => {
   // Filters apply client-side to the ranked array — they don't gate which
   // places we fetch, only which we show. This keeps infinite scroll
   // feeling live: as more pages come in, matching results trickle in.
+  // (Price is the exception: it flows to the server via priceLevels so
+  //  we get more matching results per page.)
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<SortOption>('recommended');
+  // 0 = Any. Value is in miles; anything > 0 narrows the list to places
+  // whose haversine distance from the city centre is ≤ this chip. The
+  // values mirror the Home-feed "Recommended For You" radius picker so
+  // the mental model stays consistent.
+  const [selectedRadius, setSelectedRadius] = useState(0);
+  // When on, the list is narrowed to restaurants someone in the user's
+  // circle (friends / followed experts) has rated ≥8. We load both signal
+  // sets up-front in the useEffect above, so this is a cheap client-side
+  // intersection with no extra network work.
+  const [friendsOnly, setFriendsOnly] = useState(false);
+  const [expertsOnly, setExpertsOnly] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const activeFilterCount =
     (selectedPrice > 0 ? 1 : 0) +
     selectedCuisines.length +
-    (sortBy !== 'recommended' ? 1 : 0);
+    (sortBy !== 'recommended' ? 1 : 0) +
+    (selectedRadius > 0 ? 1 : 0) +
+    (friendsOnly ? 1 : 0) +
+    (expertsOnly ? 1 : 0);
 
   // ~12.5 mi — tuned for sprawling cities (LA, Houston) where a tight
   // radius would drop popular picks in adjacent municipalities. Smaller
@@ -688,6 +704,12 @@ export const LocationPage: React.FC = () => {
         for (const t of p.types) if (cuisineSet.has(t)) { hit = true; break; }
         if (!hit) continue;
       }
+      if (selectedRadius > 0 && hasCoords) {
+        const distMi = haversineDistanceMi(lat, lng, p.lat, p.lng);
+        if (distMi > selectedRadius) continue;
+      }
+      if (friendsOnly && !friendRestaurantIds.has(p.id)) continue;
+      if (expertsOnly && !expertRestaurantIds.has(p.id)) continue;
       out.push(p);
     }
     if (sortBy === 'recommended') return out;
@@ -704,7 +726,11 @@ export const LocationPage: React.FC = () => {
       );
     }
     return sorted;
-  }, [ranked, selectedPrice, selectedCuisines, sortBy, hasCoords, lat, lng]);
+  }, [
+    ranked, selectedPrice, selectedCuisines, sortBy, hasCoords, lat, lng,
+    selectedRadius, friendsOnly, expertsOnly,
+    friendRestaurantIds, expertRestaurantIds,
+  ]);
 
   // IntersectionObserver sentinel powers the infinite-scroll load-more. We
   // attach it once, near the bottom of the list; when it crosses the viewport
@@ -765,8 +791,10 @@ export const LocationPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface pb-24">
-      {/* Header — back arrow + map action share one row, city picker sits below */}
-      <div className="px-4 pt-5">
+      {/* Sticky action bar — back + map stay pinned as the page scrolls so
+          the user can always navigate out. Background is opaque so the
+          scrolling content underneath isn't visible through the bar. */}
+      <div className="sticky top-0 z-20 bg-surface px-4 pt-4 pb-2">
         <div className="flex items-center justify-between">
           <button
             type="button"
@@ -785,32 +813,34 @@ export const LocationPage: React.FC = () => {
             <MapIcon size={20} />
           </button>
         </div>
+      </div>
 
-        <div className="mt-3">
-          <HomeLocationBar
-            location={currentLocation}
-            onChange={handleLocationChange}
-            onUseCurrent={handleUseCurrent}
-          />
-        </div>
+      {/* City picker — scrolls with the page since it's part of the title
+          block, not the sticky navigation affordance. */}
+      <div className="px-4 mt-1">
+        <HomeLocationBar
+          location={currentLocation}
+          onChange={handleLocationChange}
+          onUseCurrent={handleUseCurrent}
+        />
       </div>
 
       {/* Guides — horizontal scroll, non-functional placeholder */}
-      <section className="mt-6">
-        <div className="px-4 flex items-center justify-between mb-3">
+      <section className="mt-5">
+        <div className="px-4 flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-2">
-            <BookOpen size={15} className="text-primary/70" />
-            <h2 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Guides</h2>
+            <BookOpen size={14} className="text-primary/70" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">Guides</h2>
           </div>
         </div>
-        <div className="flex gap-3 overflow-x-auto pb-2 px-4 scrollbar-hide snap-x snap-mandatory">
+        <div className="flex gap-2.5 overflow-x-auto pb-2 px-4 scrollbar-hide snap-x snap-mandatory">
           {PLACEHOLDER_GUIDES.map((g) => (
             <button
               key={g.id}
               type="button"
               className="flex-shrink-0 snap-start group text-left"
             >
-              <div className="relative w-56 aspect-[4/5] rounded-2xl overflow-hidden bg-muted">
+              <div className="relative w-40 aspect-[4/5] rounded-xl overflow-hidden bg-muted">
                 <img
                   src={g.image}
                   alt={g.title}
@@ -818,13 +848,13 @@ export const LocationPage: React.FC = () => {
                   referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
-                <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/90 backdrop-blur-sm text-[10px] font-bold uppercase tracking-wider text-on-surface/70">
-                  <BookOpen size={10} />
+                <div className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider text-on-surface/70">
+                  <BookOpen size={9} />
                   Guide
                 </div>
-                <div className="absolute inset-x-0 bottom-0 p-3">
-                  <p className="text-white text-[15px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
-                  <p className="text-white/80 text-[11px] font-medium mt-1 truncate">by {g.author} · {g.count} spots</p>
+                <div className="absolute inset-x-0 bottom-0 p-2.5">
+                  <p className="text-white text-[13px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
+                  <p className="text-white/80 text-[10px] font-medium mt-0.5 truncate">by {g.author} · {g.count} spots</p>
                 </div>
               </div>
             </button>
@@ -906,6 +936,24 @@ export const LocationPage: React.FC = () => {
                   onClear={() => setSelectedPrice(0)}
                 />
               )}
+              {selectedRadius > 0 && (
+                <FilterChip
+                  label={`Within ${selectedRadius} mi`}
+                  onClear={() => setSelectedRadius(0)}
+                />
+              )}
+              {friendsOnly && (
+                <FilterChip
+                  label="Friends only"
+                  onClear={() => setFriendsOnly(false)}
+                />
+              )}
+              {expertsOnly && (
+                <FilterChip
+                  label="Experts only"
+                  onClear={() => setExpertsOnly(false)}
+                />
+              )}
               {selectedCuisines.map((t) => {
                 const entry = CUISINE_TYPES.find((c) => c.type === t);
                 return (
@@ -979,6 +1027,12 @@ export const LocationPage: React.FC = () => {
         onPriceChange={setSelectedPrice}
         selectedCuisines={selectedCuisines}
         onCuisinesChange={setSelectedCuisines}
+        selectedRadius={selectedRadius}
+        onRadiusChange={setSelectedRadius}
+        friendsOnly={friendsOnly}
+        onFriendsOnlyChange={setFriendsOnly}
+        expertsOnly={expertsOnly}
+        onExpertsOnlyChange={setExpertsOnly}
       />
     </div>
   );
@@ -1132,6 +1186,12 @@ interface FilterSheetProps {
   onPriceChange: (p: number) => void;
   selectedCuisines: string[];
   onCuisinesChange: (next: string[]) => void;
+  selectedRadius: number;
+  onRadiusChange: (mi: number) => void;
+  friendsOnly: boolean;
+  onFriendsOnlyChange: (v: boolean) => void;
+  expertsOnly: boolean;
+  onExpertsOnlyChange: (v: boolean) => void;
 }
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
@@ -1149,6 +1209,18 @@ const PRICE_LEVELS: { value: number; label: string }[] = [
   { value: 4, label: '$$$$' },
 ];
 
+// Radius options in miles. 0 means "Any" (no distance cap). The non-zero
+// values mirror the Home feed's recommendation radius picker so the
+// user's mental model is consistent across surfaces.
+const RADIUS_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: 'Any' },
+  { value: 1, label: '1 mi' },
+  { value: 3, label: '3 mi' },
+  { value: 5, label: '5 mi' },
+  { value: 10, label: '10 mi' },
+  { value: 25, label: '25 mi' },
+];
+
 const FilterSheet: React.FC<FilterSheetProps> = ({
   open,
   onClose,
@@ -1158,6 +1230,12 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   onPriceChange,
   selectedCuisines,
   onCuisinesChange,
+  selectedRadius,
+  onRadiusChange,
+  friendsOnly,
+  onFriendsOnlyChange,
+  expertsOnly,
+  onExpertsOnlyChange,
 }) => {
   const toggleCuisine = (type: string) => {
     onCuisinesChange(
@@ -1170,6 +1248,9 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
     onSortChange('recommended');
     onPriceChange(0);
     onCuisinesChange([]);
+    onRadiusChange(0);
+    onFriendsOnlyChange(false);
+    onExpertsOnlyChange(false);
   };
 
   return (
@@ -1245,6 +1326,66 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
                       {p.label}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">
+                  Distance
+                </h4>
+                <p className="text-[11px] text-on-surface/45 -mt-2 mb-2.5">
+                  From the city centre.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {RADIUS_OPTIONS.map((r) => (
+                    <button
+                      key={r.value}
+                      onClick={() => onRadiusChange(r.value)}
+                      className={cn(
+                        'px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all',
+                        selectedRadius === r.value
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
+                      )}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">
+                  From your circle
+                </h4>
+                <p className="text-[11px] text-on-surface/45 -mt-2 mb-2.5">
+                  Show only places with ratings from people you trust.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => onFriendsOnlyChange(!friendsOnly)}
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left',
+                      friendsOnly
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-on-surface/10 text-on-surface/60 hover:border-on-surface/20',
+                    )}
+                  >
+                    <Users size={15} className={friendsOnly ? 'text-primary' : 'text-on-surface/50'} />
+                    Friends only
+                  </button>
+                  <button
+                    onClick={() => onExpertsOnlyChange(!expertsOnly)}
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left',
+                      expertsOnly
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-on-surface/10 text-on-surface/60 hover:border-on-surface/20',
+                    )}
+                  >
+                    <UserCheck size={15} className={expertsOnly ? 'text-primary' : 'text-on-surface/50'} />
+                    Experts only
+                  </button>
                 </div>
               </div>
 
