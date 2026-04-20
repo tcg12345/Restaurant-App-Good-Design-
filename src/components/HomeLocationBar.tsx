@@ -241,14 +241,19 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 group text-left max-w-full"
+        className="inline-flex items-start gap-1.5 group text-left max-w-full min-w-0"
         aria-label="Change location"
       >
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 leading-none">
             Dining in
           </p>
-          <p className="mt-1 font-serif font-bold text-lg sm:text-xl leading-tight text-on-surface group-hover:text-primary transition-colors truncate">
+          {/* Long addresses (e.g. "21 High Point Road, Staples, CT") used to
+              truncate off the edge on narrow phones. We now let them wrap
+              across 2–3 lines; `break-words` handles the rare extra-long
+              single token, and the parent's max-width cap on phone mode
+              (see Map.tsx) is what actually triggers the wrap point. */}
+          <p className="mt-1 font-serif font-bold text-lg sm:text-xl leading-tight text-on-surface group-hover:text-primary transition-colors break-words">
             {shortLabel}
           </p>
         </div>

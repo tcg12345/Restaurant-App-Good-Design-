@@ -951,7 +951,22 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         // actually produces visibly different recs without any more calls.
         const initialBatch = queries.slice(0, 5);
         recsQueryCursorRef.current = initialBatch.length;
-        const fresh = await fetchRecBatch(initialBatch);
+        let fresh = await fetchRecBatch(initialBatch);
+        // The personalised queries are cuisine-specific ("best $$ Ramen in
+        // Austin, TX"); when the user's top cuisines happen to be niche in
+        // the newly-selected city, every one of those queries can come back
+        // empty and the section silently disappears. If that happens, fall
+        // back to generic city queries so there's always something to show.
+        if (fresh.length === 0 && homeCityOverride) {
+          const fallbackQueries = [
+            `best restaurants in ${homeCityOverride}`,
+            `popular restaurants in ${homeCityOverride}`,
+          ];
+          fresh = await fetchRecBatch(fallbackQueries);
+          // Advance the cursor past the fallbacks so load-more doesn't
+          // immediately re-issue them.
+          recsQueryCursorRef.current += fallbackQueries.length;
+        }
         // Stamp cover photos onto the results BEFORE caching so returning
         // users get them straight out of cache on the next visit.
         const withCovers = await applyCoverPhotos(fresh, uid);
@@ -1021,6 +1036,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       // 2. Supabase cache — one lightweight query, no Places spend.
       if (uid) {
         (async () => {
+          try {
           const cached = await getHomeRecsCache(uid, locKey);
           const fresh = cached && Date.now() - cached.updatedAt < HOME_RECS_CACHE_TTL ? cached : null;
           if (fresh && fresh.places.length > 0) {
@@ -1082,13 +1098,26 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           }
           // Cache miss or stale — live fetch.
           await runLiveFetch();
+          } catch (err) {
+            // Never leave the spinner stuck: if any step in the cache-check
+            // or fallback live fetch throws (network error, Places auth
+            // hiccup, etc.), clear the loading flag and let the UI render
+            // the empty state rather than spinning forever.
+            console.warn('[Recs] live fetch failed:', err);
+            setRecsLoading(false);
+          }
         })();
         return;
       }
     }
 
-    // Anonymous home, or map mode — just run the live path.
-    runLiveFetch();
+    // Anonymous home, or map mode — just run the live path. The .catch here
+    // mirrors the logged-in path: an unhandled rejection from runLiveFetch
+    // otherwise leaves the section stuck on the spinner.
+    runLiveFetch().catch((err) => {
+      console.warn('[Recs] live fetch failed:', err);
+      setRecsLoading(false);
+    });
   }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, recRefreshNonce]);
 
   // Load more recommendations — called when the horizontal scroll nears the
@@ -3264,11 +3293,16 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
               {/* Feed content — hidden when searching */}
               {!discoverSearchActive && mode === 'home' && (
                 <div className="mt-2 flex items-end justify-between gap-3">
-                  <HomeLocationBar
-                    location={homeLocation}
-                    onChange={handleHomeLocationChange}
-                    onUseCurrent={handleHomeUseCurrent}
-                  />
+                  {/* On phone the location bar is capped to ~60% of the row so
+                      long addresses wrap onto a second line instead of
+                      pushing the "View all" link off-screen. */}
+                  <div className={cn('min-w-0', phoneMode && 'max-w-[60%]')}>
+                    <HomeLocationBar
+                      location={homeLocation}
+                      onChange={handleHomeLocationChange}
+                      onUseCurrent={handleHomeUseCurrent}
+                    />
+                  </div>
                   {homeLocation && (
                     <button
                       type="button"
@@ -3386,6 +3420,25 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
                     )}
+                  </div>
+                </section>
+              ) : mode === 'home' && homeLocation ? (
+                // Empty state. Most common cause: the user switched to a
+                // city for the first time and the personalised queries
+                // came back narrower than the radius allows. We keep the
+                // header visible so the radius picker stays reachable —
+                // bumping the chip is usually the fix.
+                <section className="mt-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={15} className="text-primary/60" />
+                      <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                    </div>
+                    <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />
+                  </div>
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <p className="text-sm text-on-surface/50 font-medium">No recommendations in this area yet</p>
+                    <p className="text-xs text-on-surface/35 mt-1">Try a wider radius or a different location.</p>
                   </div>
                 </section>
               ) : null}
