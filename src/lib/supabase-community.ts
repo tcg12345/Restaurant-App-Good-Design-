@@ -425,6 +425,25 @@ export async function getExpertRatings(limit = 50): Promise<CommunityRating[]> {
   } catch { return []; }
 }
 
+/**
+ * Every community rating authored by any user in `userIds`. Unlike
+ * `getExpertRatings` this has no recency cap — the global top-N
+ * ordering cuts off ratings for smaller cities, so the /location
+ * "Experts only" filter uses this to get the full set of ratings
+ * from the specific experts the user follows.
+ */
+export async function getRatingsByUserIds(userIds: string[]): Promise<CommunityRating[]> {
+  if (!supabaseConfigured || userIds.length === 0) return [];
+  try {
+    const { data, error } = await supabase
+      .from('community_ratings')
+      .select('*')
+      .in('user_id', userIds);
+    if (error) return [];
+    return (data || []) as CommunityRating[];
+  } catch { return []; }
+}
+
 /** Get all ratings from user's friends (for friends map), excluding experts */
 export async function getAllFriendRatings(userId: string): Promise<CommunityRating[]> {
   if (!supabaseConfigured || !userId) return [];

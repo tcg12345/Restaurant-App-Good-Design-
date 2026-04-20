@@ -38,6 +38,7 @@ import {
   getExpertProfiles,
   getExpertRatings,
   getFollowedExpertIds,
+  getRatingsByUserIds,
   type CommunityRating,
 } from '../lib/supabase-community';
 import { supabase, supabaseConfigured } from '../lib/supabase';
@@ -375,15 +376,14 @@ export const LocationPage: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [expertProfiles, followedIds, friendRows, expertRows, expertRecRows] = await Promise.all([
+      const [expertProfiles, followedIds, friendRows, topExpertRows, expertRecRows] = await Promise.all([
         getExpertProfiles().catch(() => []),
         userId ? getFollowedExpertIds(userId).catch(() => new Set<string>()) : Promise.resolve(new Set<string>()),
         userId ? getAllFriendRatings(userId).catch(() => [] as CommunityRating[]) : Promise.resolve([] as CommunityRating[]),
-        // Fetch a generous slice of expert ratings so the "Experts only"
-        // filter on /location has enough rows to pull from when the user
-        // scrolls through a big city like NYC. 500 is well inside the
-        // expert_ratings table's realistic size and lets the city-radius
-        // filter below still yield double-digit matches.
+        // A generous global recency slice covers "experts I don't follow
+        // but who rate a lot". It's paired below with an uncapped per-user
+        // fetch for the experts the user DOES follow, so older ratings
+        // from those specific users can't fall off the 500-row cliff.
         getExpertRatings(500).catch(() => [] as CommunityRating[]),
         (async () => {
           if (!supabaseConfigured) return [] as { restaurant_id: string }[];
@@ -397,13 +397,28 @@ export const LocationPage: React.FC = () => {
       ]);
       if (cancelled) return;
 
+      // Now that we know which experts the user follows, fetch EVERY
+      // rating those experts have authored (no limit). Without this pass,
+      // a user who follows a prolific expert with hundreds of ratings
+      // could have most of them cut off by the top-500 recency slice.
+      const followedExpertIdList = Array.from(followedIds);
+      const followedRows = followedExpertIdList.length > 0
+        ? await getRatingsByUserIds(followedExpertIdList).catch(() => [] as CommunityRating[])
+        : [];
+      if (cancelled) return;
+
       const expertUserIds = new Set(expertProfiles.map((e) => e.user_id));
       const friendUserIds = new Set(friendRows.map((r) => r.user_id));
       const communityByRestaurant = new Map<string, CommunityRating[]>();
       const friendSet = new Set<string>();
       const expertSet = new Set<string>();
+      const seenRatingIds = new Set<string>();
       const ingest = (rows: CommunityRating[]) => {
         for (const row of rows) {
+          // Dedup by rating id — topExpertRows and followedRows overlap
+          // on ratings from followed experts that made the global slice.
+          if (seenRatingIds.has(row.id)) continue;
+          seenRatingIds.add(row.id);
           const arr = communityByRestaurant.get(row.restaurant_id);
           if (arr) arr.push(row);
           else communityByRestaurant.set(row.restaurant_id, [row]);
@@ -412,7 +427,8 @@ export const LocationPage: React.FC = () => {
         }
       };
       ingest(friendRows);
-      ingest(expertRows);
+      ingest(topExpertRows);
+      ingest(followedRows);
       const expertRecIds = new Set<string>(expertRecRows.map((r) => r.restaurant_id));
       for (const id of expertRecIds) expertSet.add(id);
 
@@ -664,6 +680,12 @@ export const LocationPage: React.FC = () => {
 
   const loadMore = useCallback(async () => {
     if (loadingMore || exhausted || initialLoading) return;
+    // Strict content filters (Friends / Experts only) are authoritative
+    // via augmentation — every known match is already spliced into the
+    // pool from signals.communityByRestaurant. Paginating Google further
+    // rarely produces matching rows, so we'd just spin the loader while
+    // appending nothing. Skip the fetch and let the list end naturally.
+    if (friendsOnly || expertsOnly) return;
     setLoadingMore(true);
     const fresh = await fetchBatch(LOAD_MORE_BATCH_SIZE);
     setPlacesPool((prev) => {
@@ -672,7 +694,7 @@ export const LocationPage: React.FC = () => {
       return merged;
     });
     setLoadingMore(false);
-  }, [loadingMore, exhausted, initialLoading, fetchBatch]);
+  }, [loadingMore, exhausted, initialLoading, fetchBatch, friendsOnly, expertsOnly]);
 
   // When the user turns on "Friends only" or "Experts only", we augment
   // the Google-fetched pool with restaurants the circle has rated. Google's
@@ -805,20 +827,27 @@ export const LocationPage: React.FC = () => {
   ]);
 
   // IntersectionObserver sentinel powers the infinite-scroll load-more. We
-  // attach it once, near the bottom of the list; when it crosses the viewport
-  // we pull the next batch of queries.
+  // attach it ONCE on mount; listing `loadMore` in the deps would tear
+  // down and rebuild the observer every time loadingMore flips, and
+  // reattaching to an element that's still inside the rootMargin fires
+  // the callback immediately — causing back-to-back fetches, the
+  // spinner-without-results bug, and the sentinel glitch at the bottom
+  // of the page. Calling through a ref keeps the latest loadMore without
+  // disturbing the observer.
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreRef = useRef(loadMore);
+  useEffect(() => { loadMoreRef.current = loadMore; }, [loadMore]);
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const obs = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) void loadMore();
+        if (entry.isIntersecting) void loadMoreRef.current();
       }
     }, { rootMargin: '600px 0px' });
     obs.observe(el);
     return () => obs.disconnect();
-  }, [loadMore]);
+  }, []);
 
   const origin = hasCoords ? { lat, lng } : null;
 
@@ -1081,7 +1110,11 @@ export const LocationPage: React.FC = () => {
                 <span className="ml-2 text-xs font-medium">Loading more…</span>
               </div>
             )}
-            {exhausted && !loadingMore && (
+            {/* "End of list" shows on real pagination exhaustion, and also
+                when a strict filter (Friends / Experts) is active — those
+                filters source entirely from community rows we've already
+                loaded, so there's no "more" to fetch. */}
+            {(exhausted || friendsOnly || expertsOnly) && !loadingMore && (
               <div className="text-center text-[11px] uppercase tracking-wider text-on-surface/35 py-6">
                 You've reached the end
               </div>
