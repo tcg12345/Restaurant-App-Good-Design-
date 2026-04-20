@@ -105,6 +105,29 @@ function deduplicatePlaces(places: PlaceResult[]): PlaceResult[] {
 // per image. The app now surfaces user-uploaded photos only.
 const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.types,places.userRatingCount';
 
+// Google's `places:searchText` endpoint only accepts `locationRestriction`
+// with a `rectangle`; passing a `circle` there returns a 400. (The
+// `places:searchNearby` endpoint DOES accept circle — that's a separate
+// helper.) This converts a (lat, lng, radius-in-meters) triple into the
+// bounding-box rectangle the text API expects. We compute the dLng using
+// the latitude so rectangles stay correctly-sized at higher latitudes;
+// for restaurant search the small over-coverage at the corners is
+// harmless next to the quality filter we apply downstream.
+function circleToRectangle(
+  lat: number,
+  lng: number,
+  radiusMeters: number,
+): { low: { latitude: number; longitude: number }; high: { latitude: number; longitude: number } } {
+  const earthMeters = 6371000;
+  const dLat = ((radiusMeters / earthMeters) * 180) / Math.PI;
+  const cosLat = Math.max(0.01, Math.cos((lat * Math.PI) / 180));
+  const dLng = dLat / cosLat;
+  return {
+    low: { latitude: lat - dLat, longitude: lng - dLng },
+    high: { latitude: lat + dLat, longitude: lng + dLng },
+  };
+}
+
 // Cuisine type mapping for Google Places API
 export const CUISINE_TYPES: { label: string; type: string }[] = [
   { label: 'All', type: '' },
@@ -233,7 +256,7 @@ export async function searchNearbyRestaurants(
 
   // When location is set, restrict text queries to the area; otherwise just bias
   const locationParam = hasLocation
-    ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: bigRadius } } }
+    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, bigRadius) } }
     : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: bigRadius } } };
 
   const textFetches = textQueries.map((q) =>
@@ -292,7 +315,7 @@ async function searchWithFilters(
 
   const filterRadius = Math.max(radiusMeters, 5000);
   const locationParam = hasLocation
-    ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: filterRadius } } }
+    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, filterRadius) } }
     : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: filterRadius } } };
 
   const promises = queries.map(async (cuisine) => {
@@ -371,7 +394,7 @@ export async function searchPlacesByText(
   const shouldRestrict = useRestriction || hasLocation;
 
   const locationParam = shouldRestrict
-    ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: Math.min(radiusMeters, 50000) } } }
+    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, Math.min(radiusMeters, 50000)) } }
     : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: Math.min(radiusMeters, 50000) } } };
 
   // Search 1: raw query + "restaurant" keyword for broad food results
