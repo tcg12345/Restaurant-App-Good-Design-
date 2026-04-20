@@ -39,6 +39,11 @@ import {
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
+import {
+  HomeLocationBar,
+  reverseGeocode,
+  type HomeLocation,
+} from '../components/HomeLocationBar';
 
 /* ── Placeholder guides (non-functional) ─────────────────────────────────────
    Same visual language as the Home page's horizontal guide scroller. Content
@@ -183,6 +188,88 @@ function buildQueryPool(cityKey: string, topCuisines: string[]): string[] {
 const INITIAL_BATCH_SIZE = 4;  // queries issued up-front in parallel
 const LOAD_MORE_BATCH_SIZE = 2; // queries issued per infinite-scroll page
 
+/* ── Cache ───────────────────────────────────────────────────────────────────
+   Each city the user visits is memoised so that bouncing between two cities
+   (or reloading the tab) doesn't re-spend Google Places calls. The cache is
+   module-level (instant during a session) with a localStorage mirror so it
+   survives refreshes inside the TTL window. Entries are keyed on the
+   rounded lat/lng plus the city token so slightly-different coords that
+   resolve to the same city share a cache slot.
+   ──────────────────────────────────────────────────────────────────────── */
+interface CachedCityData {
+  placesPool: PlaceResult[];
+  queryPool: string[];
+  queryCursor: number;
+  seenIds: string[];
+  exhausted: boolean;
+  /** Hash of the user's top cuisines at cache time. When it changes we
+   *  invalidate the query cursor / seen set but keep already-fetched
+   *  restaurants (they're still valid, just ranked differently next time). */
+  cuisinesKey: string;
+  updatedAt: number;
+}
+
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const CACHE_STORAGE_KEY = 'gourmad-location-page-cache';
+const MAX_CACHED_CITIES = 12;
+
+function cityCacheKey(lat: number, lng: number, cityKey: string): string {
+  return `${cityKey.toLowerCase()}|${lat.toFixed(3)}|${lng.toFixed(3)}`;
+}
+
+function cuisinesKeyOf(topCuisines: string[]): string {
+  return topCuisines.slice(0, 5).join('|');
+}
+
+type CacheMap = Record<string, CachedCityData>;
+
+// Hydrated lazily on first read. Null sentinel means "not yet loaded".
+let memoryCache: CacheMap | null = null;
+
+function loadCache(): CacheMap {
+  if (memoryCache) return memoryCache;
+  try {
+    const raw = localStorage.getItem(CACHE_STORAGE_KEY);
+    memoryCache = raw ? (JSON.parse(raw) as CacheMap) : {};
+  } catch {
+    memoryCache = {};
+  }
+  return memoryCache;
+}
+
+function persistCache(cache: CacheMap) {
+  // Keep only the most-recent N entries so storage doesn't grow unboundedly.
+  const entries = Object.entries(cache)
+    .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
+    .slice(0, MAX_CACHED_CITIES);
+  const pruned: CacheMap = {};
+  for (const [k, v] of entries) pruned[k] = v;
+  memoryCache = pruned;
+  try {
+    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(pruned));
+  } catch {
+    /* quota exceeded / storage disabled — in-memory copy still works. */
+  }
+}
+
+function readCachedCity(key: string): CachedCityData | null {
+  const cache = loadCache();
+  const entry = cache[key];
+  if (!entry) return null;
+  if (Date.now() - entry.updatedAt > CACHE_TTL_MS) {
+    delete cache[key];
+    persistCache(cache);
+    return null;
+  }
+  return entry;
+}
+
+function writeCachedCity(key: string, data: Omit<CachedCityData, 'updatedAt'>) {
+  const cache = loadCache();
+  cache[key] = { ...data, updatedAt: Date.now() };
+  persistCache(cache);
+}
+
 /* ── Page ────────────────────────────────────────────────────────────────── */
 export const LocationPage: React.FC = () => {
   const [params] = useSearchParams();
@@ -298,6 +385,16 @@ export const LocationPage: React.FC = () => {
   const [exhausted, setExhausted] = useState(false);
 
   const radiusMeters = 12000; // ~7.5 mi — covers a city plus its inner suburbs
+  const currentCuisinesKey = useMemo(
+    () => cuisinesKeyOf(profile.topCuisines),
+    [profile.topCuisines],
+  );
+  // A stable per-(city, coords) cache identifier. Null when we don't have the
+  // coords needed to look anything up (keeps TypeScript honest below).
+  const activeCacheKey = useMemo(
+    () => (hasCoords ? cityCacheKey(lat, lng, cityKey) : null),
+    [hasCoords, lat, lng, cityKey],
+  );
 
   const fetchBatch = useCallback(async (batchSize: number): Promise<PlaceResult[]> => {
     if (!hasCoords) return [];
@@ -337,29 +434,82 @@ export const LocationPage: React.FC = () => {
     return fresh;
   }, [hasCoords, lat, lng, cityDisplay, cityKey, radiusMeters]);
 
-  // Kick off the initial batch whenever the location changes.
+  // Kick off the initial batch whenever the location changes. Before firing
+  // off Google calls we look at the cache: a fresh hit with the same taste
+  // profile restores everything synchronously, so revisiting a city is
+  // instant and costs nothing. When taste has shifted we keep the cached
+  // places (still valid restaurants) but reset the query-pool cursor so
+  // follow-on loads can surface newly-interesting picks.
   useEffect(() => {
-    if (!hasCoords) {
+    if (!hasCoords || !activeCacheKey) {
       setInitialLoading(false);
       return;
     }
     let cancelled = false;
-    setInitialLoading(true);
-    setPlacesPool([]);
-    setExhausted(false);
-    seenIdsRef.current = new Set();
+
+    const cached = readCachedCity(activeCacheKey);
+    const sameProfile = cached && cached.cuisinesKey === currentCuisinesKey;
+
+    if (cached && sameProfile) {
+      // Fast path — hydrate straight from cache. No network, no spinner.
+      setPlacesPool(cached.placesPool);
+      seenIdsRef.current = new Set(cached.seenIds);
+      queryPoolRef.current = cached.queryPool.length > 0
+        ? cached.queryPool
+        : buildQueryPool(cityKey, profile.topCuisines);
+      queryCursorRef.current = cached.queryCursor;
+      setExhausted(cached.exhausted);
+      setInitialLoading(false);
+      return;
+    }
+
+    // Slow path — either no cache, stale cache, or taste profile changed.
+    // When there's a cached places list with a different profile we still
+    // show it immediately (avoid a flash of blank state) while a fresh
+    // batch loads behind it.
+    const hadPartialCache = !!cached;
+    setPlacesPool(cached?.placesPool ?? []);
+    seenIdsRef.current = new Set(cached?.seenIds ?? []);
     queryPoolRef.current = buildQueryPool(cityKey, profile.topCuisines);
     queryCursorRef.current = 0;
+    setExhausted(false);
+    setInitialLoading(!hadPartialCache);
+
     (async () => {
       const fresh = await fetchBatch(INITIAL_BATCH_SIZE);
       if (cancelled) return;
-      setPlacesPool(fresh);
+      // Merge the fresh batch onto whatever we rehydrated from cache so we
+      // don't nuke a working list when the fresh call fails or returns
+      // nothing new (e.g. offline / rate limited).
+      setPlacesPool((prev) => {
+        const byId = new Map<string, PlaceResult>();
+        for (const p of prev) byId.set(p.id, p);
+        for (const p of fresh) if (!byId.has(p.id)) byId.set(p.id, p);
+        return Array.from(byId.values());
+      });
       setInitialLoading(false);
     })();
     return () => { cancelled = true; };
     // `fetchBatch` already closes over lat/lng/city so listing it once is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasCoords, lat, lng, cityKey, profile.topCuisines.join('|')]);
+  }, [hasCoords, lat, lng, cityKey, activeCacheKey, currentCuisinesKey]);
+
+  // Persist the pool back to cache every time it changes (initial batch,
+  // load-more appends, etc.) so the next visit to this city can skip the
+  // network entirely. Debounced via the effect's own batching so we don't
+  // write on every intermediate state transition.
+  useEffect(() => {
+    if (!activeCacheKey) return;
+    if (placesPool.length === 0) return;
+    writeCachedCity(activeCacheKey, {
+      placesPool,
+      queryPool: queryPoolRef.current,
+      queryCursor: queryCursorRef.current,
+      seenIds: Array.from(seenIdsRef.current),
+      exhausted,
+      cuisinesKey: currentCuisinesKey,
+    });
+  }, [activeCacheKey, placesPool, exhausted, currentCuisinesKey]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || exhausted || initialLoading) return;
@@ -410,9 +560,48 @@ export const LocationPage: React.FC = () => {
 
   const origin = hasCoords ? { lat, lng } : null;
 
+  // Current location the dropdown should display. When the URL doesn't carry
+  // valid coords we leave it null so HomeLocationBar renders its "Select a
+  // location" placeholder state.
+  const currentLocation: HomeLocation | null = hasCoords
+    ? { label: cityDisplay, lat, lng }
+    : null;
+
+  // When the user picks a different city (or address) from the dropdown we
+  // swap the URL params. The page effects are keyed on those params, so a
+  // fresh cache lookup + either instant hydration or a new fetch happens
+  // automatically. HomeLocationBar itself persists the pick to recents +
+  // last-selected, so we don't need to write those here. `replace: true`
+  // keeps the browser history shallow — back always returns to wherever
+  // the user opened the explore page from.
+  const handleLocationChange = useCallback((loc: HomeLocation) => {
+    navigate(
+      `/location?label=${encodeURIComponent(loc.label)}&lat=${loc.lat}&lng=${loc.lng}`,
+      { replace: true },
+    );
+  }, [navigate]);
+
+  // "Use current location" — same flow as Map.tsx: geolocate, reverse-geocode
+  // to a human label, then feed it back through the regular change handler.
+  const handleUseCurrent = useCallback(async (): Promise<void> => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      throw new Error('Geolocation is not available in this browser.');
+    }
+    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        maximumAge: 60 * 1000,
+        timeout: 15000,
+        enableHighAccuracy: true,
+      });
+    });
+    const { latitude, longitude } = pos.coords;
+    const newLabel = await reverseGeocode(latitude, longitude);
+    handleLocationChange({ label: newLabel, lat: latitude, lng: longitude });
+  }, [handleLocationChange]);
+
   return (
     <div className="min-h-screen bg-surface pb-24">
-      {/* Header — back arrow + map action share one row, city title sits below */}
+      {/* Header — back arrow + map action share one row, city picker sits below */}
       <div className="px-4 pt-5">
         <div className="flex items-center justify-between">
           <button
@@ -434,12 +623,11 @@ export const LocationPage: React.FC = () => {
         </div>
 
         <div className="mt-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">
-            Dining in
-          </p>
-          <h1 className="mt-1 font-serif font-bold text-3xl text-on-surface leading-tight">
-            {cityDisplay}
-          </h1>
+          <HomeLocationBar
+            location={currentLocation}
+            onChange={handleLocationChange}
+            onUseCurrent={handleUseCurrent}
+          />
         </div>
       </div>
 
