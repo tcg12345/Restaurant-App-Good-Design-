@@ -21,7 +21,7 @@ import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import {
-  searchPlacesByText,
+  searchPlacesByTextPaged,
   priceLevelToString,
   CUISINE_TYPES,
   type PlaceResult,
@@ -219,36 +219,55 @@ const SORT_LABELS: Record<SortOption, string> = {
   distance: 'Closest First',
 };
 
-const INITIAL_BATCH_SIZE = 4;  // queries issued up-front in parallel
-const LOAD_MORE_BATCH_SIZE = 2; // queries issued per infinite-scroll page
+const INITIAL_BATCH_SIZE = 4;  // queries pulled in parallel on first load
+const LOAD_MORE_BATCH_SIZE = 3; // queries pulled per infinite-scroll page
+
+/* ── Query cursor ────────────────────────────────────────────────────────────
+   Each query in the pool is paginated independently via Google's
+   `nextPageToken`. A single query ("best restaurants in NYC") can yield
+   dozens of pages — this per-query cursor is what lets infinite scroll go
+   deep into one query instead of only rotating across different queries.
+   ──────────────────────────────────────────────────────────────────────── */
+interface QueryCursor {
+  query: string;
+  /** Token supplied by the previous response; undefined before the first
+   *  fetch, and undefined again once the server returns no next page. */
+  pageToken?: string;
+  /** True when the server has told us there are no more pages for this
+   *  query. We keep drained cursors in the list so the sort stays stable;
+   *  fetchBatch just skips them. */
+  drained?: boolean;
+}
 
 /* ── Cache ───────────────────────────────────────────────────────────────────
    Each city the user visits is memoised so that bouncing between two cities
    (or reloading the tab) doesn't re-spend Google Places calls. The cache is
    module-level (instant during a session) with a localStorage mirror so it
-   survives refreshes inside the TTL window. Entries are keyed on the
-   rounded lat/lng plus the city token so slightly-different coords that
-   resolve to the same city share a cache slot.
+   survives refreshes inside the TTL window. The cache key includes the
+   price filter so each price tier gets its own persisted pool (switching
+   between $ and $$$$ doesn't invalidate either).
    ──────────────────────────────────────────────────────────────────────── */
 interface CachedCityData {
   placesPool: PlaceResult[];
-  queryPool: string[];
-  queryCursor: number;
+  cursors: QueryCursor[];
   seenIds: string[];
   exhausted: boolean;
   /** Hash of the user's top cuisines at cache time. When it changes we
-   *  invalidate the query cursor / seen set but keep already-fetched
-   *  restaurants (they're still valid, just ranked differently next time). */
+   *  invalidate the cursors / seen set but keep already-fetched restaurants
+   *  (they're still valid, just ranked differently next time). */
   cuisinesKey: string;
   updatedAt: number;
 }
 
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
-const CACHE_STORAGE_KEY = 'gourmad-location-page-cache';
-const MAX_CACHED_CITIES = 12;
+// Bumped to v2 when the schema switched from {queryPool, queryCursor} to
+// {cursors}. Old v1 entries in localStorage are orphaned; the browser
+// eventually evicts them.
+const CACHE_STORAGE_KEY = 'gourmad-location-page-cache-v2';
+const MAX_CACHED_CITIES = 24; // doubled from v1 since price tiers get their own slots
 
-function cityCacheKey(lat: number, lng: number, cityKey: string): string {
-  return `${cityKey.toLowerCase()}|${lat.toFixed(3)}|${lng.toFixed(3)}`;
+function cityCacheKey(lat: number, lng: number, cityKey: string, priceLevel: number): string {
+  return `${cityKey.toLowerCase()}|${lat.toFixed(3)}|${lng.toFixed(3)}|p=${priceLevel}`;
 }
 
 function cuisinesKeyOf(topCuisines: string[]): string {
@@ -411,8 +430,11 @@ export const LocationPage: React.FC = () => {
   // newly-loaded friend/expert activity can bubble existing rows upward.
   const [placesPool, setPlacesPool] = useState<PlaceResult[]>([]);
   const seenIdsRef = useRef<Set<string>>(new Set());
-  const queryPoolRef = useRef<string[]>([]);
-  const queryCursorRef = useRef(0);
+  // Per-query cursors. Each entry carries its own pageToken so load-more
+  // drives each query through ALL its pages before we call the pool
+  // exhausted — that's how a single "$$$$ New York" run now yields
+  // hundreds of results instead of the ~20 a single page returns.
+  const cursorsRef = useRef<QueryCursor[]>([]);
 
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -452,36 +474,51 @@ export const LocationPage: React.FC = () => {
     () => cuisinesKeyOf(profile.topCuisines),
     [profile.topCuisines],
   );
-  // A stable per-(city, coords) cache identifier. Null when we don't have the
-  // coords needed to look anything up (keeps TypeScript honest below).
+  // A stable per-(city, coords, price-tier) cache identifier. Null when we
+  // don't have the coords needed to look anything up. Including the price
+  // tier means switching between $ and $$$$ just looks up a different
+  // cache entry — neither invalidates the other.
   const activeCacheKey = useMemo(
-    () => (hasCoords ? cityCacheKey(lat, lng, cityKey) : null),
-    [hasCoords, lat, lng, cityKey],
+    () => (hasCoords ? cityCacheKey(lat, lng, cityKey, selectedPrice) : null),
+    [hasCoords, lat, lng, cityKey, selectedPrice],
   );
 
   const fetchBatch = useCallback(async (batchSize: number): Promise<PlaceResult[]> => {
     if (!hasCoords) return [];
-    const pool = queryPoolRef.current;
-    if (queryCursorRef.current >= pool.length) {
+    // Pick the first N cursors that still have pages to fetch. Drained
+    // cursors stay in the list so the serialized cache shape stays stable
+    // across reloads; we just skip them here.
+    const candidates: QueryCursor[] = [];
+    for (const c of cursorsRef.current) {
+      if (c.drained) continue;
+      candidates.push(c);
+      if (candidates.length >= batchSize) break;
+    }
+    if (candidates.length === 0) {
       setExhausted(true);
       return [];
     }
-    const batchQueries = pool.slice(queryCursorRef.current, queryCursorRef.current + batchSize);
-    queryCursorRef.current += batchQueries.length;
-
+    const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
     const results = await Promise.all(
-      batchQueries.map((q) =>
-        searchPlacesByText(q, lat, lng, cityDisplay, /* useRestriction */ true, radiusMeters)
-          .catch(() => [] as PlaceResult[]),
-      ),
+      candidates.map(async (cur) => {
+        const res = await searchPlacesByTextPaged(cur.query, {
+          lat,
+          lng,
+          radiusMeters,
+          useRestriction: true,
+          priceLevels,
+          pageToken: cur.pageToken,
+        });
+        cur.pageToken = res.nextPageToken || undefined;
+        if (!res.nextPageToken) cur.drained = true;
+        return res.places;
+      }),
     );
 
     const radiusKm = radiusMeters / 1000;
     const fresh: PlaceResult[] = [];
-    // Interleave by batch position so each query contributes something visible
-    // to the top of the list, rather than one query dominating the first page.
-    // Radius is the only "is this in the city" test — see the note above the
-    // cityKeyFromLabel helper for why strict name-matching breaks LA/NYC/SF.
+    // Interleave results page-by-page so no single query dominates the
+    // top of the list, and apply the radius safety cutoff.
     const maxLen = Math.max(0, ...results.map((r) => r.length));
     for (let i = 0; i < maxLen; i++) {
       for (const list of results) {
@@ -495,8 +532,9 @@ export const LocationPage: React.FC = () => {
         fresh.push(p);
       }
     }
+    if (cursorsRef.current.every((c) => c.drained)) setExhausted(true);
     return fresh;
-  }, [hasCoords, lat, lng, cityDisplay, radiusMeters]);
+  }, [hasCoords, lat, lng, radiusMeters, selectedPrice]);
 
   // Kick off the initial batch whenever the location or search term
   // changes. The default-browse path looks at the cache: a fresh hit with
@@ -520,9 +558,9 @@ export const LocationPage: React.FC = () => {
     if (debouncedSearch) {
       setPlacesPool([]);
       seenIdsRef.current = new Set();
-      queryPoolRef.current = buildSearchQueryPool(debouncedSearch, cityKey);
-      queryCursorRef.current = 0;
-      setExhausted(queryPoolRef.current.length === 0);
+      cursorsRef.current = buildSearchQueryPool(debouncedSearch, cityKey)
+        .map((query) => ({ query }));
+      setExhausted(cursorsRef.current.length === 0);
       setInitialLoading(true);
       (async () => {
         const fresh = await fetchBatch(INITIAL_BATCH_SIZE);
@@ -539,12 +577,13 @@ export const LocationPage: React.FC = () => {
 
     if (cached && sameProfile) {
       // Fast path — hydrate straight from cache. No network, no spinner.
+      // Cursors come back with whatever pageTokens were in flight when we
+      // last wrote the cache, so load-more picks up exactly where it left off.
       setPlacesPool(cached.placesPool);
       seenIdsRef.current = new Set(cached.seenIds);
-      queryPoolRef.current = cached.queryPool.length > 0
-        ? cached.queryPool
-        : buildQueryPool(cityKey, profile.topCuisines);
-      queryCursorRef.current = cached.queryCursor;
+      cursorsRef.current = cached.cursors.length > 0
+        ? cached.cursors.map((c) => ({ ...c }))
+        : buildQueryPool(cityKey, profile.topCuisines).map((query) => ({ query }));
       setExhausted(cached.exhausted);
       setInitialLoading(false);
       return;
@@ -557,8 +596,8 @@ export const LocationPage: React.FC = () => {
     const hadPartialCache = !!cached;
     setPlacesPool(cached?.placesPool ?? []);
     seenIdsRef.current = new Set(cached?.seenIds ?? []);
-    queryPoolRef.current = buildQueryPool(cityKey, profile.topCuisines);
-    queryCursorRef.current = 0;
+    cursorsRef.current = buildQueryPool(cityKey, profile.topCuisines)
+      .map((query) => ({ query }));
     setExhausted(false);
     setInitialLoading(!hadPartialCache);
 
@@ -593,13 +632,14 @@ export const LocationPage: React.FC = () => {
     if (debouncedSearch) return;
     writeCachedCity(activeCacheKey, {
       placesPool,
-      queryPool: queryPoolRef.current,
-      queryCursor: queryCursorRef.current,
+      // Snapshot the current cursor state (pageTokens + drained flags) so a
+      // reload can resume load-more mid-stream instead of restarting.
+      cursors: cursorsRef.current.map((c) => ({ ...c })),
       seenIds: Array.from(seenIdsRef.current),
       exhausted,
       cuisinesKey: currentCuisinesKey,
     });
-  }, [activeCacheKey, placesPool, exhausted, currentCuisinesKey]);
+  }, [activeCacheKey, placesPool, exhausted, currentCuisinesKey, debouncedSearch]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || exhausted || initialLoading) return;

@@ -438,6 +438,94 @@ export async function searchPlacesByText(
   return deduplicatePlaces(merged);
 }
 
+/* ── Paginating text search (for /location's infinite scroll) ────────────── */
+
+export interface SearchPageOptions {
+  /** Center of the search area. */
+  lat: number;
+  lng: number;
+  /** Max distance from (lat, lng) to include, in meters. Clamped to 50 km
+   *  since that's Google's hard cap for locationRestriction. */
+  radiusMeters: number;
+  /** When true, the radius is a hard boundary (converted to rectangle for
+   *  the text endpoint). When false, it's just a bias hint. */
+  useRestriction?: boolean;
+  /** Google price-level enum values 1–4. When non-empty the API filters
+   *  server-side so we only get matching prices — much more efficient
+   *  than paging through every restaurant and filtering client-side. */
+  priceLevels?: number[];
+  /** Supplied by a previous response to continue the same query into its
+   *  next page. Pass the full token verbatim. */
+  pageToken?: string;
+  /** 1–20. Defaults to 20. */
+  pageSize?: number;
+}
+
+export interface SearchPageResult {
+  places: PlaceResult[];
+  /** Non-null when the server indicates more pages exist. Pass back as
+   *  `pageToken` to fetch the next page. */
+  nextPageToken: string | null;
+}
+
+/**
+ * Text search that supports Google's paginated response + server-side price
+ * filtering. Use this when you need to drain a single query across many
+ * pages (the explore page's infinite scroll does this per-query so $$$$
+ * New York returns hundreds of results instead of the ~20 that fit in one
+ * page). For one-shot lookups the older `searchPlacesByText` is still fine.
+ */
+export async function searchPlacesByTextPaged(
+  query: string,
+  opts: SearchPageOptions,
+): Promise<SearchPageResult> {
+  const { lat, lng, radiusMeters, useRestriction, priceLevels, pageToken, pageSize } = opts;
+  const clampedRadius = Math.min(radiusMeters, 50000);
+  const locationParam = useRestriction
+    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, clampedRadius) } }
+    : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: clampedRadius } } };
+
+  const body: Record<string, unknown> = {
+    textQuery: query,
+    pageSize: Math.min(Math.max(pageSize ?? 20, 1), 20),
+    ...locationParam,
+  };
+  if (priceLevels && priceLevels.length > 0) {
+    body.priceLevels = priceLevels
+      .map((n) => PRICE_LEVEL_STRINGS[n])
+      .filter((s): s is string => !!s);
+  }
+  if (pageToken) body.pageToken = pageToken;
+
+  try {
+    const res = await fetch(`${BASE_URL}/places:searchText`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+        // nextPageToken is a top-level field — listing it explicitly is
+        // required alongside `places.*` in the field mask.
+        'X-Goog-FieldMask': `${FIELDS},nextPageToken`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      // Keep diagnostics on the network tab only — the caller's fallback
+      // handles empty returns without needing the page to blow up.
+      console.error('[Places] searchPlacesByTextPaged failed:', res.status, await res.text().catch(() => ''));
+      return { places: [], nextPageToken: null };
+    }
+    const data = await res.json();
+    return {
+      places: mapPlaces(data.places || []),
+      nextPageToken: (data.nextPageToken as string) || null,
+    };
+  } catch (err) {
+    console.error('[Places] searchPlacesByTextPaged exception:', err);
+    return { places: [], nextPageToken: null };
+  }
+}
+
 export async function searchHotels(
   query: string,
   lat: number,
