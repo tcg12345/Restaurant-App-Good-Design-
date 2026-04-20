@@ -4,21 +4,25 @@ import {
   ArrowLeft,
   BookOpen,
   Car,
+  Check,
   Footprints,
   Loader2,
   Map as MapIcon,
   MapPin,
+  Search,
+  SlidersHorizontal,
   Sparkles,
   UserCheck,
   Users,
+  X,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import {
   searchPlacesByText,
   priceLevelToString,
-  extractCityState,
   CUISINE_TYPES,
   type PlaceResult,
 } from '../lib/places';
@@ -95,11 +99,16 @@ const PLACEHOLDER_GUIDES: Guide[] = [
   },
 ];
 
-/* ── City-match helpers ──────────────────────────────────────────────────────
+/* ── City-key helper ─────────────────────────────────────────────────────────
    The URL label may be a plain city ("Los Angeles, CA") or a street address
-   ("123 Main St, Los Angeles, CA"). Either way we want to know which city
-   the user is exploring, so we can filter Google results to restaurants
-   actually in that city (Google often leaks nearby suburbs).
+   ("123 Main St, Los Angeles, CA"). Either way we pull out the primary city
+   token so we can name queries with it and key the cache.
+
+   We deliberately DON'T filter results by strict city-name match: many
+   major cities (LA, NYC, SF) have popular restaurants in adjacent
+   municipalities (West Hollywood, Beverly Hills, Brooklyn, Oakland) that
+   a naive equals-match would drop. The radius filter in fetchBatch is
+   the authoritative "inside this city" test.
    ──────────────────────────────────────────────────────────────────────── */
 function cityKeyFromLabel(label: string): string {
   const parts = label.split(',').map((s) => s.trim()).filter(Boolean);
@@ -107,13 +116,6 @@ function cityKeyFromLabel(label: string): string {
   // Leading digit → full street address; skip the street and use the next piece.
   if (/^\s*\d/.test(parts[0]) && parts.length > 1) return parts[1];
   return parts[0];
-}
-
-function placeMatchesCity(place: PlaceResult, cityKey: string): boolean {
-  if (!cityKey) return true;
-  const extracted = extractCityState(place.fullAddress, place.address);
-  const city = extracted.split(',')[0].trim();
-  return city.toLowerCase() === cityKey.toLowerCase();
 }
 
 /* Map Google Places types → human-readable cuisine label ("Italian", "Sushi").
@@ -184,6 +186,38 @@ function buildQueryPool(cityKey: string, topCuisines: string[]): string[] {
   }
   return out;
 }
+
+/* Variant used when the user is typing in the search box. We shape the
+   queries around their input so Google biases toward matches on a
+   restaurant's name / type / description; the radius still keeps
+   results inside the selected city. */
+function buildSearchQueryPool(term: string, cityKey: string): string[] {
+  const city = cityKey || 'the area';
+  const q = term.trim();
+  if (!q) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (s: string) => {
+    const key = s.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(s);
+  };
+  push(`${q} in ${city}`);
+  push(`${q} restaurants in ${city}`);
+  push(`best ${q} in ${city}`);
+  push(`top rated ${q} in ${city}`);
+  return out;
+}
+
+type SortOption = 'recommended' | 'rating' | 'popularity' | 'distance';
+
+const SORT_LABELS: Record<SortOption, string> = {
+  recommended: 'Recommended',
+  rating: 'Highest Rated',
+  popularity: 'Most Popular',
+  distance: 'Closest First',
+};
 
 const INITIAL_BATCH_SIZE = 4;  // queries issued up-front in parallel
 const LOAD_MORE_BATCH_SIZE = 2; // queries issued per infinite-scroll page
@@ -384,7 +418,36 @@ export const LocationPage: React.FC = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [exhausted, setExhausted] = useState(false);
 
-  const radiusMeters = 12000; // ~7.5 mi — covers a city plus its inner suburbs
+  // ── Search & filters ──────────────────────────────────────────────────
+  // Typing drives `searchQuery` on every keystroke; `debouncedSearch` is
+  // what actually reshapes the query pool, so the user isn't hammering
+  // Google for every letter. An empty debounced value means "default
+  // pool + cache" — any non-empty value bypasses the cache and drives a
+  // targeted fetch.
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // Filters apply client-side to the ranked array — they don't gate which
+  // places we fetch, only which we show. This keeps infinite scroll
+  // feeling live: as more pages come in, matching results trickle in.
+  const [selectedPrice, setSelectedPrice] = useState(0);
+  const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<SortOption>('recommended');
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const activeFilterCount =
+    (selectedPrice > 0 ? 1 : 0) +
+    selectedCuisines.length +
+    (sortBy !== 'recommended' ? 1 : 0);
+
+  // ~12.5 mi — tuned for sprawling cities (LA, Houston) where a tight
+  // radius would drop popular picks in adjacent municipalities. Smaller
+  // cities still work because Google's text-search already biases toward
+  // the query city; the radius is just a safety cutoff.
+  const radiusMeters = 20000;
   const currentCuisinesKey = useMemo(
     () => cuisinesKeyOf(profile.topCuisines),
     [profile.topCuisines],
@@ -417,13 +480,14 @@ export const LocationPage: React.FC = () => {
     const fresh: PlaceResult[] = [];
     // Interleave by batch position so each query contributes something visible
     // to the top of the list, rather than one query dominating the first page.
+    // Radius is the only "is this in the city" test — see the note above the
+    // cityKeyFromLabel helper for why strict name-matching breaks LA/NYC/SF.
     const maxLen = Math.max(0, ...results.map((r) => r.length));
     for (let i = 0; i < maxLen; i++) {
       for (const list of results) {
         const p = list[i];
         if (!p) continue;
         if (seenIdsRef.current.has(p.id)) continue;
-        if (!placeMatchesCity(p, cityKey)) continue;
         if (
           haversineKm({ lat: p.lat, lng: p.lng }, { lat, lng }) > radiusKm * 1.2
         ) continue;
@@ -432,14 +496,16 @@ export const LocationPage: React.FC = () => {
       }
     }
     return fresh;
-  }, [hasCoords, lat, lng, cityDisplay, cityKey, radiusMeters]);
+  }, [hasCoords, lat, lng, cityDisplay, radiusMeters]);
 
-  // Kick off the initial batch whenever the location changes. Before firing
-  // off Google calls we look at the cache: a fresh hit with the same taste
-  // profile restores everything synchronously, so revisiting a city is
-  // instant and costs nothing. When taste has shifted we keep the cached
-  // places (still valid restaurants) but reset the query-pool cursor so
-  // follow-on loads can surface newly-interesting picks.
+  // Kick off the initial batch whenever the location or search term
+  // changes. The default-browse path looks at the cache: a fresh hit with
+  // the same taste profile restores everything synchronously, so
+  // revisiting a city is instant and costs nothing. When taste has
+  // shifted we keep the cached places (still valid restaurants) but
+  // reset the query-pool cursor so follow-on loads can surface
+  // newly-interesting picks. In search mode the cache is bypassed and
+  // the pool is replaced by search-shaped queries.
   useEffect(() => {
     if (!hasCoords || !activeCacheKey) {
       setInitialLoading(false);
@@ -447,6 +513,27 @@ export const LocationPage: React.FC = () => {
     }
     let cancelled = false;
 
+    // ── Search path ───────────────────────────────────────────────────
+    // Any typed search bypasses the per-city cache entirely: caching
+    // every free-form query would bloat storage fast, and a miss here
+    // still only costs 2–3 Google calls.
+    if (debouncedSearch) {
+      setPlacesPool([]);
+      seenIdsRef.current = new Set();
+      queryPoolRef.current = buildSearchQueryPool(debouncedSearch, cityKey);
+      queryCursorRef.current = 0;
+      setExhausted(queryPoolRef.current.length === 0);
+      setInitialLoading(true);
+      (async () => {
+        const fresh = await fetchBatch(INITIAL_BATCH_SIZE);
+        if (cancelled) return;
+        setPlacesPool(fresh);
+        setInitialLoading(false);
+      })();
+      return () => { cancelled = true; };
+    }
+
+    // ── Browse path (cached) ──────────────────────────────────────────
     const cached = readCachedCity(activeCacheKey);
     const sameProfile = cached && cached.cuisinesKey === currentCuisinesKey;
 
@@ -492,15 +579,18 @@ export const LocationPage: React.FC = () => {
     return () => { cancelled = true; };
     // `fetchBatch` already closes over lat/lng/city so listing it once is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasCoords, lat, lng, cityKey, activeCacheKey, currentCuisinesKey]);
+  }, [hasCoords, lat, lng, cityKey, activeCacheKey, currentCuisinesKey, debouncedSearch]);
 
   // Persist the pool back to cache every time it changes (initial batch,
   // load-more appends, etc.) so the next visit to this city can skip the
   // network entirely. Debounced via the effect's own batching so we don't
-  // write on every intermediate state transition.
+  // write on every intermediate state transition. Skip writes while a
+  // search is active so free-form queries don't overwrite the default
+  // browse pool.
   useEffect(() => {
     if (!activeCacheKey) return;
     if (placesPool.length === 0) return;
+    if (debouncedSearch) return;
     writeCachedCity(activeCacheKey, {
       placesPool,
       queryPool: queryPoolRef.current,
@@ -541,6 +631,40 @@ export const LocationPage: React.FC = () => {
       { limit: Infinity, skipUserHistory: false },
     );
   }, [placesPool, profile, signals, cityDisplay, lat, lng, hasCoords, radiusMeters]);
+
+  // Apply the in-page filters + sort to the already-ranked list. Filters
+  // never trigger a refetch — they shrink what's shown from the pool we
+  // already have, so as infinite-scroll pulls more pages any matching
+  // results trickle in without a round-trip.
+  const visible: ScoredPlace[] = useMemo(() => {
+    const out: ScoredPlace[] = [];
+    const cuisineSet = new Set(selectedCuisines);
+    for (const p of ranked) {
+      if (selectedPrice > 0 && p.priceLevel !== selectedPrice) continue;
+      if (cuisineSet.size > 0) {
+        // Match if any of the place's Google types is in the selected
+        // cuisine type set.
+        let hit = false;
+        for (const t of p.types) if (cuisineSet.has(t)) { hit = true; break; }
+        if (!hit) continue;
+      }
+      out.push(p);
+    }
+    if (sortBy === 'recommended') return out;
+    const sorted = [...out];
+    if (sortBy === 'rating') {
+      sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    } else if (sortBy === 'popularity') {
+      sorted.sort((a, b) => (b.userRatingCount || 0) - (a.userRatingCount || 0));
+    } else if (sortBy === 'distance' && hasCoords) {
+      sorted.sort(
+        (a, b) =>
+          haversineDistanceMi(lat, lng, a.lat, a.lng) -
+          haversineDistanceMi(lat, lng, b.lat, b.lng),
+      );
+    }
+    return sorted;
+  }, [ranked, selectedPrice, selectedCuisines, sortBy, hasCoords, lat, lng]);
 
   // IntersectionObserver sentinel powers the infinite-scroll load-more. We
   // attach it once, near the bottom of the list; when it crosses the viewport
@@ -670,27 +794,114 @@ export const LocationPage: React.FC = () => {
 
       {/* Restaurant list */}
       <section className="mt-8">
-        <div className="px-4 flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Sparkles size={15} className="text-primary/70" />
-            <h2 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">Picked for you</h2>
+        <div className="px-4 mx-auto max-w-3xl lg:max-w-4xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles size={15} className="text-primary/70" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">
+                {debouncedSearch ? `Results for "${debouncedSearch}"` : 'Picked for you'}
+              </h2>
+            </div>
           </div>
+
+          {/* Search + filter row */}
+          <div className="flex items-center gap-2 mb-3">
+            <div className="relative flex-1 min-w-0">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/40" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={`Search in ${cityDisplay}`}
+                className="w-full bg-on-surface/[0.04] focus:bg-on-surface/[0.06] rounded-full py-2.5 pl-10 pr-10 text-sm font-medium focus:outline-none"
+                autoCapitalize="off"
+                autoCorrect="off"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/[0.04]"
+                  aria-label="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setFilterSheetOpen(true)}
+              className={cn(
+                'relative flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-2.5 rounded-full text-sm font-semibold transition-colors',
+                activeFilterCount > 0
+                  ? 'bg-primary/10 text-primary'
+                  : 'bg-on-surface/[0.04] text-on-surface/70 hover:bg-on-surface/[0.06]',
+              )}
+              aria-label="Filters"
+            >
+              <SlidersHorizontal size={15} />
+              <span className="hidden sm:inline">Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Active-filter chips — shown only when something is applied so
+              the user can see and dismiss individual filters without
+              reopening the sheet. */}
+          {activeFilterCount > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {sortBy !== 'recommended' && (
+                <FilterChip
+                  label={SORT_LABELS[sortBy]}
+                  onClear={() => setSortBy('recommended')}
+                />
+              )}
+              {selectedPrice > 0 && (
+                <FilterChip
+                  label={'$'.repeat(selectedPrice)}
+                  onClear={() => setSelectedPrice(0)}
+                />
+              )}
+              {selectedCuisines.map((t) => {
+                const entry = CUISINE_TYPES.find((c) => c.type === t);
+                return (
+                  <FilterChip
+                    key={t}
+                    label={entry?.label || t}
+                    onClear={() =>
+                      setSelectedCuisines((prev) => prev.filter((x) => x !== t))
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {initialLoading ? (
           <div className="flex items-center justify-center py-16 text-on-surface/40">
             <Loader2 size={18} className="animate-spin" />
-            <span className="ml-2 text-xs font-medium">Finding restaurants in {cityDisplay}…</span>
+            <span className="ml-2 text-xs font-medium">
+              {debouncedSearch ? `Searching "${debouncedSearch}"…` : `Finding restaurants in ${cityDisplay}…`}
+            </span>
           </div>
-        ) : ranked.length === 0 ? (
+        ) : visible.length === 0 ? (
           <div className="px-6 py-16 text-center text-on-surface/45 text-sm">
-            No restaurants found in {cityDisplay} yet.
+            {ranked.length > 0
+              ? 'No restaurants match these filters. Try clearing them.'
+              : debouncedSearch
+                ? `No matches for "${debouncedSearch}" in ${cityDisplay}.`
+                : `No restaurants found in ${cityDisplay} yet.`}
           </div>
         ) : (
           <>
             <div className="px-4 mx-auto max-w-3xl lg:max-w-4xl">
               <ul className="divide-y divide-on-surface/[0.06]">
-                {ranked.map((place) => (
+                {visible.map((place) => (
                   <RestaurantRow
                     key={place.id}
                     place={place}
@@ -718,6 +929,17 @@ export const LocationPage: React.FC = () => {
           </>
         )}
       </section>
+
+      <FilterSheet
+        open={filterSheetOpen}
+        onClose={() => setFilterSheetOpen(false)}
+        sortBy={sortBy}
+        onSortChange={setSortBy}
+        selectedPrice={selectedPrice}
+        onPriceChange={setSelectedPrice}
+        selectedCuisines={selectedCuisines}
+        onCuisinesChange={setSelectedCuisines}
+      />
     </div>
   );
 };
@@ -839,5 +1061,195 @@ const RestaurantRow: React.FC<RestaurantRowProps> = ({
         </div>
       </Link>
     </li>
+  );
+};
+
+/* ── Filter chip ─────────────────────────────────────────────────────────────
+   Dismissible pill shown above the list when a filter is active. The click
+   target is the whole chip so tiny-finger targets still reach the X. */
+const FilterChip: React.FC<{ label: string; onClear: () => void }> = ({ label, onClear }) => (
+  <button
+    type="button"
+    onClick={onClear}
+    className="inline-flex items-center gap-1 pl-2.5 pr-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold"
+  >
+    {label}
+    <X size={12} className="opacity-70" />
+  </button>
+);
+
+/* ── Filter sheet ────────────────────────────────────────────────────────────
+   Bottom sheet with sort / price / cuisine controls. Stays unmounted while
+   closed so the cuisine grid (80+ chips) doesn't cost render time on every
+   keystroke. Visual language matches the existing sort/price/cuisine sheet
+   on the Home page so users don't relearn anything. */
+interface FilterSheetProps {
+  open: boolean;
+  onClose: () => void;
+  sortBy: SortOption;
+  onSortChange: (s: SortOption) => void;
+  selectedPrice: number;
+  onPriceChange: (p: number) => void;
+  selectedCuisines: string[];
+  onCuisinesChange: (next: string[]) => void;
+}
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'recommended', label: 'Recommended' },
+  { value: 'rating', label: 'Highest Rated' },
+  { value: 'popularity', label: 'Most Popular' },
+  { value: 'distance', label: 'Closest First' },
+];
+
+const PRICE_LEVELS: { value: number; label: string }[] = [
+  { value: 0, label: 'Any' },
+  { value: 1, label: '$' },
+  { value: 2, label: '$$' },
+  { value: 3, label: '$$$' },
+  { value: 4, label: '$$$$' },
+];
+
+const FilterSheet: React.FC<FilterSheetProps> = ({
+  open,
+  onClose,
+  sortBy,
+  onSortChange,
+  selectedPrice,
+  onPriceChange,
+  selectedCuisines,
+  onCuisinesChange,
+}) => {
+  const toggleCuisine = (type: string) => {
+    onCuisinesChange(
+      selectedCuisines.includes(type)
+        ? selectedCuisines.filter((t) => t !== type)
+        : [...selectedCuisines, type],
+    );
+  };
+  const reset = () => {
+    onSortChange('recommended');
+    onPriceChange(0);
+    onCuisinesChange([]);
+  };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+          >
+            <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+              <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+            </div>
+            <div className="flex items-center justify-between px-5 pt-1 pb-3 border-b border-on-surface/6 flex-shrink-0">
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface/60">
+                Filters
+              </h3>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+                aria-label="Close"
+              >
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">Sort by</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {SORT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => onSortChange(opt.value)}
+                      className={cn(
+                        'flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left',
+                        sortBy === opt.value
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-on-surface/10 text-on-surface/60 hover:border-on-surface/20',
+                      )}
+                    >
+                      {sortBy === opt.value && <Check size={14} />}
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">Price</h4>
+                <div className="flex gap-2">
+                  {PRICE_LEVELS.map((p) => (
+                    <button
+                      key={p.value}
+                      onClick={() => onPriceChange(p.value)}
+                      className={cn(
+                        'flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all',
+                        selectedPrice === p.value
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-on-surface/10 text-on-surface/60 hover:border-on-surface/20',
+                      )}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">Cuisine</h4>
+                <div className="flex flex-wrap gap-2">
+                  {CUISINE_TYPES.filter((c) => c.type).map((c) => {
+                    const isActive = selectedCuisines.includes(c.type);
+                    return (
+                      <button
+                        key={c.type}
+                        onClick={() => toggleCuisine(c.type)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all',
+                          isActive
+                            ? 'border-primary bg-primary/5 text-primary'
+                            : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
+                        )}
+                      >
+                        {isActive && <Check size={11} className="inline mr-1 -mt-0.5" />}
+                        {c.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-shrink-0 bg-surface border-t border-black/5 px-5 py-4 flex gap-3">
+              <button
+                onClick={reset}
+                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors"
+              >
+                Reset
+              </button>
+              <button
+                onClick={onClose}
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-shadow"
+              >
+                Apply
+              </button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 };
