@@ -46,6 +46,8 @@ import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import {
   HomeLocationBar,
+  isExactAddress,
+  loadLastSelectedLocation,
   reverseGeocode,
   type HomeLocation,
 } from '../components/HomeLocationBar';
@@ -372,6 +374,12 @@ export const LocationPage: React.FC = () => {
   // lookup so the render path doesn't have to re-walk the Map each frame.
   const [friendRestaurantIds, setFriendRestaurantIds] = useState<Set<string>>(new Set());
   const [expertRestaurantIds, setExpertRestaurantIds] = useState<Set<string>>(new Set());
+  // Count of DISTINCT friends / experts who rated each restaurant. The row
+  // uses these to upgrade the "Friend rated" pill to "3 friends rated" when
+  // the signal is backed by multiple people — a stronger visual cue than a
+  // plain badge.
+  const [friendCounts, setFriendCounts] = useState<Map<string, number>>(new Map());
+  const [expertCounts, setExpertCounts] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -412,6 +420,10 @@ export const LocationPage: React.FC = () => {
       const communityByRestaurant = new Map<string, CommunityRating[]>();
       const friendSet = new Set<string>();
       const expertSet = new Set<string>();
+      // Per-restaurant sets of DISTINCT user ids so the row-card "N friends
+      // rated" count can't double up when the same person rated twice.
+      const friendUsersByRestaurant = new Map<string, Set<string>>();
+      const expertUsersByRestaurant = new Map<string, Set<string>>();
       const seenRatingIds = new Set<string>();
       const ingest = (rows: CommunityRating[]) => {
         for (const row of rows) {
@@ -422,8 +434,18 @@ export const LocationPage: React.FC = () => {
           const arr = communityByRestaurant.get(row.restaurant_id);
           if (arr) arr.push(row);
           else communityByRestaurant.set(row.restaurant_id, [row]);
-          if (friendUserIds.has(row.user_id)) friendSet.add(row.restaurant_id);
-          if (expertUserIds.has(row.user_id)) expertSet.add(row.restaurant_id);
+          if (friendUserIds.has(row.user_id)) {
+            friendSet.add(row.restaurant_id);
+            let set = friendUsersByRestaurant.get(row.restaurant_id);
+            if (!set) { set = new Set(); friendUsersByRestaurant.set(row.restaurant_id, set); }
+            set.add(row.user_id);
+          }
+          if (expertUserIds.has(row.user_id)) {
+            expertSet.add(row.restaurant_id);
+            let set = expertUsersByRestaurant.get(row.restaurant_id);
+            if (!set) { set = new Set(); expertUsersByRestaurant.set(row.restaurant_id, set); }
+            set.add(row.user_id);
+          }
         }
       };
       ingest(friendRows);
@@ -431,6 +453,11 @@ export const LocationPage: React.FC = () => {
       ingest(followedRows);
       const expertRecIds = new Set<string>(expertRecRows.map((r) => r.restaurant_id));
       for (const id of expertRecIds) expertSet.add(id);
+
+      const friendCountMap = new Map<string, number>();
+      for (const [id, set] of friendUsersByRestaurant) friendCountMap.set(id, set.size);
+      const expertCountMap = new Map<string, number>();
+      for (const [id, set] of expertUsersByRestaurant) expertCountMap.set(id, set.size);
 
       setSignals({
         expertUserIds,
@@ -441,6 +468,8 @@ export const LocationPage: React.FC = () => {
       });
       setFriendRestaurantIds(friendSet);
       setExpertRestaurantIds(expertSet);
+      setFriendCounts(friendCountMap);
+      setExpertCounts(expertCountMap);
     })();
     return () => { cancelled = true; };
   }, [userId]);
@@ -487,6 +516,12 @@ export const LocationPage: React.FC = () => {
   // values mirror the Home-feed "Recommended For You" radius picker so
   // the mental model stays consistent.
   const [selectedRadius, setSelectedRadius] = useState(0);
+  // Walk- / drive-time caps in minutes. 0 = Any. Only usable when the
+  // user's saved home is a precise street address — otherwise there's no
+  // routable origin and Mapbox Directions can't compute a real travel
+  // time, so the UI hides the controls.
+  const [selectedWalkMin, setSelectedWalkMin] = useState(0);
+  const [selectedDriveMin, setSelectedDriveMin] = useState(0);
   // When on, the list is narrowed to restaurants someone in the user's
   // circle (friends / followed experts) has rated ≥8. We load both signal
   // sets up-front in the useEffect above, so this is a cheap client-side
@@ -499,8 +534,22 @@ export const LocationPage: React.FC = () => {
     selectedCuisines.length +
     (sortBy !== 'recommended' ? 1 : 0) +
     (selectedRadius > 0 ? 1 : 0) +
+    (selectedWalkMin > 0 ? 1 : 0) +
+    (selectedDriveMin > 0 ? 1 : 0) +
     (friendsOnly ? 1 : 0) +
     (expertsOnly ? 1 : 0);
+
+  // User's saved home, read once and kept stable across re-renders. When
+  // this is a precise street address (leading-digit heuristic), the rows'
+  // distance + drive/walk times are computed from home rather than the
+  // city centre — and the walk / drive filters in the sheet become
+  // available. City-level saved locations can't anchor a routable origin,
+  // so the filters stay hidden.
+  const savedHome = useMemo(() => loadLastSelectedLocation(), []);
+  const exactHomeOrigin = useMemo(
+    () => (isExactAddress(savedHome) ? savedHome : null),
+    [savedHome],
+  );
 
   // ~12.5 mi — tuned for sprawling cities (LA, Houston) where a tight
   // radius would drop popular picks in adjacent municipalities. Smaller
@@ -849,7 +898,16 @@ export const LocationPage: React.FC = () => {
     return () => obs.disconnect();
   }, []);
 
-  const origin = hasCoords ? { lat, lng } : null;
+  // Origin the row cards use for distance + drive/walk times. When the
+  // user has a precise saved home address we measure from there — that's
+  // the origin the new walk/drive filters also apply to, so "Under 20 min
+  // walk" narrows against the same numbers the row shows. Otherwise we
+  // fall back to the city centre and skip the route-based filters.
+  const origin = exactHomeOrigin
+    ? { lat: exactHomeOrigin.lat, lng: exactHomeOrigin.lng }
+    : hasCoords
+      ? { lat, lng }
+      : null;
 
   // Current location the dropdown should display. When the URL doesn't carry
   // valid coords we leave it null so HomeLocationBar renders its "Select a
@@ -1043,6 +1101,18 @@ export const LocationPage: React.FC = () => {
                   onClear={() => setSelectedRadius(0)}
                 />
               )}
+              {selectedWalkMin > 0 && (
+                <FilterChip
+                  label={`Walk ≤ ${selectedWalkMin} min`}
+                  onClear={() => setSelectedWalkMin(0)}
+                />
+              )}
+              {selectedDriveMin > 0 && (
+                <FilterChip
+                  label={`Drive ≤ ${selectedDriveMin} min`}
+                  onClear={() => setSelectedDriveMin(0)}
+                />
+              )}
               {friendsOnly && (
                 <FilterChip
                   label="Friends only"
@@ -1095,8 +1165,10 @@ export const LocationPage: React.FC = () => {
                     key={place.id}
                     place={place}
                     origin={origin}
-                    hasFriendRating={friendRestaurantIds.has(place.id)}
-                    hasExpertRating={expertRestaurantIds.has(place.id)}
+                    friendCount={friendCounts.get(place.id) ?? (friendRestaurantIds.has(place.id) ? 1 : 0)}
+                    expertCount={expertCounts.get(place.id) ?? (expertRestaurantIds.has(place.id) ? 1 : 0)}
+                    walkMinCap={selectedWalkMin > 0 ? selectedWalkMin : null}
+                    driveMinCap={selectedDriveMin > 0 ? selectedDriveMin : null}
                   />
                 ))}
               </ul>
@@ -1138,6 +1210,12 @@ export const LocationPage: React.FC = () => {
         onFriendsOnlyChange={setFriendsOnly}
         expertsOnly={expertsOnly}
         onExpertsOnlyChange={setExpertsOnly}
+        canFilterByTravelTime={!!exactHomeOrigin}
+        homeLabel={exactHomeOrigin?.label.split(',')[0].trim() || null}
+        selectedWalkMin={selectedWalkMin}
+        onWalkMinChange={setSelectedWalkMin}
+        selectedDriveMin={selectedDriveMin}
+        onDriveMinChange={setSelectedDriveMin}
       />
     </div>
   );
@@ -1151,8 +1229,16 @@ export const LocationPage: React.FC = () => {
 interface RestaurantRowProps {
   place: ScoredPlace;
   origin: { lat: number; lng: number } | null;
-  hasFriendRating: boolean;
-  hasExpertRating: boolean;
+  /** Number of distinct friends who rated this place. 0 when none. */
+  friendCount: number;
+  /** Number of distinct experts who rated (or recommended) this place. */
+  expertCount: number;
+  /** Walk / drive filter caps in minutes, or null when the filter is off.
+   *  When non-null, rows whose travel time exceeds the cap render nothing.
+   *  While travel times are still resolving, the row renders nothing too
+   *  so a not-yet-loaded time can't slip past the filter. */
+  walkMinCap: number | null;
+  driveMinCap: number | null;
 }
 
 const scoreBg = (rating: number): string => {
@@ -1164,8 +1250,10 @@ const scoreBg = (rating: number): string => {
 const RestaurantRow: React.FC<RestaurantRowProps> = ({
   place,
   origin,
-  hasFriendRating,
-  hasExpertRating,
+  friendCount,
+  expertCount,
+  walkMinCap,
+  driveMinCap,
 }) => {
   const distanceMi = origin
     ? haversineDistanceMi(origin.lat, origin.lng, place.lat, place.lng)
@@ -1181,8 +1269,28 @@ const RestaurantRow: React.FC<RestaurantRowProps> = ({
   const driveLabel = formatTravelTime(driveMin);
   const walkLabel = formatTravelTime(walkMin);
 
+  // When a travel-time filter is active, hide rows that don't fit. While
+  // the times are still loading (null) we also hide so the list can't
+  // optimistically show a row that'll later disappear — which is what
+  // caused the bottom-of-page glitch on earlier iterations.
+  if (walkMinCap != null) {
+    if (walkMin == null) return null;
+    if (walkMin > walkMinCap) return null;
+  }
+  if (driveMinCap != null) {
+    if (driveMin == null) return null;
+    if (driveMin > driveMinCap) return null;
+  }
+
   const priceLabel = priceLevelToString(place.priceLevel);
   const cuisine = inferCuisineLabel(place.types);
+
+  const friendLabel = friendCount > 1
+    ? `${friendCount} friends rated`
+    : 'Friend rated';
+  const expertLabel = expertCount > 1
+    ? `${expertCount} experts rated`
+    : 'Expert pick';
 
   return (
     <li>
@@ -1226,19 +1334,21 @@ const RestaurantRow: React.FC<RestaurantRowProps> = ({
               )}
             </div>
 
-            {/* Friend / expert signal pills — mutually non-exclusive */}
-            {(hasFriendRating || hasExpertRating) && (
+            {/* Friend / expert signal pills — mutually non-exclusive. Counts
+                upgrade the label to "N friends rated" / "N experts rated"
+                so the row visibly weights stronger circle signal. */}
+            {(friendCount > 0 || expertCount > 0) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {hasFriendRating && (
+                {friendCount > 0 && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-wider">
                     <Users size={10} />
-                    Friend rated
+                    {friendLabel}
                   </span>
                 )}
-                {hasExpertRating && (
+                {expertCount > 0 && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary/15 text-secondary text-[10px] font-bold uppercase tracking-wider">
                     <UserCheck size={10} />
-                    Expert pick
+                    {expertLabel}
                   </span>
                 )}
               </div>
@@ -1297,6 +1407,17 @@ interface FilterSheetProps {
   onFriendsOnlyChange: (v: boolean) => void;
   expertsOnly: boolean;
   onExpertsOnlyChange: (v: boolean) => void;
+  /** Walk / drive time filters are only meaningful when the user has a
+   *  routable origin (a precise street address saved as their home).
+   *  When false the sheet hides those sections entirely. */
+  canFilterByTravelTime: boolean;
+  /** First segment of the home label (e.g. "221 Main St") for the
+   *  section blurb. Null when no exact home is set. */
+  homeLabel: string | null;
+  selectedWalkMin: number;
+  onWalkMinChange: (n: number) => void;
+  selectedDriveMin: number;
+  onDriveMinChange: (n: number) => void;
 }
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
@@ -1326,6 +1447,27 @@ const RADIUS_OPTIONS: { value: number; label: string }[] = [
   { value: 25, label: '25 mi' },
 ];
 
+// Walk time caps. 0 = Any. Values tuned for the pedestrian scale —
+// almost no one plans a 60+ minute walk, so we stop there.
+const WALK_MIN_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: 'Any' },
+  { value: 10, label: '10 min' },
+  { value: 20, label: '20 min' },
+  { value: 30, label: '30 min' },
+  { value: 45, label: '45 min' },
+  { value: 60, label: '1 h' },
+];
+
+// Drive time caps. 0 = Any.
+const DRIVE_MIN_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: 'Any' },
+  { value: 10, label: '10 min' },
+  { value: 20, label: '20 min' },
+  { value: 30, label: '30 min' },
+  { value: 45, label: '45 min' },
+  { value: 60, label: '1 h' },
+];
+
 const FilterSheet: React.FC<FilterSheetProps> = ({
   open,
   onClose,
@@ -1341,6 +1483,12 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   onFriendsOnlyChange,
   expertsOnly,
   onExpertsOnlyChange,
+  canFilterByTravelTime,
+  homeLabel,
+  selectedWalkMin,
+  onWalkMinChange,
+  selectedDriveMin,
+  onDriveMinChange,
 }) => {
   const toggleCuisine = (type: string) => {
     onCuisinesChange(
@@ -1356,6 +1504,8 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
     onRadiusChange(0);
     onFriendsOnlyChange(false);
     onExpertsOnlyChange(false);
+    onWalkMinChange(0);
+    onDriveMinChange(0);
   };
 
   return (
@@ -1458,6 +1608,65 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
                   ))}
                 </div>
               </div>
+
+              {/* Walk / drive time caps — hidden entirely when the user's
+                  home isn't a precise address, since there's no routable
+                  origin for Mapbox Directions to measure from. */}
+              {canFilterByTravelTime && (
+                <>
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Footprints size={14} className="text-on-surface/60" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">Walk time</h4>
+                    </div>
+                    <p className="text-[11px] text-on-surface/45 -mt-2 mb-2.5">
+                      From {homeLabel || 'your address'}.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {WALK_MIN_OPTIONS.map((o) => (
+                        <button
+                          key={o.value}
+                          onClick={() => onWalkMinChange(o.value)}
+                          className={cn(
+                            'px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all',
+                            selectedWalkMin === o.value
+                              ? 'border-primary bg-primary/5 text-primary'
+                              : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
+                          )}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Car size={14} className="text-on-surface/60" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">Drive time</h4>
+                    </div>
+                    <p className="text-[11px] text-on-surface/45 -mt-2 mb-2.5">
+                      From {homeLabel || 'your address'}.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {DRIVE_MIN_OPTIONS.map((o) => (
+                        <button
+                          key={o.value}
+                          onClick={() => onDriveMinChange(o.value)}
+                          className={cn(
+                            'px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all',
+                            selectedDriveMin === o.value
+                              ? 'border-primary bg-primary/5 text-primary'
+                              : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
+                          )}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">
