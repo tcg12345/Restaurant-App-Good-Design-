@@ -943,6 +943,8 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     };
 
     const runLiveFetch = async () => {
+      let withCovers: PlaceResult[] = [];
+
       if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
         const queries = buildRecQueries(homeCityOverride);
         // Pull a larger initial pool — five queries weighted across the
@@ -955,8 +957,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         // The personalised queries are cuisine-specific ("best $$ Ramen in
         // Austin, TX"); when the user's top cuisines happen to be niche in
         // the newly-selected city, every one of those queries can come back
-        // empty and the section silently disappears. If that happens, fall
-        // back to generic city queries so there's always something to show.
+        // empty and the section silently disappears. First try generic
+        // city text queries with the same fetchRecBatch (so the quality
+        // filter + scorer still apply).
         if (fresh.length === 0 && homeCityOverride) {
           const fallbackQueries = [
             `best restaurants in ${homeCityOverride}`,
@@ -969,57 +972,54 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         }
         // Stamp cover photos onto the results BEFORE caching so returning
         // users get them straight out of cache on the next visit.
-        const withCovers = await applyCoverPhotos(fresh, uid);
-        const shuffled = shuffleInPlace([...withCovers]);
-        setApiRecommendations(shuffled);
-        setRecsLoading(false);
-        if (uid && locKey && homeLocation && withCovers.length > 0) {
-          const entry: HomeRecCacheEntry = {
-            places: withCovers,
-            preferencesHash: prefsHash,
-            updatedAt: Date.now(),
-          };
-          sessionRecsCache[locKey] = entry;
-          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, withCovers);
-        }
-      } else {
-        // No preferences yet — pull a generic "best / nearby" set. Two calls
-        // instead of the previous two still but no text-city search baked
-        // into the query string.
-        let lat: number;
-        let lng: number;
+        withCovers = await applyCoverPhotos(fresh, uid);
+      }
+
+      // Last-resort fallback. Runs if:
+      //   (a) the user has no preferences yet, OR
+      //   (b) every personalised + generic text query above came back
+      //       empty because the quality floor / radius restriction / niche
+      //       cuisines dropped everything.
+      //
+      // This path uses the Places "searchNearby" endpoint (a different
+      // Google API from text search), which reliably returns popular
+      // restaurants around any lat/lng without needing a well-formed
+      // cuisine/city query. It's the safety net that stops the section
+      // from ever rendering empty for a valid, non-remote location.
+      if (withCovers.length === 0) {
+        let fbLat: number;
+        let fbLng: number;
         if (mode === 'home' && homeLocation) {
-          lat = homeLocation.lat;
-          lng = homeLocation.lng;
+          fbLat = homeLocation.lat;
+          fbLng = homeLocation.lng;
         } else {
           const center = mapRef.current?.getCenter();
-          lat = center?.lat ?? 40.735;
-          lng = center?.lng ?? -73.99;
+          fbLat = center?.lat ?? 40.735;
+          fbLng = center?.lng ?? -73.99;
         }
-        // No-preferences fallback queries. In home mode we pass the chip's
-        // radius to both so results stay inside the picked scope; in browse
-        // mode we keep the old (unbounded) behaviour.
         const fbRadius = mode === 'home' ? recRadiusMiles * 1609.34 : 2000;
         const [nearby, best] = await Promise.all([
-          searchNearbyRestaurants(lat, lng, fbRadius).catch(() => [] as PlaceResult[]),
-          searchPlacesByText('best restaurants', lat, lng, homeLocation?.label, mode === 'home', fbRadius).catch(() => [] as PlaceResult[]),
+          searchNearbyRestaurants(fbLat, fbLng, fbRadius).catch(() => [] as PlaceResult[]),
+          searchPlacesByText('best restaurants', fbLat, fbLng, homeLocation?.label, mode === 'home', fbRadius).catch(() => [] as PlaceResult[]),
         ]);
         const all = [...nearby, ...best];
-        const seen = new Set<string>();
-        const dedup = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+        const seenIds = new Set<string>();
+        const dedup = all.filter((p) => { if (seenIds.has(p.id)) return false; seenIds.add(p.id); return true; });
         const withinRadius = filterByRadius(dedup);
-        const out = await applyCoverPhotos(withinRadius.slice(0, 12), uid);
-        setApiRecommendations(out);
-        setRecsLoading(false);
-        if (uid && locKey && homeLocation && out.length > 0) {
-          const entry: HomeRecCacheEntry = {
-            places: out,
-            preferencesHash: prefsHash,
-            updatedAt: Date.now(),
-          };
-          sessionRecsCache[locKey] = entry;
-          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, out);
-        }
+        withCovers = await applyCoverPhotos(withinRadius.slice(0, 12), uid);
+      }
+
+      const shuffled = shuffleInPlace([...withCovers]);
+      setApiRecommendations(shuffled);
+      setRecsLoading(false);
+      if (uid && locKey && homeLocation && withCovers.length > 0) {
+        const entry: HomeRecCacheEntry = {
+          places: withCovers,
+          preferencesHash: prefsHash,
+          updatedAt: Date.now(),
+        };
+        sessionRecsCache[locKey] = entry;
+        saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, withCovers);
       }
     };
 
