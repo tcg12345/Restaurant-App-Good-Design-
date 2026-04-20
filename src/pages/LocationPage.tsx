@@ -1435,18 +1435,6 @@ const PRICE_LEVELS: { value: number; label: string }[] = [
   { value: 4, label: '$$$$' },
 ];
 
-// Radius options in miles. 0 means "Any" (no distance cap). The non-zero
-// values mirror the Home feed's recommendation radius picker so the
-// user's mental model is consistent across surfaces.
-const RADIUS_OPTIONS: { value: number; label: string }[] = [
-  { value: 0, label: 'Any' },
-  { value: 1, label: '1 mi' },
-  { value: 3, label: '3 mi' },
-  { value: 5, label: '5 mi' },
-  { value: 10, label: '10 mi' },
-  { value: 25, label: '25 mi' },
-];
-
 // Walk time caps. 0 = Any. Values tuned for the pedestrian scale —
 // almost no one plans a 60+ minute walk, so we stop there.
 const WALK_MIN_OPTIONS: { value: number; label: string }[] = [
@@ -1585,27 +1573,30 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
               </div>
 
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">
-                  Distance
-                </h4>
-                <p className="text-[11px] text-on-surface/45 -mt-2 mb-2.5">
-                  From the city centre.
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">
+                    Distance
+                  </h4>
+                  <span className="text-xs font-bold tabular-nums text-primary">
+                    {selectedRadius === 0 ? 'Any' : `Within ${selectedRadius} mi`}
+                  </span>
+                </div>
+                <p className="text-[11px] text-on-surface/45 mb-2.5">
+                  From the city centre. Drag to the far left for no limit.
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  {RADIUS_OPTIONS.map((r) => (
-                    <button
-                      key={r.value}
-                      onClick={() => onRadiusChange(r.value)}
-                      className={cn(
-                        'px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all',
-                        selectedRadius === r.value
-                          ? 'border-primary bg-primary/5 text-primary'
-                          : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                      )}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
+                <input
+                  type="range"
+                  min={0}
+                  max={25}
+                  step={1}
+                  value={selectedRadius}
+                  onChange={(e) => onRadiusChange(Number(e.target.value))}
+                  aria-label="Maximum distance from city centre in miles"
+                  className="accent-primary w-full h-2"
+                />
+                <div className="mt-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-on-surface/40">
+                  <span>Any</span>
+                  <span>25 mi</span>
                 </div>
               </div>
 

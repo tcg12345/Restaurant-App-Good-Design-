@@ -82,50 +82,30 @@ async function applyCoverPhotos(
   }));
 }
 
-// Radius options (miles) for the "Recommended For You" scope picker.
-// Persisted per-user in localStorage so the choice survives reloads.
-const RADIUS_OPTIONS = [1, 3, 5, 10, 25] as const;
-type RadiusMiles = typeof RADIUS_OPTIONS[number];
-const REC_RADIUS_STORAGE_KEY = 'gourmad-rec-radius-miles';
+// Fixed recommendation radius (miles). The user-facing chip picker was
+// removed to keep the home feed's header minimal; /location still owns a
+// slider for users who want tighter or looser geographic scoping. Keeping
+// it as a const — rather than state — means buildQueryQueries /
+// scoreCandidates / cache keys all read a stable value every render.
+const REC_RADIUS_MILES = 8;
 
-const RecRadiusPicker: React.FC<{
-  value: RadiusMiles;
-  onChange: (n: RadiusMiles) => void;
+const RecRefreshButton: React.FC<{
   onRefresh: () => void;
   refreshing: boolean;
-}> = ({ value, onChange, onRefresh, refreshing }) => (
-  <div className="flex items-center gap-2">
-    <div className="flex items-center gap-1 bg-on-surface/[0.04] rounded-full p-0.5" role="radiogroup" aria-label="Search radius">
-      {RADIUS_OPTIONS.map((n) => (
-        <button
-          key={n}
-          type="button"
-          role="radio"
-          aria-checked={value === n}
-          onClick={() => onChange(n)}
-          className={cn(
-            'px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors',
-            value === n ? 'bg-white text-primary shadow-sm' : 'text-on-surface/50 hover:text-on-surface/80',
-          )}
-        >
-          {n} mi
-        </button>
-      ))}
-    </div>
-    <button
-      type="button"
-      onClick={onRefresh}
-      disabled={refreshing}
-      aria-label="Refresh recommendations"
-      title="Refresh recommendations"
-      className={cn(
-        'flex items-center justify-center w-7 h-7 rounded-full bg-on-surface/[0.04] text-on-surface/60 transition-colors',
-        refreshing ? 'cursor-not-allowed opacity-60' : 'hover:bg-on-surface/[0.08] hover:text-on-surface/80',
-      )}
-    >
-      <RefreshCw size={13} className={refreshing ? 'animate-spin' : undefined} />
-    </button>
-  </div>
+}> = ({ onRefresh, refreshing }) => (
+  <button
+    type="button"
+    onClick={onRefresh}
+    disabled={refreshing}
+    aria-label="Refresh recommendations"
+    title="Refresh recommendations"
+    className={cn(
+      'flex items-center justify-center w-7 h-7 rounded-full bg-on-surface/[0.04] text-on-surface/60 transition-colors',
+      refreshing ? 'cursor-not-allowed opacity-60' : 'hover:bg-on-surface/[0.08] hover:text-on-surface/80',
+    )}
+  >
+    <RefreshCw size={13} className={refreshing ? 'animate-spin' : undefined} />
+  </button>
 );
 
 // Max age we'll trust a Supabase cache entry before throwing it out and
@@ -557,18 +537,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
   // Radius scope for the Recommended For You row (miles). Persisted so the
   // user's pick survives reloads and drives both the Google query radius and
-  // the post-score distance penalty in scoreCandidates.
-  const [recRadiusMiles, setRecRadiusMiles] = useState<RadiusMiles>(() => {
-    try {
-      const raw = localStorage.getItem(REC_RADIUS_STORAGE_KEY);
-      const n = raw ? Number(raw) : 5;
-      return (RADIUS_OPTIONS as readonly number[]).includes(n) ? (n as RadiusMiles) : 5;
-    } catch { return 5; }
-  });
-  const updateRecRadius = useCallback((n: RadiusMiles) => {
-    setRecRadiusMiles(n);
-    try { localStorage.setItem(REC_RADIUS_STORAGE_KEY, String(n)); } catch { /* ignore */ }
-  }, []);
+  // the post-score distance penalty in scoreCandidates. Now a constant
+  // after the chip picker was removed; see REC_RADIUS_MILES above.
+  const recRadiusMiles = REC_RADIUS_MILES;
 
   // Manual refresh for the Recommended For You row. Drops every cache layer
   // for the current location (session + Supabase) so the next fetch goes
@@ -3333,7 +3304,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       <Sparkles size={15} className="text-primary/60" />
                       <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                     </div>
-                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
+                    {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                   </div>
                   <div className="flex items-center justify-center py-8">
                     <Loader2 size={20} className="text-primary/40 animate-spin" />
@@ -3347,7 +3318,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       <Sparkles size={15} className="text-primary/60" />
                       <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                     </div>
-                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
+                    {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                   </div>
                   <div
                     className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
@@ -3434,7 +3405,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       <Sparkles size={15} className="text-primary/60" />
                       <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                     </div>
-                    <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />
+                    <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
                   </div>
                   <div className="flex flex-col items-center justify-center py-8 text-center">
                     <p className="text-sm text-on-surface/50 font-medium">No recommendations in this area yet</p>
@@ -4011,7 +3982,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
+                        {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div className="flex items-center justify-center py-6">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
@@ -4025,7 +3996,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
+                        {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div
                         className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
