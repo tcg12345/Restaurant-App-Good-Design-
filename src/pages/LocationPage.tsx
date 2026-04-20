@@ -379,7 +379,12 @@ export const LocationPage: React.FC = () => {
         getExpertProfiles().catch(() => []),
         userId ? getFollowedExpertIds(userId).catch(() => new Set<string>()) : Promise.resolve(new Set<string>()),
         userId ? getAllFriendRatings(userId).catch(() => [] as CommunityRating[]) : Promise.resolve([] as CommunityRating[]),
-        getExpertRatings(200).catch(() => [] as CommunityRating[]),
+        // Fetch a generous slice of expert ratings so the "Experts only"
+        // filter on /location has enough rows to pull from when the user
+        // scrolls through a big city like NYC. 500 is well inside the
+        // expert_ratings table's realistic size and lets the city-radius
+        // filter below still yield double-digit matches.
+        getExpertRatings(500).catch(() => [] as CommunityRating[]),
         (async () => {
           if (!supabaseConfigured) return [] as { restaurant_id: string }[];
           try {
@@ -669,24 +674,91 @@ export const LocationPage: React.FC = () => {
     setLoadingMore(false);
   }, [loadingMore, exhausted, initialLoading, fetchBatch]);
 
-  // Re-score the full pool whenever it changes. The recommendation engine
-  // handles cuisine/price/pair/tag/friend/expert weighting, so this page just
-  // feeds in the profile + signals we've already gathered. `skipUserHistory`
-  // is off because the spec wants every restaurant in the city visible, not
-  // only ones the user hasn't touched before.
+  // When the user turns on "Friends only" or "Experts only", we augment
+  // the Google-fetched pool with restaurants the circle has rated. Google's
+  // text search can miss places that are popular within a small trusted
+  // group but don't rank broadly ("my friend's favorite sushi counter"),
+  // so without this step those filters would only show the overlap that
+  // happened to land in the Google response.
+  //
+  // Community rows already live in `signals.communityByRestaurant` (loaded
+  // on mount), so this is a synchronous pool top-up — no extra network.
+  // We skip rows outside the city radius and rows that are already in the
+  // Google pool.
+  //
+  // CUISINE_LABEL_TO_TYPE lets a community row's free-text cuisine
+  // ("Italian") feed into the same Google-type path the row renderer uses,
+  // so pseudo-places get a cuisine badge instead of falling back to plain
+  // "Restaurant".
+  const CUISINE_LABEL_TO_TYPE = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const entry of CUISINE_TYPES) {
+      if (entry.type) out[entry.label.toLowerCase()] = entry.type;
+    }
+    return out;
+  }, []);
+
+  const augmentedPool: PlaceResult[] = useMemo(() => {
+    if (!friendsOnly && !expertsOnly) return placesPool;
+    if (!hasCoords) return placesPool;
+    const existing = new Set(placesPool.map((p) => p.id));
+    const radiusKm = radiusMeters / 1000;
+    const extras: PlaceResult[] = [];
+    for (const [id, rows] of signals.communityByRestaurant) {
+      if (existing.has(id)) continue;
+      const isFriendHit = friendsOnly && friendRestaurantIds.has(id);
+      const isExpertHit = expertsOnly && expertRestaurantIds.has(id);
+      if (!isFriendHit && !isExpertHit) continue;
+      const row = rows[0];
+      if (!row || row.lat == null || row.lng == null) continue;
+      // Keep the radius tolerance aligned with fetchBatch's 1.2× cushion
+      // so an augmented pseudo-place doesn't get filtered out later by
+      // the same distance check.
+      if (
+        haversineKm({ lat: row.lat, lng: row.lng }, { lat, lng }) > radiusKm * 1.2
+      ) continue;
+      const cuisineType = row.cuisine
+        ? CUISINE_LABEL_TO_TYPE[row.cuisine.toLowerCase()]
+        : undefined;
+      extras.push({
+        id,
+        name: row.restaurant_name,
+        lat: row.lat,
+        lng: row.lng,
+        rating: 0,
+        priceLevel: row.price?.length ?? 0,
+        address: row.address,
+        fullAddress: row.address,
+        photoUrl: null,
+        types: cuisineType ? [cuisineType] : [],
+        userRatingCount: 0,
+      });
+    }
+    if (extras.length === 0) return placesPool;
+    return [...placesPool, ...extras];
+  }, [
+    placesPool, friendsOnly, expertsOnly, signals, friendRestaurantIds,
+    expertRestaurantIds, hasCoords, lat, lng, radiusMeters, CUISINE_LABEL_TO_TYPE,
+  ]);
+
+  // Re-score the augmented pool whenever it changes. The recommendation
+  // engine handles cuisine/price/pair/tag/friend/expert weighting, so this
+  // page just feeds in the profile + signals we've already gathered.
+  // `skipUserHistory` is off because the spec wants every restaurant in the
+  // city visible, not only ones the user hasn't touched before.
   const ranked: ScoredPlace[] = useMemo(() => {
-    if (placesPool.length === 0) return [];
-    if (!hasCoords) return placesPool.map((p) => ({ ...p, recScore: 0, sources: ['google'] as ScoredPlace['sources'] }));
+    if (augmentedPool.length === 0) return [];
+    if (!hasCoords) return augmentedPool.map((p) => ({ ...p, recScore: 0, sources: ['google'] as ScoredPlace['sources'] }));
     const target = { label: cityDisplay, lat, lng };
     return scoreCandidates(
-      placesPool,
+      augmentedPool,
       profile,
       signals,
       target,
       radiusMeters,
       { limit: Infinity, skipUserHistory: false },
     );
-  }, [placesPool, profile, signals, cityDisplay, lat, lng, hasCoords, radiusMeters]);
+  }, [augmentedPool, profile, signals, cityDisplay, lat, lng, hasCoords, radiusMeters]);
 
   // Apply the in-page filters + sort to the already-ranked list. Filters
   // never trigger a refetch — they shrink what's shown from the pool we
