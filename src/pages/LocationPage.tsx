@@ -52,10 +52,16 @@ import {
   type HomeLocation,
 } from '../components/HomeLocationBar';
 
-/* ── Placeholder guides (non-functional) ─────────────────────────────────────
-   Same visual language as the Home page's horizontal guide scroller. Content
-   is static until the guide feature is wired up for real.
-   ──────────────────────────────────────────────────────────────────────── */
+/* ── Placeholder guides ──────────────────────────────────────────────────────
+   Same visual language as the Home page's horizontal guide scroller. Titles
+   are templated with the selected city so the row doesn't read like
+   someone else's trip — "A Pasta Crawl Through Westport" feels local even
+   while the guide feature itself is still static content. Photos are
+   generic enough to work anywhere.
+
+   `{city}` is replaced with the short city name (e.g. "Westport",
+   "New York") and `{CITY}` with its uppercase form for headlines.
+   ──────────────────────────────────────────────────────────────────── */
 type Guide = {
   id: string;
   title: string;
@@ -64,43 +70,57 @@ type Guide = {
   count: number;
 };
 
-const PLACEHOLDER_GUIDES: Guide[] = [
+const GUIDE_TEMPLATES: Array<{
+  id: string;
+  titleTemplate: string;
+  author: string;
+  image: string;
+  count: number;
+}> = [
   {
     id: 'g-local-pasta',
-    title: 'A Pasta Crawl Through the City',
+    titleTemplate: 'A Pasta Crawl Through {city}',
     author: 'Jamie Lin',
     image: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&q=80&w=800',
     count: 9,
   },
   {
     id: 'g-local-date-night',
-    title: 'Where the Locals Take a Date',
+    titleTemplate: 'Where {city} Locals Take a Date',
     author: 'Camille Durand',
     image: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=800',
     count: 12,
   },
   {
     id: 'g-local-hidden-gems',
-    title: 'Hidden Gems Worth the Detour',
+    titleTemplate: 'Hidden Gems in {city}',
     author: 'Marco Rossi',
     image: 'https://images.unsplash.com/photo-1526318896980-cf78c088247c?auto=format&fit=crop&q=80&w=800',
     count: 8,
   },
   {
     id: 'g-local-brunch',
-    title: 'A Proper Brunch Itinerary',
+    titleTemplate: 'A Proper Brunch Itinerary in {city}',
     author: 'Aiko Tanaka',
     image: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&q=80&w=800',
     count: 7,
   },
   {
     id: 'g-local-fine-dining',
-    title: 'Tasting-Menu Temples',
+    titleTemplate: 'Tasting-Menu Temples Near {city}',
     author: 'Diego Ramirez',
     image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800',
     count: 10,
   },
 ];
+
+function buildLocationGuides(shortCity: string): Guide[] {
+  const city = shortCity.trim() || 'your area';
+  return GUIDE_TEMPLATES.map(({ titleTemplate, ...rest }) => ({
+    ...rest,
+    title: titleTemplate.replace(/\{city\}/g, city),
+  }));
+}
 
 /* ── City-key helper ─────────────────────────────────────────────────────────
    The URL label may be a plain city ("Los Angeles, CA") or a street address
@@ -384,6 +404,21 @@ export const LocationPage: React.FC = () => {
     if (/^\s*\d/.test(parts[0]) && parts.length > 1) return parts.slice(1).join(', ');
     return label;
   }, [label]);
+
+  // Short city name for guide card titles. "Westport, CT" → "Westport",
+  // "New York, NY" → "New York". Falls back to the display value if
+  // there's no comma. Kept separate from cityKey because cityKey is
+  // lowercased / used for cache identifiers, and we want the original
+  // casing in user-facing copy.
+  const shortCityName = useMemo(() => {
+    const first = cityDisplay.split(',')[0]?.trim();
+    return first || cityDisplay;
+  }, [cityDisplay]);
+
+  const locationGuides = useMemo(
+    () => buildLocationGuides(shortCityName),
+    [shortCityName],
+  );
 
   // User's taste profile, reused to score every batch we fetch. `recentViews`
   // isn't available here (it lives in Map.tsx state), which is fine: it only
@@ -1052,7 +1087,7 @@ export const LocationPage: React.FC = () => {
           </div>
         </div>
         <div className="flex gap-2.5 overflow-x-auto pb-2 px-4 scrollbar-hide snap-x snap-mandatory">
-          {PLACEHOLDER_GUIDES.map((g) => (
+          {locationGuides.map((g) => (
             <button
               key={g.id}
               type="button"

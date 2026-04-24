@@ -52,14 +52,22 @@ const PRICE_LEVEL_STRINGS: Record<number, string> = {
   4: 'PRICE_LEVEL_VERY_EXPENSIVE',
 };
 
-function photoUrl(_photoName: string | undefined): string | null {
-  // Photos are intentionally disabled — requesting photo URLs from the Google
-  // Places media endpoint is a separate (and expensive) billed call, so every
-  // surface now shows user-uploaded photos only, with a "No photos added yet"
-  // placeholder otherwise. This helper always returns null so existing call
-  // sites keep working without changes.
-  return null;
-}
+/* Google Places Photos media calls are DISABLED app-wide.
+ *
+ * Every fetch from https://places.googleapis.com/v1/places/{id}/photos/{name}/media
+ * is a separately-billed Places API call — one per rendered image. The app
+ * surfaces user-uploaded photos (stored in Supabase `community_photos`)
+ * instead, with a "No photos added yet" placeholder when none exist.
+ *
+ * To keep this property from regressing:
+ *   - No FieldMask in this file requests `places.photos` (search) or
+ *     `photos` (details). Confirm by grepping the FIELDS / DETAIL_FIELDS
+ *     constants.
+ *   - The `GooglePlace` shape below deliberately has NO `photos` field,
+ *     so any attempt to read `p.photos` anywhere becomes a TS error.
+ *   - `photoUrl` on the mapped result is hard-coded to `null`. Call sites
+ *     that want a cover image resolve it from Supabase community_photos.
+ */
 
 interface GooglePlace {
   id?: string;
@@ -70,7 +78,6 @@ interface GooglePlace {
   priceLevel?: string | number;
   shortFormattedAddress?: string;
   formattedAddress?: string;
-  photos?: { name: string }[];
   types?: string[];
   userRatingCount?: number;
 }
@@ -85,7 +92,8 @@ function mapPlaces(places: GooglePlace[]): PlaceResult[] {
     priceLevel: parsePriceLevel(p.priceLevel),
     address: p.shortFormattedAddress || p.formattedAddress || '',
     fullAddress: p.formattedAddress || p.shortFormattedAddress || '',
-    photoUrl: photoUrl(p.photos?.[0]?.name),
+    // See block comment above: Places Photos media is never requested.
+    photoUrl: null,
     types: p.types || [],
     userRatingCount: p.userRatingCount ?? 0,
   }));
