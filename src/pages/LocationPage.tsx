@@ -144,11 +144,18 @@ function inferCuisineLabel(types: string[]): string {
 /* ── Query rotation ──────────────────────────────────────────────────────────
    Google Places' text search caps at ~20 hits per call, so "infinite scroll"
    is really a rotation through a widening set of queries until we've drained
-   every reasonable angle on the city. We seed a generic set and blend in the
-   user's top cuisines so the pool slants toward things they're likely to
-   enjoy while still covering the city broadly.
+   every reasonable angle on the area. We mix three flavours:
+
+     - CITY_SEEDS ("best restaurants in {city}") lift Westport-labelled
+       places to the top when Westport is the selected location.
+     - AREA_SEEDS ("best restaurants near me") — identical phrasing without
+       the city token, so Google's rankers use ONLY the bbox restriction
+       to pick results. That's what lets nearby-town places (Norwalk,
+       Fairfield, Weston) surface alongside Westport's own listings.
+     - Cuisine variants per the user's taste profile, in both city-biased
+       and area-only forms.
    ──────────────────────────────────────────────────────────────────────── */
-const GENERIC_SEEDS: string[] = [
+const CITY_SEEDS: string[] = [
   'best restaurants in {city}',
   'popular restaurants in {city}',
   'top rated restaurants in {city}',
@@ -165,27 +172,56 @@ const GENERIC_SEEDS: string[] = [
   'date night restaurants in {city}',
 ];
 
+const AREA_SEEDS: string[] = [
+  'best restaurants',
+  'popular restaurants',
+  'top rated restaurants',
+  'highly rated restaurants',
+  'fine dining',
+  'hidden gem restaurants',
+  'brunch restaurants',
+  'takeout restaurants',
+  'family restaurants',
+  'upscale restaurants',
+];
+
 function buildQueryPool(cityKey: string, topCuisines: string[]): string[] {
-  const city = cityKey || 'the area';
+  const city = cityKey || '';
   const out: string[] = [];
   const seen = new Set<string>();
   const push = (q: string) => {
-    const key = q.toLowerCase();
-    if (seen.has(key)) return;
+    const key = q.toLowerCase().trim();
+    if (!key || seen.has(key)) return;
     seen.add(key);
     out.push(q);
   };
-  // Interleave personalised cuisine picks with generic seeds so the very first
-  // batch already leans toward the user's taste.
-  const cuisineQueries = topCuisines.flatMap((c) => [
-    `best ${c} restaurants in ${city}`,
-    `top rated ${c} restaurants in ${city}`,
+  // Interleave personalised cuisine picks (both city-biased and area-only),
+  // city-seeded generics, and area-seeded generics. The three flavours
+  // surface different slices of the same bbox so dedup has a lot less
+  // overlap to chew through — more unique places reach the list per page.
+  const cityCuisine = city
+    ? topCuisines.flatMap((c) => [
+        `best ${c} restaurants in ${city}`,
+        `top rated ${c} restaurants in ${city}`,
+      ])
+    : [];
+  const areaCuisine = topCuisines.flatMap((c) => [
+    `best ${c} restaurants`,
+    `${c} restaurants`,
   ]);
-  const generic = GENERIC_SEEDS.map((s) => s.replace('{city}', city));
-  const longest = Math.max(cuisineQueries.length, generic.length);
+  const citySeeds = city ? CITY_SEEDS.map((s) => s.replace('{city}', city)) : [];
+  const areaSeeds = AREA_SEEDS;
+  const longest = Math.max(
+    cityCuisine.length,
+    areaCuisine.length,
+    citySeeds.length,
+    areaSeeds.length,
+  );
   for (let i = 0; i < longest; i++) {
-    if (cuisineQueries[i]) push(cuisineQueries[i]);
-    if (generic[i]) push(generic[i]);
+    if (cityCuisine[i]) push(cityCuisine[i]);
+    if (areaCuisine[i]) push(areaCuisine[i]);
+    if (citySeeds[i]) push(citySeeds[i]);
+    if (areaSeeds[i]) push(areaSeeds[i]);
   }
   return out;
 }
@@ -551,11 +587,14 @@ export const LocationPage: React.FC = () => {
     [savedHome],
   );
 
-  // ~12.5 mi — tuned for sprawling cities (LA, Houston) where a tight
-  // radius would drop popular picks in adjacent municipalities. Smaller
-  // cities still work because Google's text-search already biases toward
-  // the query city; the radius is just a safety cutoff.
-  const radiusMeters = 20000;
+  // 8 mi default fetch radius — tuned to match what "nearby" feels like
+  // from the selected location. Using a looser 20 km bbox had results
+  // leaking in from corners as much as 15 mi out, which users on a small
+  // town like Westport reported as "very far away". The rectangle we
+  // send to Google still circumscribes this circle, but the post-filter
+  // below clamps back to a strict 8-mile circle so corner leakage can't
+  // surface.
+  const radiusMeters = 12875; // ≈ 8 mi
   const currentCuisinesKey = useMemo(
     () => cuisinesKeyOf(profile.topCuisines),
     [profile.topCuisines],
@@ -611,8 +650,12 @@ export const LocationPage: React.FC = () => {
         const p = list[i];
         if (!p) continue;
         if (seenIdsRef.current.has(p.id)) continue;
+        // Strict circular post-filter. Google's rectangle wraps the
+        // circle, so a place in a bbox corner can sit up to √2 × radius
+        // from the centre — about 11 mi when radius is 8 mi. Without
+        // this cutoff those corner results felt "very far away".
         if (
-          haversineKm({ lat: p.lat, lng: p.lng }, { lat, lng }) > radiusKm * 1.2
+          haversineKm({ lat: p.lat, lng: p.lng }, { lat, lng }) > radiusKm
         ) continue;
         seenIdsRef.current.add(p.id);
         fresh.push(p);
@@ -736,12 +779,29 @@ export const LocationPage: React.FC = () => {
     // appending nothing. Skip the fetch and let the list end naturally.
     if (friendsOnly || expertsOnly) return;
     setLoadingMore(true);
-    const fresh = await fetchBatch(LOAD_MORE_BATCH_SIZE);
-    setPlacesPool((prev) => {
-      const merged = [...prev];
-      for (const p of fresh) merged.push(p);
-      return merged;
-    });
+    // Keep paging up to a few times per scroll event until we actually
+    // add new unique places. Without this, a batch that happens to
+    // return only duplicates (very common once a few queries overlap)
+    // leaves the user at the bottom with nothing new to look at — and
+    // the IntersectionObserver won't re-fire unless they scroll more.
+    // Bounded at 3 attempts so a genuinely-exhausted pool doesn't
+    // burn API calls in a tight loop.
+    let collected: PlaceResult[] = [];
+    for (let attempts = 0; attempts < 3 && collected.length === 0; attempts++) {
+      const fresh = await fetchBatch(LOAD_MORE_BATCH_SIZE);
+      if (fresh.length > 0) {
+        collected = fresh;
+        break;
+      }
+      if (cursorsRef.current.every((c) => c.drained)) break;
+    }
+    if (collected.length > 0) {
+      setPlacesPool((prev) => {
+        const merged = [...prev];
+        for (const p of collected) merged.push(p);
+        return merged;
+      });
+    }
     setLoadingMore(false);
   }, [loadingMore, exhausted, initialLoading, fetchBatch, friendsOnly, expertsOnly]);
 
@@ -782,11 +842,10 @@ export const LocationPage: React.FC = () => {
       if (!isFriendHit && !isExpertHit) continue;
       const row = rows[0];
       if (!row || row.lat == null || row.lng == null) continue;
-      // Keep the radius tolerance aligned with fetchBatch's 1.2× cushion
-      // so an augmented pseudo-place doesn't get filtered out later by
-      // the same distance check.
+      // Same strict circular cutoff fetchBatch uses so augmented
+      // pseudo-places can't leak past the radius.
       if (
-        haversineKm({ lat: row.lat, lng: row.lng }, { lat, lng }) > radiusKm * 1.2
+        haversineKm({ lat: row.lat, lng: row.lng }, { lat, lng }) > radiusKm
       ) continue;
       const cuisineType = row.cuisine
         ? CUISINE_LABEL_TO_TYPE[row.cuisine.toLowerCase()]
