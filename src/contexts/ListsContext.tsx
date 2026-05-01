@@ -3,6 +3,7 @@ import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
+import { safeImage } from '../lib/utils';
 
 /* ── Types ── */
 
@@ -369,11 +370,25 @@ function migrateLists(lists: CustomList[]): CustomList[] {
   }));
 }
 
-// Migration: add listIds, photos to ratings that don't have them
+// Strips stale Google Places photo URLs cached on RestaurantMeta entries
+// before photo fetching was disabled — see migrateRatings comment.
+function migrateMeta(meta: Record<string, RestaurantMeta> | null | undefined): Record<string, RestaurantMeta> {
+  if (!meta || typeof meta !== 'object') return {};
+  const out: Record<string, RestaurantMeta> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (v && typeof v === 'object') out[k] = { ...v, image: safeImage(v.image) };
+  }
+  return out;
+}
+
+// Migration: add listIds, photos to ratings that don't have them. Also strips
+// stale Google Places photo URLs cached before photo fetching was disabled —
+// rendering them would trigger a billed Google API call per image.
 function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
   if (!Array.isArray(ratings)) return [];
   return ratings.map((r) => ({
     ...r,
+    image: safeImage(r.image),
     listIds: r.listIds ?? [],
     friendIds: r.friendIds ?? [],
     photos: (r.photos ?? []).map((p: PhotoItem | string) =>
@@ -382,11 +397,13 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
   }));
 }
 
-// Migration: add notes, listIds to wishlist items that don't have them
+// Migration: add notes, listIds to wishlist items that don't have them. Also
+// strips stale Google Places photo URLs (see migrateRatings above).
 function migrateWishlist(items: WishlistItem[]): WishlistItem[] {
   if (!Array.isArray(items)) return [];
   return items.map((w) => ({
     ...w,
+    image: safeImage(w.image),
     notes: w.notes ?? '',
     listIds: w.listIds ?? [],
   }));
@@ -401,7 +418,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [ratings, setRatings] = useState<RestaurantRating[]>(() => migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, [])));
   const [lists, setLists] = useState<CustomList[]>(() => migrateLists(loadFromStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS)));
   const [wishlist, setWishlist] = useState<WishlistItem[]>(() => migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, [])));
-  const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
+  const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => migrateMeta(loadFromStorage(STORAGE_KEY_META, {})));
   const [trips, setTrips] = useState<Trip[]>(() => loadFromStorage(STORAGE_KEY_TRIPS, []));
   const [customOrder, setCustomOrderState] = useState<string[]>(() => loadFromStorage(STORAGE_KEY_CUSTOM_ORDER, []));
   const [homeMeals, setHomeMeals] = useState<HomeMeal[]>(() => loadFromStorage(STORAGE_KEY_HOME_MEALS, []));
@@ -532,7 +549,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setRatings(cloudRatings);
         setLists(listsChanged ? reconciledLists : cloudLists);
         setWishlist(cloudWishlist);
-        setRestaurantMeta(cloudMeta);
+        setRestaurantMeta(migrateMeta(cloudMeta));
         setTrips(cloudTrips as Trip[]);
         setCustomOrderState(cloudCustomOrder);
         setHomeMeals(cloudHomeMeals);
@@ -574,7 +591,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const localRatings = migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, []));
         const localLists = migrateLists(loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS));
         const localWishlist = migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, []));
-        const localMeta = loadFromStorage<Record<string, any>>(STORAGE_KEY_META, {});
+        const localMeta = migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {}));
         const localTrips = loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []);
         const localHomeMeals = loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, []);
 
@@ -867,8 +884,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Restaurant metadata cache
   const cacheRestaurantMeta = useCallback((meta: RestaurantMeta) => {
+    // Defensively strip any Google Places photo URL so we never persist a
+    // URL whose render would trigger a billed Google API call.
+    const cleaned: RestaurantMeta = { ...meta, image: safeImage(meta.image) };
     setRestaurantMeta((prev) => {
-      const next = { ...prev, [meta.id]: meta };
+      const next = { ...prev, [cleaned.id]: cleaned };
       saveToStorage(STORAGE_KEY_META, next);
       syncMetaToCloud(next);
       return next;
