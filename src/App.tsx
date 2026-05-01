@@ -28,6 +28,7 @@ import { AddRecipeModal } from './components/AddRecipeModal';
 import { AddHomeMealModal } from './components/AddHomeMealModal';
 import { RecipeModal } from './components/RecipeModal';
 import { RecipeDetail } from './pages/RecipeDetail';
+import { RecipesLibrary } from './pages/RecipesLibrary';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
@@ -145,6 +146,7 @@ const AppContent: React.FC = () => {
                 <Route path="/onboarding" element={<Onboarding />} />
                 <Route path="/import" element={<ImportRestaurants />} />
                 <Route path="/reorder" element={<ReorderRatings />} />
+                <Route path="/recipes" element={<RecipesLibrary />} />
                 <Route path="/recipe/:id" element={<RecipeDetail />} />
                 <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
                 <Route path="/user/:username" element={<UserProfile />} />

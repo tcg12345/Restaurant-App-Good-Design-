@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, FileUp, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, FileUp, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRecipes } from '../contexts/RecipesContext';
+import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { supabase, supabaseConfigured } from '../lib/supabase';
@@ -276,7 +278,9 @@ interface Props {
 export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
   const { user } = useAuth();
   const { refreshMyRecipes } = useRecipes();
+  const { closeHomeMealModal } = useLists();
   const { phoneMode } = useSettings();
+  const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [parsed, setParsed] = useState<ParsedRecipe[]>([]);
@@ -676,7 +680,20 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                         Stop
                       </button>
                     )}
-                    {isDone && (
+                    {isDone && stats.created > 0 && (
+                      <button
+                        onClick={() => {
+                          reset();
+                          onClose();
+                          closeHomeMealModal();
+                          navigate('/recipes');
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-xl font-medium"
+                      >
+                        <BookOpen size={16} /> View My Recipes
+                      </button>
+                    )}
+                    {isDone && stats.created === 0 && (
                       <button
                         onClick={handleClose}
                         className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-xl font-medium"
