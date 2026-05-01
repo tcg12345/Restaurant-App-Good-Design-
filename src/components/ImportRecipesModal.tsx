@@ -18,8 +18,11 @@ interface ParsedRecipe {
   difficulty: 'easy' | 'medium' | 'hard';
   cuisine: string;
   tags: string[];
-  photos: string[];
+  photos: string[];        // first entry is treated as the cover photo
   isPublic: boolean;
+  rating: number | null;   // 0–10; written to recipe_reviews on import
+  reviewNotes: string;
+  reviewPhoto: string;
 }
 
 interface ImportItem {
@@ -34,6 +37,15 @@ const toInt = (v: unknown): number | null => {
   if (v == null || v === '') return null;
   const n = parseInt(String(v).replace(/[^\d-]/g, ''), 10);
   return Number.isFinite(n) ? n : null;
+};
+
+// Parse a 0–10 rating. Returns null when the cell is blank or unparseable so
+// importers can leave the column empty and just skip review creation.
+const toRating = (v: unknown): number | null => {
+  if (v == null || v === '') return null;
+  const n = parseFloat(String(v).replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(10, n));
 };
 
 const toDifficulty = (v: unknown): 'easy' | 'medium' | 'hard' => {
@@ -147,8 +159,13 @@ const parseCSV = (text: string): ParsedRecipe[] => {
   const diffIdx = idx('difficulty');
   const cuisineIdx = idx('cuisine');
   const tagsIdx = idx('tag');
-  const photosIdx = idx('photo', 'image');
+  // photos col matches before the more specific cover_photo, so we find cover first.
+  const coverIdx = idx('cover_photo', 'cover', 'thumbnail');
+  const photosIdx = headers.findIndex((h) => (h.includes('photo') || h.includes('image')) && !h.includes('cover') && !h.includes('thumb') && !h.includes('review'));
   const publicIdx = idx('public', 'visibility');
+  const ratingIdx = idx('rating', 'score');
+  const reviewNotesIdx = headers.findIndex((h) => h.includes('review_note') || h === 'review' || h.includes('review_text'));
+  const reviewPhotoIdx = headers.findIndex((h) => h.includes('review_photo') || h.includes('review_image'));
 
   return lines.slice(1).map((line) => {
     const f = splitCsvLine(line);
@@ -156,6 +173,9 @@ const parseCSV = (text: string): ParsedRecipe[] => {
 
     const ingredients = ingIdx >= 0 ? splitMulti(get(ingIdx)).map((s) => parseIngredientLine(s)) : [];
     const stepsArr = stepIdx >= 0 ? splitMulti(get(stepIdx)).map((s, i) => ({ order: i + 1, text: s })) : [];
+    const cover = get(coverIdx).trim();
+    const otherPhotos = splitMulti(get(photosIdx));
+    const photos = cover ? [cover, ...otherPhotos.filter((p) => p !== cover)] : otherPhotos;
 
     return {
       title: get(titleIdx),
@@ -168,8 +188,11 @@ const parseCSV = (text: string): ParsedRecipe[] => {
       difficulty: toDifficulty(get(diffIdx)),
       cuisine: get(cuisineIdx),
       tags: splitMulti(get(tagsIdx)),
-      photos: splitMulti(get(photosIdx)),
+      photos,
       isPublic: toBool(get(publicIdx)),
+      rating: toRating(get(ratingIdx)),
+      reviewNotes: get(reviewNotesIdx),
+      reviewPhoto: get(reviewPhotoIdx).trim(),
     } as ParsedRecipe;
   }).filter((r) => r.title);
 };
@@ -195,6 +218,16 @@ const parseJSON = (text: string): ParsedRecipe[] => {
         const stepRaw = r.steps ?? r.instructions ?? r.directions ?? [];
         const photosRaw = r.photos ?? r.images ?? r.photo ?? r.image ?? [];
         const tagsRaw = r.tags ?? [];
+        const cover = String(r.coverPhoto ?? r.cover_photo ?? r.cover ?? r.thumbnail ?? '').trim();
+
+        const photoList: string[] = Array.isArray(photosRaw)
+          ? photosRaw.map((p) => String(p)).filter(Boolean)
+          : typeof photosRaw === 'string'
+          ? splitMulti(photosRaw)
+          : [];
+        const photos = cover
+          ? [cover, ...photoList.filter((p) => p !== cover)]
+          : photoList;
 
         return {
           title,
@@ -219,12 +252,11 @@ const parseJSON = (text: string): ParsedRecipe[] => {
             : typeof tagsRaw === 'string'
             ? splitMulti(tagsRaw)
             : [],
-          photos: Array.isArray(photosRaw)
-            ? photosRaw.map((p) => String(p)).filter(Boolean)
-            : typeof photosRaw === 'string'
-            ? splitMulti(photosRaw)
-            : [],
+          photos,
           isPublic: toBool(r.isPublic ?? r.is_public ?? r.public),
+          rating: toRating(r.rating ?? r.score),
+          reviewNotes: String(r.reviewNotes ?? r.review_notes ?? r.review ?? ''),
+          reviewPhoto: String(r.reviewPhoto ?? r.review_photo ?? r.review_image ?? '').trim(),
         } as ParsedRecipe;
       })
       .filter((r) => r.title);
@@ -242,7 +274,7 @@ interface Props {
 
 export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
   const { user } = useAuth();
-  const { createRecipe } = useRecipes();
+  const { createRecipe, upsertReview } = useRecipes();
   const { phoneMode } = useSettings();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -338,6 +370,16 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
           linkedRestaurantId: null,
           linkedMealId: null,
         });
+
+        // Persist a review row when the user supplied a rating. The recipe
+        // itself has no rating column — ratings live on recipe_reviews.
+        if (created && r.rating !== null) {
+          await upsertReview(created.id, {
+            rating: r.rating,
+            notes: r.reviewNotes,
+            photo: r.reviewPhoto,
+          });
+        }
 
         setItems((prev) => {
           const next = [...prev];
@@ -455,33 +497,41 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
 
                     {showFormat && (
                       <div className="px-4 pb-4 space-y-4">
-                        <div className="space-y-1">
+                        <p className="text-[11px] text-on-surface/55 leading-relaxed">
+                          Only <span className="font-mono">title</span> is required — every other field can
+                          be left blank or omitted entirely.
+                        </p>
+
+                        <div className="space-y-1.5">
                           <p className="text-xs font-semibold text-on-surface/70">Recognized fields</p>
-                          <p className="text-[11px] text-on-surface/55 leading-relaxed">
-                            <span className="font-mono">title</span> (required),{' '}
-                            <span className="font-mono">description</span>,{' '}
-                            <span className="font-mono">ingredients</span>,{' '}
-                            <span className="font-mono">steps</span>,{' '}
-                            <span className="font-mono">prep_time</span> (min),{' '}
-                            <span className="font-mono">cook_time</span> (min),{' '}
-                            <span className="font-mono">servings</span>,{' '}
-                            <span className="font-mono">difficulty</span> (easy/medium/hard),{' '}
-                            <span className="font-mono">cuisine</span>,{' '}
-                            <span className="font-mono">tags</span>,{' '}
-                            <span className="font-mono">photos</span> (URLs),{' '}
-                            <span className="font-mono">is_public</span>.
-                          </p>
+                          <ul className="text-[11px] text-on-surface/55 leading-[1.7] space-y-0.5">
+                            <li><span className="font-mono">title</span> — required</li>
+                            <li><span className="font-mono">description</span> — short summary</li>
+                            <li><span className="font-mono">ingredients</span> — e.g. <span className="font-mono">"2 cups flour | 1 tsp salt"</span></li>
+                            <li><span className="font-mono">steps</span> — e.g. <span className="font-mono">"Mix dry | Add wet | Bake"</span></li>
+                            <li><span className="font-mono">prep_time</span>, <span className="font-mono">cook_time</span> — minutes (number)</li>
+                            <li><span className="font-mono">servings</span> — number of servings</li>
+                            <li><span className="font-mono">difficulty</span> — <span className="font-mono">easy</span> / <span className="font-mono">medium</span> / <span className="font-mono">hard</span></li>
+                            <li><span className="font-mono">cuisine</span> — e.g. Italian, Thai</li>
+                            <li><span className="font-mono">tags</span> — comma- or pipe-separated</li>
+                            <li><span className="font-mono">cover_photo</span> — URL of the main image</li>
+                            <li><span className="font-mono">photos</span> — additional image URLs</li>
+                            <li><span className="font-mono">rating</span> — 0–10 (saved as your review)</li>
+                            <li><span className="font-mono">review_notes</span>, <span className="font-mono">review_photo</span> — optional review</li>
+                            <li><span className="font-mono">is_public</span> — <span className="font-mono">true</span> / <span className="font-mono">false</span></li>
+                          </ul>
                         </div>
 
                         <div>
                           <p className="text-xs font-semibold text-on-surface/70 mb-1">CSV</p>
                           <p className="text-[11px] text-on-surface/50 mb-1">
                             Use <span className="font-mono">|</span> to separate multiple ingredients, steps,
-                            tags, or photo URLs in a single cell.
+                            tags, or photo URLs in a single cell. Leave any column blank to skip it.
                           </p>
                           <code className="block text-[10px] bg-white p-2 rounded-lg text-on-surface/60 overflow-x-auto whitespace-pre">
-                            {'title,description,ingredients,steps,prep_time,cook_time,servings,difficulty,cuisine,tags,photos,is_public\n'}
-                            {'"Spaghetti Carbonara","Classic Roman pasta","200g spaghetti|2 eggs|100g pancetta","Boil pasta|Fry pancetta|Combine",10,15,2,medium,Italian,"pasta|dinner","https://example.com/carb.jpg",false'}
+                            {'title,description,ingredients,steps,prep_time,cook_time,servings,difficulty,cuisine,tags,cover_photo,photos,rating,review_notes,is_public\n'}
+                            {'"Spaghetti Carbonara","Classic Roman pasta","200g spaghetti|2 eggs|100g pancetta","Boil pasta|Fry pancetta|Combine",10,15,2,medium,Italian,"pasta|dinner",https://example.com/carb.jpg,,8.5,"Nailed it on the first try",false\n'}
+                            {'"Quick Toast",,,,,,,,,,,,,,'}
                           </code>
                         </div>
 
@@ -492,7 +542,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                             <span className="font-mono">{'{ "recipes": [...] }'}</span>. Ingredients can be
                             strings or objects with <span className="font-mono">name</span>,{' '}
                             <span className="font-mono">amount</span>,{' '}
-                            <span className="font-mono">unit</span>.
+                            <span className="font-mono">unit</span>. Omit any field you don't have.
                           </p>
                           <code className="block text-[10px] bg-white p-2 rounded-lg text-on-surface/60 overflow-x-auto whitespace-pre">
 {`[
@@ -511,16 +561,21 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
     "difficulty": "medium",
     "cuisine": "Italian",
     "tags": ["pasta", "dinner"],
-    "photos": ["https://example.com/carb.jpg"],
+    "coverPhoto": "https://example.com/carb.jpg",
+    "photos": ["https://example.com/carb-2.jpg"],
+    "rating": 8.5,
+    "reviewNotes": "Nailed it on the first try",
     "isPublic": false
-  }
+  },
+  { "title": "Quick Toast" }
 ]`}
                           </code>
                         </div>
 
                         <p className="text-[11px] text-on-surface/45 leading-relaxed">
-                          Photos must be URLs (https). To attach local images, create the recipe via{' '}
-                          <span className="italic">Log Home Meal → Save as recipe</span> instead.
+                          Photos must be URLs (https). To attach local image files, create the recipe via{' '}
+                          <span className="italic">Log Home Meal → Save as recipe</span> instead. A
+                          <span className="font-mono"> rating</span> is stored as your personal review of the recipe.
                         </p>
                       </div>
                     )}
@@ -648,6 +703,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                           <div className="text-xs text-on-surface/55 truncate">
                             {[
                               item.recipe.cuisine,
+                              item.recipe.rating !== null && `${item.recipe.rating.toFixed(1)}/10`,
                               item.recipe.ingredients.length > 0 &&
                                 `${item.recipe.ingredients.length} ingredients`,
                               item.recipe.steps.length > 0 && `${item.recipe.steps.length} steps`,
