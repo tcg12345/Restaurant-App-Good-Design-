@@ -1,31 +1,30 @@
 import React, { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, FileUp, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
+import { X, FileUp, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useRecipes } from '../contexts/RecipesContext';
-import { useLists } from '../contexts/ListsContext';
-import { useAuth } from '../contexts/AuthContext';
+import { useLists, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { supabase, supabaseConfigured } from '../lib/supabase';
-import type { RecipeIngredient, RecipeStep } from '../lib/supabase-recipes';
 
 interface ParsedRecipe {
   title: string;
   description: string;
   ingredients: RecipeIngredient[];
-  steps: RecipeStep[];
+  // Steps render as plain strings on a HomeMeal, so the parser already
+  // normalizes both CSV and JSON shapes to a string array.
+  steps: string[];
   prepTimeMinutes: number | null;
   cookTimeMinutes: number | null;
   servings: number | null;
-  difficulty: 'easy' | 'medium' | 'hard';
+  // HomeMeal.difficulty is title-cased, so we parse straight into that shape.
+  difficulty: 'Easy' | 'Medium' | 'Hard';
   cuisine: string;
   tags: string[];
-  photos: string[];        // first entry is treated as the cover photo
+  // First entry becomes the cover photo on the resulting HomeMeal.
+  photos: string[];
   isPublic: boolean;
-  rating: number | null;   // 0–10; written to recipe_reviews on import
+  // 0–10 rating saved as the meal score; null leaves it as 0.
+  rating: number | null;
   reviewNotes: string;
-  reviewPhoto: string;
 }
 
 interface ImportItem {
@@ -51,10 +50,11 @@ const toRating = (v: unknown): number | null => {
   return Math.max(0, Math.min(10, n));
 };
 
-const toDifficulty = (v: unknown): 'easy' | 'medium' | 'hard' => {
+const toDifficulty = (v: unknown): 'Easy' | 'Medium' | 'Hard' => {
   const s = String(v ?? '').trim().toLowerCase();
-  if (s === 'easy' || s === 'hard') return s;
-  return 'medium';
+  if (s === 'easy') return 'Easy';
+  if (s === 'hard') return 'Hard';
+  return 'Medium';
 };
 
 const toBool = (v: unknown): boolean => {
@@ -110,16 +110,13 @@ const normalizeIngredient = (raw: unknown): RecipeIngredient => {
   return { name: String(raw ?? ''), amount: '', unit: '' };
 };
 
-const normalizeStep = (raw: unknown, idx: number): RecipeStep => {
-  if (typeof raw === 'string') return { order: idx + 1, text: raw };
+const normalizeStep = (raw: unknown): string => {
+  if (typeof raw === 'string') return raw;
   if (raw && typeof raw === 'object') {
     const r = raw as Record<string, unknown>;
-    return {
-      order: typeof r.order === 'number' ? (r.order as number) : idx + 1,
-      text: String(r.text ?? r.step ?? r.instruction ?? ''),
-    };
+    return String(r.text ?? r.step ?? r.instruction ?? '');
   }
-  return { order: idx + 1, text: String(raw ?? '') };
+  return String(raw ?? '');
 };
 
 /* ── CSV parsing ── */
@@ -167,15 +164,14 @@ const parseCSV = (text: string): ParsedRecipe[] => {
   const photosIdx = headers.findIndex((h) => (h.includes('photo') || h.includes('image')) && !h.includes('cover') && !h.includes('thumb') && !h.includes('review'));
   const publicIdx = idx('public', 'visibility');
   const ratingIdx = idx('rating', 'score');
-  const reviewNotesIdx = headers.findIndex((h) => h.includes('review_note') || h === 'review' || h.includes('review_text'));
-  const reviewPhotoIdx = headers.findIndex((h) => h.includes('review_photo') || h.includes('review_image'));
+  const notesIdx = headers.findIndex((h) => h.includes('review_note') || h === 'review' || h.includes('review_text') || h === 'notes');
 
   return lines.slice(1).map((line) => {
     const f = splitCsvLine(line);
     const get = (i: number) => (i >= 0 ? (f[i] ?? '') : '');
 
     const ingredients = ingIdx >= 0 ? splitMulti(get(ingIdx)).map((s) => parseIngredientLine(s)) : [];
-    const stepsArr = stepIdx >= 0 ? splitMulti(get(stepIdx)).map((s, i) => ({ order: i + 1, text: s })) : [];
+    const stepsArr = stepIdx >= 0 ? splitMulti(get(stepIdx)) : [];
     const cover = get(coverIdx).trim();
     const otherPhotos = splitMulti(get(photosIdx));
     const photos = cover ? [cover, ...otherPhotos.filter((p) => p !== cover)] : otherPhotos;
@@ -194,8 +190,7 @@ const parseCSV = (text: string): ParsedRecipe[] => {
       photos,
       isPublic: toBool(get(publicIdx)),
       rating: toRating(get(ratingIdx)),
-      reviewNotes: get(reviewNotesIdx),
-      reviewPhoto: get(reviewPhotoIdx).trim(),
+      reviewNotes: get(notesIdx),
     } as ParsedRecipe;
   }).filter((r) => r.title);
 };
@@ -241,9 +236,9 @@ const parseJSON = (text: string): ParsedRecipe[] => {
             ? splitMulti(ingRaw).map(parseIngredientLine)
             : [],
           steps: Array.isArray(stepRaw)
-            ? stepRaw.map((s, i) => normalizeStep(s, i))
+            ? stepRaw.map(normalizeStep).filter(Boolean)
             : typeof stepRaw === 'string'
-            ? splitMulti(stepRaw).map((s, i) => ({ order: i + 1, text: s }))
+            ? splitMulti(stepRaw)
             : [],
           prepTimeMinutes: toInt(r.prepTimeMinutes ?? r.prep_time_minutes ?? r.prepTime ?? r.prep_time ?? r.prep),
           cookTimeMinutes: toInt(r.cookTimeMinutes ?? r.cook_time_minutes ?? r.cookTime ?? r.cook_time ?? r.cook),
@@ -258,8 +253,7 @@ const parseJSON = (text: string): ParsedRecipe[] => {
           photos,
           isPublic: toBool(r.isPublic ?? r.is_public ?? r.public),
           rating: toRating(r.rating ?? r.score),
-          reviewNotes: String(r.reviewNotes ?? r.review_notes ?? r.review ?? ''),
-          reviewPhoto: String(r.reviewPhoto ?? r.review_photo ?? r.review_image ?? '').trim(),
+          reviewNotes: String(r.reviewNotes ?? r.review_notes ?? r.review ?? r.notes ?? ''),
         } as ParsedRecipe;
       })
       .filter((r) => r.title);
@@ -276,11 +270,8 @@ interface Props {
 }
 
 export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
-  const { user } = useAuth();
-  const { refreshMyRecipes } = useRecipes();
-  const { closeHomeMealModal } = useLists();
+  const { createHomeMeal, closeHomeMealModal } = useLists();
   const { phoneMode } = useSettings();
-  const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [parsed, setParsed] = useState<ParsedRecipe[]>([]);
@@ -340,18 +331,10 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
   };
 
   const runImport = async () => {
-    if (!user?.id) {
-      setParseError('You must be signed in to import recipes.');
-      return;
-    }
-    if (!supabaseConfigured) {
-      setParseError('Cloud storage is not configured. Imports require a Supabase connection.');
-      return;
-    }
     setIsRunning(true);
     abortRef.current = false;
 
-    let createdAny = false;
+    const today = new Date().toISOString().slice(0, 10);
 
     for (let i = 0; i < items.length; i++) {
       if (abortRef.current) break;
@@ -363,59 +346,31 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
       });
 
       try {
-        // Insert directly so we can surface the real Postgres / RLS error to
-        // the user instead of swallowing it with a generic message.
-        const { data, error } = await supabase
-          .from('recipes')
-          .insert({
-            user_id: user.id,
-            title: r.title,
-            description: r.description,
-            ingredients: r.ingredients,
-            steps: r.steps,
-            prep_time_minutes: r.prepTimeMinutes,
-            cook_time_minutes: r.cookTimeMinutes,
-            servings: r.servings,
-            difficulty: r.difficulty,
-            cuisine: r.cuisine,
-            tags: r.tags,
-            photos: r.photos,
-            is_public: r.isPublic,
-            source_type: 'user',
-            linked_restaurant_id: null,
-            linked_meal_id: null,
-          })
-          .select('*')
-          .single();
+        // Each parsed recipe lands on the user's Home Cooking list as a
+        // logged meal. createHomeMeal is fully synchronous and writes to
+        // both local state and the Supabase user_app_data row.
+        const cover = r.photos[0] ?? '';
+        const galleryUrls = r.photos.slice(cover ? 1 : 0);
+        createHomeMeal({
+          name: r.title,
+          date: today,
+          score: r.rating ?? 0,
+          wouldMakeAgain: true,
+          description: r.description || r.reviewNotes,
+          photos: galleryUrls.map((url) => ({ url, caption: '', isFavorite: false })),
+          tags: r.tags,
+          dishes: [],
+          isPublic: r.isPublic,
+          coverPhoto: cover,
+          prepTime: r.prepTimeMinutes ?? undefined,
+          cookTime: r.cookTimeMinutes ?? undefined,
+          servings: r.servings ?? undefined,
+          difficulty: r.difficulty,
+          cuisine: r.cuisine,
+          ingredients: r.ingredients,
+          steps: r.steps,
+        });
 
-        if (error || !data) {
-          const msg = error?.message || 'Insert returned no row';
-          setItems((prev) => {
-            const next = [...prev];
-            next[i] = { ...next[i], status: 'error', error: msg };
-            return next;
-          });
-          continue;
-        }
-
-        // Persist a review row when the user supplied a rating. The recipe
-        // itself has no rating column — ratings live on recipe_reviews.
-        if (r.rating !== null) {
-          const recipeId = (data as { id: string }).id;
-          await supabase.from('recipe_reviews').upsert(
-            {
-              user_id: user.id,
-              recipe_id: recipeId,
-              rating: r.rating,
-              notes: r.reviewNotes,
-              photo: r.reviewPhoto,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: 'user_id,recipe_id' },
-          );
-        }
-
-        createdAny = true;
         setItems((prev) => {
           const next = [...prev];
           next[i] = { ...next[i], status: 'created' };
@@ -430,10 +385,6 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
         });
       }
     }
-
-    // Pull the fresh list into the in-memory cache so the new recipes are
-    // visible immediately without a page reload.
-    if (createdAny) await refreshMyRecipes();
 
     setIsRunning(false);
     setIsDone(true);
@@ -554,8 +505,8 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                             <li><span className="font-mono">tags</span> — comma- or pipe-separated</li>
                             <li><span className="font-mono">cover_photo</span> — URL of the main image</li>
                             <li><span className="font-mono">photos</span> — additional image URLs</li>
-                            <li><span className="font-mono">rating</span> — 0–10 (saved as your review)</li>
-                            <li><span className="font-mono">review_notes</span>, <span className="font-mono">review_photo</span> — optional review</li>
+                            <li><span className="font-mono">rating</span> — 0–10 (saved as the meal score)</li>
+                            <li><span className="font-mono">notes</span> — extra description/notes</li>
                             <li><span className="font-mono">is_public</span> — <span className="font-mono">true</span> / <span className="font-mono">false</span></li>
                           </ul>
                         </div>
@@ -567,7 +518,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                             tags, or photo URLs in a single cell. Leave any column blank to skip it.
                           </p>
                           <code className="block text-[10px] bg-white p-2 rounded-lg text-on-surface/60 overflow-x-auto whitespace-pre">
-                            {'title,description,ingredients,steps,prep_time,cook_time,servings,difficulty,cuisine,tags,cover_photo,photos,rating,review_notes,is_public\n'}
+                            {'title,description,ingredients,steps,prep_time,cook_time,servings,difficulty,cuisine,tags,cover_photo,photos,rating,notes,is_public\n'}
                             {'"Spaghetti Carbonara","Classic Roman pasta","200g spaghetti|2 eggs|100g pancetta","Boil pasta|Fry pancetta|Combine",10,15,2,medium,Italian,"pasta|dinner",https://example.com/carb.jpg,,8.5,"Nailed it on the first try",false\n'}
                             {'"Quick Toast",,,,,,,,,,,,,,'}
                           </code>
@@ -602,7 +553,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
     "coverPhoto": "https://example.com/carb.jpg",
     "photos": ["https://example.com/carb-2.jpg"],
     "rating": 8.5,
-    "reviewNotes": "Nailed it on the first try",
+    "notes": "Nailed it on the first try",
     "isPublic": false
   },
   { "title": "Quick Toast" }
@@ -611,9 +562,10 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                         </div>
 
                         <p className="text-[11px] text-on-surface/45 leading-relaxed">
-                          Photos must be URLs (https). To attach local image files, create the recipe via{' '}
-                          <span className="italic">Log Home Meal → Save as recipe</span> instead. A
-                          <span className="font-mono"> rating</span> is stored as your personal review of the recipe.
+                          Each row gets added to your <span className="italic">Home Cooking</span> list as
+                          a logged meal. Photos must be URLs (https) — to attach local image files, log
+                          the meal directly with the <span className="italic">+</span> button instead. A
+                          <span className="font-mono"> rating</span> becomes the meal's score.
                         </p>
                       </div>
                     )}
@@ -680,22 +632,16 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                         Stop
                       </button>
                     )}
-                    {isDone && stats.created > 0 && (
+                    {isDone && (
                       <button
                         onClick={() => {
                           reset();
                           onClose();
-                          closeHomeMealModal();
-                          navigate('/recipes');
+                          // When at least one meal landed on the list, also
+                          // dismiss the parent Log Home Meal modal so the
+                          // user lands directly on the populated list.
+                          if (stats.created > 0) closeHomeMealModal();
                         }}
-                        className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-xl font-medium"
-                      >
-                        <BookOpen size={16} /> View My Recipes
-                      </button>
-                    )}
-                    {isDone && stats.created === 0 && (
-                      <button
-                        onClick={handleClose}
                         className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-xl font-medium"
                       >
                         Done
