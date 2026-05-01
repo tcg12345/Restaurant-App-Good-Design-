@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { useRecipes } from '../contexts/RecipesContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { supabase, supabaseConfigured } from '../lib/supabase';
 import type { RecipeIngredient, RecipeStep } from '../lib/supabase-recipes';
 
 interface ParsedRecipe {
@@ -274,7 +275,7 @@ interface Props {
 
 export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
   const { user } = useAuth();
-  const { createRecipe, upsertReview } = useRecipes();
+  const { refreshMyRecipes } = useRecipes();
   const { phoneMode } = useSettings();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -339,8 +340,14 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
       setParseError('You must be signed in to import recipes.');
       return;
     }
+    if (!supabaseConfigured) {
+      setParseError('Cloud storage is not configured. Imports require a Supabase connection.');
+      return;
+    }
     setIsRunning(true);
     abortRef.current = false;
+
+    let createdAny = false;
 
     for (let i = 0; i < items.length; i++) {
       if (abortRef.current) break;
@@ -352,50 +359,77 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
       });
 
       try {
-        const created = await createRecipe({
-          userId: user.id,
-          title: r.title,
-          description: r.description,
-          ingredients: r.ingredients,
-          steps: r.steps,
-          prepTimeMinutes: r.prepTimeMinutes,
-          cookTimeMinutes: r.cookTimeMinutes,
-          servings: r.servings,
-          difficulty: r.difficulty,
-          cuisine: r.cuisine,
-          tags: r.tags,
-          photos: r.photos,
-          isPublic: r.isPublic,
-          sourceType: 'user',
-          linkedRestaurantId: null,
-          linkedMealId: null,
-        });
+        // Insert directly so we can surface the real Postgres / RLS error to
+        // the user instead of swallowing it with a generic message.
+        const { data, error } = await supabase
+          .from('recipes')
+          .insert({
+            user_id: user.id,
+            title: r.title,
+            description: r.description,
+            ingredients: r.ingredients,
+            steps: r.steps,
+            prep_time_minutes: r.prepTimeMinutes,
+            cook_time_minutes: r.cookTimeMinutes,
+            servings: r.servings,
+            difficulty: r.difficulty,
+            cuisine: r.cuisine,
+            tags: r.tags,
+            photos: r.photos,
+            is_public: r.isPublic,
+            source_type: 'user',
+            linked_restaurant_id: null,
+            linked_meal_id: null,
+          })
+          .select('*')
+          .single();
+
+        if (error || !data) {
+          const msg = error?.message || 'Insert returned no row';
+          setItems((prev) => {
+            const next = [...prev];
+            next[i] = { ...next[i], status: 'error', error: msg };
+            return next;
+          });
+          continue;
+        }
 
         // Persist a review row when the user supplied a rating. The recipe
         // itself has no rating column — ratings live on recipe_reviews.
-        if (created && r.rating !== null) {
-          await upsertReview(created.id, {
-            rating: r.rating,
-            notes: r.reviewNotes,
-            photo: r.reviewPhoto,
-          });
+        if (r.rating !== null) {
+          const recipeId = (data as { id: string }).id;
+          await supabase.from('recipe_reviews').upsert(
+            {
+              user_id: user.id,
+              recipe_id: recipeId,
+              rating: r.rating,
+              notes: r.reviewNotes,
+              photo: r.reviewPhoto,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id,recipe_id' },
+          );
         }
 
+        createdAny = true;
         setItems((prev) => {
           const next = [...prev];
-          next[i] = created
-            ? { ...next[i], status: 'created' }
-            : { ...next[i], status: 'error', error: 'Could not save to your account' };
+          next[i] = { ...next[i], status: 'created' };
           return next;
         });
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         setItems((prev) => {
           const next = [...prev];
-          next[i] = { ...next[i], status: 'error', error: String(err) };
+          next[i] = { ...next[i], status: 'error', error: msg };
           return next;
         });
       }
     }
+
+    // Pull the fresh list into the in-memory cache so the new recipes are
+    // visible immediately without a page reload.
+    if (createdAny) await refreshMyRecipes();
 
     setIsRunning(false);
     setIsDone(true);
