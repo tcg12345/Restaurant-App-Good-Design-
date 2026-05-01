@@ -245,6 +245,22 @@ export interface UserProfile {
   bio: string;
   is_public: boolean;
   is_expert: boolean;
+  /** Self-declared home base — surfaced on the Circle search page so
+   *  users can tell where an expert eats, and used by /location to find
+   *  experts based in the city being explored. Optional for non-experts;
+   *  expert profile editing nudges experts to provide it. */
+  home_city?: string | null;
+  home_lat?: number | null;
+  home_lng?: number | null;
+}
+
+/** Optional home-base extras for {@link saveProfile}. Pass any subset; only
+ *  fields with explicit values get written, so callers can leave the
+ *  others alone instead of wiping them by accident. */
+export interface SaveProfileHomeBase {
+  homeCity?: string | null;
+  homeLat?: number | null;
+  homeLng?: number | null;
 }
 
 export async function getProfile(userId: string): Promise<UserProfile | null> {
@@ -267,7 +283,15 @@ export async function getProfileByUsername(username: string): Promise<UserProfil
   } catch { return null; }
 }
 
-export async function saveProfile(userId: string, displayName: string, username: string, bio?: string, isPublic?: boolean, isExpert?: boolean): Promise<{ success: boolean; error?: string }> {
+export async function saveProfile(
+  userId: string,
+  displayName: string,
+  username: string,
+  bio?: string,
+  isPublic?: boolean,
+  isExpert?: boolean,
+  homeBase?: SaveProfileHomeBase,
+): Promise<{ success: boolean; error?: string }> {
   if (!supabaseConfigured || !userId) return { success: false, error: 'Not configured' };
   try {
     const payload: any = {
@@ -277,6 +301,13 @@ export async function saveProfile(userId: string, displayName: string, username:
     if (bio !== undefined) payload.bio = bio;
     if (isPublic !== undefined) payload.is_public = isPublic;
     if (isExpert !== undefined) payload.is_expert = isExpert;
+    if (homeBase) {
+      // Only assign keys that were explicitly provided so partial updates
+      // don't clobber existing home-base values with undefined.
+      if (homeBase.homeCity !== undefined) payload.home_city = homeBase.homeCity;
+      if (homeBase.homeLat !== undefined) payload.home_lat = homeBase.homeLat;
+      if (homeBase.homeLng !== undefined) payload.home_lng = homeBase.homeLng;
+    }
     const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'user_id' });
     if (error) {
       if (error.code === '23505') return { success: false, error: 'Username is already taken' };
@@ -284,6 +315,46 @@ export async function saveProfile(userId: string, displayName: string, username:
     }
     return { success: true };
   } catch (err) { return { success: false, error: String(err) }; }
+}
+
+/**
+ * Fetch profiles whose declared home base sits within a lat/lng bounding
+ * box. Used by /location to surface "experts in this area" /
+ * "people in this area you might know" suggestion rows. Filters server-side
+ * on (home_lat, home_lng) so we don't pull every profile across the wire.
+ *
+ * - `expertsOnly: true` narrows to is_expert profiles.
+ * - `excludeUserIds` keeps the caller out of their own results and is
+ *   also where you'd skip already-followed accounts.
+ * - `limit` defaults to 20 so a single bbox query still pages cheaply.
+ */
+export async function getProfilesInArea(opts: {
+  bbox: { latLow: number; latHigh: number; lngLow: number; lngHigh: number };
+  expertsOnly?: boolean;
+  excludeUserIds?: string[];
+  limit?: number;
+}): Promise<UserProfile[]> {
+  if (!supabaseConfigured) return [];
+  const { bbox, expertsOnly, excludeUserIds, limit } = opts;
+  try {
+    let q = supabase
+      .from('user_profiles')
+      .select('*')
+      .gte('home_lat', bbox.latLow)
+      .lte('home_lat', bbox.latHigh)
+      .gte('home_lng', bbox.lngLow)
+      .lte('home_lng', bbox.lngHigh)
+      .limit(limit ?? 20);
+    if (expertsOnly) q = q.eq('is_expert', true);
+    if (excludeUserIds && excludeUserIds.length > 0) {
+      // Postgrest doesn't accept .not('user_id', 'in', '(...)') with an
+      // array directly in the JS client builder, so format manually.
+      q = q.not('user_id', 'in', `(${excludeUserIds.map((id) => `"${id}"`).join(',')})`);
+    }
+    const { data, error } = await q;
+    if (error) return [];
+    return (data || []) as UserProfile[];
+  } catch { return []; }
 }
 
 export async function searchUsersByUsername(query: string, currentUserId: string): Promise<UserProfile[]> {
@@ -420,6 +491,25 @@ export async function getExpertRatings(limit = 50): Promise<CommunityRating[]> {
     const expertIds = experts.map((e: any) => e.user_id);
     const { data, error } = await supabase.from('community_ratings')
       .select('*').in('user_id', expertIds).order('updated_at', { ascending: false }).limit(limit);
+    if (error) return [];
+    return (data || []) as CommunityRating[];
+  } catch { return []; }
+}
+
+/**
+ * Every community rating authored by any user in `userIds`. Unlike
+ * `getExpertRatings` this has no recency cap — the global top-N
+ * ordering cuts off ratings for smaller cities, so the /location
+ * "Experts only" filter uses this to get the full set of ratings
+ * from the specific experts the user follows.
+ */
+export async function getRatingsByUserIds(userIds: string[]): Promise<CommunityRating[]> {
+  if (!supabaseConfigured || userIds.length === 0) return [];
+  try {
+    const { data, error } = await supabase
+      .from('community_ratings')
+      .select('*')
+      .in('user_id', userIds);
     if (error) return [];
     return (data || []) as CommunityRating[];
   } catch { return []; }

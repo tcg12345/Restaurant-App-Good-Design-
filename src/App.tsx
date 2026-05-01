@@ -36,6 +36,7 @@ import { UserProfile } from './pages/UserProfile';
 import { Messages } from './pages/Messages';
 import { FriendReviewDetail } from './pages/FriendReviewDetail';
 import { LocationPage } from './pages/LocationPage';
+import { LocationMap } from './pages/LocationMap';
 import { RestaurantCircleReviews } from './pages/RestaurantCircleReviews';
 import { MealRecipePage } from './pages/MealRecipePage';
 import { ReorderRatings } from './pages/ReorderRatings';
@@ -44,7 +45,7 @@ import { ChatProvider } from './contexts/ChatContext';
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/map';
-  const showBottomNav = !['/onboarding', '/messages', '/reorder'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
 
@@ -150,6 +151,7 @@ const AppContent: React.FC = () => {
                 <Route path="/messages" element={<Messages />} />
                 <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
                 <Route path="/location" element={<LocationPage />} />
+                <Route path="/location/map" element={<LocationMap />} />
               </Routes>
             </motion.div>
           </AnimatePresence>

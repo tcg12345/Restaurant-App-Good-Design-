@@ -52,14 +52,22 @@ const PRICE_LEVEL_STRINGS: Record<number, string> = {
   4: 'PRICE_LEVEL_VERY_EXPENSIVE',
 };
 
-function photoUrl(_photoName: string | undefined): string | null {
-  // Photos are intentionally disabled — requesting photo URLs from the Google
-  // Places media endpoint is a separate (and expensive) billed call, so every
-  // surface now shows user-uploaded photos only, with a "No photos added yet"
-  // placeholder otherwise. This helper always returns null so existing call
-  // sites keep working without changes.
-  return null;
-}
+/* Google Places Photos media calls are DISABLED app-wide.
+ *
+ * Every fetch from https://places.googleapis.com/v1/places/{id}/photos/{name}/media
+ * is a separately-billed Places API call — one per rendered image. The app
+ * surfaces user-uploaded photos (stored in Supabase `community_photos`)
+ * instead, with a "No photos added yet" placeholder when none exist.
+ *
+ * To keep this property from regressing:
+ *   - No FieldMask in this file requests `places.photos` (search) or
+ *     `photos` (details). Confirm by grepping the FIELDS / DETAIL_FIELDS
+ *     constants.
+ *   - The `GooglePlace` shape below deliberately has NO `photos` field,
+ *     so any attempt to read `p.photos` anywhere becomes a TS error.
+ *   - `photoUrl` on the mapped result is hard-coded to `null`. Call sites
+ *     that want a cover image resolve it from Supabase community_photos.
+ */
 
 interface GooglePlace {
   id?: string;
@@ -70,7 +78,6 @@ interface GooglePlace {
   priceLevel?: string | number;
   shortFormattedAddress?: string;
   formattedAddress?: string;
-  photos?: { name: string }[];
   types?: string[];
   userRatingCount?: number;
 }
@@ -85,7 +92,8 @@ function mapPlaces(places: GooglePlace[]): PlaceResult[] {
     priceLevel: parsePriceLevel(p.priceLevel),
     address: p.shortFormattedAddress || p.formattedAddress || '',
     fullAddress: p.formattedAddress || p.shortFormattedAddress || '',
-    photoUrl: photoUrl(p.photos?.[0]?.name),
+    // See block comment above: Places Photos media is never requested.
+    photoUrl: null,
     types: p.types || [],
     userRatingCount: p.userRatingCount ?? 0,
   }));
@@ -104,6 +112,29 @@ function deduplicatePlaces(places: PlaceResult[]): PlaceResult[] {
 // generated from it triggers a separate (billed) Places Photos media call
 // per image. The app now surfaces user-uploaded photos only.
 const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.types,places.userRatingCount';
+
+// Google's `places:searchText` endpoint only accepts `locationRestriction`
+// with a `rectangle`; passing a `circle` there returns a 400. (The
+// `places:searchNearby` endpoint DOES accept circle — that's a separate
+// helper.) This converts a (lat, lng, radius-in-meters) triple into the
+// bounding-box rectangle the text API expects. We compute the dLng using
+// the latitude so rectangles stay correctly-sized at higher latitudes;
+// for restaurant search the small over-coverage at the corners is
+// harmless next to the quality filter we apply downstream.
+function circleToRectangle(
+  lat: number,
+  lng: number,
+  radiusMeters: number,
+): { low: { latitude: number; longitude: number }; high: { latitude: number; longitude: number } } {
+  const earthMeters = 6371000;
+  const dLat = ((radiusMeters / earthMeters) * 180) / Math.PI;
+  const cosLat = Math.max(0.01, Math.cos((lat * Math.PI) / 180));
+  const dLng = dLat / cosLat;
+  return {
+    low: { latitude: lat - dLat, longitude: lng - dLng },
+    high: { latitude: lat + dLat, longitude: lng + dLng },
+  };
+}
 
 // Cuisine type mapping for Google Places API
 export const CUISINE_TYPES: { label: string; type: string }[] = [
@@ -233,7 +264,7 @@ export async function searchNearbyRestaurants(
 
   // When location is set, restrict text queries to the area; otherwise just bias
   const locationParam = hasLocation
-    ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: bigRadius } } }
+    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, bigRadius) } }
     : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: bigRadius } } };
 
   const textFetches = textQueries.map((q) =>
@@ -292,7 +323,7 @@ async function searchWithFilters(
 
   const filterRadius = Math.max(radiusMeters, 5000);
   const locationParam = hasLocation
-    ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: filterRadius } } }
+    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, filterRadius) } }
     : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: filterRadius } } };
 
   const promises = queries.map(async (cuisine) => {
@@ -371,7 +402,7 @@ export async function searchPlacesByText(
   const shouldRestrict = useRestriction || hasLocation;
 
   const locationParam = shouldRestrict
-    ? { locationRestriction: { circle: { center: { latitude: lat, longitude: lng }, radius: Math.min(radiusMeters, 50000) } } }
+    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, Math.min(radiusMeters, 50000)) } }
     : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: Math.min(radiusMeters, 50000) } } };
 
   // Search 1: raw query + "restaurant" keyword for broad food results
@@ -413,6 +444,94 @@ export async function searchPlacesByText(
   // Merge: exact name matches first (higher relevance), then broad results
   const merged = [...foodExact, ...broadPlaces];
   return deduplicatePlaces(merged);
+}
+
+/* ── Paginating text search (for /location's infinite scroll) ────────────── */
+
+export interface SearchPageOptions {
+  /** Center of the search area. */
+  lat: number;
+  lng: number;
+  /** Max distance from (lat, lng) to include, in meters. Clamped to 50 km
+   *  since that's Google's hard cap for locationRestriction. */
+  radiusMeters: number;
+  /** When true, the radius is a hard boundary (converted to rectangle for
+   *  the text endpoint). When false, it's just a bias hint. */
+  useRestriction?: boolean;
+  /** Google price-level enum values 1–4. When non-empty the API filters
+   *  server-side so we only get matching prices — much more efficient
+   *  than paging through every restaurant and filtering client-side. */
+  priceLevels?: number[];
+  /** Supplied by a previous response to continue the same query into its
+   *  next page. Pass the full token verbatim. */
+  pageToken?: string;
+  /** 1–20. Defaults to 20. */
+  pageSize?: number;
+}
+
+export interface SearchPageResult {
+  places: PlaceResult[];
+  /** Non-null when the server indicates more pages exist. Pass back as
+   *  `pageToken` to fetch the next page. */
+  nextPageToken: string | null;
+}
+
+/**
+ * Text search that supports Google's paginated response + server-side price
+ * filtering. Use this when you need to drain a single query across many
+ * pages (the explore page's infinite scroll does this per-query so $$$$
+ * New York returns hundreds of results instead of the ~20 that fit in one
+ * page). For one-shot lookups the older `searchPlacesByText` is still fine.
+ */
+export async function searchPlacesByTextPaged(
+  query: string,
+  opts: SearchPageOptions,
+): Promise<SearchPageResult> {
+  const { lat, lng, radiusMeters, useRestriction, priceLevels, pageToken, pageSize } = opts;
+  const clampedRadius = Math.min(radiusMeters, 50000);
+  const locationParam = useRestriction
+    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, clampedRadius) } }
+    : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: clampedRadius } } };
+
+  const body: Record<string, unknown> = {
+    textQuery: query,
+    pageSize: Math.min(Math.max(pageSize ?? 20, 1), 20),
+    ...locationParam,
+  };
+  if (priceLevels && priceLevels.length > 0) {
+    body.priceLevels = priceLevels
+      .map((n) => PRICE_LEVEL_STRINGS[n])
+      .filter((s): s is string => !!s);
+  }
+  if (pageToken) body.pageToken = pageToken;
+
+  try {
+    const res = await fetch(`${BASE_URL}/places:searchText`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+        // nextPageToken is a top-level field — listing it explicitly is
+        // required alongside `places.*` in the field mask.
+        'X-Goog-FieldMask': `${FIELDS},nextPageToken`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      // Keep diagnostics on the network tab only — the caller's fallback
+      // handles empty returns without needing the page to blow up.
+      console.error('[Places] searchPlacesByTextPaged failed:', res.status, await res.text().catch(() => ''));
+      return { places: [], nextPageToken: null };
+    }
+    const data = await res.json();
+    return {
+      places: mapPlaces(data.places || []),
+      nextPageToken: (data.nextPageToken as string) || null,
+    };
+  } catch (err) {
+    console.error('[Places] searchPlacesByTextPaged exception:', err);
+    return { places: [], nextPageToken: null };
+  }
 }
 
 export async function searchHotels(

@@ -287,14 +287,29 @@ export interface CandidateSignals {
   expertRecRestaurantIds: Set<string>;
 }
 
+export interface ScoreCandidatesOptions {
+  /** Max number of places to return. Defaults to 12. Pass e.g. Infinity to
+   *  rank an entire pool (used by /location, which wants every restaurant
+   *  in the city sorted but not truncated). */
+  limit?: number;
+  /** When true (default), restaurants the user has already rated, wishlisted,
+   *  or recently viewed are dropped from the output. Surfaces that want to
+   *  show every matching restaurant regardless of history (again, /location)
+   *  pass `false`. */
+  skipUserHistory?: boolean;
+}
+
 export function scoreCandidates(
   candidates: PlaceResult[],
   profile: TasteProfile,
   signals: CandidateSignals,
   target: RecTargetLocation,
   radiusMeters: number,
+  options: ScoreCandidatesOptions = {},
 ): ScoredPlace[] {
   const W = DEFAULT_WEIGHTS;
+  const limit = options.limit ?? 12;
+  const skipUserHistory = options.skipUserHistory ?? true;
 
   const googleTypeToLabel: Record<string, string> = {};
   for (const entry of CUISINE_TYPES) {
@@ -310,9 +325,11 @@ export function scoreCandidates(
   const coldStart = profile.highRatedCount < 3;
   const radiusKm = radiusMeters / 1000;
   const skipIds = new Set<string>();
-  profile.ratedIds.forEach((id) => skipIds.add(id));
-  profile.wishlistedIds.forEach((id) => skipIds.add(id));
-  profile.recentlyViewedIds.forEach((id) => skipIds.add(id));
+  if (skipUserHistory) {
+    profile.ratedIds.forEach((id) => skipIds.add(id));
+    profile.wishlistedIds.forEach((id) => skipIds.add(id));
+    profile.recentlyViewedIds.forEach((id) => skipIds.add(id));
+  }
 
   const scored: ScoredPlace[] = [];
 
@@ -415,7 +432,7 @@ export function scoreCandidates(
   }
   scored.sort((a, b) => b.recScore - a.recScore);
 
-  return scored.slice(0, 12);
+  return scored.slice(0, limit);
 }
 
 function shuffleInPlace<T>(arr: T[]): T[] {

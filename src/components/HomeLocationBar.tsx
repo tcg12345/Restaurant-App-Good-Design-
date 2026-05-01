@@ -65,6 +65,29 @@ export function isExactAddress(loc: HomeLocation | null | undefined): boolean {
   return /^\s*\d/.test(loc.label || '');
 }
 
+/**
+ * Forward-geocode a free-text city/place query into a canonical
+ * { label, lat, lng } HomeLocation. Returns null when nothing matches
+ * or Mapbox is unreachable. Used outside the picker (profile editing,
+ * onboarding) to resolve a typed home-city string to coords without
+ * needing the user to drive the bottom-sheet picker.
+ */
+export async function geocodePlace(query: string): Promise<HomeLocation | null> {
+  const q = query.trim();
+  if (!q) return null;
+  try {
+    const res = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,district,neighborhood&limit=1`,
+    );
+    const data = await res.json();
+    const f = data.features?.[0];
+    if (!f || !Array.isArray(f.center) || f.center.length < 2) return null;
+    return { label: f.place_name as string, lat: f.center[1] as number, lng: f.center[0] as number };
+  } catch {
+    return null;
+  }
+}
+
 // Reverse-geocode a coordinate into a street-address label
 // ("123 Main St, San Francisco, CA") using Mapbox. Falls back to the
 // city/locality label if no address feature is returned, and to
@@ -241,14 +264,19 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 group text-left max-w-full"
+        className="inline-flex items-start gap-1.5 group text-left max-w-full min-w-0"
         aria-label="Change location"
       >
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 leading-none">
             Dining in
           </p>
-          <p className="mt-1 font-serif font-bold text-lg sm:text-xl leading-tight text-on-surface group-hover:text-primary transition-colors truncate">
+          {/* Long addresses (e.g. "21 High Point Road, Staples, CT") used to
+              truncate off the edge on narrow phones. We now let them wrap
+              across 2–3 lines; `break-words` handles the rare extra-long
+              single token, and the parent's max-width cap on phone mode
+              (see Map.tsx) is what actually triggers the wrap point. */}
+          <p className="mt-1 font-serif font-bold text-lg sm:text-xl leading-tight text-on-surface group-hover:text-primary transition-colors break-words">
             {shortLabel}
           </p>
         </div>

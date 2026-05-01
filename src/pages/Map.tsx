@@ -82,50 +82,30 @@ async function applyCoverPhotos(
   }));
 }
 
-// Radius options (miles) for the "Recommended For You" scope picker.
-// Persisted per-user in localStorage so the choice survives reloads.
-const RADIUS_OPTIONS = [1, 3, 5, 10, 25] as const;
-type RadiusMiles = typeof RADIUS_OPTIONS[number];
-const REC_RADIUS_STORAGE_KEY = 'gourmad-rec-radius-miles';
+// Fixed recommendation radius (miles). The user-facing chip picker was
+// removed to keep the home feed's header minimal; /location still owns a
+// slider for users who want tighter or looser geographic scoping. Keeping
+// it as a const — rather than state — means buildQueryQueries /
+// scoreCandidates / cache keys all read a stable value every render.
+const REC_RADIUS_MILES = 8;
 
-const RecRadiusPicker: React.FC<{
-  value: RadiusMiles;
-  onChange: (n: RadiusMiles) => void;
+const RecRefreshButton: React.FC<{
   onRefresh: () => void;
   refreshing: boolean;
-}> = ({ value, onChange, onRefresh, refreshing }) => (
-  <div className="flex items-center gap-2">
-    <div className="flex items-center gap-1 bg-on-surface/[0.04] rounded-full p-0.5" role="radiogroup" aria-label="Search radius">
-      {RADIUS_OPTIONS.map((n) => (
-        <button
-          key={n}
-          type="button"
-          role="radio"
-          aria-checked={value === n}
-          onClick={() => onChange(n)}
-          className={cn(
-            'px-2.5 py-1 text-[11px] font-semibold rounded-full transition-colors',
-            value === n ? 'bg-white text-primary shadow-sm' : 'text-on-surface/50 hover:text-on-surface/80',
-          )}
-        >
-          {n} mi
-        </button>
-      ))}
-    </div>
-    <button
-      type="button"
-      onClick={onRefresh}
-      disabled={refreshing}
-      aria-label="Refresh recommendations"
-      title="Refresh recommendations"
-      className={cn(
-        'flex items-center justify-center w-7 h-7 rounded-full bg-on-surface/[0.04] text-on-surface/60 transition-colors',
-        refreshing ? 'cursor-not-allowed opacity-60' : 'hover:bg-on-surface/[0.08] hover:text-on-surface/80',
-      )}
-    >
-      <RefreshCw size={13} className={refreshing ? 'animate-spin' : undefined} />
-    </button>
-  </div>
+}> = ({ onRefresh, refreshing }) => (
+  <button
+    type="button"
+    onClick={onRefresh}
+    disabled={refreshing}
+    aria-label="Refresh recommendations"
+    title="Refresh recommendations"
+    className={cn(
+      'flex items-center justify-center w-7 h-7 rounded-full bg-on-surface/[0.04] text-on-surface/60 transition-colors',
+      refreshing ? 'cursor-not-allowed opacity-60' : 'hover:bg-on-surface/[0.08] hover:text-on-surface/80',
+    )}
+  >
+    <RefreshCw size={13} className={refreshing ? 'animate-spin' : undefined} />
+  </button>
 );
 
 // Max age we'll trust a Supabase cache entry before throwing it out and
@@ -557,18 +537,9 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
 
   // Radius scope for the Recommended For You row (miles). Persisted so the
   // user's pick survives reloads and drives both the Google query radius and
-  // the post-score distance penalty in scoreCandidates.
-  const [recRadiusMiles, setRecRadiusMiles] = useState<RadiusMiles>(() => {
-    try {
-      const raw = localStorage.getItem(REC_RADIUS_STORAGE_KEY);
-      const n = raw ? Number(raw) : 5;
-      return (RADIUS_OPTIONS as readonly number[]).includes(n) ? (n as RadiusMiles) : 5;
-    } catch { return 5; }
-  });
-  const updateRecRadius = useCallback((n: RadiusMiles) => {
-    setRecRadiusMiles(n);
-    try { localStorage.setItem(REC_RADIUS_STORAGE_KEY, String(n)); } catch { /* ignore */ }
-  }, []);
+  // the post-score distance penalty in scoreCandidates. Now a constant
+  // after the chip picker was removed; see REC_RADIUS_MILES above.
+  const recRadiusMiles = REC_RADIUS_MILES;
 
   // Manual refresh for the Recommended For You row. Drops every cache layer
   // for the current location (session + Supabase) so the next fetch goes
@@ -943,6 +914,8 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     };
 
     const runLiveFetch = async () => {
+      let withCovers: PlaceResult[] = [];
+
       if (userPreferences.highRatedCount > 0 && userPreferences.topCuisines.length > 0) {
         const queries = buildRecQueries(homeCityOverride);
         // Pull a larger initial pool — five queries weighted across the
@@ -951,60 +924,73 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
         // actually produces visibly different recs without any more calls.
         const initialBatch = queries.slice(0, 5);
         recsQueryCursorRef.current = initialBatch.length;
-        const fresh = await fetchRecBatch(initialBatch);
+        let fresh = await fetchRecBatch(initialBatch);
+        // The personalised queries are cuisine-specific ("best $$ Ramen in
+        // Austin, TX"); when the user's top cuisines happen to be niche in
+        // the newly-selected city, every one of those queries can come back
+        // empty and the section silently disappears. First try generic
+        // city text queries with the same fetchRecBatch (so the quality
+        // filter + scorer still apply).
+        if (fresh.length === 0 && homeCityOverride) {
+          const fallbackQueries = [
+            `best restaurants in ${homeCityOverride}`,
+            `popular restaurants in ${homeCityOverride}`,
+          ];
+          fresh = await fetchRecBatch(fallbackQueries);
+          // Advance the cursor past the fallbacks so load-more doesn't
+          // immediately re-issue them.
+          recsQueryCursorRef.current += fallbackQueries.length;
+        }
         // Stamp cover photos onto the results BEFORE caching so returning
         // users get them straight out of cache on the next visit.
-        const withCovers = await applyCoverPhotos(fresh, uid);
-        const shuffled = shuffleInPlace([...withCovers]);
-        setApiRecommendations(shuffled);
-        setRecsLoading(false);
-        if (uid && locKey && homeLocation && withCovers.length > 0) {
-          const entry: HomeRecCacheEntry = {
-            places: withCovers,
-            preferencesHash: prefsHash,
-            updatedAt: Date.now(),
-          };
-          sessionRecsCache[locKey] = entry;
-          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, withCovers);
-        }
-      } else {
-        // No preferences yet — pull a generic "best / nearby" set. Two calls
-        // instead of the previous two still but no text-city search baked
-        // into the query string.
-        let lat: number;
-        let lng: number;
+        withCovers = await applyCoverPhotos(fresh, uid);
+      }
+
+      // Last-resort fallback. Runs if:
+      //   (a) the user has no preferences yet, OR
+      //   (b) every personalised + generic text query above came back
+      //       empty because the quality floor / radius restriction / niche
+      //       cuisines dropped everything.
+      //
+      // This path uses the Places "searchNearby" endpoint (a different
+      // Google API from text search), which reliably returns popular
+      // restaurants around any lat/lng without needing a well-formed
+      // cuisine/city query. It's the safety net that stops the section
+      // from ever rendering empty for a valid, non-remote location.
+      if (withCovers.length === 0) {
+        let fbLat: number;
+        let fbLng: number;
         if (mode === 'home' && homeLocation) {
-          lat = homeLocation.lat;
-          lng = homeLocation.lng;
+          fbLat = homeLocation.lat;
+          fbLng = homeLocation.lng;
         } else {
           const center = mapRef.current?.getCenter();
-          lat = center?.lat ?? 40.735;
-          lng = center?.lng ?? -73.99;
+          fbLat = center?.lat ?? 40.735;
+          fbLng = center?.lng ?? -73.99;
         }
-        // No-preferences fallback queries. In home mode we pass the chip's
-        // radius to both so results stay inside the picked scope; in browse
-        // mode we keep the old (unbounded) behaviour.
         const fbRadius = mode === 'home' ? recRadiusMiles * 1609.34 : 2000;
         const [nearby, best] = await Promise.all([
-          searchNearbyRestaurants(lat, lng, fbRadius).catch(() => [] as PlaceResult[]),
-          searchPlacesByText('best restaurants', lat, lng, homeLocation?.label, mode === 'home', fbRadius).catch(() => [] as PlaceResult[]),
+          searchNearbyRestaurants(fbLat, fbLng, fbRadius).catch(() => [] as PlaceResult[]),
+          searchPlacesByText('best restaurants', fbLat, fbLng, homeLocation?.label, mode === 'home', fbRadius).catch(() => [] as PlaceResult[]),
         ]);
         const all = [...nearby, ...best];
-        const seen = new Set<string>();
-        const dedup = all.filter((p) => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+        const seenIds = new Set<string>();
+        const dedup = all.filter((p) => { if (seenIds.has(p.id)) return false; seenIds.add(p.id); return true; });
         const withinRadius = filterByRadius(dedup);
-        const out = await applyCoverPhotos(withinRadius.slice(0, 12), uid);
-        setApiRecommendations(out);
-        setRecsLoading(false);
-        if (uid && locKey && homeLocation && out.length > 0) {
-          const entry: HomeRecCacheEntry = {
-            places: out,
-            preferencesHash: prefsHash,
-            updatedAt: Date.now(),
-          };
-          sessionRecsCache[locKey] = entry;
-          saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, out);
-        }
+        withCovers = await applyCoverPhotos(withinRadius.slice(0, 12), uid);
+      }
+
+      const shuffled = shuffleInPlace([...withCovers]);
+      setApiRecommendations(shuffled);
+      setRecsLoading(false);
+      if (uid && locKey && homeLocation && withCovers.length > 0) {
+        const entry: HomeRecCacheEntry = {
+          places: withCovers,
+          preferencesHash: prefsHash,
+          updatedAt: Date.now(),
+        };
+        sessionRecsCache[locKey] = entry;
+        saveHomeRecsCache(uid, locKey, homeLocation.label, homeLocation.lat, homeLocation.lng, prefsHash, withCovers);
       }
     };
 
@@ -1021,6 +1007,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       // 2. Supabase cache — one lightweight query, no Places spend.
       if (uid) {
         (async () => {
+          try {
           const cached = await getHomeRecsCache(uid, locKey);
           const fresh = cached && Date.now() - cached.updatedAt < HOME_RECS_CACHE_TTL ? cached : null;
           if (fresh && fresh.places.length > 0) {
@@ -1082,13 +1069,26 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
           }
           // Cache miss or stale — live fetch.
           await runLiveFetch();
+          } catch (err) {
+            // Never leave the spinner stuck: if any step in the cache-check
+            // or fallback live fetch throws (network error, Places auth
+            // hiccup, etc.), clear the loading flag and let the UI render
+            // the empty state rather than spinning forever.
+            console.warn('[Recs] live fetch failed:', err);
+            setRecsLoading(false);
+          }
         })();
         return;
       }
     }
 
-    // Anonymous home, or map mode — just run the live path.
-    runLiveFetch();
+    // Anonymous home, or map mode — just run the live path. The .catch here
+    // mirrors the logged-in path: an unhandled rejection from runLiveFetch
+    // otherwise leaves the section stuck on the spinner.
+    runLiveFetch().catch((err) => {
+      console.warn('[Recs] live fetch failed:', err);
+      setRecsLoading(false);
+    });
   }, [userPreferences.highRatedCount, userPreferences.topCuisines.length, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles, recRefreshNonce]);
 
   // Load more recommendations — called when the horizontal scroll nears the
@@ -3264,11 +3264,16 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
               {/* Feed content — hidden when searching */}
               {!discoverSearchActive && mode === 'home' && (
                 <div className="mt-2 flex items-end justify-between gap-3">
-                  <HomeLocationBar
-                    location={homeLocation}
-                    onChange={handleHomeLocationChange}
-                    onUseCurrent={handleHomeUseCurrent}
-                  />
+                  {/* On phone the location bar is capped to ~60% of the row so
+                      long addresses wrap onto a second line instead of
+                      pushing the "View all" link off-screen. */}
+                  <div className={cn('min-w-0', phoneMode && 'max-w-[60%]')}>
+                    <HomeLocationBar
+                      location={homeLocation}
+                      onChange={handleHomeLocationChange}
+                      onUseCurrent={handleHomeUseCurrent}
+                    />
+                  </div>
                   {homeLocation && (
                     <button
                       type="button"
@@ -3299,7 +3304,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       <Sparkles size={15} className="text-primary/60" />
                       <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                     </div>
-                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
+                    {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                   </div>
                   <div className="flex items-center justify-center py-8">
                     <Loader2 size={20} className="text-primary/40 animate-spin" />
@@ -3313,7 +3318,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                       <Sparkles size={15} className="text-primary/60" />
                       <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                     </div>
-                    {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
+                    {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                   </div>
                   <div
                     className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
@@ -3386,6 +3391,25 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
                     )}
+                  </div>
+                </section>
+              ) : mode === 'home' && homeLocation ? (
+                // Empty state. Most common cause: the user switched to a
+                // city for the first time and the personalised queries
+                // came back narrower than the radius allows. We keep the
+                // header visible so the radius picker stays reachable —
+                // bumping the chip is usually the fix.
+                <section className="mt-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={15} className="text-primary/60" />
+                      <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                    </div>
+                    <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
+                  </div>
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <p className="text-sm text-on-surface/50 font-medium">No recommendations in this area yet</p>
+                    <p className="text-xs text-on-surface/35 mt-1">Try a wider radius or a different location.</p>
                   </div>
                 </section>
               ) : null}
@@ -3958,7 +3982,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
+                        {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div className="flex items-center justify-center py-6">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
@@ -3972,7 +3996,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRadiusPicker value={recRadiusMiles} onChange={updateRecRadius} onRefresh={refreshRecs} refreshing={recsLoading} />}
+                        {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div
                         className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
