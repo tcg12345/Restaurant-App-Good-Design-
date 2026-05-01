@@ -3688,7 +3688,7 @@ const HomeCookingTab: React.FC<{
             const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
             const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
             return (
-              <li key={meal.id}>
+              <li key={meal.id} className="relative group/row">
                 <button
                   onClick={() => onSelectMeal(meal.id)}
                   className="w-full flex gap-4 py-4 text-left group active:scale-[0.99] transition-transform"
@@ -3707,7 +3707,9 @@ const HomeCookingTab: React.FC<{
                   <div className="flex-1 min-w-0 flex flex-col justify-center">
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
-                      <span className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(meal.score))}>
+                      {/* Score sits next to a placeholder gap so the pencil button (absolute-positioned)
+                           doesn't overlap the number on narrow rows. */}
+                      <span className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 mr-7", scoreColor(meal.score))}>
                         {meal.score.toFixed(1)}
                       </span>
                     </div>
@@ -3731,6 +3733,14 @@ const HomeCookingTab: React.FC<{
                       </p>
                     )}
                   </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onOpenModal(meal); }}
+                  aria-label={`Edit ${meal.name}`}
+                  className="absolute top-4 right-0 p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100"
+                >
+                  <Edit3 size={15} />
                 </button>
               </li>
             );
