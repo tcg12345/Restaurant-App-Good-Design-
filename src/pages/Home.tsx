@@ -4,12 +4,13 @@ import { RestaurantCard } from '../components/RestaurantCard';
 import { CircleActivity } from '../components/CircleActivity';
 import { LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
-import { Search, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles, Building2, SearchX, BookOpen } from 'lucide-react';
+import { Search, X, ArrowUpDown, DollarSign, UtensilsCrossed, Check, SlidersHorizontal, Bookmark, Star, Heart, Grid, List, ChevronRight, ChevronDown, MapPin, ArrowLeft, Clock, Sparkles, Building2, SearchX, BookOpen, ChefHat } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { useLists } from '../contexts/ListsContext';
+import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
@@ -154,7 +155,11 @@ function clearSearchState() {
 
 export const Home: React.FC = () => {
   const { phoneMode, setHideBottomNav } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings } = useLists();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings, homeMeals } = useLists();
+  const {
+    friendRecipes, expertRecipes, publicRecipes,
+    fetchFriendRecipes, fetchExpertRecipes, fetchPublicRecipes,
+  } = useRecipes();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'general' | 'circle'>('general');
 
@@ -247,6 +252,77 @@ export const Home: React.FC = () => {
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
   }, [ratings]);
+
+  // ── Recipe recommendations ──
+  // Fetch the friend / expert / public pools once on mount (and when sign-in
+  // state changes). The context keeps each pool cached so re-renders don't
+  // trigger refetches; the request is fire-and-forget — failures show no
+  // recipe section instead of crashing the home page.
+  const recipesFetchedRef = useRef(false);
+  useEffect(() => {
+    if (!user?.id || recipesFetchedRef.current) return;
+    recipesFetchedRef.current = true;
+    fetchFriendRecipes();
+    fetchExpertRecipes();
+    fetchPublicRecipes();
+  }, [user?.id, fetchFriendRecipes, fetchExpertRecipes, fetchPublicRecipes]);
+
+  // Build a taste signal from the user's logged Home Cooking meals — the
+  // same shape we use for restaurants, but keyed off cuisine + tags from
+  // meals the user actually rated highly.
+  const recipePreferences = useMemo(() => {
+    const cuisineCounts: Record<string, number> = {};
+    const tagCounts: Record<string, number> = {};
+    homeMeals.forEach((m) => {
+      const weight = m.score >= 7 ? 2 : 1;
+      if (m.cuisine) {
+        const k = m.cuisine.toLowerCase();
+        cuisineCounts[k] = (cuisineCounts[k] || 0) + weight;
+      }
+      m.tags.forEach((t) => {
+        const k = t.toLowerCase();
+        tagCounts[k] = (tagCounts[k] || 0) + weight;
+      });
+    });
+    return { cuisineCounts, tagCounts };
+  }, [homeMeals]);
+
+  // Combine the three pools, dedupe by id, score by source priority +
+  // cuisine/tag overlap with the user's taste signal. Friend recipes lead
+  // (most personal), then experts, then general public.
+  const recommendedRecipes = useMemo(() => {
+    type Scored = Recipe & { _source: 'friend' | 'expert' | 'public'; _score: number };
+    const seen = new Set<string>();
+    const cooked = new Set(homeMeals.map((m) => m.name.trim().toLowerCase()));
+    const scored: Scored[] = [];
+
+    const consume = (recipes: Recipe[], source: Scored['_source'], baseWeight: number) => {
+      for (const r of recipes) {
+        if (!r?.id || seen.has(r.id)) continue;
+        // Hide recipes the user already cooked under the same name — keeps
+        // the rec row showing things they haven't tried yet.
+        if (cooked.has(r.title.trim().toLowerCase())) continue;
+        seen.add(r.id);
+        let score = baseWeight;
+        if (r.cuisine) {
+          const c = recipePreferences.cuisineCounts[r.cuisine.toLowerCase()];
+          if (c) score += c * 3;
+        }
+        for (const t of r.tags) {
+          const c = recipePreferences.tagCounts[t.toLowerCase()];
+          if (c) score += c;
+        }
+        scored.push({ ...r, _source: source, _score: score });
+      }
+    };
+
+    consume(friendRecipes, 'friend', 8);
+    consume(expertRecipes, 'expert', 5);
+    consume(publicRecipes, 'public', 1);
+
+    scored.sort((a, b) => b._score - a._score);
+    return scored.slice(0, 6);
+  }, [friendRecipes, expertRecipes, publicRecipes, homeMeals, recipePreferences]);
 
   // Restore saved search state on mount (survives navigation to detail page and back)
   const savedState = useRef(loadSearchState());
@@ -962,6 +1038,67 @@ export const Home: React.FC = () => {
                           </div>
                         </section>
                       ) : null}
+
+                      {/* Recipes For You — friend / expert / public recipes,
+                           ranked by source priority + cuisine/tag overlap with
+                           the user's logged Home Cooking meals. */}
+                      {recommendedRecipes.length > 0 && (
+                        <section>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <ChefHat size={15} className="text-emerald-600/70" />
+                              <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recipes For You</h3>
+                            </div>
+                            <Link to="/recipes-for-you" className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
+                              View all
+                            </Link>
+                          </div>
+                          <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                            {recommendedRecipes.map((r) => {
+                              const cover = r.photos?.[0];
+                              return (
+                                <Link
+                                  key={r.id}
+                                  to={`/recipe/${r.id}`}
+                                  className="flex-shrink-0 snap-start group"
+                                >
+                                  <div className="relative w-44 aspect-[3/4] rounded-2xl overflow-hidden bg-muted">
+                                    {cover ? (
+                                      <img
+                                        src={cover}
+                                        alt={r.title}
+                                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    ) : (
+                                      <div className="absolute inset-0 flex items-center justify-center bg-emerald-50 text-emerald-300">
+                                        <ChefHat size={36} />
+                                      </div>
+                                    )}
+                                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+                                    <div className="absolute top-2 left-2">
+                                      <span className={cn(
+                                        'inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full backdrop-blur-sm',
+                                        r._source === 'friend' && 'bg-blue-500/90 text-white',
+                                        r._source === 'expert' && 'bg-amber-500/90 text-white',
+                                        r._source === 'public' && 'bg-white/80 text-on-surface/70',
+                                      )}>
+                                        {r._source === 'friend' ? 'Friend' : r._source === 'expert' ? 'Expert' : 'Public'}
+                                      </span>
+                                    </div>
+                                    <div className="absolute inset-x-0 bottom-0 p-3">
+                                      <p className="text-white text-sm font-bold leading-tight drop-shadow-sm line-clamp-2">{r.title}</p>
+                                      <div className="flex items-center gap-1 mt-1 text-[11px] text-white/80">
+                                        {r.cuisine && <span className="font-semibold">{r.cuisine}</span>}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      )}
 
                       {/* Your Top Rated — shown when user has ratings */}
                       {topRated.length > 0 && (
