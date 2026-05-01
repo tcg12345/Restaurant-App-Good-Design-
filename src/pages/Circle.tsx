@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, ChevronRight, Loader2, ArrowLeft } from 'lucide-react';
+import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, ChevronRight, Loader2, ArrowLeft, MapPin } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
@@ -373,6 +373,12 @@ export const Circle: React.FC = () => {
                           <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/70">Expert</p>
                         </div>
                         <h3 className="font-serif text-lg font-bold leading-tight truncate">{expert.display_name}</h3>
+                        {expert.home_city && (
+                          <p className="text-[10px] font-semibold text-white/85 mt-0.5 truncate flex items-center gap-1">
+                            <MapPin size={9} className="text-white/65" />
+                            {expert.home_city.split(',')[0].trim()}
+                          </p>
+                        )}
                         <p className="text-[11px] font-medium text-white/75 mt-0.5">
                           {formatCount(rCount)} reviews · {formatCount(fCount)} followers
                         </p>

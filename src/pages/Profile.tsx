@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../lib/supabase-community';
+import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -58,6 +59,11 @@ export const Profile: React.FC = () => {
   const [editName, setEditName] = useState('');
   const [editUsername, setEditUsername] = useState('');
   const [editBio, setEditBio] = useState('');
+  // Home city the user is based in. Surfaced on Circle expert cards and
+  // used by /location to suggest experts in the area being explored.
+  // Free-text input here; on save it's forward-geocoded to lat/lng so
+  // location-based queries don't have to re-geocode every profile.
+  const [editHomeCity, setEditHomeCity] = useState('');
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
@@ -97,6 +103,7 @@ export const Profile: React.FC = () => {
     setEditName(profile?.display_name || '');
     setEditUsername(profile?.username || '');
     setEditBio(profile?.bio || '');
+    setEditHomeCity(profile?.home_city || '');
     setEditError('');
     setEditSuccess(false);
   };
@@ -134,7 +141,34 @@ export const Profile: React.FC = () => {
     }
     setEditSaving(true);
     setEditError('');
-    const result = await saveProfile(user.id, editName.trim(), editUsername.trim(), editBio.trim());
+    // Resolve the typed home-city to coords on save so location-based
+    // queries (e.g. "experts in Westport") don't have to forward-geocode
+    // every profile at read time. Only changed-or-new entries hit Mapbox;
+    // a cleared field resets coords too.
+    const homeCityTrim = editHomeCity.trim();
+    const previousCity = profile?.home_city || '';
+    let homeBase: { homeCity?: string | null; homeLat?: number | null; homeLng?: number | null } | undefined;
+    if (homeCityTrim !== previousCity) {
+      if (!homeCityTrim) {
+        homeBase = { homeCity: null, homeLat: null, homeLng: null };
+      } else {
+        const geo = await geocodePlace(homeCityTrim);
+        homeBase = {
+          homeCity: geo?.label || homeCityTrim,
+          homeLat: geo?.lat ?? null,
+          homeLng: geo?.lng ?? null,
+        };
+      }
+    }
+    const result = await saveProfile(
+      user.id,
+      editName.trim(),
+      editUsername.trim(),
+      editBio.trim(),
+      undefined,
+      undefined,
+      homeBase,
+    );
     if (result.success) {
       setEditSuccess(true);
       await refreshProfile();
@@ -648,6 +682,29 @@ export const Profile: React.FC = () => {
                           />
                         </div>
                         <p className="text-[11px] text-on-surface/40 text-right mt-1 tabular-nums">{editBio.length}/150 characters</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5">
+                          Home city
+                          {profile?.is_expert && (
+                            <span className="ml-1.5 text-primary normal-case font-semibold tracking-normal">· recommended for experts</span>
+                          )}
+                        </p>
+                        <div className="relative">
+                          <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                          <input
+                            type="text"
+                            value={editHomeCity}
+                            onChange={(e) => setEditHomeCity(e.target.value)}
+                            placeholder="e.g. Westport, CT"
+                            className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            autoCapitalize="words"
+                            autoCorrect="off"
+                          />
+                        </div>
+                        <p className="text-[11px] text-on-surface/40 mt-1">
+                          Where you're based. Shown on your profile and helps surface you to people exploring your area.
+                        </p>
                       </div>
                       {editError && <p className="text-xs text-red-500">{editError}</p>}
                       {editSuccess && (

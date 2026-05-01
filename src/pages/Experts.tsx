@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, Crown, Check, ArrowUpDown, ChevronDown, Loader2 } from 'lucide-react';
+import { Star, Crown, Check, ArrowUpDown, ChevronDown, Loader2, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreDotBg } from '../lib/score';
@@ -294,6 +294,12 @@ export const Experts: React.FC = () => {
                             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/70">Expert</p>
                           </div>
                           <h3 className="font-serif text-xl font-bold leading-tight mb-1 truncate">{e.profile.display_name}</h3>
+                          {e.profile.home_city && (
+                            <p className="text-[11px] font-semibold text-white/85 truncate flex items-center gap-1 mb-0.5">
+                              <MapPin size={10} className="text-white/70" />
+                              {e.profile.home_city.split(',')[0].trim()}
+                            </p>
+                          )}
                           <p className="text-[12px] font-medium text-white/80 truncate">
                             {formatCount(e.ratings.length)} reviews · {formatCount(e.followers)} followers
                           </p>

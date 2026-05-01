@@ -5,6 +5,7 @@ import {
   BookOpen,
   Car,
   Check,
+  Crown,
   Footprints,
   Loader2,
   Map as MapIcon,
@@ -34,12 +35,16 @@ import {
   type ScoredPlace,
 } from '../lib/recommendations';
 import {
+  followPublicAccount,
   getAllFriendRatings,
   getExpertProfiles,
   getExpertRatings,
   getFollowedExpertIds,
+  getProfilesInArea,
   getRatingsByUserIds,
+  sendFriendRequest,
   type CommunityRating,
+  type UserProfile,
 } from '../lib/supabase-community';
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
@@ -269,6 +274,14 @@ function buildSearchQueryPool(term: string, cityKey: string): string[] {
   return out;
 }
 
+/* Discriminated union for the "Around {city}" suggestion row. The three
+   shapes don't share much beyond "render in a horizontal scroller", so
+   we keep them as a tagged union and dispatch in the renderer. */
+type SuggestionCard =
+  | { kind: 'expert'; profile: UserProfile }
+  | { kind: 'friend'; profile: UserProfile }
+  | { kind: 'restaurant'; place: ScoredPlace };
+
 type SortOption = 'recommended' | 'rating' | 'popularity' | 'distance';
 
 const SORT_LABELS: Record<SortOption, string> = {
@@ -452,6 +465,18 @@ export const LocationPage: React.FC = () => {
   const [friendCounts, setFriendCounts] = useState<Map<string, number>>(new Map());
   const [expertCounts, setExpertCounts] = useState<Map<string, number>>(new Map());
 
+  // People in this area, surfaced as the "Around {city}" suggestions row.
+  // Both lists query user_profiles by home_lat/lng bounding box; profiles
+  // without a declared home base don't appear, which is by design — we
+  // can't say someone is "in this area" without that signal.
+  const [areaExperts, setAreaExperts] = useState<UserProfile[]>([]);
+  const [areaFriendCandidates, setAreaFriendCandidates] = useState<UserProfile[]>([]);
+  // Optimistic "just followed / just requested" set so the suggestion
+  // card buttons flip to their done state instantly, before the server
+  // round-trip resolves.
+  const [followedSuggestions, setFollowedSuggestions] = useState<Set<string>>(new Set());
+  const [requestedFriendIds, setRequestedFriendIds] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -544,6 +569,52 @@ export const LocationPage: React.FC = () => {
     })();
     return () => { cancelled = true; };
   }, [userId]);
+
+  // Pull experts + non-expert profiles whose declared home base sits in
+  // this city's bounding box. Powers the "Around {city}" suggestions row
+  // between Guides and the restaurant list. The bbox spans roughly
+  // ±8 mi (degrees scaled by the cosine of latitude so it stays square
+  // at higher latitudes); profiles without home_lat are not in the
+  // index range and never returned, which is the desired behaviour —
+  // we don't want to claim someone is "in this area" without a signal.
+  useEffect(() => {
+    if (!hasCoords) {
+      setAreaExperts([]);
+      setAreaFriendCandidates([]);
+      return;
+    }
+    let cancelled = false;
+    const dLat = 8 / 69; // ~8 mi → degrees of latitude
+    const cosLat = Math.max(0.01, Math.cos((lat * Math.PI) / 180));
+    const dLng = (8 / 69) / cosLat;
+    const bbox = {
+      latLow: lat - dLat,
+      latHigh: lat + dLat,
+      lngLow: lng - dLng,
+      lngHigh: lng + dLng,
+    };
+    const exclude = userId ? [userId] : [];
+    (async () => {
+      const [experts, candidates] = await Promise.all([
+        getProfilesInArea({ bbox, expertsOnly: true, excludeUserIds: exclude, limit: 8 }),
+        getProfilesInArea({ bbox, expertsOnly: false, excludeUserIds: exclude, limit: 8 }),
+      ]);
+      if (cancelled) return;
+      setAreaExperts(experts);
+      // Drop experts from the friend-candidate list so a single profile
+      // doesn't render twice in the same row.
+      setAreaFriendCandidates(candidates.filter((p) => !p.is_expert));
+    })();
+    return () => { cancelled = true; };
+  }, [hasCoords, lat, lng, userId]);
+
+  // Reset optimistic-follow sets when the location changes — the cards
+  // about to render will be a different set of people, and the previous
+  // pending state shouldn't leak across cities.
+  useEffect(() => {
+    setFollowedSuggestions(new Set());
+    setRequestedFriendIds(new Set());
+  }, [lat, lng]);
 
   // The sorted, deduplicated pool of places we've pulled for this city.
   // `placesPool` is the raw accumulated list; `ranked` is the same list after
@@ -925,6 +996,70 @@ export const LocationPage: React.FC = () => {
     );
   }, [augmentedPool, profile, signals, cityDisplay, lat, lng, hasCoords, radiusMeters]);
 
+  // Mixed expert / friend / restaurant cards for the "Around {city}" row.
+  // We interleave the three types so the row alternates kinds and the
+  // user always sees a bit of everything before scrolling — instead of
+  // grouping (which would put all experts first, all friends second, etc.).
+  // Capped at 12 cards total so the row stays scannable on phones.
+  const suggestionCards = useMemo<SuggestionCard[]>(() => {
+    if (!hasCoords) return [];
+    const featuredRestaurants = ranked.slice(0, 6);
+    const cards: SuggestionCard[] = [];
+    const longest = Math.max(
+      areaExperts.length,
+      areaFriendCandidates.length,
+      featuredRestaurants.length,
+    );
+    for (let i = 0; i < longest && cards.length < 12; i++) {
+      if (areaExperts[i]) cards.push({ kind: 'expert', profile: areaExperts[i] });
+      if (areaFriendCandidates[i]) cards.push({ kind: 'friend', profile: areaFriendCandidates[i] });
+      if (featuredRestaurants[i]) cards.push({ kind: 'restaurant', place: featuredRestaurants[i] });
+    }
+    return cards.slice(0, 12);
+  }, [hasCoords, areaExperts, areaFriendCandidates, ranked]);
+
+  const handleFollowExpert = useCallback(
+    async (targetId: string) => {
+      if (!userId) return;
+      setFollowedSuggestions((prev) => {
+        const next = new Set(prev);
+        next.add(targetId);
+        return next;
+      });
+      const ok = await followPublicAccount(userId, targetId);
+      if (!ok) {
+        // Roll back the optimistic update so the button doesn't lie about
+        // the follow having succeeded.
+        setFollowedSuggestions((prev) => {
+          const next = new Set(prev);
+          next.delete(targetId);
+          return next;
+        });
+      }
+    },
+    [userId],
+  );
+
+  const handleAddFriend = useCallback(
+    async (targetId: string) => {
+      if (!userId) return;
+      setRequestedFriendIds((prev) => {
+        const next = new Set(prev);
+        next.add(targetId);
+        return next;
+      });
+      const ok = await sendFriendRequest(userId, targetId);
+      if (!ok) {
+        setRequestedFriendIds((prev) => {
+          const next = new Set(prev);
+          next.delete(targetId);
+          return next;
+        });
+      }
+    },
+    [userId],
+  );
+
   // Apply the in-page filters + sort to the already-ranked list. Filters
   // never trigger a refetch — they shrink what's shown from the pool we
   // already have, so as infinite-scroll pulls more pages any matching
@@ -1114,6 +1249,47 @@ export const LocationPage: React.FC = () => {
           ))}
         </div>
       </section>
+
+      {/* Around {city} — mixed expert / friend / restaurant suggestions.
+          Sits between the Guides row and the main restaurant list so the
+          user gets a sense of "who and what's around here" before diving
+          into the long list. The row hides itself when there's nothing
+          to show (no profiles in the area + ranked still empty), so a
+          fresh / unindexed location doesn't render a dead section. */}
+      {suggestionCards.length > 0 && (
+        <section className="mt-6">
+          <div className="px-4 flex items-center justify-between mb-2.5">
+            <div className="flex items-center gap-2">
+              <Sparkles size={14} className="text-primary/70" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">
+                Around {shortCityName}
+              </h2>
+            </div>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2 px-4 scrollbar-hide snap-x snap-mandatory">
+            {suggestionCards.map((card, idx) => (
+              <SuggestionCardView
+                key={
+                  card.kind === 'restaurant'
+                    ? `r-${card.place.id}`
+                    : `${card.kind}-${card.profile.user_id}-${idx}`
+                }
+                card={card}
+                followed={
+                  card.kind === 'expert'
+                  && (signals.followedExpertIds.has(card.profile.user_id)
+                    || followedSuggestions.has(card.profile.user_id))
+                }
+                requested={
+                  card.kind === 'friend' && requestedFriendIds.has(card.profile.user_id)
+                }
+                onFollow={handleFollowExpert}
+                onAddFriend={handleAddFriend}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Restaurant list */}
       <section className="mt-8">
@@ -1464,6 +1640,156 @@ const RestaurantRow: React.FC<RestaurantRowProps> = ({
         </div>
       </Link>
     </li>
+  );
+};
+
+/* ── Suggestion card ─────────────────────────────────────────────────────────
+   The "Around {city}" row renders three card kinds — expert, friend
+   suggestion, restaurant — through this single component. They share
+   roughly the same footprint (260 × 320-ish) so the row stays visually
+   uniform while the content + CTA differ.
+
+   Expert / friend cards generate a colored gradient surface keyed off
+   the first letter of the name (no avatars yet) — same trick the Circle
+   page uses, so the visual language is consistent.
+
+   Restaurant cards link straight to the detail page, no inline CTA. */
+interface SuggestionCardViewProps {
+  card: SuggestionCard;
+  followed: boolean;
+  requested: boolean;
+  onFollow: (userId: string) => void;
+  onAddFriend: (userId: string) => void;
+}
+
+const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
+  card,
+  followed,
+  requested,
+  onFollow,
+  onAddFriend,
+}) => {
+  if (card.kind === 'restaurant') {
+    const place = card.place;
+    const cuisine = inferCuisineLabel(place.types);
+    const priceLabel = priceLevelToString(place.priceLevel);
+    return (
+      <Link
+        to={`/restaurant/${place.id}`}
+        className="flex-shrink-0 snap-start group block w-56"
+      >
+        <div className="relative aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-primary/15 to-amber-100/40 flex items-center justify-center">
+          <span className="font-serif text-6xl font-bold text-primary/30">
+            {place.name.charAt(0).toUpperCase()}
+          </span>
+          {place.rating > 0 && (
+            <div
+              className={cn(
+                'absolute top-3 right-3 w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold tabular-nums shadow-md',
+                scoreBg(place.rating * 2),
+              )}
+            >
+              {(place.rating * 2).toFixed(1)}
+            </div>
+          )}
+          <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider text-primary">
+            <Sparkles size={9} />
+            Pick
+          </div>
+        </div>
+        <div className="px-1 pt-2.5">
+          <h3 className="font-serif text-[15px] font-bold text-on-surface leading-snug line-clamp-2">
+            {place.name}
+          </h3>
+          <p className="mt-1 text-[11px] text-on-surface/55 font-medium uppercase tracking-wider truncate">
+            {cuisine || 'Restaurant'}
+            {priceLabel && <span className="text-on-surface/25 mx-1.5">·</span>}
+            {priceLabel}
+          </p>
+        </div>
+      </Link>
+    );
+  }
+
+  const profile = card.profile;
+  const isExpert = card.kind === 'expert';
+  const cityShort = profile.home_city ? profile.home_city.split(',')[0].trim() : '';
+  return (
+    <div className="flex-shrink-0 snap-start w-56">
+      <Link
+        to={`/user/${profile.username}`}
+        className="block relative aspect-square rounded-2xl overflow-hidden group"
+      >
+        <div className={cn(
+          'h-full w-full flex items-center justify-center',
+          isExpert
+            ? 'bg-gradient-to-br from-amber-100 to-primary/10'
+            : 'bg-gradient-to-br from-secondary/20 to-secondary/5',
+        )}>
+          <span className={cn(
+            'text-6xl font-serif font-bold',
+            isExpert ? 'text-primary/30' : 'text-secondary/45',
+          )}>
+            {(profile.display_name || profile.username || '?').charAt(0).toUpperCase()}
+          </span>
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-transparent" />
+        <div className="absolute top-3 left-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider">
+          {isExpert ? (
+            <>
+              <Crown size={9} className="text-amber-500" />
+              <span className="text-primary">Expert</span>
+            </>
+          ) : (
+            <>
+              <Users size={9} className="text-secondary" />
+              <span className="text-secondary">Suggested</span>
+            </>
+          )}
+        </div>
+        <div className="absolute inset-x-3 bottom-3 text-white">
+          <h3 className="font-serif text-base font-bold leading-tight truncate">
+            {profile.display_name || profile.username}
+          </h3>
+          <p className="text-[10px] text-white/75 truncate mt-0.5">@{profile.username}</p>
+          {cityShort && (
+            <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-white/80">
+              <MapPin size={9} className="text-white/60" />
+              {cityShort}
+            </p>
+          )}
+        </div>
+      </Link>
+      {isExpert ? (
+        followed ? (
+          <div className="mt-2 h-9 flex items-center justify-center gap-1.5 bg-on-surface/[0.06] rounded-full">
+            <Check size={13} className="text-on-surface/45" />
+            <span className="text-[11px] font-bold text-on-surface/55">Following</span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onFollow(profile.user_id)}
+            className="mt-2 w-full h-9 bg-primary/10 text-primary text-[11px] font-bold rounded-full hover:bg-primary/15 active:bg-primary/20 transition-colors"
+          >
+            Follow
+          </button>
+        )
+      ) : requested ? (
+        <div className="mt-2 h-9 flex items-center justify-center gap-1.5 bg-on-surface/[0.06] rounded-full">
+          <Check size={13} className="text-on-surface/45" />
+          <span className="text-[11px] font-bold text-on-surface/55">Requested</span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onAddFriend(profile.user_id)}
+          className="mt-2 w-full h-9 bg-secondary/10 text-secondary text-[11px] font-bold rounded-full hover:bg-secondary/15 active:bg-secondary/20 transition-colors"
+        >
+          Add Friend
+        </button>
+      )}
+    </div>
   );
 };
 

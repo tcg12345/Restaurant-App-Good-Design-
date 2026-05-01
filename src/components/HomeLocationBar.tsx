@@ -65,6 +65,29 @@ export function isExactAddress(loc: HomeLocation | null | undefined): boolean {
   return /^\s*\d/.test(loc.label || '');
 }
 
+/**
+ * Forward-geocode a free-text city/place query into a canonical
+ * { label, lat, lng } HomeLocation. Returns null when nothing matches
+ * or Mapbox is unreachable. Used outside the picker (profile editing,
+ * onboarding) to resolve a typed home-city string to coords without
+ * needing the user to drive the bottom-sheet picker.
+ */
+export async function geocodePlace(query: string): Promise<HomeLocation | null> {
+  const q = query.trim();
+  if (!q) return null;
+  try {
+    const res = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,district,neighborhood&limit=1`,
+    );
+    const data = await res.json();
+    const f = data.features?.[0];
+    if (!f || !Array.isArray(f.center) || f.center.length < 2) return null;
+    return { label: f.place_name as string, lat: f.center[1] as number, lng: f.center[0] as number };
+  } catch {
+    return null;
+  }
+}
+
 // Reverse-geocode a coordinate into a street-address label
 // ("123 Main St, San Francisco, CA") using Mapbox. Falls back to the
 // city/locality label if no address feature is returned, and to

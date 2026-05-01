@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { User, AtSign, ArrowRight, Loader2, Check } from 'lucide-react';
+import { User, AtSign, MapPin, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { saveProfile } from '../lib/supabase-community';
+import { geocodePlace } from '../components/HomeLocationBar';
 
 export const ProfileSetup: React.FC = () => {
   const { user, refreshProfile } = useAuth();
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
+  const [homeCity, setHomeCity] = useState('');
   const [isPublic, setIsPublic] = useState(true);
   const [isExpert, setIsExpert] = useState(false);
   const [error, setError] = useState('');
@@ -21,11 +23,30 @@ export const ProfileSetup: React.FC = () => {
     if (!username.trim()) { setError('Please choose a username'); return; }
     if (username.length < 3) { setError('Username must be at least 3 characters'); return; }
     if (!/^[a-zA-Z0-9_]+$/.test(username)) { setError('Username can only contain letters, numbers, and underscores'); return; }
+    // Experts get nudged to declare their home base so /location can
+    // surface them to people exploring the area. Non-experts can leave it.
+    if (isExpert && !homeCity.trim()) {
+      setError('Please add the city you cover — it helps people find your recommendations');
+      return;
+    }
 
     if (!user?.id) return;
     setSubmitting(true);
 
-    const result = await saveProfile(user.id, displayName.trim(), username.trim(), '', isPublic, isExpert);
+    const cityTrim = homeCity.trim();
+    const geo = cityTrim ? await geocodePlace(cityTrim) : null;
+    const homeBase = cityTrim
+      ? { homeCity: geo?.label || cityTrim, homeLat: geo?.lat ?? null, homeLng: geo?.lng ?? null }
+      : undefined;
+    const result = await saveProfile(
+      user.id,
+      displayName.trim(),
+      username.trim(),
+      '',
+      isPublic,
+      isExpert,
+      homeBase,
+    );
     if (result.success) {
       await refreshProfile();
     } else {
@@ -69,6 +90,18 @@ export const ProfileSetup: React.FC = () => {
         {username && (
           <p className="text-xs text-on-surface/40 px-1">Your username will be: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></p>
         )}
+
+        {/* Home city — surfaces the user on /location's "experts in this
+            area" row when they're declared as experts. Required when the
+            expert toggle below is on; optional otherwise. */}
+        <div className="relative">
+          <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+          <input type="text" placeholder={isExpert ? 'Home city (required for experts)' : 'Home city (optional)'}
+            value={homeCity}
+            onChange={(e) => setHomeCity(e.target.value)}
+            autoCapitalize="words" autoCorrect="off"
+            className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+        </div>
 
         {/* Public/Private toggle */}
         <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
