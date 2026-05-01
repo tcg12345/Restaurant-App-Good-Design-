@@ -47,6 +47,16 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 import { supabase, supabaseConfigured } from '../lib/supabase';
+// Per-city cache (places + paginated cursors) lives in
+// `lib/location-place-cache` so the map view at /location/map can read the
+// same hot pool the list view just populated.
+import {
+  cityCacheKey,
+  cuisinesKeyOf,
+  readCachedCity,
+  writeCachedCity,
+  type QueryCursor,
+} from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
 import {
@@ -293,107 +303,6 @@ const SORT_LABELS: Record<SortOption, string> = {
 
 const INITIAL_BATCH_SIZE = 4;  // queries pulled in parallel on first load
 const LOAD_MORE_BATCH_SIZE = 3; // queries pulled per infinite-scroll page
-
-/* ── Query cursor ────────────────────────────────────────────────────────────
-   Each query in the pool is paginated independently via Google's
-   `nextPageToken`. A single query ("best restaurants in NYC") can yield
-   dozens of pages — this per-query cursor is what lets infinite scroll go
-   deep into one query instead of only rotating across different queries.
-   ──────────────────────────────────────────────────────────────────────── */
-interface QueryCursor {
-  query: string;
-  /** Token supplied by the previous response; undefined before the first
-   *  fetch, and undefined again once the server returns no next page. */
-  pageToken?: string;
-  /** True when the server has told us there are no more pages for this
-   *  query. We keep drained cursors in the list so the sort stays stable;
-   *  fetchBatch just skips them. */
-  drained?: boolean;
-}
-
-/* ── Cache ───────────────────────────────────────────────────────────────────
-   Each city the user visits is memoised so that bouncing between two cities
-   (or reloading the tab) doesn't re-spend Google Places calls. The cache is
-   module-level (instant during a session) with a localStorage mirror so it
-   survives refreshes inside the TTL window. The cache key includes the
-   price filter so each price tier gets its own persisted pool (switching
-   between $ and $$$$ doesn't invalidate either).
-   ──────────────────────────────────────────────────────────────────────── */
-interface CachedCityData {
-  placesPool: PlaceResult[];
-  cursors: QueryCursor[];
-  seenIds: string[];
-  exhausted: boolean;
-  /** Hash of the user's top cuisines at cache time. When it changes we
-   *  invalidate the cursors / seen set but keep already-fetched restaurants
-   *  (they're still valid, just ranked differently next time). */
-  cuisinesKey: string;
-  updatedAt: number;
-}
-
-const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
-// Bumped to v2 when the schema switched from {queryPool, queryCursor} to
-// {cursors}. Old v1 entries in localStorage are orphaned; the browser
-// eventually evicts them.
-const CACHE_STORAGE_KEY = 'gourmad-location-page-cache-v2';
-const MAX_CACHED_CITIES = 24; // doubled from v1 since price tiers get their own slots
-
-function cityCacheKey(lat: number, lng: number, cityKey: string, priceLevel: number): string {
-  return `${cityKey.toLowerCase()}|${lat.toFixed(3)}|${lng.toFixed(3)}|p=${priceLevel}`;
-}
-
-function cuisinesKeyOf(topCuisines: string[]): string {
-  return topCuisines.slice(0, 5).join('|');
-}
-
-type CacheMap = Record<string, CachedCityData>;
-
-// Hydrated lazily on first read. Null sentinel means "not yet loaded".
-let memoryCache: CacheMap | null = null;
-
-function loadCache(): CacheMap {
-  if (memoryCache) return memoryCache;
-  try {
-    const raw = localStorage.getItem(CACHE_STORAGE_KEY);
-    memoryCache = raw ? (JSON.parse(raw) as CacheMap) : {};
-  } catch {
-    memoryCache = {};
-  }
-  return memoryCache;
-}
-
-function persistCache(cache: CacheMap) {
-  // Keep only the most-recent N entries so storage doesn't grow unboundedly.
-  const entries = Object.entries(cache)
-    .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
-    .slice(0, MAX_CACHED_CITIES);
-  const pruned: CacheMap = {};
-  for (const [k, v] of entries) pruned[k] = v;
-  memoryCache = pruned;
-  try {
-    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(pruned));
-  } catch {
-    /* quota exceeded / storage disabled — in-memory copy still works. */
-  }
-}
-
-function readCachedCity(key: string): CachedCityData | null {
-  const cache = loadCache();
-  const entry = cache[key];
-  if (!entry) return null;
-  if (Date.now() - entry.updatedAt > CACHE_TTL_MS) {
-    delete cache[key];
-    persistCache(cache);
-    return null;
-  }
-  return entry;
-}
-
-function writeCachedCity(key: string, data: Omit<CachedCityData, 'updatedAt'>) {
-  const cache = loadCache();
-  cache[key] = { ...data, updatedAt: Date.now() };
-  persistCache(cache);
-}
 
 /* ── Page ────────────────────────────────────────────────────────────────── */
 export const LocationPage: React.FC = () => {
@@ -1194,8 +1103,14 @@ export const LocationPage: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => { /* Map view hook-up is a later task. */ }}
-            className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors"
+            onClick={() => {
+              if (!hasCoords) return;
+              navigate(
+                `/location/map?label=${encodeURIComponent(cityDisplay)}&lat=${lat}&lng=${lng}`,
+              );
+            }}
+            disabled={!hasCoords}
+            className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
             aria-label="Open map view"
           >
             <MapIcon size={20} />
