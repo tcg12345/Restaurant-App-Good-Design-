@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge } from 'lucide-react';
+import { X, Plus, Check, ChevronLeft, ChevronRight, Tag, Image, UtensilsCrossed, Globe, Lock, Camera, Trash2, Search, Star, BookOpen, Clock, Flame, Users, Hash, FileText, ChevronDown, ClipboardPaste, Gauge, FileUp } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight } from '../lib/score';
 import { useLists, type PhotoItem, type HomeMealDish, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useRecipes } from '../contexts/RecipesContext';
 import { TimeWheelPicker, NumberWheelPicker } from './WheelPicker';
+import { ImportRecipesModal } from './ImportRecipesModal';
 
 const HOME_COOKING_TAGS = [
   'Italian Night', 'Meal Prep', 'Holiday Meal', 'Grilling', 'Baking',
@@ -311,6 +312,7 @@ export const AddHomeMealModal: React.FC = () => {
   const [cookPickerOpen, setCookPickerOpen] = useState(false);
   const [servingsPickerOpen, setServingsPickerOpen] = useState(false);
   const [difficultyPickerOpen, setDifficultyPickerOpen] = useState(false);
+  const [importRecipesOpen, setImportRecipesOpen] = useState(false);
 
   // Ingredient/step form state
   const [newIngredientName, setNewIngredientName] = useState('');
@@ -737,12 +739,24 @@ export const AddHomeMealModal: React.FC = () => {
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
-                  <div className="px-6 pt-5 sm:pt-6 pb-3 flex items-center justify-between flex-shrink-0">
+                  <div className="px-6 pt-5 sm:pt-6 pb-3 flex items-center justify-between flex-shrink-0 gap-2">
                     <div className="min-w-0">
                       <h2 className="font-serif font-bold text-xl truncate">{existing ? 'Update Meal' : 'Log Home Meal'}</h2>
                       {existing && <p className="text-xs text-on-surface/40 truncate mt-0.5">{existing.name}</p>}
                     </div>
-                    <button onClick={closeHomeMealModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={22} /></button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {!existing && (
+                        <button
+                          type="button"
+                          onClick={() => setImportRecipesOpen(true)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-semibold text-primary bg-primary/[0.08] hover:bg-primary/[0.14] transition-colors"
+                        >
+                          <FileUp size={13} />
+                          <span>Import Recipes</span>
+                        </button>
+                      )}
+                      <button onClick={closeHomeMealModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={22} /></button>
+                    </div>
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pb-4 space-y-6">
@@ -1631,6 +1645,10 @@ export const AddHomeMealModal: React.FC = () => {
       onClose={() => setDifficultyPickerOpen(false)}
       value={difficulty}
       onChange={setDifficulty}
+    />
+    <ImportRecipesModal
+      open={importRecipesOpen}
+      onClose={() => setImportRecipesOpen(false)}
     />
     </>
   );
