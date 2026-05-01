@@ -178,35 +178,91 @@ export const LocationMap: React.FC = () => {
   // bottom sheet, filling the viewport. Bounds are locked to the city
   // bbox — panning outside the rectangle is rejected — so this stays a
   // "what's around here" view rather than a free browse.
+  //
+  // The init effect runs ONCE on mount (intentionally empty deps). An
+  // earlier version listed [hasCoords, lat, lng] there; that tore the
+  // map down and rebuilt it on every location change, so picking a new
+  // city in the picker briefly emptied the canvas and sometimes left
+  // it blank entirely. Recentring + bounds updates live in their own
+  // effect below.
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
   const [mapReady, setMapReady] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Latest coords held in a ref so the mount-only init effect can read
+  // current values without taking them as deps. The recentre effect
+  // below applies subsequent changes to the live map instance.
+  const initialCoordsRef = useRef({ hasCoords, lat, lng });
+  initialCoordsRef.current = { hasCoords, lat, lng };
 
   useEffect(() => {
-    if (!containerRef.current || !MAPBOX_TOKEN || !hasCoords) return;
+    if (!containerRef.current || !MAPBOX_TOKEN) return;
     mapboxgl.accessToken = MAPBOX_TOKEN;
+    const initial = initialCoordsRef.current;
+    // When we mount without coords (user landed on /location/map directly,
+    // no URL params), drop a sensible default so the map still renders;
+    // the recentre effect will fly to the real centre as soon as the
+    // user picks one.
+    const center: [number, number] = initial.hasCoords
+      ? [initial.lng, initial.lat]
+      : [-73.99, 40.74];
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/light-v11',
-      center: [lng, lat],
+      center,
       zoom: 12,
       attributionControl: false,
-      maxBounds: buildBboxBounds(lat, lng),
+      maxBounds: initial.hasCoords ? buildBboxBounds(initial.lat, initial.lng) : undefined,
     });
     mapRef.current = map;
-    map.on('load', () => setMapReady(true));
+    map.on('load', () => {
+      setMapReady(true);
+      // Force a resize once load fires. Without this, mounting inside a
+      // `fixed inset-0` parent that hadn't laid out yet can leave the
+      // canvas at half height and the user sees "the map didn't load".
+      map.resize();
+    });
     return () => {
-      // Tear markers down first so their inner DOM nodes don't outlive
-      // the map instance and leak handlers across hot reloads.
-      for (const m of Object.values(markersRef.current)) m.remove();
+      for (const m of Object.values(markersRef.current)) (m as mapboxgl.Marker).remove();
       markersRef.current = {};
       map.remove();
       mapRef.current = null;
       setMapReady(false);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-bound + re-centre on location change. We clear maxBounds before
+  // moving the camera and re-apply afterwards because a flyTo whose
+  // path passes through "outside the new bounds" can be cancelled
+  // mid-flight by Mapbox; leaving bounds open during the jump avoids
+  // that. Using jumpTo (instant) over flyTo (animated) on big city
+  // changes also dodges the brief blank-tile state that animated pans
+  // across hundreds of miles can leave on slow connections.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !hasCoords) return;
+    map.setMaxBounds(null as unknown as mapboxgl.LngLatBoundsLike);
+    map.jumpTo({ center: [lng, lat], zoom: 12 });
+    map.setMaxBounds(buildBboxBounds(lat, lng));
+    // The container may have changed size (e.g. user landed here from
+    // the list and the sheet was at a different height); a resize on
+    // every recentre keeps the canvas crisp.
+    map.resize();
   }, [hasCoords, lat, lng]);
+
+  // The viewport can change size after mount (mobile keyboard dismiss,
+  // bottom-sheet expand, browser-chrome appear) and Mapbox's canvas
+  // doesn't auto-resize. Listen on window resize + on sheet toggle so
+  // the canvas stays correctly sized.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onResize = () => map.resize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // Sync markers with the current places list. We tear down + rebuild
   // every change rather than diffing because the places list usually
@@ -249,20 +305,22 @@ export const LocationMap: React.FC = () => {
     }
   }, [places, mapReady]);
 
-  // Re-centre + re-bound the map whenever the URL location changes, so a
-  // location switch via the picker swaps both the visible map and the
-  // panning rectangle without a full re-mount.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !hasCoords) return;
-    map.setMaxBounds(buildBboxBounds(lat, lng));
-    map.flyTo({ center: [lng, lat], zoom: 12, speed: 0.8 });
-  }, [hasCoords, lat, lng]);
-
   // Bottom sheet expand/collapse. "peek" shows just the handle + a
   // compact summary; "expanded" reveals the scrolling list of
   // restaurants. Tap the handle (or the summary) to toggle.
   const [sheetExpanded, setSheetExpanded] = useState(false);
+
+  // Resize the canvas after the sheet toggles. Without this Mapbox keeps
+  // drawing at the previous container height, so the visible region
+  // doesn't actually change when the user expands the sheet.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    // Defer one frame so the sheet's height transition has actually
+    // started laying out the new size before Mapbox samples.
+    const id = requestAnimationFrame(() => map.resize());
+    return () => cancelAnimationFrame(id);
+  }, [sheetExpanded]);
 
   const currentLocation: HomeLocation | null = hasCoords
     ? { label: cityDisplay, lat, lng }
@@ -343,12 +401,14 @@ export const LocationMap: React.FC = () => {
       )}
 
       {/* Bottom sheet — peek shows a one-line summary; expanded reveals
-          the full scrolling list. Drag isn't wired up; tap to toggle. */}
-      <motion.div
-        animate={{ y: 0 }}
-        initial={{ y: 0 }}
-        className="absolute bottom-0 inset-x-0 z-20 bg-surface rounded-t-3xl shadow-[0_-8px_24px_rgba(0,0,0,0.08)]"
-        style={{ maxHeight: sheetExpanded ? '70vh' : '160px' }}
+          the full scrolling list. CSS transition on max-height gives the
+          slide a smooth feel without dragging Framer's height-animation
+          edge cases (vh strings, auto-detect) into the picture. */}
+      <div
+        className={cn(
+          'absolute bottom-0 inset-x-0 z-20 bg-surface rounded-t-3xl shadow-[0_-8px_24px_rgba(0,0,0,0.08)] overflow-hidden transition-[max-height] duration-300 ease-out',
+          sheetExpanded ? 'max-h-[70vh]' : 'max-h-[64px]',
+        )}
       >
         <button
           type="button"
@@ -425,7 +485,7 @@ export const LocationMap: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
-      </motion.div>
+      </div>
     </div>
   );
 };
