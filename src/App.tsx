@@ -44,7 +44,7 @@ import { ChatProvider } from './contexts/ChatContext';
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/map';
-  const showBottomNav = !['/onboarding', '/messages', '/reorder'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
 
