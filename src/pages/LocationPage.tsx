@@ -137,6 +137,62 @@ function buildLocationGuides(shortCity: string): Guide[] {
   }));
 }
 
+/* ── Filler suggestions ──────────────────────────────────────────────────────
+   When the user_profiles table has no experts / non-expert candidates with
+   a home_city in the explored area (which is the default state until people
+   start filling in that field), the "Around {city}" row would render only
+   restaurant cards. These templates fill the row with placeholder
+   expert + friend cards keyed off the city name so the UX still shows the
+   full mixed-card concept.
+
+   The filler user_ids are namespaced ("filler-expert-…", "filler-friend-…")
+   so the follow / add-friend handlers can skip the real API call and stay
+   purely optimistic. Tapping the card navigates to /user/{username}, which
+   will land on the standard profile page's "couldn't find this user"
+   state — also acceptable until real data backfills.
+   ──────────────────────────────────────────────────────────────────── */
+const FILLER_EXPERT_TEMPLATES = [
+  { username: 'jamielin', display_name: 'Jamie Lin', bio: 'Food writer covering {city}.' },
+  { username: 'marcorossi', display_name: 'Marco Rossi', bio: 'Italian-trained chef, {city} regular.' },
+  { username: 'aikotanaka', display_name: 'Aiko Tanaka', bio: 'Brunch + sushi obsessive in {city}.' },
+];
+
+const FILLER_FRIEND_TEMPLATES = [
+  { username: 'camille_d', display_name: 'Camille Durand' },
+  { username: 'diegoramirez', display_name: 'Diego Ramirez' },
+  { username: 'samhughes', display_name: 'Sam Hughes' },
+];
+
+function isFillerProfile(profile: UserProfile): boolean {
+  return profile.user_id.startsWith('filler-');
+}
+
+function buildFillerExperts(shortCity: string): UserProfile[] {
+  const city = shortCity.trim() || 'the area';
+  return FILLER_EXPERT_TEMPLATES.map((t, i) => ({
+    user_id: `filler-expert-${i}`,
+    display_name: t.display_name,
+    username: t.username,
+    bio: t.bio.replace(/\{city\}/g, city),
+    is_public: true,
+    is_expert: true,
+    home_city: city,
+  }));
+}
+
+function buildFillerFriends(shortCity: string): UserProfile[] {
+  const city = shortCity.trim() || 'the area';
+  return FILLER_FRIEND_TEMPLATES.map((t, i) => ({
+    user_id: `filler-friend-${i}`,
+    display_name: t.display_name,
+    username: t.username,
+    bio: '',
+    is_public: true,
+    is_expert: false,
+    home_city: city,
+  }));
+}
+
 /* ── City-key helper ─────────────────────────────────────────────────────────
    The URL label may be a plain city ("Los Angeles, CA") or a street address
    ("123 Main St, Los Angeles, CA"). Either way we pull out the primary city
@@ -910,31 +966,40 @@ export const LocationPage: React.FC = () => {
   // user always sees a bit of everything before scrolling — instead of
   // grouping (which would put all experts first, all friends second, etc.).
   // Capped at 12 cards total so the row stays scannable on phones.
+  //
+  // Filler profiles fill in for either column when nobody real has
+  // declared a home base in this area yet — that's the default state
+  // until users start opting into home_city, and without fillers the
+  // row would degrade to "all restaurants, every city". The follow /
+  // friend handlers below detect filler ids and skip the API call.
   const suggestionCards = useMemo<SuggestionCard[]>(() => {
     if (!hasCoords) return [];
+    const experts = areaExperts.length > 0 ? areaExperts : buildFillerExperts(shortCityName);
+    const friends = areaFriendCandidates.length > 0 ? areaFriendCandidates : buildFillerFriends(shortCityName);
     const featuredRestaurants = ranked.slice(0, 6);
     const cards: SuggestionCard[] = [];
-    const longest = Math.max(
-      areaExperts.length,
-      areaFriendCandidates.length,
-      featuredRestaurants.length,
-    );
+    const longest = Math.max(experts.length, friends.length, featuredRestaurants.length);
     for (let i = 0; i < longest && cards.length < 12; i++) {
-      if (areaExperts[i]) cards.push({ kind: 'expert', profile: areaExperts[i] });
-      if (areaFriendCandidates[i]) cards.push({ kind: 'friend', profile: areaFriendCandidates[i] });
+      if (experts[i]) cards.push({ kind: 'expert', profile: experts[i] });
+      if (friends[i]) cards.push({ kind: 'friend', profile: friends[i] });
       if (featuredRestaurants[i]) cards.push({ kind: 'restaurant', place: featuredRestaurants[i] });
     }
     return cards.slice(0, 12);
-  }, [hasCoords, areaExperts, areaFriendCandidates, ranked]);
+  }, [hasCoords, areaExperts, areaFriendCandidates, ranked, shortCityName]);
 
   const handleFollowExpert = useCallback(
     async (targetId: string) => {
-      if (!userId) return;
+      // Always flip the local set so the button's "Following" state is
+      // visible even for filler profiles or anonymous users — the row is
+      // a demo surface as much as a functional one.
       setFollowedSuggestions((prev) => {
         const next = new Set(prev);
         next.add(targetId);
         return next;
       });
+      // Filler profiles have synthetic ids that aren't in user_profiles,
+      // so the follow API would just error. Skip the call entirely.
+      if (!userId || targetId.startsWith('filler-')) return;
       const ok = await followPublicAccount(userId, targetId);
       if (!ok) {
         // Roll back the optimistic update so the button doesn't lie about
@@ -951,12 +1016,12 @@ export const LocationPage: React.FC = () => {
 
   const handleAddFriend = useCallback(
     async (targetId: string) => {
-      if (!userId) return;
       setRequestedFriendIds((prev) => {
         const next = new Set(prev);
         next.add(targetId);
         return next;
       });
+      if (!userId || targetId.startsWith('filler-')) return;
       const ok = await sendFriendRequest(userId, targetId);
       if (!ok) {
         setRequestedFriendIds((prev) => {
@@ -1629,10 +1694,16 @@ const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
   const profile = card.profile;
   const isExpert = card.kind === 'expert';
   const cityShort = profile.home_city ? profile.home_city.split(',')[0].trim() : '';
+  // Filler profiles aren't real users, so navigating to /user/{username}
+  // would land on a 404. Render the avatar surface as a static div for
+  // fillers so the card still looks the same but the tap is a no-op.
+  const filler = isFillerProfile(profile);
+  const AvatarSurface: React.ElementType = filler ? 'div' : Link;
+  const avatarProps = filler ? {} : { to: `/user/${profile.username}` };
   return (
     <div className="flex-shrink-0 snap-start w-56">
-      <Link
-        to={`/user/${profile.username}`}
+      <AvatarSurface
+        {...avatarProps}
         className="block relative aspect-square rounded-2xl overflow-hidden group"
       >
         <div className={cn(
@@ -1674,7 +1745,7 @@ const SuggestionCardView: React.FC<SuggestionCardViewProps> = ({
             </p>
           )}
         </div>
-      </Link>
+      </AvatarSurface>
       {isExpert ? (
         followed ? (
           <div className="mt-2 h-9 flex items-center justify-center gap-1.5 bg-on-surface/[0.06] rounded-full">
