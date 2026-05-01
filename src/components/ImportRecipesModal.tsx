@@ -270,7 +270,7 @@ interface Props {
 }
 
 export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
-  const { createHomeMeal, closeHomeMealModal } = useLists();
+  const { createHomeMealsBulk, closeHomeMealModal } = useLists();
   const { phoneMode } = useSettings();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -336,54 +336,41 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
 
     const today = new Date().toISOString().slice(0, 10);
 
-    for (let i = 0; i < items.length; i++) {
-      if (abortRef.current) break;
-      const r = items[i].recipe;
-      setItems((prev) => {
-        const next = [...prev];
-        next[i] = { ...next[i], status: 'creating' };
-        return next;
-      });
+    // Build every meal payload up-front so the bulk insert can run in one
+    // shot. Calling createHomeMeal per row would issue one cloud PATCH per
+    // meal, and the responses can land out of order — an early snapshot
+    // with only a handful of rows can clobber the final array.
+    const mealsToCreate = items.map((item) => {
+      const r = item.recipe;
+      const cover = r.photos[0] ?? '';
+      const galleryUrls = r.photos.slice(cover ? 1 : 0);
+      return {
+        name: r.title,
+        date: today,
+        score: r.rating ?? 0,
+        wouldMakeAgain: true,
+        description: r.description || r.reviewNotes,
+        photos: galleryUrls.map((url) => ({ url, caption: '', isFavorite: false })),
+        tags: r.tags,
+        dishes: [],
+        isPublic: r.isPublic,
+        coverPhoto: cover,
+        prepTime: r.prepTimeMinutes ?? undefined,
+        cookTime: r.cookTimeMinutes ?? undefined,
+        servings: r.servings ?? undefined,
+        difficulty: r.difficulty,
+        cuisine: r.cuisine,
+        ingredients: r.ingredients,
+        steps: r.steps,
+      };
+    });
 
-      try {
-        // Each parsed recipe lands on the user's Home Cooking list as a
-        // logged meal. createHomeMeal is fully synchronous and writes to
-        // both local state and the Supabase user_app_data row.
-        const cover = r.photos[0] ?? '';
-        const galleryUrls = r.photos.slice(cover ? 1 : 0);
-        createHomeMeal({
-          name: r.title,
-          date: today,
-          score: r.rating ?? 0,
-          wouldMakeAgain: true,
-          description: r.description || r.reviewNotes,
-          photos: galleryUrls.map((url) => ({ url, caption: '', isFavorite: false })),
-          tags: r.tags,
-          dishes: [],
-          isPublic: r.isPublic,
-          coverPhoto: cover,
-          prepTime: r.prepTimeMinutes ?? undefined,
-          cookTime: r.cookTimeMinutes ?? undefined,
-          servings: r.servings ?? undefined,
-          difficulty: r.difficulty,
-          cuisine: r.cuisine,
-          ingredients: r.ingredients,
-          steps: r.steps,
-        });
-
-        setItems((prev) => {
-          const next = [...prev];
-          next[i] = { ...next[i], status: 'created' };
-          return next;
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setItems((prev) => {
-          const next = [...prev];
-          next[i] = { ...next[i], status: 'error', error: msg };
-          return next;
-        });
-      }
+    try {
+      createHomeMealsBulk(mealsToCreate);
+      setItems((prev) => prev.map((it) => ({ ...it, status: 'created' as const })));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setItems((prev) => prev.map((it) => ({ ...it, status: 'error' as const, error: msg })));
     }
 
     setIsRunning(false);
