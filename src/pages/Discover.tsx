@@ -41,17 +41,8 @@ import {
 } from '../lib/supabase-rec-cache';
 
 // Session-scoped in-memory cache — a tap back to a city we already loaded
-// this session skips both Google and Supabase. Uses a plain object instead
-// of `new Map()` because this file ALSO exports a component named `Map`,
-// and at module load time the local const binding shadows the global Map
-// constructor — fine in dev but a TDZ ReferenceError in the prod bundle.
+// this session skips both Google and Supabase.
 const sessionRecsCache: Record<string, HomeRecCacheEntry> = {};
-
-// Non-shadowed alias for the global Map constructor. Same shadowing caveat
-// as the comment above — any `new Map(...)` inside this module would resolve
-// to the exported <Map/> component, not the built-in. Grabbing the ctor off
-// globalThis avoids that whether we're at module load or inside a hook.
-const NativeMap = globalThis.Map;
 
 // Per-session cache of community cover-photo lookups (restaurant_id → url).
 // Avoids re-querying Supabase every time the same restaurant appears across
@@ -267,11 +258,11 @@ const tabDataCache: {
 } = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverTs: 0 };
 const TAB_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
-interface MapProps {
+interface DiscoverProps {
   mode?: 'home' | 'map';
 }
 
-export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
+export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHideBottomNav, phoneMode } = useSettings();
@@ -583,7 +574,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
     expertUserIds: new Set(),
     followedExpertIds: new Set(),
     friendUserIds: new Set(),
-    communityByRestaurant: new NativeMap(),
+    communityByRestaurant: new Map(),
     expertRecRestaurantIds: new Set(),
   }));
 
@@ -794,7 +785,7 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
       if (cancelled) return;
       const expertUserIds = new Set(experts.map((e: UserProfile) => e.user_id));
       const friendUserIds = new Set(friendRatings.map((r) => r.user_id));
-      const communityByRestaurant = new NativeMap<string, CommunityRating[]>();
+      const communityByRestaurant = new Map<string, CommunityRating[]>();
       for (const row of [...tagSim, ...exprecs, ...friendRatings]) {
         const arr = communityByRestaurant.get(row.restaurant_id);
         if (arr) arr.push(row);

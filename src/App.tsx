@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { Map } from './pages/Map';
+import { Discover } from './pages/Discover';
 import { Experts } from './pages/Experts';
 import { Profile } from './pages/Profile';
 import { Pantry } from './pages/Pantry';
@@ -132,8 +132,8 @@ const AppContent: React.FC = () => {
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
               <Routes location={location}>
-                <Route path="/" element={<Map mode="home" />} />
-                <Route path="/map" element={<Map mode="map" />} />
+                <Route path="/" element={<Discover mode="home" />} />
+                <Route path="/map" element={<Discover mode="map" />} />
                 <Route path="/auth" element={<Navigate to="/" replace />} />
                 <Route path="/circle" element={<Circle />} />
                 <Route path="/search" element={<Search />} />
