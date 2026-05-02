@@ -10,6 +10,7 @@ import { scoreColor } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
@@ -274,7 +275,13 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHideBottomNav, phoneMode } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist } = useLists();
+  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
+  const {
+    friendRecipes: friendPublishedRecipes,
+    expertRecipes: expertPublishedRecipes,
+    publicRecipes: publicPublishedRecipes,
+    fetchFriendRecipes, fetchExpertRecipes, fetchPublicRecipes,
+  } = useRecipes();
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
@@ -595,6 +602,66 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
   const topRated = useMemo(() => {
     return [...myLocalRatings].filter((r) => r.score >= 7 && r.image).sort((a, b) => b.score - a.score).slice(0, 6);
   }, [myLocalRatings]);
+
+  // ── Recipes For You ──
+  // Pull the friend / expert / public pools once on sign-in. Each pool is
+  // cached on RecipesContext so re-renders don't refetch.
+  const recipesFetchedRef = useRef(false);
+  useEffect(() => {
+    if (!userId || recipesFetchedRef.current) return;
+    recipesFetchedRef.current = true;
+    fetchFriendRecipes();
+    fetchExpertRecipes();
+    fetchPublicRecipes();
+  }, [userId, fetchFriendRecipes, fetchExpertRecipes, fetchPublicRecipes]);
+
+  // Taste signal from logged Home Cooking meals (cuisine + tags weighted by
+  // score), mirroring how restaurant recs derive preferences from ratings.
+  const recipePreferences = useMemo(() => {
+    const cuisineCounts: Record<string, number> = {};
+    const tagCounts: Record<string, number> = {};
+    homeMeals.forEach((m) => {
+      const w = m.score >= 7 ? 2 : 1;
+      if (m.cuisine) {
+        const k = m.cuisine.toLowerCase();
+        cuisineCounts[k] = (cuisineCounts[k] || 0) + w;
+      }
+      m.tags.forEach((t) => {
+        const k = t.toLowerCase();
+        tagCounts[k] = (tagCounts[k] || 0) + w;
+      });
+    });
+    return { cuisineCounts, tagCounts };
+  }, [homeMeals]);
+
+  // Score + dedupe across pools. Friend > expert > public on the base; ties
+  // break by cuisine + tag overlap with the taste signal. Hides recipes the
+  // user has already cooked under the same name.
+  const recommendedRecipes = useMemo(() => {
+    type Scored = Recipe & { _source: 'friend' | 'expert' | 'public'; _score: number };
+    const seen = new Set<string>();
+    const cooked = new Set(homeMeals.map((m) => m.name.trim().toLowerCase()));
+    const scored: Scored[] = [];
+
+    const consume = (recipes: Recipe[], source: Scored['_source'], baseWeight: number) => {
+      for (const r of recipes) {
+        if (!r?.id || seen.has(r.id)) continue;
+        if (cooked.has(r.title.trim().toLowerCase())) continue;
+        seen.add(r.id);
+        let s = baseWeight;
+        if (r.cuisine) s += (recipePreferences.cuisineCounts[r.cuisine.toLowerCase()] || 0) * 3;
+        for (const t of r.tags) s += recipePreferences.tagCounts[t.toLowerCase()] || 0;
+        scored.push({ ...r, _source: source, _score: s });
+      }
+    };
+
+    consume(friendPublishedRecipes, 'friend', 8);
+    consume(expertPublishedRecipes, 'expert', 5);
+    consume(publicPublishedRecipes, 'public', 1);
+
+    scored.sort((a, b) => b._score - a._score);
+    return scored.slice(0, 8);
+  }, [friendPublishedRecipes, expertPublishedRecipes, publicPublishedRecipes, homeMeals, recipePreferences]);
 
   // Map each city the user eats in to a representative lat/lng, computed as
   // the centroid of that city's high-rated community ratings. Used so that
@@ -3443,6 +3510,84 @@ export const Map: React.FC<MapProps> = ({ mode = 'home' }) => {
                     </button>
                   ))}
                 </div>
+              </section>
+
+              {/* Recipes For You — friend / expert / public recipes ranked by
+                   source + cuisine/tag overlap with the user's logged Home
+                   Cooking meals. Always renders the section so the View all
+                   affordance is reachable even before the pools load. */}
+              <section className="mt-5">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <ChefHat size={13} className="text-emerald-600/70" />
+                    <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recipes For You</h3>
+                  </div>
+                  <Link
+                    to="/recipes-for-you"
+                    className="text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
+                  >
+                    View all
+                  </Link>
+                </div>
+                {recommendedRecipes.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] p-4 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-on-surface/55">No recipes from your circle yet</p>
+                      <p className="text-[11px] text-on-surface/35 mt-0.5">Browse the community for ideas to cook next.</p>
+                    </div>
+                    <Link
+                      to="/recipes-for-you"
+                      className="flex-shrink-0 px-3 py-1.5 rounded-full bg-emerald-600 text-white text-[11px] font-semibold hover:bg-emerald-700 transition-colors"
+                    >
+                      Explore
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                    {recommendedRecipes.map((r) => {
+                      const cover = r.photos?.[0];
+                      return (
+                        <Link
+                          key={r.id}
+                          to={`/recipe/${r.id}`}
+                          className="flex-shrink-0 snap-start group"
+                        >
+                          <div className="relative w-36 aspect-[4/5] rounded-xl overflow-hidden bg-on-surface/[0.05]">
+                            {cover ? (
+                              <img
+                                src={cover}
+                                alt={r.title}
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="absolute inset-0 flex items-center justify-center bg-emerald-50">
+                                <ChefHat size={24} className="text-emerald-300" />
+                              </div>
+                            )}
+                            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+                            <div className="absolute top-1.5 left-1.5">
+                              <span className={cn(
+                                'inline-block text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full backdrop-blur-sm',
+                                r._source === 'friend' && 'bg-blue-500/95 text-white',
+                                r._source === 'expert' && 'bg-amber-500/95 text-white',
+                                r._source === 'public' && 'bg-white/85 text-on-surface/70',
+                              )}>
+                                {r._source === 'friend' ? 'Friend' : r._source === 'expert' ? 'Chef' : 'Community'}
+                              </span>
+                            </div>
+                            <div className="absolute inset-x-0 bottom-0 p-2.5">
+                              <p className="text-white text-[11px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{r.title}</p>
+                              {r.cuisine && (
+                                <p className="text-white/75 text-[9px] font-medium mt-0.5 truncate">{r.cuisine}</p>
+                              )}
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
 
               {/* Social Feed */}
