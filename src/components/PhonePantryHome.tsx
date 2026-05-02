@@ -71,7 +71,7 @@ export const PhonePantryHome: React.FC<Props> = ({
   );
 
   return (
-    <div className="px-5 pt-4 pb-32">
+    <div className="pt-4 pb-32">
       {/* ── Title ── */}
       <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
         Your Collection
@@ -130,19 +130,19 @@ const ListsTab: React.FC<{
 }> = ({ lists, ratedCount, ratedTopScores, wishlistCount, onOpenList, onOpenWishlist, onOpenRated, onCreateList }) => {
   return (
     <>
-      {/* ── Section: Yours, always ── */}
-      <div className="mt-7">
-        <SectionHeader overline="Yours, always" title="The two you live in" />
-        <div className="grid grid-cols-2 gap-3 mt-4">
+      {/* ── Section: Yours ── */}
+      <div className="mt-6">
+        <SectionLabel>Essentials</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 mt-3">
           <RatedCard count={ratedCount} topScores={ratedTopScores} onClick={onOpenRated} />
           <WishlistCard count={wishlistCount} onClick={onOpenWishlist} />
         </div>
       </div>
 
       {/* ── Section: Collections ── */}
-      <div className="mt-8">
-        <SectionHeader overline="Collections" title="Your curated lists" />
-        <div className="grid grid-cols-2 gap-3 mt-4">
+      <div className="mt-7">
+        <SectionLabel>Collections</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 mt-3">
           <NewListCard onClick={onCreateList} />
           {lists.map((list) => (
             <CustomListCard key={list.id} list={list} onClick={() => onOpenList(list)} />
@@ -169,9 +169,9 @@ const RecipesTab: React.FC<{ meals: HomeMeal[]; onOpenMeal: (m: HomeMeal) => voi
   }
 
   return (
-    <div className="mt-7">
-      <SectionHeader overline="Cookbook" title={`${meals.length} ${meals.length === 1 ? 'recipe' : 'recipes'}`} />
-      <div className="grid grid-cols-2 gap-3 mt-4">
+    <div className="mt-6">
+      <SectionLabel>{`${meals.length} ${meals.length === 1 ? 'recipe' : 'recipes'}`}</SectionLabel>
+      <div className="grid grid-cols-2 gap-3 mt-3">
         {meals.map((meal) => (
           <RecipeCard key={meal.id} meal={meal} onClick={() => onOpenMeal(meal)} />
         ))}
@@ -182,11 +182,11 @@ const RecipesTab: React.FC<{ meals: HomeMeal[]; onOpenMeal: (m: HomeMeal) => voi
 
 /* ─────────────── Sub-components ─────────────── */
 
-const SectionHeader: React.FC<{ overline: string; title: string }> = ({ overline, title }) => (
-  <div>
-    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/35">{overline}</p>
-    <h2 className="font-serif text-[22px] mt-1 text-on-surface">{title}</h2>
-  </div>
+// Single-line modern section label — replaces the previous overline + big
+// serif title combo. Uppercase, tight tracking, low contrast so the cards
+// underneath carry the visual weight.
+const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-on-surface/45">{children}</p>
 );
 
 // Score-chip layout for the "Your canvas" card. Up to 3 chips, slightly
