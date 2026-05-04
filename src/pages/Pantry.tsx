@@ -9,6 +9,7 @@ import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, 
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
+import { PhonePantryHome } from '../components/PhonePantryHome';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, type PlaceResult } from '../lib/places';
@@ -3688,7 +3689,7 @@ const HomeCookingTab: React.FC<{
             const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
             const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
             return (
-              <li key={meal.id}>
+              <li key={meal.id} className="relative group/row">
                 <button
                   onClick={() => onSelectMeal(meal.id)}
                   className="w-full flex gap-4 py-4 text-left group active:scale-[0.99] transition-transform"
@@ -3707,7 +3708,9 @@ const HomeCookingTab: React.FC<{
                   <div className="flex-1 min-w-0 flex flex-col justify-center">
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
-                      <span className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(meal.score))}>
+                      {/* Score sits next to a placeholder gap so the pencil button (absolute-positioned)
+                           doesn't overlap the number on narrow rows. */}
+                      <span className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 mr-7", scoreColor(meal.score))}>
                         {meal.score.toFixed(1)}
                       </span>
                     </div>
@@ -3732,6 +3735,14 @@ const HomeCookingTab: React.FC<{
                     )}
                   </div>
                 </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onOpenModal(meal); }}
+                  aria-label={`Edit ${meal.name}`}
+                  className="absolute top-4 right-0 p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100"
+                >
+                  <Edit3 size={15} />
+                </button>
               </li>
             );
           })}
@@ -3749,6 +3760,9 @@ export const Pantry: React.FC = () => {
   const [showTrips, setShowTrips] = useState(false);
   const [showHomeCooking, setShowHomeCooking] = useState(false);
   const [homeCookingSelectedMealId, setHomeCookingSelectedMealId] = useState<string | null>(null);
+  // Phone-only: when true the user tapped the rated "Your canvas" tile from
+  // the new card layout, so we drop into the existing rated-list rendering.
+  const [showAllRated, setShowAllRated] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -3954,7 +3968,13 @@ export const Pantry: React.FC = () => {
       : lists.find((l) => l.id === selectedList.id) ?? null
     : null;
 
-  const hideTopBar = showHomeCooking && homeCookingSelectedMealId !== null;
+  // Hide the top More menu on the phone-only card layout — it doesn't appear
+  // in the redesign and the import/export/reorder actions stay reachable
+  // from the rated list (showAllRated) where they make sense.
+  const onPhoneCardHome =
+    phoneMode && !currentList && !showHomeCooking && !showTrips && !showAllRated;
+  const hideTopBar =
+    (showHomeCooking && homeCookingSelectedMealId !== null) || onPhoneCardHome;
 
   return (
     <div className="pb-32">
@@ -4046,8 +4066,48 @@ export const Pantry: React.FC = () => {
             selectedMealId={homeCookingSelectedMealId}
             onSelectMeal={setHomeCookingSelectedMealId}
           />
+        ) : phoneMode && !showAllRated ? (
+          // Phone redesign: card grid with Lists / Recipes tabs. Tapping
+          // Wishlist or "Your canvas" routes back into the existing list /
+          // rated views; tapping a recipe opens the home meal modal.
+          <PhonePantryHome
+            lists={lists}
+            ratedCount={regularRatingsCount}
+            ratedTopScores={ratings
+              .filter((r) => r.cuisine !== 'Hotel Breakfast')
+              .map((r) => r.score)
+              .sort((a, b) => b - a)
+              .slice(0, 3)}
+            wishlistCount={regularWishlist.length}
+            homeMeals={homeMeals}
+            onOpenList={setSelectedList}
+            onOpenWishlist={() =>
+              setSelectedList({
+                id: '__wishlist__',
+                name: 'Wishlist',
+                emoji: '❤️',
+                restaurantIds: [],
+                wishlistIds: regularWishlist.map((w) => w.restaurantId),
+                createdAt: 0,
+              } as CustomList)
+            }
+            onOpenRated={() => setShowAllRated(true)}
+            onCreateList={() => setCreateSheetOpen(true)}
+            onOpenMeal={(meal) => openHomeMealModal(meal)}
+          />
         ) : (
           <>
+            {/* When we entered the rated view from the phone redesign,
+                 surface a back button so the user can return to the cards. */}
+            {phoneMode && showAllRated && (
+              <button
+                onClick={() => setShowAllRated(false)}
+                className="flex items-center gap-1 text-sm text-on-surface/55 hover:text-on-surface mb-3 -ml-1 px-1 py-1"
+              >
+                <ChevronLeft size={16} /> Back
+              </button>
+            )}
+
             {/* ── Always-visible main search bar ── */}
             <div className="mb-4">
               <div className="relative">

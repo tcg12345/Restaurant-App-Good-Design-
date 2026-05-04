@@ -3,6 +3,7 @@ import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
+import { safeImage } from '../lib/utils';
 
 /* ── Types ── */
 
@@ -262,6 +263,7 @@ interface ListsContextValue {
   // Home meals
   homeMeals: HomeMeal[];
   createHomeMeal: (meal: Omit<HomeMeal, 'id' | 'createdAt'>) => HomeMeal;
+  createHomeMealsBulk: (meals: Array<Omit<HomeMeal, 'id' | 'createdAt'>>) => HomeMeal[];
   updateHomeMeal: (id: string, updates: Partial<HomeMeal>) => void;
   deleteHomeMeal: (id: string) => void;
   getHomeMeal: (id: string) => HomeMeal | undefined;
@@ -369,11 +371,25 @@ function migrateLists(lists: CustomList[]): CustomList[] {
   }));
 }
 
-// Migration: add listIds, photos to ratings that don't have them
+// Strips stale Google Places photo URLs cached on RestaurantMeta entries
+// before photo fetching was disabled — see migrateRatings comment.
+function migrateMeta(meta: Record<string, RestaurantMeta> | null | undefined): Record<string, RestaurantMeta> {
+  if (!meta || typeof meta !== 'object') return {};
+  const out: Record<string, RestaurantMeta> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (v && typeof v === 'object') out[k] = { ...v, image: safeImage(v.image) };
+  }
+  return out;
+}
+
+// Migration: add listIds, photos to ratings that don't have them. Also strips
+// stale Google Places photo URLs cached before photo fetching was disabled —
+// rendering them would trigger a billed Google API call per image.
 function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
   if (!Array.isArray(ratings)) return [];
   return ratings.map((r) => ({
     ...r,
+    image: safeImage(r.image),
     listIds: r.listIds ?? [],
     friendIds: r.friendIds ?? [],
     photos: (r.photos ?? []).map((p: PhotoItem | string) =>
@@ -382,11 +398,32 @@ function migrateRatings(ratings: RestaurantRating[]): RestaurantRating[] {
   }));
 }
 
-// Migration: add notes, listIds to wishlist items that don't have them
+// Migration: ensure every home meal has a unique id. A previous version of
+// createHomeMeal used `meal-${Date.now()}` which collides when called in a
+// tight loop (bulk import), so old data may have many meals sharing one id —
+// breaking detail navigation and dedupe. Re-id the duplicates so each row is
+// reachable again.
+function migrateHomeMeals(meals: HomeMeal[]): HomeMeal[] {
+  if (!Array.isArray(meals)) return [];
+  const seen = new Set<string>();
+  return meals.map((m) => {
+    if (!m?.id || seen.has(m.id)) {
+      const uniq = `meal-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      seen.add(uniq);
+      return { ...m, id: uniq };
+    }
+    seen.add(m.id);
+    return m;
+  });
+}
+
+// Migration: add notes, listIds to wishlist items that don't have them. Also
+// strips stale Google Places photo URLs (see migrateRatings above).
 function migrateWishlist(items: WishlistItem[]): WishlistItem[] {
   if (!Array.isArray(items)) return [];
   return items.map((w) => ({
     ...w,
+    image: safeImage(w.image),
     notes: w.notes ?? '',
     listIds: w.listIds ?? [],
   }));
@@ -401,10 +438,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [ratings, setRatings] = useState<RestaurantRating[]>(() => migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, [])));
   const [lists, setLists] = useState<CustomList[]>(() => migrateLists(loadFromStorage(STORAGE_KEY_LISTS, DEFAULT_LISTS)));
   const [wishlist, setWishlist] = useState<WishlistItem[]>(() => migrateWishlist(loadFromStorage(STORAGE_KEY_WISHLIST, [])));
-  const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => loadFromStorage(STORAGE_KEY_META, {}));
+  const [restaurantMeta, setRestaurantMeta] = useState<Record<string, RestaurantMeta>>(() => migrateMeta(loadFromStorage(STORAGE_KEY_META, {})));
   const [trips, setTrips] = useState<Trip[]>(() => loadFromStorage(STORAGE_KEY_TRIPS, []));
   const [customOrder, setCustomOrderState] = useState<string[]>(() => loadFromStorage(STORAGE_KEY_CUSTOM_ORDER, []));
-  const [homeMeals, setHomeMeals] = useState<HomeMeal[]>(() => loadFromStorage(STORAGE_KEY_HOME_MEALS, []));
+  const [homeMeals, setHomeMeals] = useState<HomeMeal[]>(() => migrateHomeMeals(loadFromStorage(STORAGE_KEY_HOME_MEALS, [])));
   const [cloudLoaded, setCloudLoaded] = useState(false);
 
   // Track userId and profile for cloud save helpers
@@ -509,11 +546,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const metaHomeMeals = Array.isArray((cloudMeta as Record<string, unknown>).__home_meals__)
           ? ((cloudMeta as Record<string, unknown>).__home_meals__ as HomeMeal[])
           : [];
-        const cloudHomeMeals = rawCloudHomeMeals.length > 0
-          ? rawCloudHomeMeals
-          : metaHomeMeals.length > 0
-            ? metaHomeMeals
-            : localHomeMeals.length > 0 ? localHomeMeals : [];
+        const cloudHomeMeals = migrateHomeMeals(
+          rawCloudHomeMeals.length > 0
+            ? rawCloudHomeMeals
+            : metaHomeMeals.length > 0
+              ? metaHomeMeals
+              : localHomeMeals.length > 0 ? localHomeMeals : []
+        );
         const homeMealsUsedLocalFallback = rawCloudHomeMeals.length === 0 && metaHomeMeals.length === 0 && localHomeMeals.length > 0;
 
         // Reconcile: ensure every rating's listIds are reflected in
@@ -532,7 +571,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setRatings(cloudRatings);
         setLists(listsChanged ? reconciledLists : cloudLists);
         setWishlist(cloudWishlist);
-        setRestaurantMeta(cloudMeta);
+        setRestaurantMeta(migrateMeta(cloudMeta));
         setTrips(cloudTrips as Trip[]);
         setCustomOrderState(cloudCustomOrder);
         setHomeMeals(cloudHomeMeals);
@@ -574,9 +613,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const localRatings = migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, []));
         const localLists = migrateLists(loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS));
         const localWishlist = migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, []));
-        const localMeta = loadFromStorage<Record<string, any>>(STORAGE_KEY_META, {});
+        const localMeta = migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {}));
         const localTrips = loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []);
-        const localHomeMeals = loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, []);
+        const localHomeMeals = migrateHomeMeals(loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, []));
 
         setRatings(localRatings);
         setLists(localLists);
@@ -822,8 +861,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
   }, [syncMetaToCloud]);
 
+  // Generate a meal id that's unique even when createHomeMeal is called many
+  // times in the same tick (e.g. a bulk import). Date.now() alone collides
+  // inside a synchronous loop, which would make every imported meal share an
+  // id — breaking detail navigation and getting deduped on render.
+  const newMealId = () => `meal-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
   const createHomeMeal = useCallback((meal: Omit<HomeMeal, 'id' | 'createdAt'>): HomeMeal => {
-    const newMeal: HomeMeal = { ...meal, id: `meal-${Date.now()}`, createdAt: Date.now() };
+    const newMeal: HomeMeal = { ...meal, id: newMealId(), createdAt: Date.now() };
     setHomeMeals((prev) => {
       const next = [...prev, newMeal];
       saveToStorage(STORAGE_KEY_HOME_MEALS, next);
@@ -831,6 +876,28 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       return next;
     });
     return newMeal;
+  }, [syncHomeMealsToCloud]);
+
+  // Bulk variant for imports: appends every meal to state in a single update
+  // and fires exactly one cloud save. Calling createHomeMeal in a tight loop
+  // would otherwise launch N concurrent PATCH requests, and whichever one
+  // resolves last wins — so an early snapshot with only a few rows can clobber
+  // the final array.
+  const createHomeMealsBulk = useCallback((meals: Array<Omit<HomeMeal, 'id' | 'createdAt'>>): HomeMeal[] => {
+    if (meals.length === 0) return [];
+    const now = Date.now();
+    const newMeals: HomeMeal[] = meals.map((m) => ({
+      ...m,
+      id: newMealId(),
+      createdAt: now,
+    }));
+    setHomeMeals((prev) => {
+      const next = [...prev, ...newMeals];
+      saveToStorage(STORAGE_KEY_HOME_MEALS, next);
+      syncHomeMealsToCloud(next);
+      return next;
+    });
+    return newMeals;
   }, [syncHomeMealsToCloud]);
 
   const updateHomeMeal = useCallback((id: string, updates: Partial<HomeMeal>) => {
@@ -867,8 +934,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Restaurant metadata cache
   const cacheRestaurantMeta = useCallback((meta: RestaurantMeta) => {
+    // Defensively strip any Google Places photo URL so we never persist a
+    // URL whose render would trigger a billed Google API call.
+    const cleaned: RestaurantMeta = { ...meta, image: safeImage(meta.image) };
     setRestaurantMeta((prev) => {
-      const next = { ...prev, [meta.id]: meta };
+      const next = { ...prev, [cleaned.id]: cleaned };
       saveToStorage(STORAGE_KEY_META, next);
       syncMetaToCloud(next);
       return next;
@@ -1354,7 +1424,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, openAddRecipeModal, closeAddRecipeModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,
       customOrder, setCustomOrder,
-      homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, getHomeMeal,
+      homeMeals, createHomeMeal, createHomeMealsBulk, updateHomeMeal, deleteHomeMeal, getHomeMeal,
       homeMealModalOpen, homeMealModalData, openHomeMealModal, closeHomeMealModal,
     }}>
       {children}

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { Map } from './pages/Map';
+import { Discover } from './pages/Discover';
 import { Experts } from './pages/Experts';
 import { Profile } from './pages/Profile';
 import { Pantry } from './pages/Pantry';
@@ -28,6 +28,7 @@ import { AddRecipeModal } from './components/AddRecipeModal';
 import { AddHomeMealModal } from './components/AddHomeMealModal';
 import { RecipeModal } from './components/RecipeModal';
 import { RecipeDetail } from './pages/RecipeDetail';
+import { RecipesForYou } from './pages/RecipesForYou';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
@@ -131,8 +132,8 @@ const AppContent: React.FC = () => {
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
               <Routes location={location}>
-                <Route path="/" element={<Map mode="home" />} />
-                <Route path="/map" element={<Map mode="map" />} />
+                <Route path="/" element={<Discover mode="home" />} />
+                <Route path="/map" element={<Discover mode="map" />} />
                 <Route path="/auth" element={<Navigate to="/" replace />} />
                 <Route path="/circle" element={<Circle />} />
                 <Route path="/search" element={<Search />} />
@@ -145,6 +146,7 @@ const AppContent: React.FC = () => {
                 <Route path="/onboarding" element={<Onboarding />} />
                 <Route path="/import" element={<ImportRestaurants />} />
                 <Route path="/reorder" element={<ReorderRatings />} />
+                <Route path="/recipes-for-you" element={<RecipesForYou />} />
                 <Route path="/recipe/:id" element={<RecipeDetail />} />
                 <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
                 <Route path="/user/:username" element={<UserProfile />} />
