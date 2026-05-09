@@ -182,7 +182,23 @@ export function useRestaurantDetail() {
   // visit history whenever it changes (e.g. after saving a new visit,
   // the previous rating is pushed into the visit_history table and we
   // need to see it reflected on the page without a hard reload).
-  const { ratings } = useLists();
+  const { ratings, cacheRestaurantMeta } = useLists();
+
+  // Cache the place's lat/lng on the meta so list cards can show distance.
+  // Keyed off place.id so we don't write on every re-render.
+  useEffect(() => {
+    if (!place?.id || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
+    cacheRestaurantMeta({
+      id: place.id,
+      name: place.name,
+      image: place.photoUrl || '',
+      cuisine: getCuisineLabel(place.types),
+      price: priceLevelToString(place.priceLevel),
+      address: place.address,
+      lat: place.lat,
+      lng: place.lng,
+    });
+  }, [place?.id, place?.lat, place?.lng, cacheRestaurantMeta]);
   const myRatingForPlace = place ? ratings.find((r) => r.restaurantId === place.id) : null;
   // A simple fingerprint that changes whenever the rating for this
   // place is updated. Used as an effect dep below.

@@ -39,6 +39,11 @@ export interface RestaurantMeta {
   cuisine: string;
   price: string;
   address: string;
+  /** Geo coordinates — populated lazily when the user views the detail
+   *  page. Optional so older rows / synced data still validate. Used by
+   *  list cards to show distance from the user's anchor location. */
+  lat?: number;
+  lng?: number;
 }
 
 export interface RecipeIngredient {
@@ -941,7 +946,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // URL whose render would trigger a billed Google API call.
     const cleaned: RestaurantMeta = { ...meta, image: safeImage(meta.image) };
     setRestaurantMeta((prev) => {
-      const next = { ...prev, [cleaned.id]: cleaned };
+      // Merge with existing entry so we don't drop coordinate or other
+      // fields the new caller didn't bother to provide. (e.g. the heart
+      // toggle has only id/name/image/cuisine/price/address — it would
+      // otherwise wipe lat/lng cached by useRestaurantDetail.)
+      const existing = prev[cleaned.id];
+      const merged: RestaurantMeta = existing
+        ? {
+            ...existing,
+            ...cleaned,
+            lat: cleaned.lat ?? existing.lat,
+            lng: cleaned.lng ?? existing.lng,
+          }
+        : cleaned;
+      const next = { ...prev, [cleaned.id]: merged };
       saveToStorage(STORAGE_KEY_META, next);
       syncMetaToCloud(next);
       return next;
