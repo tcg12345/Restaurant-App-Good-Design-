@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { X, Film, ChefHat, MapPin, Search, Check, Upload, Music2, Trash2, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Film, ChefHat, MapPin, Search, Check, Upload, Music2, Trash2, AlertCircle, Loader2, Globe, Users as UsersIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   useReels,
@@ -71,6 +71,7 @@ export const AddReelModal: React.FC = () => {
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const [caption, setCaption] = useState('');
   const [audio, setAudio] = useState('Original audio');
+  const [isPublic, setIsPublic] = useState(true);
   const [pickedRestaurantId, setPickedRestaurantId] = useState<string | null>(null);
   const [pickedRecipeId, setPickedRecipeId] = useState<string | null>(null);
   const [restaurantSearch, setRestaurantSearch] = useState('');
@@ -105,6 +106,7 @@ export const AddReelModal: React.FC = () => {
     setVideoDuration(null);
     setCaption('');
     setAudio('Original audio');
+    setIsPublic(true);
     setPickedRestaurantId(null);
     setPickedRecipeId(null);
     setRestaurantSearch('');
@@ -401,6 +403,7 @@ export const AddReelModal: React.FC = () => {
         audioLabel: audio.trim() || 'Original audio',
         bgGradient,
         durationSeconds: videoDuration ?? 0,
+        isPublic,
         restaurant: kind === 'restaurant' && pickedRestaurant
           ? {
             id: pickedRestaurant.id,
@@ -620,6 +623,47 @@ export const AddReelModal: React.FC = () => {
                     className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none disabled:opacity-50"
                     maxLength={60}
                   />
+                </div>
+              </section>
+
+              {/* Privacy — Public vs Followers only. The choice is enforced
+                  server-side via reels.is_public + the SELECT RLS that lets
+                  followers see private rows. */}
+              <section>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Visibility</label>
+                <div className="flex p-1 rounded-2xl bg-on-surface/[0.06]">
+                  {([
+                    { value: true, label: 'Public', sub: 'Anyone can see this reel', icon: Globe },
+                    { value: false, label: 'Followers only', sub: 'Only people who follow you', icon: UsersIcon },
+                  ] as const).map((opt) => {
+                    const active = isPublic === opt.value;
+                    const Icon = opt.icon;
+                    return (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => setIsPublic(opt.value)}
+                        disabled={submitting}
+                        className={cn(
+                          'flex-1 flex items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors disabled:opacity-40',
+                          active ? 'bg-white shadow' : 'hover:bg-on-surface/[0.03]',
+                        )}
+                      >
+                        <span className={cn(
+                          'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+                          active ? 'bg-primary/10 text-primary' : 'bg-on-surface/[0.06] text-on-surface/55',
+                        )}>
+                          <Icon size={15} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className={cn('block text-[13px] font-bold leading-tight', active ? 'text-on-surface' : 'text-on-surface/65')}>
+                            {opt.label}
+                          </span>
+                          <span className="block text-[11px] text-on-surface/45 leading-tight truncate">{opt.sub}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </section>
 

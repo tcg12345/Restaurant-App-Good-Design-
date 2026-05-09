@@ -6,6 +6,7 @@ import {
   createReel as cloudCreateReel,
   setLike as cloudSetLike,
   setSave as cloudSetSave,
+  setReelVisibility as cloudSetReelVisibility,
   deleteReel as cloudDeleteReel,
   listComments as cloudListComments,
   addComment as cloudAddComment,
@@ -47,6 +48,8 @@ export interface Reel {
   saves: number;
   liked: boolean;
   saved: boolean;
+  /** True when the reel is visible to everyone; false = followers only. */
+  isPublic: boolean;
   createdAt: number;
 }
 
@@ -84,6 +87,7 @@ function rowToUi(row: ReelRow): Reel {
     saves: row.savesCount,
     liked: row.liked,
     saved: row.saved,
+    isPublic: row.isPublic,
     createdAt: row.createdAt ? Date.parse(row.createdAt) : Date.now(),
   };
 }
@@ -105,6 +109,7 @@ interface ReelsContextValue {
     audioLabel: string;
     bgGradient: string;
     durationSeconds: number;
+    isPublic: boolean;
     restaurant?: ReelRestaurantSnapshot;
     recipe?: ReelRecipeSnapshot;
     onProgress?: (n: number) => void;
@@ -112,6 +117,7 @@ interface ReelsContextValue {
 
   toggleLike: (reelId: string) => Promise<void>;
   toggleSave: (reelId: string) => Promise<void>;
+  setReelVisibility: (reelId: string, isPublic: boolean) => Promise<boolean>;
   deleteReel: (reelId: string) => Promise<boolean>;
 
   // Comments
@@ -224,6 +230,21 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
+  const setReelVisibility = useCallback(async (reelId: string, isPublic: boolean): Promise<boolean> => {
+    // Optimistic — flip locally, fire the cloud update, roll back on failure.
+    let prevValue: boolean | null = null;
+    setReels((prev) => prev.map((r) => {
+      if (r.id !== reelId) return r;
+      prevValue = r.isPublic;
+      return { ...r, isPublic };
+    }));
+    const ok = await cloudSetReelVisibility(reelId, isPublic);
+    if (!ok && prevValue != null) {
+      setReels((prev) => prev.map((r) => r.id === reelId ? { ...r, isPublic: prevValue! } : r));
+    }
+    return ok;
+  }, []);
+
   const deleteReel = useCallback(async (reelId: string) => {
     const ok = await cloudDeleteReel(reelId);
     if (ok) setReels((prev) => prev.filter((r) => r.id !== reelId));
@@ -278,6 +299,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     postReel,
     toggleLike,
     toggleSave,
+    setReelVisibility,
     deleteReel,
     loadComments,
     addComment,

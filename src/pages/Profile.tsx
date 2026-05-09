@@ -51,7 +51,7 @@ export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
   const listsCtx = useLists();
-  const { openAddReelModal, reels, deleteReel } = useReels();
+  const { openAddReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
   const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
 
@@ -492,27 +492,51 @@ export const Profile: React.FC = () => {
                         {r.kind === 'restaurant' ? r.restaurant?.name : r.recipe?.title}
                       </p>
                     </div>
-                    {/* Top-right counts */}
+                    {/* Top-left likes count */}
                     <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/45 backdrop-blur rounded-full px-2 h-6 text-white text-[10px] font-bold">
                       <Heart size={10} className="fill-white" />
                       <span className="tabular-nums">{r.likes}</span>
                     </div>
-                  </button>
-                  {/* Delete pill — visible on hover (desktop) and always on touch.
-                      We can't reliably gate by hover on mobile so we keep it
-                      tappable but tucked into a small corner button. */}
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDeleteReelId(r.id)}
-                    className={cn(
-                      'absolute top-2 right-2 w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white',
-                      'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity',
-                      'hover:bg-rose-600 hover:text-white',
+                    {/* Privacy badge — only visible for private reels so the
+                        public state stays uncluttered. Sits at the bottom-
+                        left so it doesn't collide with the Delete pill. */}
+                    {!r.isPublic && (
+                      <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/55 backdrop-blur rounded-full px-2 h-6 text-white text-[10px] font-bold">
+                        <Lock size={10} />
+                        <span className="uppercase tracking-wider">Private</span>
+                      </div>
                     )}
-                    aria-label="Delete reel"
-                  >
-                    <Trash2 size={13} />
                   </button>
+                  {/* Top-right action stack — visibility toggle + delete.
+                      Always visible on touch; hover-revealed on desktop so
+                      the grid stays clean. */}
+                  <div
+                    className={cn(
+                      'absolute top-2 right-2 flex items-center gap-1.5',
+                      'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity',
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setReelVisibility(r.id, !r.isPublic)}
+                      className={cn(
+                        'w-7 h-7 rounded-full backdrop-blur flex items-center justify-center text-white',
+                        'bg-black/55 hover:bg-black/70 transition-colors',
+                      )}
+                      aria-label={r.isPublic ? 'Make private' : 'Make public'}
+                      title={r.isPublic ? 'Public — tap to make followers-only' : 'Followers only — tap to make public'}
+                    >
+                      {r.isPublic ? <Globe size={13} /> : <Lock size={13} />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteReelId(r.id)}
+                      className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
+                      aria-label="Delete reel"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

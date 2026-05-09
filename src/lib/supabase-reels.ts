@@ -65,6 +65,7 @@ export interface ReelRow {
   commentsCount: number;
   liked: boolean;
   saved: boolean;
+  isPublic: boolean;
   createdAt: string;
 }
 
@@ -108,6 +109,9 @@ const rowToReel = (
     commentsCount: commentsEmbed?.[0]?.count ?? 0,
     liked: myLikes.has(id),
     saved: mySaves.has(id),
+    // Default to true so reels created before migration 020 (which added
+    // the column with NOT NULL DEFAULT true) keep their public scope.
+    isPublic: row.is_public === undefined ? true : !!row.is_public,
     createdAt: String(row.created_at || ''),
   };
 };
@@ -162,6 +166,7 @@ export interface UploadReelInput {
   audioLabel: string;
   bgGradient: string;
   durationSeconds: number;
+  isPublic: boolean;
   restaurant?: ReelRestaurantSnapshot;
   recipe?: ReelRecipeSnapshot;
   onProgress?: (fraction: number) => void;
@@ -195,7 +200,7 @@ export async function readVideoDuration(file: File): Promise<number> {
 /** Upload the video file + insert the reels row. Returns the new reel. */
 export async function createReel(input: UploadReelInput): Promise<ReelRow | null> {
   if (!supabaseConfigured) return null;
-  const { userId, file, kind, caption, audioLabel, bgGradient, durationSeconds, restaurant, recipe, onProgress } = input;
+  const { userId, file, kind, caption, audioLabel, bgGradient, durationSeconds, isPublic, restaurant, recipe, onProgress } = input;
 
   const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
@@ -227,6 +232,7 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
       audio_label: audioLabel,
       bg_gradient: bgGradient,
       duration_seconds: durationSeconds,
+      is_public: isPublic,
       restaurant_id: restaurant?.id ?? null,
       restaurant_data: restaurant ?? null,
       recipe_id: recipe?.id ?? null,
@@ -345,6 +351,19 @@ export async function setSave(reelId: string, userId: string, saved: boolean): P
 }
 
 /* ── Delete (owner only — also removes the storage object) ──────────── */
+
+/** Toggle a reel's visibility. Owner-only via the existing UPDATE RLS. */
+export async function setReelVisibility(reelId: string, isPublic: boolean): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  const { error } = await supabase.from('reels')
+    .update({ is_public: isPublic })
+    .eq('id', reelId);
+  if (error) {
+    console.warn('[Reels] setVisibility failed:', error.message);
+    return false;
+  }
+  return true;
+}
 
 export async function deleteReel(reelId: string): Promise<boolean> {
   if (!supabaseConfigured) return false;
