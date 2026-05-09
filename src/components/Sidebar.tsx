@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronsLeft, ChevronsRight, ChevronDown, Heart, ChefHat, Plane, MessageCircle } from 'lucide-react';
+import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronsLeft, ChevronsRight, ChevronDown, Heart, ChefHat, Plane, MessageCircle, Film } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
+import { useReels } from '../contexts/ReelsContext';
 
 /**
  * Desktop-only collapsible sidebar. App.tsx decides when to mount it
@@ -50,6 +51,7 @@ export const Sidebar: React.FC = () => {
   const { profile } = useAuth();
   const { ratings, lists, wishlist, homeMeals, trips } = useLists();
   const { unreadCount } = useChat();
+  const { openAddReelModal } = useReels();
 
   const [collapsed, setCollapsed] = useState<boolean>(() => loadFlag(COLLAPSE_KEY, false));
   const [pantryOpen, setPantryOpen] = useState<boolean>(() => loadFlag(PANTRY_OPEN_KEY, true));
@@ -77,6 +79,7 @@ export const Sidebar: React.FC = () => {
 
   const isHomeActive = location.pathname === '/' || location.pathname === '/index.html';
   const isMapActive = location.pathname === '/map';
+  const isReelsActive = location.pathname === '/reels';
   const isPantryActive = location.pathname === '/pantry' || location.pathname.startsWith('/pantry/');
   const isCircleActive = location.pathname === '/circle';
   const isMessagesActive = location.pathname === '/messages' || location.pathname.startsWith('/messages/');
@@ -173,8 +176,8 @@ export const Sidebar: React.FC = () => {
 
       <div className="border-t border-on-surface/[0.06] mx-3" />
 
-      {/* ── New Rating CTA ─────────────────────────────────────────────── */}
-      <div className={cn('px-3 pt-4 pb-3', collapsed && 'px-2')}>
+      {/* ── New Rating + Post Reel CTAs ─────────────────────────────── */}
+      <div className={cn('px-3 pt-4 pb-3 space-y-2', collapsed && 'px-2')}>
         <button
           type="button"
           onClick={() => navigate('/search/main')}
@@ -188,6 +191,22 @@ export const Sidebar: React.FC = () => {
         >
           <Plus size={18} strokeWidth={2.5} />
           {!collapsed && <span>New Rating</span>}
+        </button>
+        <button
+          type="button"
+          onClick={() => openAddReelModal()}
+          aria-label="Post a reel"
+          title={collapsed ? 'Post a reel' : undefined}
+          className={cn(
+            'w-full rounded-full font-semibold text-sm',
+            'flex items-center justify-center gap-2',
+            'border border-on-surface/10 text-on-surface/80 bg-on-surface/[0.03]',
+            'hover:bg-on-surface/[0.07] active:scale-[0.99] transition-all',
+            collapsed ? 'h-11 px-0' : 'h-11 px-4',
+          )}
+        >
+          <Film size={16} strokeWidth={2.2} />
+          {!collapsed && <span>Post Reel</span>}
         </button>
       </div>
 
@@ -207,6 +226,14 @@ export const Sidebar: React.FC = () => {
             <NavLink to="/map" className={navRowClass(isMapActive)} title={collapsed ? 'Map' : undefined}>
               <MapIcon size={20} strokeWidth={isMapActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isMapActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Map</span>}
+            </NavLink>
+          </li>
+
+          {/* Reels */}
+          <li>
+            <NavLink to="/reels" className={navRowClass(isReelsActive)} title={collapsed ? 'Reels' : undefined}>
+              <Film size={20} strokeWidth={isReelsActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isReelsActive ? 'text-on-surface' : 'text-on-surface/65')} />
+              {!collapsed && <span className="truncate">Reels</span>}
             </NavLink>
           </li>
 

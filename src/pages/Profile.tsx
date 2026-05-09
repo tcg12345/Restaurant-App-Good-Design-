@@ -2,11 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon,
+  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useReels } from '../contexts/ReelsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../lib/supabase-community';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -50,6 +51,7 @@ export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
   const listsCtx = useLists();
+  const { openAddReelModal } = useReels();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
   const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
@@ -322,6 +324,17 @@ export const Profile: React.FC = () => {
               <Settings size={16} />
             </button>
           </div>
+
+          {/* Post a reel CTA — mobile entry point for the AddReelModal.
+              The desktop sidebar has its own "Post Reel" button. */}
+          <button
+            type="button"
+            onClick={() => openAddReelModal()}
+            className="mt-2 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors"
+          >
+            <Film size={14} />
+            Post a reel
+          </button>
 
           {/* Badges */}
           <div className="flex flex-wrap gap-1.5 mt-3">
