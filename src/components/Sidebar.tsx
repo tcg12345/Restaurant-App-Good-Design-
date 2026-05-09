@@ -54,7 +54,7 @@ export const Sidebar: React.FC = () => {
   const { openAddReelModal } = useReels();
 
   const [collapsed, setCollapsed] = useState<boolean>(() => loadFlag(COLLAPSE_KEY, false));
-  const [pantryOpen, setPantryOpen] = useState<boolean>(() => loadFlag(PANTRY_OPEN_KEY, true));
+  const [pantryOpen, setPantryOpen] = useState<boolean>(() => loadFlag(PANTRY_OPEN_KEY, false));
 
   useEffect(() => {
     try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch {}
