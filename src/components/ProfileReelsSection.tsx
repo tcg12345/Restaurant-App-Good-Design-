@@ -103,7 +103,13 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
                 )}
               </button>
               {isOwn && (
-                <div className={cn('absolute top-1.5 right-1.5 flex items-center gap-1', 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity', p.items.length > 1 && '!top-7')}>
+                // Owner controls: always visible (no hover gate) so the
+                // delete affordance is obvious. Shifts down on multi-item
+                // posts so it doesn't collide with the Layers chip.
+                <div className={cn(
+                  'absolute right-1.5 flex items-center gap-1',
+                  p.items.length > 1 ? 'top-7' : 'top-1.5',
+                )}>
                   {onToggleVisibility && (
                     <button
                       type="button"
@@ -119,8 +125,9 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => onDelete(p.id)}
-                      className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600"
+                      className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
                       aria-label="Delete post"
+                      title="Delete post"
                     >
                       <Trash2 size={11} />
                     </button>
@@ -222,13 +229,10 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
                 </div>
               )}
             </button>
-            {/* Owner controls — privacy + delete. Hidden until hover on
-                desktop; always visible on touch since hover doesn't apply. */}
+            {/* Owner controls — privacy + delete. Always visible so the
+                delete affordance is obvious on both touch and desktop. */}
             {isOwn && (
-              <div className={cn(
-                'absolute top-1.5 right-1.5 flex items-center gap-1',
-                'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity',
-              )}>
+              <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
                 {onToggleVisibility && (
                   <button
                     type="button"
