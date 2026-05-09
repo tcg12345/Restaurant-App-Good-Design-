@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronsLeft, ChevronsRight, ChevronDown, Heart, ChefHat, Plane, MessageCircle, Film, Image as ImageIcon } from 'lucide-react';
+import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronDown, Heart, ChefHat, Plane, MessageCircle, Film, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -33,7 +33,6 @@ import { usePosts } from '../contexts/PostsContext';
  *  └──────────────────┘
  */
 
-const COLLAPSE_KEY = 'gourmad-sidebar-collapsed';
 const PANTRY_OPEN_KEY = 'gourmad-sidebar-pantry-open';
 
 export const SIDEBAR_EXPANDED_WIDTH = 264;
@@ -55,11 +54,30 @@ export const Sidebar: React.FC = () => {
   const { openAddReelModal } = useReels();
   const { openAddPostModal } = usePosts();
 
-  const [collapsed, setCollapsed] = useState<boolean>(() => loadFlag(COLLAPSE_KEY, false));
+  // The rail is always collapsed by default. Hover expands it; leaving
+  // collapses it again. We don't persist this — the rail is hover-driven
+  // every session. A small "leave delay" prevents the rail from snapping
+  // shut when the cursor briefly grazes outside the bounds.
+  const [hovered, setHovered] = useState(false);
   const [pantryOpen, setPantryOpen] = useState<boolean>(() => loadFlag(PANTRY_OPEN_KEY, false));
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Create menu — small popover anchored to the Create button.
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const createWrapRef = useRef<HTMLDivElement>(null);
+
+  // Keep the rail expanded while a popover or tray inside it is open
+  // (otherwise it'd snap shut underneath the cursor when the user moves
+  // onto a menu item that's anchored to the rail).
+  const collapsed = !(hovered || createMenuOpen);
+
+  const onAsideMouseEnter = () => {
+    if (leaveTimerRef.current) { clearTimeout(leaveTimerRef.current); leaveTimerRef.current = null; }
+    setHovered(true);
+  };
+  const onAsideMouseLeave = () => {
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    leaveTimerRef.current = setTimeout(() => setHovered(false), 120);
+  };
 
   useEffect(() => {
     if (!createMenuOpen) return;
@@ -74,9 +92,6 @@ export const Sidebar: React.FC = () => {
   useEffect(() => { setCreateMenuOpen(false); }, [location.pathname]);
 
   useEffect(() => {
-    try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch {}
-  }, [collapsed]);
-  useEffect(() => {
     try { localStorage.setItem(PANTRY_OPEN_KEY, pantryOpen ? '1' : '0'); } catch {}
   }, [pantryOpen]);
 
@@ -85,17 +100,6 @@ export const Sidebar: React.FC = () => {
   useEffect(() => {
     if (location.pathname.startsWith('/pantry') && !pantryOpen) {
       setPantryOpen(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
-
-  // Auto-collapse the sidebar when the user lands on /reels — the desktop
-  // reels layout wants the full canvas. We don't auto-expand on leaving
-  // because re-expanding the rail under the user's cursor is jarring;
-  // they can click the chevron to bring it back.
-  useEffect(() => {
-    if (location.pathname === '/reels' && !collapsed) {
-      setCollapsed(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
@@ -120,31 +124,6 @@ export const Sidebar: React.FC = () => {
     const sp = new URLSearchParams(location.search);
     return { list: sp.get('list'), view: sp.get('view') };
   }, [isPantryActive, location.search]);
-
-  // Click anywhere blank on the rail (only while collapsed) to expand.
-  const handleAsideClick = (e: React.MouseEvent<HTMLElement>) => {
-    if (!collapsed) return;
-    const target = e.target as HTMLElement | null;
-    if (!target) return;
-    if (target.closest('button, a, [role="button"]')) return;
-    setCollapsed(false);
-  };
-
-  const ToggleButton: React.FC<{ size?: number; className?: string }> = ({ size = 16, className }) => (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c); }}
-      aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      className={cn(
-        'rounded-lg flex items-center justify-center flex-shrink-0',
-        'text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors',
-        className,
-      )}
-    >
-      {collapsed ? <ChevronsRight size={size} /> : <ChevronsLeft size={size} />}
-    </button>
-  );
 
   // Reusable nav-row className for the top-level items.
   const navRowClass = (active: boolean) =>
@@ -176,11 +155,11 @@ export const Sidebar: React.FC = () => {
     <motion.aside
       animate={{ width }}
       transition={{ type: 'spring', damping: 28, stiffness: 280, mass: 0.9 }}
-      onClick={handleAsideClick}
+      onMouseEnter={onAsideMouseEnter}
+      onMouseLeave={onAsideMouseLeave}
       className={cn(
         'h-screen sticky top-0 flex-shrink-0 border-r border-on-surface/[0.07] bg-surface',
         'flex flex-col z-30',
-        collapsed && 'cursor-e-resize',
       )}
       aria-label="Primary"
     >
@@ -199,7 +178,6 @@ export const Sidebar: React.FC = () => {
             </h1>
           )}
         </div>
-        <ToggleButton size={16} className="w-8 h-8" />
       </div>
 
       <div className="border-t border-on-surface/[0.06] mx-3" />
@@ -502,19 +480,6 @@ export const Sidebar: React.FC = () => {
             </div>
           )}
         </NavLink>
-        <button
-          type="button"
-          onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className={cn(
-            'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
-            'text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors',
-            collapsed && 'hidden',
-          )}
-        >
-          <ChevronsLeft size={16} />
-        </button>
       </div>
     </motion.aside>
   );
