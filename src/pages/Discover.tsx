@@ -266,6 +266,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHideBottomNav, phoneMode } = useSettings();
+  // Wide viewport (>= lg): the global DesktopHeader provides the
+  // search input + actions, so Discover's own TopBar / inline search
+  // bar are redundant and would stack on top of it.
+  const [isWideViewport, setIsWideViewport] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsWideViewport(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  const usingDesktopHeader = isWideViewport && !phoneMode;
   const { openAddRestaurantModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
   const {
     friendRecipes: friendPublishedRecipes,
@@ -3212,21 +3225,25 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         {/* ══════ FULL STATE — full-screen discover page (Home) ══════ */}
         {sheetState === 'full' && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            <TopBar title="Home" />
-            {/* Compact search bar — tapping jumps straight into the Search page */}
-            <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
-              <button
-                type="button"
-                onClick={() => navigate('/search/main')}
-                className="flex-1 relative"
-                aria-label="Open search"
-              >
-                <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-                <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium text-on-surface/40 text-left">
-                  Search restaurants, cuisines...
-                </div>
-              </button>
-            </div>
+            {/* TopBar + the inline search button are only rendered on
+                phone-frame / narrow viewports. On desktop the global
+                DesktopHeader (sidebar layout) owns both. */}
+            {!usingDesktopHeader && <TopBar title="Home" />}
+            {!usingDesktopHeader && (
+              <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
+                <button
+                  type="button"
+                  onClick={() => navigate('/search/main')}
+                  className="flex-1 relative"
+                  aria-label="Open search"
+                >
+                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
+                  <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium text-on-surface/40 text-left">
+                    Search restaurants, cuisines...
+                  </div>
+                </button>
+              </div>
+            )}
 
             {/* Full discover content — scrollable */}
             <div className={cn("flex-1 overflow-y-auto pb-32", phoneMode ? "px-3" : "px-6")}>

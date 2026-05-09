@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronsLeft, ChevronsRight, ChevronDown, Heart, ChefHat, Plane } from 'lucide-react';
+import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronsLeft, ChevronsRight, ChevronDown, Heart, ChefHat, Plane, MessageCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useChat } from '../contexts/ChatContext';
 
 /**
  * Desktop-only collapsible sidebar. App.tsx decides when to mount it
@@ -48,6 +49,7 @@ export const Sidebar: React.FC = () => {
   const location = useLocation();
   const { profile } = useAuth();
   const { ratings, lists, wishlist, homeMeals, trips } = useLists();
+  const { unreadCount } = useChat();
 
   const [collapsed, setCollapsed] = useState<boolean>(() => loadFlag(COLLAPSE_KEY, false));
   const [pantryOpen, setPantryOpen] = useState<boolean>(() => loadFlag(PANTRY_OPEN_KEY, true));
@@ -77,6 +79,7 @@ export const Sidebar: React.FC = () => {
   const isMapActive = location.pathname === '/map';
   const isPantryActive = location.pathname === '/pantry' || location.pathname.startsWith('/pantry/');
   const isCircleActive = location.pathname === '/circle';
+  const isMessagesActive = location.pathname === '/messages' || location.pathname.startsWith('/messages/');
   const isProfileActive = location.pathname === '/profile';
 
   // Parse the Pantry URL query so the tray can highlight the active
@@ -227,6 +230,33 @@ export const Sidebar: React.FC = () => {
             <NavLink to="/circle" className={navRowClass(isCircleActive)} title={collapsed ? 'Circle' : undefined}>
               <Users size={20} strokeWidth={isCircleActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isCircleActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Circle</span>}
+            </NavLink>
+          </li>
+
+          {/* Messages */}
+          <li>
+            <NavLink to="/messages" className={navRowClass(isMessagesActive)} title={collapsed ? 'Messages' : undefined}>
+              <span className="relative flex-shrink-0">
+                <MessageCircle size={20} strokeWidth={isMessagesActive ? 2.4 : 1.9} className={cn(isMessagesActive ? 'text-on-surface' : 'text-on-surface/65')} />
+                {unreadCount > 0 && (
+                  <span
+                    className={cn(
+                      'absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[10px] font-bold',
+                      'flex items-center justify-center ring-2 ring-surface',
+                    )}
+                  >
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </span>
+              {!collapsed && (
+                <>
+                  <span className="truncate flex-1">Messages</span>
+                  {unreadCount > 0 && (
+                    <span className="text-[11px] font-bold text-primary tabular-nums">{unreadCount}</span>
+                  )}
+                </>
+              )}
             </NavLink>
           </li>
 

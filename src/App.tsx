@@ -16,6 +16,7 @@ import { RestaurantDetail } from './pages/RestaurantDetail';
 import { Onboarding } from './pages/Onboarding';
 import { BottomNav } from './components/BottomNav';
 import { Sidebar } from './components/Sidebar';
+import { DesktopHeader } from './components/DesktopHeader';
 import { AnimatePresence, motion } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -176,14 +177,20 @@ const AppContent: React.FC = () => {
   );
 
   // ── Desktop sidebar layout ───────────────────────────────────────────
-  // Wide viewports (>= lg) render a sticky left sidebar instead of the
-  // floating BottomNav. The sidebar handles its own collapsed state.
+  // Wide viewports (>= lg) render a sticky left sidebar + a sticky page
+  // header instead of the floating BottomNav. The header is hidden on
+  // the map page (and on /messages, which has its own chrome) so its
+  // chrome doesn't fight the rendered content.
   if (useSidebar) {
+    const hideHeader = isMapPage || location.pathname.startsWith('/messages');
     return (
       <div className="min-h-screen bg-surface text-on-surface selection:bg-primary/20 selection:text-primary flex">
         <Sidebar />
-        <main className="flex-1 min-w-0 min-h-screen">
-          {routesBlock}
+        <main className="flex-1 min-w-0 min-h-screen flex flex-col">
+          {!hideHeader && <DesktopHeader />}
+          <div className="flex-1 min-w-0">
+            {routesBlock}
+          </div>
         </main>
         {modals}
       </div>
