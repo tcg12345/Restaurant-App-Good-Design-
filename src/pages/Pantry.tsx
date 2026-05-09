@@ -405,6 +405,7 @@ const RestaurantRow: React.FC<{
   removeLabel?: string;
 }> = ({ restaurantId, name, image, cuisine, price, address, score, tags, notes, visitDate, wouldReturn, listBadges, onEdit, onRemove, removeLabel }) => {
   const { phoneMode } = useSettings();
+  const { restaurantMeta } = useLists();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [swiped, setSwiped] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -418,6 +419,17 @@ const RestaurantRow: React.FC<{
     if (parts.length >= 2) return parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
     return parts[0] || '';
   })();
+
+  // Distance from the user's anchor location to the cached coords for
+  // this place (populated by useRestaurantDetail). Renders inline next
+  // to the city when available; otherwise the city stands alone.
+  const meta = restaurantMeta[restaurantId];
+  const distanceLabel = useMemo(() => {
+    const home = loadLastSelectedLocation();
+    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
+    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
+    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
+  }, [meta?.lat, meta?.lng]);
 
   const handleDelete = () => {
     if (onRemove) {
@@ -490,51 +502,27 @@ const RestaurantRow: React.FC<{
             }
           }}
         >
-          <div className="flex items-center gap-3 py-3 active:scale-[0.99] transition-transform">
-            <div
-              className={cn(
-                'w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center',
-                image
-                  ? 'bg-on-surface/[0.05]'
-                  // Soft score-tinted monogram tile when no image so the row
-                  // doesn't read as "missing thumbnail".
-                  : score !== undefined && score >= 8
-                    ? 'bg-gradient-to-br from-green-100/70 to-green-50/30 border border-green-200/40'
-                    : score !== undefined && score >= 5
-                      ? 'bg-gradient-to-br from-amber-100/70 to-amber-50/30 border border-amber-200/40'
-                      : score !== undefined && score > 0
-                        ? 'bg-gradient-to-br from-red-100/70 to-red-50/30 border border-red-200/40'
-                        : 'bg-gradient-to-br from-on-surface/[0.06] to-on-surface/[0.02] border border-on-surface/[0.06]',
-              )}
-            >
-              {image ? (
+          <div className="flex items-start gap-3 py-3 active:scale-[0.99] transition-transform">
+            {/* Image thumbnail — only when there's an actual photo. The
+                no-image monogram tile is intentionally gone so the row
+                stays clean and lets the location read as its own line. */}
+            {image && (
+              <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
                 <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-              ) : (
-                <span className={cn(
-                  'font-serif font-bold leading-none',
-                  score !== undefined && score > 0
-                    ? cn('text-lg', scoreColor(score))
-                    : 'text-xl text-on-surface/35',
-                )}>
-                  {name.charAt(0).toUpperCase()}
-                </span>
-              )}
-            </div>
-            <div className={cn("flex-1 min-w-0 flex flex-col justify-center")}>
+              </div>
+            )}
+            <div className="flex-1 min-w-0 flex flex-col justify-center">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
-                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <span className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider">
-                      {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
-                    </span>
-                    {location && (
-                      <>
-                        <span className="text-on-surface/20 text-[10px]">|</span>
-                        <span className="text-[10px] text-on-surface/35 truncate">{location}</span>
-                      </>
-                    )}
-                  </div>
+                  <h3 className="font-serif font-bold text-[15px] leading-tight truncate">{name}</h3>
+                  <p className="mt-0.5 text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider truncate">
+                    {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
+                  </p>
+                  {location && (
+                    <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
+                      {location}{distanceLabel ? ` · ${distanceLabel}` : ''}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {score !== undefined && (
@@ -561,7 +549,7 @@ const RestaurantRow: React.FC<{
                 </div>
               </div>
               {tags && tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1">
+                <div className="flex flex-wrap gap-1 mt-1.5">
                   {tags.slice(0, 3).map((tag) => (
                     <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{tag}</span>
                   ))}
@@ -606,29 +594,44 @@ const WishlistRow: React.FC<{
   image: string;
   cuisine: string;
   price: string;
+  /** Full address — derives the city + distance line under cuisine. */
+  address?: string;
   notes?: string;
   onRemove?: () => void;
-}> = ({ restaurantId, name, image, cuisine, price, notes, onRemove }) => {
+}> = ({ restaurantId, name, image, cuisine, price, address, notes, onRemove }) => {
+  const { restaurantMeta } = useLists();
+
+  // City label from address — same compact extractor used elsewhere.
+  const location = (() => {
+    const a = address || restaurantMeta[restaurantId]?.address || '';
+    if (!a) return '';
+    const parts = a.split(',').map((s) => s.trim());
+    if (parts.length >= 2) return parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
+    return parts[0] || '';
+  })();
+
+  // Distance from the user's anchor location.
+  const meta = restaurantMeta[restaurantId];
+  const distanceLabel = useMemo(() => {
+    const home = loadLastSelectedLocation();
+    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
+    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
+    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
+  }, [meta?.lat, meta?.lng]);
+
   return (
     <div className="flex items-start gap-3 py-3 group">
-      <Link
-        to={`/restaurant/${restaurantId}`}
-        className={cn(
-          'w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center block relative',
-          image ? 'bg-on-surface/[0.05]' : 'bg-gradient-to-br from-red-100/70 to-red-50/30 border border-red-200/40',
-        )}
-      >
-        {image ? (
+      {/* Image thumbnail — only when an actual photo exists. The
+          monogram tile that used to render with no image is gone so the
+          row stays clean and the location can read as its own line. */}
+      {image && (
+        <Link
+          to={`/restaurant/${restaurantId}`}
+          className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block"
+        >
           <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-        ) : (
-          <>
-            <span className="font-serif font-bold text-lg leading-none text-red-400/85">
-              {name.charAt(0).toUpperCase()}
-            </span>
-            <Heart size={9} className="absolute bottom-1 right-1 text-red-400 fill-red-400/80" />
-          </>
-        )}
-      </Link>
+        </Link>
+      )}
       <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
         <div>
           <Link to={`/restaurant/${restaurantId}`}>
@@ -637,6 +640,11 @@ const WishlistRow: React.FC<{
           <p className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
             {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
           </p>
+          {location && (
+            <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
+              {location}{distanceLabel ? ` · ${distanceLabel}` : ''}
+            </p>
+          )}
           {notes && (
             <p className="text-[11px] text-on-surface/45 mt-1 line-clamp-2 italic">&ldquo;{notes}&rdquo;</p>
           )}
@@ -1721,6 +1729,7 @@ const ListDetailView: React.FC<{
                     image={info?.image ?? ''}
                     cuisine={info?.cuisine ?? ''}
                     price={info?.price ?? ''}
+                    address={info?.address}
                     notes={wishItem?.notes}
                     onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
                   />
