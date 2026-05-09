@@ -210,103 +210,54 @@ export const Sidebar: React.FC = () => {
             </NavLink>
           </li>
 
-          {/* Pantry — plain link. The user's lists live in their own
-              "Lists" tray below the main nav now; Pantry routes back to
-              the multi-list landing view. */}
+          {/* Pantry — expandable. Body click navigates to /pantry AND
+              opens the lists tray; the chevron on the right toggles the
+              tray without navigating. The tray previously lived as a
+              standalone "LISTS" block at the bottom of the rail; it's
+              now consolidated under the Pantry row so the tray is
+              visually anchored to the page it controls. */}
           <li>
-            <NavLink
-              to="/pantry"
-              end
-              className={({ isActive }) => navRowClass(isActive || isPantryActive)}
+            <button
+              type="button"
+              onClick={() => {
+                navigate('/pantry');
+                if (!collapsed) setPantryOpen(true);
+              }}
+              className={cn(navRowClass(isPantryActive), 'w-full text-left')}
               title={collapsed ? 'Pantry' : undefined}
             >
               <Bookmark size={20} strokeWidth={isPantryActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isPantryActive ? 'text-on-surface' : 'text-on-surface/65')} />
-              {!collapsed && <span className="truncate">Pantry</span>}
-            </NavLink>
-          </li>
-
-          {/* Circle */}
-          <li>
-            <NavLink to="/circle" className={navRowClass(isCircleActive)} title={collapsed ? 'Circle' : undefined}>
-              <Users size={20} strokeWidth={isCircleActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isCircleActive ? 'text-on-surface' : 'text-on-surface/65')} />
-              {!collapsed && <span className="truncate">Circle</span>}
-            </NavLink>
-          </li>
-
-          {/* Messages */}
-          <li>
-            <NavLink to="/messages" className={navRowClass(isMessagesActive)} title={collapsed ? 'Messages' : undefined}>
-              <span className="relative flex-shrink-0">
-                <MessageCircle size={20} strokeWidth={isMessagesActive ? 2.4 : 1.9} className={cn(isMessagesActive ? 'text-on-surface' : 'text-on-surface/65')} />
-                {unreadCount > 0 && (
-                  <span
-                    className={cn(
-                      'absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[10px] font-bold',
-                      'flex items-center justify-center ring-2 ring-surface',
-                    )}
-                  >
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-              </span>
               {!collapsed && (
                 <>
-                  <span className="truncate flex-1">Messages</span>
-                  {unreadCount > 0 && (
-                    <span className="text-[11px] font-bold text-primary tabular-nums">{unreadCount}</span>
-                  )}
+                  <span className="truncate flex-1">Pantry</span>
+                  <span
+                    role="button"
+                    aria-label={pantryOpen ? 'Collapse lists' : 'Expand lists'}
+                    aria-expanded={pantryOpen}
+                    onClick={(e) => { e.stopPropagation(); setPantryOpen((o) => !o); }}
+                    className="p-1 -mr-1 rounded-md text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors"
+                  >
+                    <ChevronDown
+                      size={15}
+                      className={cn('transition-transform', pantryOpen ? 'rotate-0' : '-rotate-90')}
+                    />
+                  </span>
                 </>
               )}
-            </NavLink>
-          </li>
-
-          {/* Profile */}
-          <li>
-            <NavLink to="/profile" className={navRowClass(isProfileActive)} title={collapsed ? 'Profile' : undefined}>
-              <User size={20} strokeWidth={isProfileActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isProfileActive ? 'text-on-surface' : 'text-on-surface/65')} />
-              {!collapsed && <span className="truncate">Profile</span>}
-            </NavLink>
-          </li>
-        </ul>
-
-        {/* ── Permanent "Lists" section ────────────────────────────────
-             Always visible (independent from the Pantry route) but
-             collapsable via its own chevron. Auto-opens when the user
-             lands on /pantry so the active list is highlighted; stays
-             accessible elsewhere so a user can deep-link into a list
-             from any page. Hidden entirely while the rail is collapsed
-             — the icons-only column is too narrow to render the row. */}
-        {!collapsed && (
-          <div className="mt-5">
-            <button
-              type="button"
-              onClick={() => setPantryOpen((o) => !o)}
-              className={cn(
-                'w-full flex items-center justify-between gap-2 px-3 mb-1.5',
-                'text-[10px] font-bold uppercase tracking-[0.16em]',
-                'text-on-surface/40 hover:text-on-surface/70 transition-colors',
-              )}
-              aria-label={pantryOpen ? 'Collapse lists' : 'Expand lists'}
-              aria-expanded={pantryOpen}
-            >
-              <span>Lists</span>
-              <ChevronDown
-                size={13}
-                className={cn(
-                  'transition-transform',
-                  pantryOpen ? 'rotate-0' : '-rotate-90',
-                )}
-              />
             </button>
 
+            {/* Inline lists tray — shown only when expanded and the rail
+                isn't collapsed. Same content as the old bottom "LISTS"
+                section; visual hierarchy now puts each list directly
+                under the Pantry row so the relationship reads. */}
             <AnimatePresence initial={false}>
-              {pantryOpen && (
+              {!collapsed && pantryOpen && (
                 <motion.ul
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.18, ease: 'easeOut' }}
-                  className="overflow-hidden space-y-0.5"
+                  className="overflow-hidden space-y-0.5 pt-1"
                 >
                   {/* Wishlist */}
                   <li>
@@ -384,8 +335,51 @@ export const Sidebar: React.FC = () => {
                 </motion.ul>
               )}
             </AnimatePresence>
-          </div>
-        )}
+          </li>
+
+          {/* Circle */}
+          <li>
+            <NavLink to="/circle" className={navRowClass(isCircleActive)} title={collapsed ? 'Circle' : undefined}>
+              <Users size={20} strokeWidth={isCircleActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isCircleActive ? 'text-on-surface' : 'text-on-surface/65')} />
+              {!collapsed && <span className="truncate">Circle</span>}
+            </NavLink>
+          </li>
+
+          {/* Messages */}
+          <li>
+            <NavLink to="/messages" className={navRowClass(isMessagesActive)} title={collapsed ? 'Messages' : undefined}>
+              <span className="relative flex-shrink-0">
+                <MessageCircle size={20} strokeWidth={isMessagesActive ? 2.4 : 1.9} className={cn(isMessagesActive ? 'text-on-surface' : 'text-on-surface/65')} />
+                {unreadCount > 0 && (
+                  <span
+                    className={cn(
+                      'absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[10px] font-bold',
+                      'flex items-center justify-center ring-2 ring-surface',
+                    )}
+                  >
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </span>
+              {!collapsed && (
+                <>
+                  <span className="truncate flex-1">Messages</span>
+                  {unreadCount > 0 && (
+                    <span className="text-[11px] font-bold text-primary tabular-nums">{unreadCount}</span>
+                  )}
+                </>
+              )}
+            </NavLink>
+          </li>
+
+          {/* Profile */}
+          <li>
+            <NavLink to="/profile" className={navRowClass(isProfileActive)} title={collapsed ? 'Profile' : undefined}>
+              <User size={20} strokeWidth={isProfileActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isProfileActive ? 'text-on-surface' : 'text-on-surface/65')} />
+              {!collapsed && <span className="truncate">Profile</span>}
+            </NavLink>
+          </li>
+        </ul>
       </nav>
 
       {/* ── Footer: profile snapshot + collapse toggle ─────────────────── */}
