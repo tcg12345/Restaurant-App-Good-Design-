@@ -37,6 +37,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchLocations, type HomeLocation } from './HomeLocationBar';
 
 const PLACE_TYPE_TO_CUISINE: Record<string, string> = {};
 for (const c of CUISINE_TYPES) {
@@ -102,6 +103,16 @@ export const AddPostModal: React.FC = () => {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [postCaption, setPostCaption] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
+  // Location autocomplete state — `pickedLocation` is the source of truth.
+  // The text input is for searching; we only let the user "have a location"
+  // by picking one of the Mapbox suggestions, never via free-text alone.
+  const [pickedLocation, setPickedLocation] = useState<HomeLocation | null>(null);
+  const [locationFocused, setLocationFocused] = useState(false);
+  const [locationSuggestions, setLocationSuggestions] = useState<HomeLocation[]>([]);
+  const [locationSearching, setLocationSearching] = useState(false);
+  const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastLocationQueryRef = useRef('');
+  const locationWrapRef = useRef<HTMLDivElement>(null);
   const [audio, setAudio] = useState('Original audio');
   const [isPublic, setIsPublic] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -130,6 +141,10 @@ export const AddPostModal: React.FC = () => {
     setActiveKey(null);
     setPostCaption('');
     setLocationLabel('');
+    setPickedLocation(null);
+    setLocationSuggestions([]);
+    setLocationFocused(false);
+    setLocationSearching(false);
     setAudio('Original audio');
     setIsPublic(true);
     setSubmitting(false);
@@ -164,6 +179,54 @@ export const AddPostModal: React.FC = () => {
     );
     return () => { cancelled = true; };
   }, [addPostModalOpen]);
+
+  // Debounced location search (Mapbox forward-geocoder). Only runs while
+  // the user is actively typing — once they pick a suggestion the field
+  // is "locked" to that selection until they edit again.
+  useEffect(() => {
+    if (!addPostModalOpen) return;
+    if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+    const q = locationLabel.trim();
+    // Skip the search when the input matches the picked location (so we
+    // don't show a dropdown the moment the modal restores a selection).
+    if (!q || (pickedLocation && pickedLocation.label === locationLabel)) {
+      setLocationSuggestions([]);
+      setLocationSearching(false);
+      return;
+    }
+    if (q.length < 2) {
+      setLocationSuggestions([]);
+      setLocationSearching(false);
+      return;
+    }
+    setLocationSearching(true);
+    locationDebounceRef.current = setTimeout(async () => {
+      lastLocationQueryRef.current = q;
+      try {
+        const found = await searchLocations(q);
+        if (lastLocationQueryRef.current !== q) return;
+        setLocationSuggestions(found);
+      } catch (err) {
+        console.warn('[AddPost] location search failed', err);
+        if (lastLocationQueryRef.current === q) setLocationSuggestions([]);
+      } finally {
+        if (lastLocationQueryRef.current === q) setLocationSearching(false);
+      }
+    }, 250);
+    return () => { if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current); };
+  }, [addPostModalOpen, locationLabel, pickedLocation]);
+
+  // Click-outside the location field — close the suggestions dropdown.
+  useEffect(() => {
+    if (!locationFocused) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (locationWrapRef.current && !locationWrapRef.current.contains(e.target as Node)) {
+        setLocationFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [locationFocused]);
 
   // Debounced Places search.
   useEffect(() => {
@@ -435,7 +498,9 @@ export const AddPostModal: React.FC = () => {
       }));
       const post = await createPost({
         caption: postCaption.trim(),
-        locationLabel: locationLabel.trim(),
+        // Only use the actual picked location — free-text typing without
+        // a selection is treated as "no location attached", per spec.
+        locationLabel: pickedLocation?.label ?? '',
         audioLabel: audio.trim() || 'Original audio',
         isPublic,
         items: newItems,
@@ -747,19 +812,97 @@ export const AddPostModal: React.FC = () => {
                     <div className="text-right text-[11px] text-on-surface/35 mt-1 tabular-nums">{postCaption.length} / 280</div>
                   </section>
 
-                  <section>
-                    <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Location</label>
-                    <div className="flex items-center gap-2 rounded-full bg-on-surface/[0.04] border border-on-surface/[0.06] px-4 h-11">
-                      <MapPin size={15} className="text-on-surface/45 flex-shrink-0" />
+                  <section ref={locationWrapRef} className="relative">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">Location</label>
+                      {pickedLocation && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
+                          <Check size={10} /> Selected
+                        </span>
+                      )}
+                    </div>
+                    <div className={cn(
+                      'flex items-center gap-2 rounded-full bg-on-surface/[0.04] border px-4 h-11 transition-colors',
+                      pickedLocation ? 'border-emerald-200 bg-emerald-50/40' : 'border-on-surface/[0.06]',
+                    )}>
+                      <MapPin size={15} className={cn('flex-shrink-0', pickedLocation ? 'text-emerald-600' : 'text-on-surface/45')} />
                       <input
                         value={locationLabel}
-                        onChange={(e) => setLocationLabel(e.target.value)}
-                        placeholder="e.g. West Village, Manhattan"
+                        onChange={(e) => {
+                          setLocationLabel(e.target.value);
+                          // Editing invalidates a previous selection — the
+                          // user has to pick from suggestions again.
+                          if (pickedLocation) setPickedLocation(null);
+                        }}
+                        onFocus={() => setLocationFocused(true)}
+                        placeholder="Search a city, neighborhood, or country…"
                         disabled={submitting}
                         maxLength={100}
                         className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none disabled:opacity-50"
                       />
+                      {locationSearching && <Loader2 size={14} className="animate-spin text-on-surface/40 flex-shrink-0" />}
+                      {locationLabel && !submitting && (
+                        <button
+                          type="button"
+                          onClick={() => { setLocationLabel(''); setPickedLocation(null); setLocationSuggestions([]); }}
+                          className="w-6 h-6 rounded-full bg-on-surface/[0.08] hover:bg-on-surface/[0.15] flex items-center justify-center text-on-surface/55 flex-shrink-0"
+                          aria-label="Clear location"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
                     </div>
+
+                    {/* Suggestions dropdown — only when the user is editing
+                        and there's no current pick. */}
+                    <AnimatePresence>
+                      {locationFocused && !pickedLocation && (locationSuggestions.length > 0 || (locationSearching && locationLabel.trim().length >= 2)) && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.12 }}
+                          className="absolute z-30 left-0 right-0 mt-1 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
+                        >
+                          {locationSuggestions.length === 0 ? (
+                            <div className="px-4 py-3 text-[12px] text-on-surface/45 inline-flex items-center gap-2">
+                              <Loader2 size={12} className="animate-spin" /> Searching…
+                            </div>
+                          ) : (
+                            <ul className="max-h-[260px] overflow-y-auto">
+                              {locationSuggestions.map((s, idx) => (
+                                <li key={`${s.label}-${idx}`}>
+                                  <button
+                                    type="button"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setPickedLocation(s);
+                                      setLocationLabel(s.label);
+                                      setLocationSuggestions([]);
+                                      setLocationFocused(false);
+                                    }}
+                                    className="w-full flex items-start gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                                  >
+                                    <MapPin size={14} className="text-on-surface/40 flex-shrink-0 mt-0.5" />
+                                    <span className="min-w-0 flex-1 text-sm text-on-surface truncate">
+                                      {s.label}
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Helper text — surfaces the rule that you must pick
+                        from suggestions to actually attach a location. */}
+                    {!pickedLocation && locationLabel.trim().length > 0 && !locationSearching && locationSuggestions.length === 0 && (
+                      <p className="text-[11px] text-on-surface/45 mt-1.5">
+                        Pick a result from the list to attach it. Free-text won't be saved.
+                      </p>
+                    )}
                   </section>
 
                   <section>
