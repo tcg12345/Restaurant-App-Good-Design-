@@ -78,7 +78,11 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn(`[ChatContext] saveToStorage(${key}) failed:`, err);
+  }
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);

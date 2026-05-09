@@ -79,7 +79,13 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  // Swallow QuotaExceededError so it can't propagate out of setState updaters
+  // and crash the page render. Cloud sync remains the source of truth.
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn(`[RecipesContext] saveToStorage(${key}) failed:`, err);
+  }
 }
 
 /* ── Context ── */

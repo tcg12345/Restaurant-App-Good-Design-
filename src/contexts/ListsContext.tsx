@@ -367,7 +367,14 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  // Swallow QuotaExceededError (and any other localStorage failures) so they
+  // don't propagate out of setState updaters and crash the page render. The
+  // cloud sync layer is the source of truth — local persistence is best-effort.
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn(`[ListsContext] saveToStorage(${key}) failed:`, err);
+  }
 }
 
 const DEFAULT_LISTS: CustomList[] = [
@@ -493,7 +500,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setCustomOrderState([]);
       setHomeMeals([]);
     }
-    localStorage.setItem('gourmad-user-id', userId);
+    try { localStorage.setItem('gourmad-user-id', userId); } catch { /* quota — best-effort */ }
 
     let cancelled = false;
 
@@ -601,7 +608,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_CUSTOM_ORDER, cloudCustomOrder);
         saveToStorage(STORAGE_KEY_HOME_MEALS, cloudHomeMeals);
         if (cloudRecentViews.length > 0) {
-          localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews));
+          try { localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews)); } catch { /* quota — best-effort */ }
         }
 
         // If we used local fallback data (cloud was empty but local had content), or lists were reconciled, save back to cloud
