@@ -11,7 +11,7 @@ import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { useSettings } from '../contexts/SettingsContext';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, extractCityState, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useAuth } from '../contexts/AuthContext';
@@ -4537,6 +4537,7 @@ export const Pantry: React.FC = () => {
   const [showAllRated, setShowAllRated] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { phoneMode, setHideBottomNav } = useSettings();
 
   // On phone, always use list view
@@ -4636,6 +4637,70 @@ export const Pantry: React.FC = () => {
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
   } = useLists();
+
+  /**
+   * URL-driven view selection. The desktop sidebar navigates between
+   * lists by setting query params:
+   *   ?list=__wishlist__   → synthetic Wishlist view
+   *   ?list=<custom-id>    → user-created list
+   *   ?view=home-cooking   → Home Cooking grid
+   *   ?view=trips          → Trips planner
+   *   ?new-list=1          → opens the create-list sheet, then strips
+   *                          the param so a refresh doesn't re-open it
+   * Plain `/pantry` resets back to the main lists overview.
+   */
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const listId = sp.get('list');
+    const view = sp.get('view');
+    const newList = sp.get('new-list');
+
+    // Open the create-list sheet from the sidebar's "+ New List" entry.
+    // Strip the param right away so the sheet doesn't re-open if the
+    // user closes it without leaving the page.
+    if (newList === '1') {
+      setCreateSheetOpen(true);
+      sp.delete('new-list');
+      navigate({ pathname: location.pathname, search: sp.toString() ? `?${sp.toString()}` : '' }, { replace: true });
+      return;
+    }
+
+    if (view === 'home-cooking') {
+      setShowHomeCooking(true);
+      setShowTrips(false);
+      setSelectedList(null);
+      return;
+    }
+    if (view === 'trips') {
+      setShowTrips(true);
+      setShowHomeCooking(false);
+      setSelectedList(null);
+      return;
+    }
+
+    if (listId) {
+      setShowTrips(false);
+      setShowHomeCooking(false);
+      if (listId === '__wishlist__') {
+        // Synthetic list — Pantry rebuilds wishlistIds from the regular
+        // wishlist below, so any object with this id flows through the
+        // same code path the pill row used.
+        setSelectedList({
+          id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+          restaurantIds: [], wishlistIds: [], createdAt: 0,
+        } as CustomList);
+      } else {
+        const found = lists.find((l) => l.id === listId);
+        if (found) setSelectedList(found);
+      }
+      return;
+    }
+
+    // Plain /pantry — clear any sub-view state.
+    setSelectedList(null);
+    setShowHomeCooking(false);
+    setShowTrips(false);
+  }, [location.pathname, location.search, lists, navigate]);
 
   const listScrollRef = useRef<HTMLDivElement>(null);
 
@@ -4795,7 +4860,7 @@ export const Pantry: React.FC = () => {
 
       <main className="px-3">
         {currentList ? (
-          <ListDetailView list={currentList} viewMode={effectiveViewMode} onViewModeChange={setViewMode} onBack={() => setSelectedList(null)} />
+          <ListDetailView list={currentList} viewMode={effectiveViewMode} onViewModeChange={setViewMode} onBack={() => navigate('/pantry')} />
         ) : showHomeCooking ? (
           <HomeCookingTab
             meals={homeMeals}
@@ -4803,7 +4868,7 @@ export const Pantry: React.FC = () => {
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
-            onBack={() => { setShowHomeCooking(false); setHomeCookingSelectedMealId(null); }}
+            onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
             selectedMealId={homeCookingSelectedMealId}
             onSelectMeal={setHomeCookingSelectedMealId}
           />
@@ -4823,7 +4888,7 @@ export const Pantry: React.FC = () => {
             openAddRestaurantModal={openAddRestaurantModal}
             cacheRestaurantMeta={cacheRestaurantMeta}
             ratings={ratings}
-            onBack={() => setShowTrips(false)}
+            onBack={() => navigate("/pantry")}
             autoCreate={createTripFromList}
             onAutoCreateHandled={() => setCreateTripFromList(false)}
           />
@@ -4834,7 +4899,7 @@ export const Pantry: React.FC = () => {
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
-            onBack={() => { setShowHomeCooking(false); setHomeCookingSelectedMealId(null); }}
+            onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
             selectedMealId={homeCookingSelectedMealId}
             onSelectMeal={setHomeCookingSelectedMealId}
           />
@@ -4903,76 +4968,10 @@ export const Pantry: React.FC = () => {
               </div>
             </div>
 
-            {/* ── Horizontal list row — flat transparent pills.
-                Background fills, shadows and borders removed for a
-                lighter content-first feel; the icons keep their brand
-                tint so Wishlist/Trips/Home Cooking stay recognizable
-                in a scan. The pill row itself has no outer border. */}
-            <div className="mb-4">
-              <div
-                ref={listScrollRef}
-                className="flex gap-1 overflow-x-auto scrollbar-hide pb-1 -mx-3 px-3"
-                style={{ WebkitOverflowScrolling: 'touch' }}
-              >
-                {/* Wishlist pill — always first, not deletable */}
-                <button
-                  onClick={() => setSelectedList({ id: '__wishlist__', name: 'Wishlist', emoji: '❤️', restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId), createdAt: 0 } as CustomList)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
-                >
-                  <Heart size={14} className="text-red-400 fill-red-400" />
-                  <span className="text-sm font-semibold whitespace-nowrap">Wishlist</span>
-                  <span className="text-xs text-on-surface/35 font-medium">{regularWishlist.length}</span>
-                </button>
-
-                {/* Trips pill — only shown when trips exist */}
-                {trips.length > 0 && (
-                  <button
-                    onClick={() => setShowTrips(true)}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
-                  >
-                    <Plane size={14} className="text-primary" />
-                    <span className="text-sm font-semibold whitespace-nowrap">Trips</span>
-                    <span className="text-xs text-on-surface/35 font-medium">{trips.length}</span>
-                  </button>
-                )}
-
-                {/* Home Cooking pill */}
-                <button
-                  onClick={() => setShowHomeCooking(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
-                >
-                  <ChefHat size={14} className="text-emerald-600" />
-                  <span className="text-sm font-semibold whitespace-nowrap">Home Cooking</span>
-                  {homeMeals.length > 0 && (
-                    <span className="text-xs text-on-surface/35 font-medium">{homeMeals.length}</span>
-                  )}
-                </button>
-
-                {lists.map((list) => {
-                  const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
-                  return (
-                    <button
-                      key={list.id}
-                      onClick={() => setSelectedList(list)}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
-                    >
-                      <span className="text-sm">{list.emoji}</span>
-                      <span className="text-sm font-semibold whitespace-nowrap">{list.name}</span>
-                      <span className="text-xs text-on-surface/35 font-medium">{total}</span>
-                    </button>
-                  );
-                })}
-
-                {/* Create new list pill */}
-                <button
-                  onClick={() => setCreateSheetOpen(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/40 hover:text-primary transition-colors flex-shrink-0"
-                >
-                  <Plus size={14} />
-                  <span className="text-sm font-semibold whitespace-nowrap">New List</span>
-                </button>
-              </div>
-            </div>
+            {/* The horizontal list-pill row that used to live here is gone.
+                Desktop list navigation moved into the sidebar's "My Lists"
+                tray; phone mode never showed this row anyway because the
+                PhonePantryHome card grid is the entry point. */}
 
             {/* ── Filter bar ── */}
             <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
