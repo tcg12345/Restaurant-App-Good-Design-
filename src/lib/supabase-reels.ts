@@ -421,6 +421,41 @@ export async function setReelVisibility(reelId: string, isPublic: boolean): Prom
   return true;
 }
 
+/* ── Update (caption / audio / featured attachment) ──────────────────
+   Owner-only via the existing UPDATE RLS. Media path is immutable —
+   editing is for text fields and the attached restaurant or recipe. */
+
+export interface ReelUpdate {
+  caption?: string;
+  audioLabel?: string;
+  /** Pass `null` to clear the attachment, an object to set it,
+   *  or omit the key to leave it untouched. */
+  restaurant?: ReelRestaurantSnapshot | null;
+  recipe?: ReelRecipeSnapshot | null;
+}
+
+export async function updateReel(reelId: string, updates: ReelUpdate): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  const payload: Record<string, unknown> = {};
+  if (updates.caption !== undefined) payload.caption = updates.caption;
+  if (updates.audioLabel !== undefined) payload.audio_label = updates.audioLabel;
+  if (updates.restaurant !== undefined) {
+    payload.restaurant_id = updates.restaurant?.id ?? null;
+    payload.restaurant_data = updates.restaurant;
+  }
+  if (updates.recipe !== undefined) {
+    payload.recipe_id = updates.recipe?.id ?? null;
+    payload.recipe_data = updates.recipe;
+  }
+  if (Object.keys(payload).length === 0) return true;
+  const { error } = await supabase.from('reels').update(payload).eq('id', reelId);
+  if (error) {
+    console.warn('[Reels] update failed:', error.message);
+    return false;
+  }
+  return true;
+}
+
 export async function deleteReel(reelId: string): Promise<boolean> {
   if (!supabaseConfigured) return false;
   // Read the video_path so we can clean up storage even if RLS prevents

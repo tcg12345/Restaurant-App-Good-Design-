@@ -4,6 +4,8 @@ import { supabaseConfigured } from '../lib/supabase';
 import {
   listPosts,
   createPost as cloudCreatePost,
+  updatePost as cloudUpdatePost,
+  updatePostItems as cloudUpdatePostItems,
   setPostLike as cloudSetPostLike,
   setPostSave as cloudSetPostSave,
   setPostVisibility as cloudSetPostVisibility,
@@ -22,6 +24,8 @@ import {
   type PostRecipeSnapshot,
   type PostComment,
   type NewPostItem,
+  type PostUpdate,
+  type PostItemUpdate,
 } from '../lib/supabase-posts';
 
 export type {
@@ -71,6 +75,9 @@ interface PostsContextValue {
   togglePostLike: (postId: string) => Promise<void>;
   togglePostSave: (postId: string) => Promise<void>;
   setPostVisibility: (postId: string, isPublic: boolean) => Promise<boolean>;
+  /** Update post-level fields (caption / location / audio) and a batch of
+   *  per-item edits (caption / attachment) in one call. */
+  updatePost: (postId: string, postUpdates: PostUpdate, itemUpdates: PostItemUpdate[]) => Promise<boolean>;
   deletePost: (postId: string) => Promise<boolean>;
 
   loadPostComments: (postId: string) => Promise<PostComment[]>;
@@ -79,7 +86,10 @@ interface PostsContextValue {
 
   // Modal state
   addPostModalOpen: boolean;
+  /** When set, the modal is in edit mode against this post's id. */
+  editingPostId: string | null;
   openAddPostModal: () => void;
+  openEditPostModal: (postId: string) => void;
   closeAddPostModal: () => void;
 
   // Comments-sheet state (post)
@@ -101,6 +111,7 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
   const [addPostModalOpen, setAddPostModalOpen] = useState(false);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [openPostCommentsId, setOpenPostCommentsId] = useState<string | null>(null);
 
   const refreshPosts = useCallback(async () => {
@@ -177,6 +188,49 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return ok;
   }, []);
 
+  const updatePost = useCallback(async (
+    postId: string,
+    postUpdates: PostUpdate,
+    itemUpdates: PostItemUpdate[],
+  ): Promise<boolean> => {
+    const [postOk, itemsOk] = await Promise.all([
+      cloudUpdatePost(postId, postUpdates),
+      cloudUpdatePostItems(itemUpdates),
+    ]);
+    if (!postOk || !itemsOk) return false;
+    // Reflect the patch in local state so the feed updates without a refetch.
+    setPosts((prev) => prev.map((p) => {
+      if (p.id !== postId) return p;
+      const next = { ...p };
+      if (postUpdates.caption !== undefined) next.caption = postUpdates.caption;
+      if (postUpdates.locationLabel !== undefined) next.locationLabel = postUpdates.locationLabel;
+      if (postUpdates.audioLabel !== undefined) next.audioLabel = postUpdates.audioLabel;
+      if (itemUpdates.length > 0) {
+        const byId = new Map(itemUpdates.map((u) => [u.itemId, u]));
+        next.items = p.items.map((it) => {
+          const u = byId.get(it.id);
+          if (!u) return it;
+          const merged = { ...it };
+          if (u.caption !== undefined) merged.caption = u.caption;
+          if (u.attachedKind !== undefined) merged.attachedKind = u.attachedKind;
+          if (u.restaurant !== undefined) merged.restaurant = u.restaurant;
+          if (u.recipe !== undefined) merged.recipe = u.recipe;
+          return merged;
+        });
+        // Re-derive hasRestaurant / hasRecipe flags so tab filters stay correct.
+        let hasR = false, hasRec = false;
+        for (const it of next.items) {
+          if (it.attachedKind === 'restaurant') hasR = true;
+          else if (it.attachedKind === 'recipe') hasRec = true;
+        }
+        next.hasRestaurant = hasR;
+        next.hasRecipe = hasRec;
+      }
+      return next;
+    }));
+    return true;
+  }, []);
+
   const deletePost = useCallback(async (postId: string) => {
     const ok = await cloudDeletePost(postId);
     if (ok) setPosts((prev) => prev.filter((p) => p.id !== postId));
@@ -205,8 +259,18 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return ok;
   }, []);
 
-  const openAddPostModal = useCallback(() => setAddPostModalOpen(true), []);
-  const closeAddPostModal = useCallback(() => setAddPostModalOpen(false), []);
+  const openAddPostModal = useCallback(() => {
+    setEditingPostId(null);
+    setAddPostModalOpen(true);
+  }, []);
+  const openEditPostModal = useCallback((postId: string) => {
+    setEditingPostId(postId);
+    setAddPostModalOpen(true);
+  }, []);
+  const closeAddPostModal = useCallback(() => {
+    setAddPostModalOpen(false);
+    setEditingPostId(null);
+  }, []);
   const openPostCommentsSheet = useCallback((postId: string) => setOpenPostCommentsId(postId), []);
   const closePostCommentsSheet = useCallback(() => setOpenPostCommentsId(null), []);
 
@@ -218,12 +282,15 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     togglePostLike,
     togglePostSave,
     setPostVisibility,
+    updatePost,
     deletePost,
     loadPostComments,
     addPostComment,
     deletePostComment,
     addPostModalOpen,
+    editingPostId,
     openAddPostModal,
+    openEditPostModal,
     closeAddPostModal,
     openPostCommentsId,
     openPostCommentsSheet,

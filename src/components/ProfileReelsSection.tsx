@@ -11,7 +11,7 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Film, Lock, Globe, Trash2, ChevronRight, Layers } from 'lucide-react';
+import { Heart, Film, Lock, Globe, Trash2, ChevronRight, Layers, Pencil } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { Reel } from '../contexts/ReelsContext';
 import type { Post } from '../contexts/PostsContext';
@@ -23,6 +23,7 @@ interface ProfileReelsSectionProps {
   /** Tile click destination — defaults to /reels?kind=<reel.kind>. */
   onTileClick?: (reel: Reel) => void;
   onDelete?: (reelId: string) => void;
+  onEdit?: (reelId: string) => void;
   onToggleVisibility?: (reelId: string, nextIsPublic: boolean) => void;
   /** Optional — overrides the default "My Reels" / "Reels" title. */
   title?: string;
@@ -37,13 +38,14 @@ interface ProfilePostsSectionProps {
   isOwn?: boolean;
   onTileClick?: (post: Post) => void;
   onDelete?: (postId: string) => void;
+  onEdit?: (postId: string) => void;
   onToggleVisibility?: (postId: string, nextIsPublic: boolean) => void;
   title?: string;
   trailing?: React.ReactNode;
 }
 
 export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
-  posts, isOwn = false, onTileClick, onDelete, onToggleVisibility, title, trailing,
+  posts, isOwn = false, onTileClick, onDelete, onEdit, onToggleVisibility, title, trailing,
 }) => {
   const navigate = useNavigate();
   const [showAll, setShowAll] = useState(false);
@@ -110,6 +112,17 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
                   'absolute right-1.5 flex items-center gap-1',
                   p.items.length > 1 ? 'top-7' : 'top-1.5',
                 )}>
+                  {onEdit && (
+                    <button
+                      type="button"
+                      onClick={() => onEdit(p.id)}
+                      className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
+                      aria-label="Edit post"
+                      title="Edit post"
+                    >
+                      <Pencil size={11} />
+                    </button>
+                  )}
                   {onToggleVisibility && (
                     <button
                       type="button"
@@ -233,6 +246,17 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
                 delete affordance is obvious on both touch and desktop. */}
             {isOwn && (
               <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+                {onEdit && (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(r.id)}
+                    className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
+                    aria-label="Edit reel"
+                    title="Edit reel"
+                  >
+                    <Pencil size={11} />
+                  </button>
+                )}
                 {onToggleVisibility && (
                   <button
                     type="button"
@@ -250,6 +274,7 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
                     onClick={() => onDelete(r.id)}
                     className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600"
                     aria-label="Delete reel"
+                    title="Delete reel"
                   >
                     <Trash2 size={11} />
                   </button>

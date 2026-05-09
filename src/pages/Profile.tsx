@@ -53,8 +53,8 @@ export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
   const listsCtx = useLists();
-  const { openAddReelModal, reels, deleteReel, setReelVisibility } = useReels();
-  const { openAddPostModal, posts, deletePost, setPostVisibility } = usePosts();
+  const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
+  const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
   const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
 
@@ -527,6 +527,7 @@ export const Profile: React.FC = () => {
         <ProfilePostsSection
           posts={myPosts}
           isOwn
+          onEdit={(id) => openEditPostModal(id)}
           onDelete={(id) => setConfirmDeletePostId(id)}
           onToggleVisibility={(id, next) => setPostVisibility(id, next)}
           trailing={
@@ -547,6 +548,7 @@ export const Profile: React.FC = () => {
         <ProfileReelsSection
           reels={myReels}
           isOwn
+          onEdit={(id) => openEditReelModal(id)}
           onDelete={(id) => setConfirmDeleteReelId(id)}
           onToggleVisibility={(id, next) => setReelVisibility(id, next)}
           trailing={

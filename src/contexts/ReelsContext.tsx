@@ -4,6 +4,7 @@ import { supabaseConfigured } from '../lib/supabase';
 import {
   listReels,
   createReel as cloudCreateReel,
+  updateReel as cloudUpdateReel,
   setLike as cloudSetLike,
   setSave as cloudSetSave,
   setReelVisibility as cloudSetReelVisibility,
@@ -15,6 +16,7 @@ import {
   REEL_MAX_DURATION_SECONDS,
   type ReelRow,
   type ReelKind,
+  type ReelUpdate,
   type ReelRestaurantSnapshot,
   type ReelRecipeSnapshot,
   type ReelComment,
@@ -117,6 +119,7 @@ interface ReelsContextValue {
   toggleLike: (reelId: string) => Promise<void>;
   toggleSave: (reelId: string) => Promise<void>;
   setReelVisibility: (reelId: string, isPublic: boolean) => Promise<boolean>;
+  updateReel: (reelId: string, updates: ReelUpdate) => Promise<boolean>;
   deleteReel: (reelId: string) => Promise<boolean>;
 
   // Comments
@@ -127,7 +130,10 @@ interface ReelsContextValue {
   // Modal
   addReelModalOpen: boolean;
   addReelInitialKind: ReelKind | null;
+  /** When set, the modal is in edit mode against this reel's id. */
+  editingReelId: string | null;
   openAddReelModal: (kind?: ReelKind) => void;
+  openEditReelModal: (reelId: string) => void;
   closeAddReelModal: () => void;
 
   // Comments sheet
@@ -154,6 +160,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const [addReelModalOpen, setAddReelModalOpen] = useState(false);
   const [addReelInitialKind, setAddReelInitialKind] = useState<ReelKind | null>(null);
+  const [editingReelId, setEditingReelId] = useState<string | null>(null);
   const [openCommentsReelId, setOpenCommentsReelId] = useState<string | null>(null);
 
   const refreshReels = useCallback(async () => {
@@ -229,6 +236,23 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
+  const updateReel = useCallback(async (reelId: string, updates: ReelUpdate): Promise<boolean> => {
+    const ok = await cloudUpdateReel(reelId, updates);
+    if (!ok) return false;
+    // Optimistically reflect the patch in local state so the UI updates
+    // without a full re-fetch.
+    setReels((prev) => prev.map((r) => {
+      if (r.id !== reelId) return r;
+      const next = { ...r };
+      if (updates.caption !== undefined) next.caption = updates.caption;
+      if (updates.audioLabel !== undefined) next.audioLabel = updates.audioLabel;
+      if (updates.restaurant !== undefined) next.restaurant = updates.restaurant ?? undefined;
+      if (updates.recipe !== undefined) next.recipe = updates.recipe ?? undefined;
+      return next;
+    }));
+    return true;
+  }, []);
+
   const setReelVisibility = useCallback(async (reelId: string, isPublic: boolean): Promise<boolean> => {
     // Optimistic — flip locally, fire the cloud update, roll back on failure.
     let prevValue: boolean | null = null;
@@ -278,12 +302,19 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   /* ── Modals ────────────────────────────────────────────────────── */
 
   const openAddReelModal = useCallback((kind?: ReelKind) => {
+    setEditingReelId(null);
     setAddReelInitialKind(kind ?? null);
+    setAddReelModalOpen(true);
+  }, []);
+  const openEditReelModal = useCallback((reelId: string) => {
+    setEditingReelId(reelId);
+    setAddReelInitialKind(null);
     setAddReelModalOpen(true);
   }, []);
   const closeAddReelModal = useCallback(() => {
     setAddReelModalOpen(false);
     setAddReelInitialKind(null);
+    setEditingReelId(null);
   }, []);
 
   const openCommentsSheet = useCallback((reelId: string) => setOpenCommentsReelId(reelId), []);
@@ -299,13 +330,16 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     toggleLike,
     toggleSave,
     setReelVisibility,
+    updateReel,
     deleteReel,
     loadComments,
     addComment,
     deleteComment,
     addReelModalOpen,
     addReelInitialKind,
+    editingReelId,
     openAddReelModal,
+    openEditReelModal,
     closeAddReelModal,
     openCommentsReelId,
     openCommentsSheet,

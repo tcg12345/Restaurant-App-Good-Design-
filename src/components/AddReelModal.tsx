@@ -52,7 +52,12 @@ function pickFromPool<T>(pool: T[], seed: string): T {
 /* ── Modal ──────────────────────────────────────────────────────────── */
 
 export const AddReelModal: React.FC = () => {
-  const { addReelModalOpen, addReelInitialKind, closeAddReelModal, postReel } = useReels();
+  const { addReelModalOpen, addReelInitialKind, editingReelId, closeAddReelModal, postReel, updateReel, setReelVisibility, reels } = useReels();
+  // When editing an existing reel, the modal pre-fills its fields and the
+  // submit button updates instead of creating. Media (video file) is
+  // immutable in edit mode — only caption / audio / attached entity move.
+  const editingReel = editingReelId ? reels.find((r) => r.id === editingReelId) ?? null : null;
+  const isEditing = !!editingReel;
   const { ratings, wishlist, restaurantMeta, homeMeals } = useLists();
   const { profile, user } = useAuth();
   const { phoneMode } = useSettings();
@@ -93,15 +98,28 @@ export const AddReelModal: React.FC = () => {
   // Reset state whenever the modal is reopened.
   useEffect(() => {
     if (!addReelModalOpen) return;
-    setKind(addReelInitialKind ?? 'restaurant');
-    setVideoFile(null);
-    setVideoUrl(null);
-    setVideoDuration(null);
-    setCaption('');
-    setAudio('Original audio');
-    setIsPublic(true);
-    setPickedRestaurantId(null);
-    setPickedRecipeId(null);
+    if (editingReel) {
+      // Edit mode — pre-fill from the existing reel. Media is locked.
+      setKind(editingReel.kind);
+      setVideoFile(null);
+      setVideoUrl(null);
+      setVideoDuration(editingReel.videoUrl ? null : null);
+      setCaption(editingReel.caption);
+      setAudio(editingReel.audioLabel);
+      setIsPublic(editingReel.isPublic);
+      setPickedRestaurantId(editingReel.restaurant?.id ?? null);
+      setPickedRecipeId(editingReel.recipe?.id ?? null);
+    } else {
+      setKind(addReelInitialKind ?? 'restaurant');
+      setVideoFile(null);
+      setVideoUrl(null);
+      setVideoDuration(null);
+      setCaption('');
+      setAudio('Original audio');
+      setIsPublic(true);
+      setPickedRestaurantId(null);
+      setPickedRecipeId(null);
+    }
     setRestaurantSearch('');
     setRecipeSearch('');
     setPlaceResults([]);
@@ -111,7 +129,7 @@ export const AddReelModal: React.FC = () => {
     setErrorMsg(null);
     setValidationMsg(null);
     setDragDepth(0);
-  }, [addReelModalOpen, addReelInitialKind]);
+  }, [addReelModalOpen, addReelInitialKind, editingReelId]);
 
   // Revoke the preview URL when it's replaced or the modal closes.
   useEffect(() => {
@@ -299,14 +317,29 @@ export const AddReelModal: React.FC = () => {
     return items.filter((it) => it.title.toLowerCase().includes(q)).slice(0, PICKER_LIMIT);
   }, [addReelModalOpen, homeMeals, recipeSearch]);
 
-  const pickedRestaurant = useMemo(
-    () => restaurantPickList.find((r) => r.id === pickedRestaurantId) ?? null,
-    [restaurantPickList, pickedRestaurantId],
-  );
-  const pickedRecipe = useMemo(
-    () => recipePickList.find((r) => r.id === pickedRecipeId) ?? null,
-    [recipePickList, pickedRecipeId],
-  );
+  const pickedRestaurant = useMemo(() => {
+    // When editing, the reel's snapshot is the source of truth even if
+    // the user's local pick list no longer contains that restaurant.
+    if (editingReel?.restaurant && editingReel.restaurant.id === pickedRestaurantId) {
+      return {
+        id: editingReel.restaurant.id,
+        name: editingReel.restaurant.name,
+        cuisine: editingReel.restaurant.cuisine,
+        price: editingReel.restaurant.price,
+        address: editingReel.restaurant.address,
+        image: editingReel.restaurant.image,
+        score: editingReel.restaurant.score,
+        fromUser: false,
+      };
+    }
+    return restaurantPickList.find((r) => r.id === pickedRestaurantId) ?? null;
+  }, [editingReel, restaurantPickList, pickedRestaurantId]);
+  const pickedRecipe = useMemo(() => {
+    if (editingReel?.recipe && editingReel.recipe.id === pickedRecipeId) {
+      return { ...editingReel.recipe };
+    }
+    return recipePickList.find((r) => r.id === pickedRecipeId) ?? null;
+  }, [editingReel, recipePickList, pickedRecipeId]);
 
   // ── Drag-and-drop handlers ──
   // Applied to the modal scroll container so the user can drop the video
@@ -373,19 +406,77 @@ export const AddReelModal: React.FC = () => {
     setVideoDuration(duration);
   };
 
-  const canSubmit =
-    !!videoFile
-    && !!user?.id
-    && (kind === 'restaurant' ? !!pickedRestaurant : !!pickedRecipe)
-    && !submitting;
+  const hasValidAttachment = kind === 'restaurant' ? !!pickedRestaurant : !!pickedRecipe;
+  const canSubmit = !!user?.id
+    && hasValidAttachment
+    && !submitting
+    && (isEditing || !!videoFile);
+
+  // Build the snapshot we send to either createReel or updateReel.
+  const buildAttachment = () => ({
+    restaurant: kind === 'restaurant' && pickedRestaurant
+      ? {
+        id: pickedRestaurant.id,
+        name: pickedRestaurant.name,
+        cuisine: pickedRestaurant.cuisine,
+        price: pickedRestaurant.price,
+        address: pickedRestaurant.address,
+        image: pickedRestaurant.image,
+        score: pickedRestaurant.score,
+      }
+      : undefined,
+    recipe: kind === 'recipe' && pickedRecipe
+      ? {
+        id: pickedRecipe.id,
+        title: pickedRecipe.title,
+        prepTime: pickedRecipe.prepTime,
+        cookTime: pickedRecipe.cookTime,
+        servings: pickedRecipe.servings,
+        difficulty: pickedRecipe.difficulty,
+        image: pickedRecipe.image,
+      }
+      : undefined,
+  });
 
   const onSubmit = async () => {
-    if (!canSubmit || !videoFile || !user?.id) return;
+    if (!canSubmit || !user?.id) return;
     setErrorMsg(null);
     setSubmitting(true);
+
+    // ── Edit path ──
+    if (isEditing && editingReel) {
+      try {
+        const att = buildAttachment();
+        const ok = await updateReel(editingReel.id, {
+          caption: caption.trim(),
+          audioLabel: audio.trim() || 'Original audio',
+          // Reels can't change kind, but the picked attachment can move
+          // (e.g. user re-attached a different restaurant).
+          restaurant: att.restaurant ?? null,
+          recipe: att.recipe ?? null,
+        });
+        if (!ok) throw new Error("Couldn't update the reel — try again.");
+        // Visibility is updated via the dedicated action so the cloud
+        // RLS-gated toggle stays the only path that touches is_public.
+        if (editingReel.isPublic !== isPublic) {
+          await setReelVisibility(editingReel.id, isPublic);
+        }
+        showToast('Reel updated');
+        closeAddReelModal();
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : 'Update failed');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // ── Create path ──
+    if (!videoFile) { setSubmitting(false); return; }
     setProgress(0.05);
     try {
       const bgGradient = pickFromPool(BG_GRADIENT_POOL, videoFile.name + user.id);
+      const att = buildAttachment();
       const reel = await postReel({
         file: videoFile,
         kind,
@@ -394,28 +485,8 @@ export const AddReelModal: React.FC = () => {
         bgGradient,
         durationSeconds: videoDuration ?? 0,
         isPublic,
-        restaurant: kind === 'restaurant' && pickedRestaurant
-          ? {
-            id: pickedRestaurant.id,
-            name: pickedRestaurant.name,
-            cuisine: pickedRestaurant.cuisine,
-            price: pickedRestaurant.price,
-            address: pickedRestaurant.address,
-            image: pickedRestaurant.image,
-            score: pickedRestaurant.score,
-          }
-          : undefined,
-        recipe: kind === 'recipe' && pickedRecipe
-          ? {
-            id: pickedRecipe.id,
-            title: pickedRecipe.title,
-            prepTime: pickedRecipe.prepTime,
-            cookTime: pickedRecipe.cookTime,
-            servings: pickedRecipe.servings,
-            difficulty: pickedRecipe.difficulty,
-            image: pickedRecipe.image,
-          }
-          : undefined,
+        restaurant: att.restaurant,
+        recipe: att.recipe,
         onProgress: (n) => setProgress(n),
       });
       if (!reel) throw new Error("Couldn't create the reel — try again.");
@@ -455,9 +526,13 @@ export const AddReelModal: React.FC = () => {
             {/* Header */}
             <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-on-surface/[0.06] flex-shrink-0">
               <div>
-                <h2 className="font-serif font-bold text-lg leading-tight">Post a reel</h2>
+                <h2 className="font-serif font-bold text-lg leading-tight">
+                  {isEditing ? 'Edit reel' : 'Post a reel'}
+                </h2>
                 <p className="text-[12px] text-on-surface/45 mt-0.5">
-                  Up to {REEL_MAX_DURATION_SECONDS}s. Public to everyone.
+                  {isEditing
+                    ? 'Update the caption, audio, or featured. The video itself stays the same.'
+                    : `Up to ${REEL_MAX_DURATION_SECONDS}s. Public to everyone.`}
                 </p>
               </div>
               <button
@@ -478,30 +553,33 @@ export const AddReelModal: React.FC = () => {
               onDragLeave={onDragLeave}
               onDrop={onDrop}
             >
-              {/* Kind toggle */}
-              <div className="flex p-1 rounded-full bg-on-surface/[0.06]">
-                {(['restaurant', 'recipe'] as const).map((k) => {
-                  const active = kind === k;
-                  const Icon = k === 'restaurant' ? MapPin : ChefHat;
-                  return (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setKind(k)}
-                      disabled={submitting}
-                      className={cn(
-                        'flex-1 h-10 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors disabled:opacity-40',
-                        active ? 'bg-white shadow text-on-surface' : 'text-on-surface/55',
-                      )}
-                    >
-                      <Icon size={15} />
-                      {k === 'restaurant' ? 'Restaurant' : 'Recipe'}
-                    </button>
-                  );
-                })}
-              </div>
+              {/* Kind toggle — hidden when editing (kind is immutable). */}
+              {!isEditing && (
+                <div className="flex p-1 rounded-full bg-on-surface/[0.06]">
+                  {(['restaurant', 'recipe'] as const).map((k) => {
+                    const active = kind === k;
+                    const Icon = k === 'restaurant' ? MapPin : ChefHat;
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => setKind(k)}
+                        disabled={submitting}
+                        className={cn(
+                          'flex-1 h-10 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors disabled:opacity-40',
+                          active ? 'bg-white shadow text-on-surface' : 'text-on-surface/55',
+                        )}
+                      >
+                        <Icon size={15} />
+                        {k === 'restaurant' ? 'Restaurant' : 'Recipe'}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
-              {/* Video upload */}
+              {/* Video upload — hidden when editing (the video file is locked). */}
+              {!isEditing && (
               <section>
                 <div className="flex items-baseline justify-between mb-2">
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">Video</label>
@@ -584,6 +662,7 @@ export const AddReelModal: React.FC = () => {
                   </div>
                 )}
               </section>
+              )}
 
               {/* Caption */}
               <section>
@@ -836,12 +915,12 @@ export const AddReelModal: React.FC = () => {
                 {submitting ? (
                   <>
                     <Loader2 size={15} className="animate-spin" />
-                    Uploading… {Math.round(progress * 100)}%
+                    {isEditing ? 'Saving…' : `Uploading… ${Math.round(progress * 100)}%`}
                   </>
                 ) : (
                   <>
                     <Upload size={15} />
-                    Post reel
+                    {isEditing ? 'Save changes' : 'Post reel'}
                   </>
                 )}
                 {submitting && (

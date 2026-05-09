@@ -469,6 +469,71 @@ export async function setPostVisibility(postId: string, isPublic: boolean): Prom
   return true;
 }
 
+/* ── Update (post-level + per-item, no media swaps) ──────────────────
+   Owner-only via the existing UPDATE RLS. Media files are immutable
+   here — editing covers caption / location / audio at the post level
+   and per-item caption + attached restaurant or recipe. */
+
+export interface PostUpdate {
+  caption?: string;
+  locationLabel?: string;
+  audioLabel?: string;
+}
+
+export async function updatePost(postId: string, updates: PostUpdate): Promise<boolean> {
+  if (!supabaseConfigured) return false;
+  const payload: Record<string, unknown> = {};
+  if (updates.caption !== undefined) payload.caption = updates.caption;
+  if (updates.locationLabel !== undefined) payload.location_label = updates.locationLabel;
+  if (updates.audioLabel !== undefined) payload.audio_label = updates.audioLabel;
+  if (Object.keys(payload).length === 0) return true;
+  const { error } = await supabase.from('posts').update(payload).eq('id', postId);
+  if (error) { console.warn('[Posts] updatePost failed:', error.message); return false; }
+  return true;
+}
+
+export interface PostItemUpdate {
+  itemId: string;
+  caption?: string;
+  /** `null` clears the attachment; pass an attached_kind together with
+   *  the matching snapshot to switch (e.g. restaurant → recipe). */
+  attachedKind?: PostAttachedKind | null;
+  restaurant?: PostRestaurantSnapshot | null;
+  recipe?: PostRecipeSnapshot | null;
+}
+
+/** Apply a batch of per-item updates in parallel. Returns true when every
+ *  patch succeeded; false if any failed (caller can re-fetch to reconcile). */
+export async function updatePostItems(updates: PostItemUpdate[]): Promise<boolean> {
+  if (!supabaseConfigured || updates.length === 0) return true;
+  const results = await Promise.all(updates.map(async (u) => {
+    const payload: Record<string, unknown> = {};
+    if (u.caption !== undefined) payload.caption = u.caption;
+    if (u.attachedKind !== undefined) {
+      payload.attached_kind = u.attachedKind;
+      // Clear both snapshots first; whichever side this is becomes
+      // the authoritative one below.
+      payload.restaurant_id = null;
+      payload.restaurant_data = null;
+      payload.recipe_id = null;
+      payload.recipe_data = null;
+    }
+    if (u.restaurant !== undefined) {
+      payload.restaurant_id = u.restaurant?.id ?? null;
+      payload.restaurant_data = u.restaurant;
+    }
+    if (u.recipe !== undefined) {
+      payload.recipe_id = u.recipe?.id ?? null;
+      payload.recipe_data = u.recipe;
+    }
+    if (Object.keys(payload).length === 0) return true;
+    const { error } = await supabase.from('post_items').update(payload).eq('id', u.itemId);
+    if (error) { console.warn('[Posts] updatePostItems failed for', u.itemId, error.message); return false; }
+    return true;
+  }));
+  return results.every(Boolean);
+}
+
 export async function deletePost(postId: string): Promise<boolean> {
   if (!supabaseConfigured) return false;
   // Pull paths to clean up storage after the row delete (CASCADE removes

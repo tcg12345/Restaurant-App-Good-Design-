@@ -69,16 +69,30 @@ function pickFromPool<T>(pool: T[], seed: string): T {
 
 /* ── Working item type — kept in component state. */
 interface WorkingItem {
-  key: string;            // local id
-  file: File;
+  key: string;            // local id (used as React key + for diffing)
+  /** Set when this item was added in this session (we'll upload it).
+   *  Absent when the modal is editing an existing post — those items are
+   *  already on the server and only their caption/attachment can change. */
+  file?: File;
+  /** Set when editing — points at the existing post_items row id so the
+   *  PATCH targets the right record. */
+  existingItemId?: string;
   mediaType: PostMediaType;
-  previewUrl: string;     // object URL
+  previewUrl: string;     // object URL or signed URL
   caption: string;
   durationSeconds: number | null;
   attachedKind: PostAttachedKind | null;
   restaurant?: PostRestaurantSnapshot;
   recipe?: PostRecipeSnapshot;
   bgGradient: string;
+  /** Snapshot of attached/caption from the original post — used to diff
+   *  on submit so we only PATCH items that actually changed. */
+  original?: {
+    caption: string;
+    attachedKind: PostAttachedKind | null;
+    restaurantId?: string;
+    recipeId?: string;
+  };
 }
 
 const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|mkv|avi|3gp|qt|hevc)$/i;
@@ -93,7 +107,12 @@ function detectMediaType(file: File): PostMediaType | null {
 /* ── The modal ──────────────────────────────────────────────────────── */
 
 export const AddPostModal: React.FC = () => {
-  const { addPostModalOpen, closeAddPostModal, createPost } = usePosts();
+  const { addPostModalOpen, editingPostId, closeAddPostModal, createPost, updatePost, setPostVisibility, posts } = usePosts();
+  // When editing, the modal pre-fills its fields and the submit button
+  // updates instead of creating. Media files are immutable — only the
+  // text fields and per-item attachments move.
+  const editingPost = editingPostId ? posts.find((p) => p.id === editingPostId) ?? null : null;
+  const isEditing = !!editingPost;
   const { ratings, wishlist, restaurantMeta, homeMeals } = useLists();
   const { profile, user } = useAuth();
   const { phoneMode } = useSettings();
@@ -134,35 +153,72 @@ export const AddPostModal: React.FC = () => {
   const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPlaceQueryRef = useRef<string>('');
 
-  // Reset on open
+  // Reset on open. In edit mode we pre-fill every field from the post's
+  // existing rows so the modal opens looking like a "modify this post"
+  // form, with the strip showing the existing media as read-only tiles.
   useEffect(() => {
     if (!addPostModalOpen) return;
-    setItems([]);
-    setActiveKey(null);
-    setPostCaption('');
-    setLocationLabel('');
-    setPickedLocation(null);
+    if (editingPost) {
+      const seeded: WorkingItem[] = editingPost.items.map((it) => ({
+        key: `existing-${it.id}`,
+        existingItemId: it.id,
+        mediaType: it.mediaType,
+        previewUrl: it.mediaUrl,  // signed URL, fine for <video> / <img>
+        caption: it.caption,
+        durationSeconds: it.durationSeconds,
+        attachedKind: it.attachedKind,
+        restaurant: it.restaurant ?? undefined,
+        recipe: it.recipe ?? undefined,
+        bgGradient: it.bgGradient,
+        original: {
+          caption: it.caption,
+          attachedKind: it.attachedKind,
+          restaurantId: it.restaurant?.id,
+          recipeId: it.recipe?.id,
+        },
+      }));
+      setItems(seeded);
+      setActiveKey(seeded[0]?.key ?? null);
+      setPostCaption(editingPost.caption);
+      setLocationLabel(editingPost.locationLabel);
+      setPickedLocation(editingPost.locationLabel
+        ? { label: editingPost.locationLabel, lat: 0, lng: 0 }
+        : null);
+      setAudio(editingPost.audioLabel);
+      setIsPublic(editingPost.isPublic);
+    } else {
+      setItems([]);
+      setActiveKey(null);
+      setPostCaption('');
+      setLocationLabel('');
+      setPickedLocation(null);
+      setAudio('Original audio');
+      setIsPublic(true);
+    }
     setLocationSuggestions([]);
     setLocationFocused(false);
     setLocationSearching(false);
-    setAudio('Original audio');
-    setIsPublic(true);
     setSubmitting(false);
     setProgress(0);
     setErrorMsg(null);
     setValidationMsg(null);
     setDragDepth(0);
     setPickerOpen(null);
+    setMultiApply(null);
     setRestaurantSearch('');
     setRecipeSearch('');
     setPlaceResults([]);
     setSearchingPlaces(false);
-  }, [addPostModalOpen]);
+  }, [addPostModalOpen, editingPostId]);
 
-  // Revoke any object URLs on unmount or when items shrink.
+  // Revoke object URLs on unmount. Existing items in edit mode use a
+  // signed URL (https://…) — those don't need revoking, so we only call
+  // revokeObjectURL on blob: URLs we created ourselves.
   useEffect(() => {
     return () => {
-      for (const it of items) URL.revokeObjectURL(it.previewUrl);
+      for (const it of items) {
+        if (it.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(it.previewUrl);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -264,6 +320,8 @@ export const AddPostModal: React.FC = () => {
   };
 
   const onPickFiles = async (incoming: File[]) => {
+    // Editing an existing post — media is locked. Bail.
+    if (isEditing) return;
     setValidationMsg(null);
     setErrorMsg(null);
 
@@ -317,6 +375,7 @@ export const AddPostModal: React.FC = () => {
   };
 
   const onRemoveItem = (key: string) => {
+    if (isEditing) return; // media is locked when editing
     setItems((prev) => {
       const next = prev.filter((it) => it.key !== key);
       const removed = prev.find((it) => it.key === key);
@@ -331,6 +390,7 @@ export const AddPostModal: React.FC = () => {
   };
 
   const onMoveItem = (key: string, delta: -1 | 1) => {
+    if (isEditing) return; // ordering is locked when editing
     setItems((prev) => {
       const idx = prev.findIndex((it) => it.key === key);
       if (idx < 0) return prev;
@@ -521,18 +581,73 @@ export const AddPostModal: React.FC = () => {
     if (!canSubmit || !user?.id) return;
     setErrorMsg(null);
     setSubmitting(true);
+
+    // ── Edit path ──
+    if (isEditing && editingPost) {
+      try {
+        // Build the per-item patch list, but only for items that actually
+        // changed compared to their original snapshot.
+        const itemUpdates = items
+          .filter((it) => it.existingItemId)
+          .map((it) => {
+            const orig = it.original;
+            const captionChanged = !orig || it.caption.trim() !== orig.caption;
+            const kindChanged = !orig || it.attachedKind !== orig.attachedKind;
+            const restaurantChanged = !orig || (it.restaurant?.id ?? '') !== (orig.restaurantId ?? '');
+            const recipeChanged = !orig || (it.recipe?.id ?? '') !== (orig.recipeId ?? '');
+            if (!captionChanged && !kindChanged && !restaurantChanged && !recipeChanged) return null;
+            const update: Record<string, unknown> = { itemId: it.existingItemId! };
+            if (captionChanged) update.caption = it.caption.trim();
+            if (kindChanged) update.attachedKind = it.attachedKind;
+            if (it.attachedKind === 'restaurant') {
+              update.restaurant = it.restaurant ?? null;
+              update.recipe = null;
+            } else if (it.attachedKind === 'recipe') {
+              update.recipe = it.recipe ?? null;
+              update.restaurant = null;
+            } else if (kindChanged) {
+              update.restaurant = null;
+              update.recipe = null;
+            }
+            return update;
+          })
+          .filter(Boolean) as { itemId: string; caption?: string; attachedKind?: PostAttachedKind | null; restaurant?: PostRestaurantSnapshot | null; recipe?: PostRecipeSnapshot | null }[];
+
+        const ok = await updatePost(editingPost.id, {
+          caption: postCaption.trim(),
+          locationLabel: pickedLocation?.label ?? '',
+          audioLabel: audio.trim() || 'Original audio',
+        }, itemUpdates);
+        if (!ok) throw new Error("Couldn't save changes — try again.");
+        if (editingPost.isPublic !== isPublic) {
+          await setPostVisibility(editingPost.id, isPublic);
+        }
+        showToast('Post updated');
+        closeAddPostModal();
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : 'Update failed');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // ── Create path ──
     setProgress(0.05);
     try {
-      const newItems: NewPostItem[] = items.map((it) => ({
-        file: it.file,
-        mediaType: it.mediaType,
-        caption: it.caption.trim(),
-        durationSeconds: it.durationSeconds,
-        bgGradient: it.bgGradient,
-        attachedKind: it.attachedKind,
-        restaurant: it.restaurant,
-        recipe: it.recipe,
-      }));
+      const newItems: NewPostItem[] = items.map((it) => {
+        if (!it.file) throw new Error('Missing file for new item — please re-attach.');
+        return {
+          file: it.file,
+          mediaType: it.mediaType,
+          caption: it.caption.trim(),
+          durationSeconds: it.durationSeconds,
+          bgGradient: it.bgGradient,
+          attachedKind: it.attachedKind,
+          restaurant: it.restaurant,
+          recipe: it.recipe,
+        };
+      });
       const post = await createPost({
         caption: postCaption.trim(),
         // Only use the actual picked location — free-text typing without
@@ -583,9 +698,13 @@ export const AddPostModal: React.FC = () => {
             {/* Header */}
             <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-on-surface/[0.06] flex-shrink-0">
               <div>
-                <h2 className="font-serif font-bold text-lg leading-tight">New post</h2>
+                <h2 className="font-serif font-bold text-lg leading-tight">
+                  {isEditing ? 'Edit post' : 'New post'}
+                </h2>
                 <p className="text-[12px] text-on-surface/45 mt-0.5">
-                  Up to {POST_MAX_ITEMS} photos / videos. Each can have its own caption + featured.
+                  {isEditing
+                    ? 'Update captions, location, audio, and per-item featured. The photos / videos themselves stay the same.'
+                    : `Up to ${POST_MAX_ITEMS} photos / videos. Each can have its own caption + featured.`}
                 </p>
               </div>
               <button
@@ -709,7 +828,7 @@ export const AddPostModal: React.FC = () => {
                         </button>
                       );
                     })}
-                    {items.length < POST_MAX_ITEMS && (
+                    {!isEditing && items.length < POST_MAX_ITEMS && (
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
@@ -783,41 +902,44 @@ export const AddPostModal: React.FC = () => {
                   user focuses on picking targets. */}
               {activeItem && !multiApply && (
                 <section className="rounded-2xl border border-on-surface/[0.08] p-4 space-y-4 bg-on-surface/[0.02]">
-                  {/* Reorder + remove */}
+                  {/* Reorder + remove — hidden when editing (the post's
+                      media set is locked). */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-widest text-on-surface/45">
                       Item #{activeIdx + 1}
                       <span className="ml-1 text-on-surface/30 font-medium">— {activeItem.mediaType}</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onMoveItem(activeItem.key, -1)}
-                        disabled={activeIdx === 0 || submitting}
-                        className="w-8 h-8 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center disabled:opacity-30"
-                        aria-label="Move left"
-                      >
-                        <ChevronLeft size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onMoveItem(activeItem.key, 1)}
-                        disabled={activeIdx === items.length - 1 || submitting}
-                        className="w-8 h-8 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center disabled:opacity-30"
-                        aria-label="Move right"
-                      >
-                        <ChevronRight size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onRemoveItem(activeItem.key)}
-                        disabled={submitting}
-                        className="w-8 h-8 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-600 flex items-center justify-center disabled:opacity-30"
-                        aria-label="Remove"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                    {!isEditing && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onMoveItem(activeItem.key, -1)}
+                          disabled={activeIdx === 0 || submitting}
+                          className="w-8 h-8 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center disabled:opacity-30"
+                          aria-label="Move left"
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onMoveItem(activeItem.key, 1)}
+                          disabled={activeIdx === items.length - 1 || submitting}
+                          className="w-8 h-8 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center disabled:opacity-30"
+                          aria-label="Move right"
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveItem(activeItem.key)}
+                          disabled={submitting}
+                          className="w-8 h-8 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-600 flex items-center justify-center disabled:opacity-30"
+                          aria-label="Remove"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Per-item caption */}
@@ -1119,15 +1241,17 @@ export const AddPostModal: React.FC = () => {
                 {submitting ? (
                   <>
                     <Loader2 size={15} className="animate-spin" />
-                    Uploading… {Math.round(progress * 100)}%
+                    {isEditing ? 'Saving…' : `Uploading… ${Math.round(progress * 100)}%`}
                   </>
                 ) : (
                   <>
                     <Upload size={15} />
-                    {items.length === 0 ? 'Post' : `Post ${items.length} ${items.length === 1 ? 'item' : 'items'}`}
+                    {isEditing
+                      ? 'Save changes'
+                      : items.length === 0 ? 'Post' : `Post ${items.length} ${items.length === 1 ? 'item' : 'items'}`}
                   </>
                 )}
-                {submitting && (
+                {submitting && !isEditing && (
                   <span className="absolute left-0 bottom-0 h-0.5 bg-white/40" style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }} />
                 )}
               </button>
