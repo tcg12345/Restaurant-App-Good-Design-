@@ -105,7 +105,7 @@ function placeToRecent(place: PlaceResult): RecentSearch {
     cuisine: extractCityState(place.fullAddress || '', place.address || ''),
     price: priceLevelToString(place.priceLevel),
     image: place.photoUrl || '',
-    address: place.address || '',
+    address: place.fullAddress || place.address || '',
     rating: place.rating,
     timestamp: Date.now(),
   };
@@ -320,7 +320,7 @@ export const SearchMain: React.FC = () => {
                     image: place.photoUrl || '',
                     cuisine: location || 'Restaurant',
                     price,
-                    address: place.address || '',
+                    address: place.fullAddress || place.address || '',
                   };
                   return (
                     <li key={place.id}>

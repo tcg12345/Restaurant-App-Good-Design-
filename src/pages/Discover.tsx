@@ -237,7 +237,7 @@ function placeToCardProps(place: PlaceResult) {
     rating: place.rating,
     price: priceLevelToString(place.priceLevel),
     cuisine: extractCityState(place.fullAddress, place.address),
-    address: place.address,
+    address: place.fullAddress || place.address,
     friendReviews: 0,
     expertReviews: 0,
   };
@@ -3304,11 +3304,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                               isWishlisted={isWishlisted(place.id)}
                               onAdd={() => openAddRestaurantModal({
                                 id: place.id, name: place.name, image: props.image,
-                                cuisine: props.cuisine, price: props.price, address: place.address,
+                                cuisine: props.cuisine, price: props.price, address: place.fullAddress || place.address,
                               })}
                               onHeart={() => toggleWishlist({
                                 id: place.id, name: place.name, image: props.image,
-                                cuisine: props.cuisine, price: props.price, address: place.address,
+                                cuisine: props.cuisine, price: props.price, address: place.fullAddress || place.address,
                               })}
                             />
                           );
@@ -4097,8 +4097,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
                                 </div>
                                 <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             );
@@ -4238,8 +4238,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   </div>
                                 )}
                                 <div className="flex items-center gap-1.5 mt-2">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             </div>

@@ -634,7 +634,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
   return details;
 }
 
-// US state name → abbreviation
+// Common US state name → abbreviation (also used as the canonical
+// "is this a US state?" lookup).
 const STATE_ABBR: Record<string, string> = {
   'Alabama':'AL','Alaska':'AK','Arizona':'AZ','Arkansas':'AR','California':'CA',
   'Colorado':'CO','Connecticut':'CT','Delaware':'DE','Florida':'FL','Georgia':'GA',
@@ -648,6 +649,67 @@ const STATE_ABBR: Record<string, string> = {
   'Virginia':'VA','Washington':'WA','West Virginia':'WV','Wisconsin':'WI','Wyoming':'WY',
   'District of Columbia':'DC',
 };
+
+const STATE_CODES = new Set(Object.values(STATE_ABBR));
+
+// Country names + ISO-style abbreviations we expect to see as the trailing
+// comma segment of a Google Places formatted address. Used to decide
+// whether the last segment of a short address is a country (so the city
+// is one segment in) or itself a city (so the address has no country
+// and we shouldn't slap "City, City" on the user). Not exhaustive; it
+// covers the high-traffic destinations and falls through to "treat last
+// as city" for unrecognised values, which is the correct behaviour for
+// stripped US short-formatted addresses like "Park Ave S, New York".
+const KNOWN_COUNTRIES = new Set<string>([
+  'usa','united states','united states of america',
+  'uk','united kingdom','great britain','england','scotland','wales','northern ireland',
+  'canada','mexico','france','germany','italy','spain','portugal','netherlands','holland',
+  'belgium','luxembourg','switzerland','austria','denmark','sweden','norway','finland',
+  'iceland','ireland','czechia','czech republic','poland','hungary','greece','turkey',
+  'russia','ukraine','romania','bulgaria','croatia','serbia','slovenia','slovakia',
+  'estonia','latvia','lithuania','japan','china','south korea','korea','north korea',
+  'taiwan','hong kong','macau','singapore','malaysia','thailand','vietnam','indonesia',
+  'philippines','india','pakistan','bangladesh','sri lanka','nepal','myanmar',
+  'australia','new zealand','fiji',
+  'brazil','argentina','chile','peru','colombia','venezuela','ecuador','uruguay','paraguay','bolivia',
+  'south africa','egypt','morocco','tunisia','kenya','nigeria','ethiopia','ghana','tanzania',
+  'israel','lebanon','jordan','saudi arabia','uae','united arab emirates','qatar','kuwait','bahrain','oman',
+  'iran','iraq','afghanistan',
+]);
+
+function looksLikeCountry(seg: string): boolean {
+  return KNOWN_COUNTRIES.has(seg.trim().toLowerCase());
+}
+
+// Heuristic: does this address segment look like a street rather than a
+// city? Triggered by a leading house number, a trailing cardinal letter
+// (e.g. "Park Ave S"), or a known street suffix in the token list.
+// Used by extractCityState to walk past a "Park Ave S, New York" prefix
+// when shortFormattedAddress drops the full city/state/country tail.
+const STREET_SUFFIXES = new Set([
+  'st','street','ave','avenue','blvd','boulevard','rd','road','dr','drive',
+  'ln','lane','way','pkwy','parkway','ct','court','pl','place','sq','square',
+  'ter','terrace','hwy','highway','tpke','turnpike','expy','expressway',
+  'pike','plaza','row','crescent','cres','close','mews','walk','alley',
+  'cir','circle','run','trail','trl','loop',
+]);
+
+function isStreetLike(segment: string): boolean {
+  if (!segment) return false;
+  const trimmed = segment.trim();
+  // Leading house number — very strong street signal.
+  if (/^\d/.test(trimmed)) return true;
+  const tokens = trimmed.toLowerCase().replace(/[.,]/g, '').split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return false;
+  // Any token in the street-suffix set anywhere in the segment.
+  for (const t of tokens) {
+    if (STREET_SUFFIXES.has(t)) return true;
+  }
+  // Trailing cardinal direction letter ("Park Ave S", "5th Ave N").
+  const last = tokens[tokens.length - 1];
+  if (/^[nsew]$/.test(last) && tokens.length > 1) return true;
+  return false;
+}
 
 // Pull a clean city name out of a "city + postcode" or "postcode + city" fragment.
 // Handles formats like "75002 Paris", "London SW1A 2AA", "Tokyo 131-0045",
@@ -680,39 +742,105 @@ function cityFromRegion(region: string): string {
  * France:       "15 Rue de la Paix, 75002 Paris, France"  → "Paris, France"
  * UK:           "10 Downing St, London SW1A 2AA, UK"      → "London, UK"
  * Japan:        "1-2 Oshiage, Tokyo 131-0045, Japan"      → "Tokyo, Japan"
+ *
+ * Robust to partial / short addresses where the country (and sometimes the
+ * state) is missing — it walks past street-like segments ("Park Ave S")
+ * to find a real city, and leans on the US state-name table to recognise
+ * "City, State" pairs even when "USA" isn't on the end. This is what
+ * keeps the wishlist filter from listing every street as its own city.
  */
 export function extractCityState(fullAddress: string, shortAddress: string = ''): string {
-  const parts = (fullAddress || '').split(',').map((s) => s.trim()).filter(Boolean);
+  // Try the full address first; if the parse can't find anything sensible,
+  // fall through to the short address as a last resort.
+  const candidate = (fullAddress || shortAddress || '').trim();
+  if (!candidate) return '';
+  const result = parseAddressForCity(candidate);
+  if (result) return result;
+  // The fullAddress parse failed — try the shortAddress on its own.
+  if (shortAddress && shortAddress !== fullAddress) {
+    const r2 = parseAddressForCity(shortAddress);
+    if (r2) return r2;
+  }
+  // Last resort: the trailing comma segment (better than nothing).
+  const parts = candidate.split(',').map((s) => s.trim()).filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
+// Recognise a US-state segment unambiguously. Two accepted shapes:
+//   • bare 2-letter code, optionally followed by a 5-digit zip
+//     ("CA", "CT 06880", "NY 10029-1234")
+//   • full state NAME *followed by* a zip
+//     ("Connecticut 06880", "New York 10029")
+// We deliberately do NOT match a bare full state name on its own
+// (e.g. "New York") — that's almost always the city of that name, and
+// the whole point of this function is not to mistake it for the state.
+function detectUSStateInSegment(seg: string): string | null {
+  const abbrMatch = seg.match(/^([A-Z]{2})(?:\s+\d{5}(?:-\d{4})?)?$/);
+  if (abbrMatch && STATE_CODES.has(abbrMatch[1])) return abbrMatch[1];
+  for (const [name, code] of Object.entries(STATE_ABBR)) {
+    if (new RegExp(`^${name}\\s+\\d{5}(?:-\\d{4})?$`, 'i').test(seg)) return code;
+  }
+  return null;
+}
+
+function parseAddressForCity(address: string): string {
+  const parts = address.split(',').map((s) => s.trim()).filter(Boolean);
+  if (parts.length === 0) return '';
+
   const last = parts[parts.length - 1] || '';
-  const isUS = /^(USA|United States)$/i.test(last);
+  const isUSCountry = /^(USA|United States|United States of America)$/i.test(last);
 
-  if (isUS && parts.length >= 3) {
-    // e.g. ["256 Post Rd E", "Westport", "CT 06880", "USA"]
-    const city = parts[parts.length - 3] || '';
-    const stateZip = parts[parts.length - 2] || '';
-    const stateMatch = stateZip.match(/^([A-Z]{2})\b/);
-    if (stateMatch) return city ? `${city}, ${stateMatch[1]}` : stateMatch[1];
-    for (const [name, abbr] of Object.entries(STATE_ABBR)) {
-      if (stateZip.startsWith(name)) return city ? `${city}, ${abbr}` : abbr;
-    }
-    if (city) return city;
+  // Even when "USA" isn't on the end, a "ST zip" tail still means the
+  // address is in the US. Scan all segments to find one that looks like
+  // a US state — that's our strongest signal.
+  let usStateCode: string | null = null;
+  let usStateIndex = -1;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const code = detectUSStateInSegment(parts[i]);
+    if (code) { usStateCode = code; usStateIndex = i; break; }
   }
 
-  if (!isUS && parts.length >= 3) {
+  // ── US path ──────────────────────────────────────────────────────────
+  if (isUSCountry || usStateCode) {
+    if (usStateCode != null) {
+      // City is the first non-street segment to the left of the state.
+      for (let j = usStateIndex - 1; j >= 0; j--) {
+        if (!isStreetLike(parts[j])) return `${parts[j]}, ${usStateCode}`;
+      }
+      return usStateCode;
+    }
+    // No state segment but country is USA — pick first non-street segment
+    // walking back from the country.
+    for (let i = parts.length - 2; i >= 0; i--) {
+      if (!isStreetLike(parts[i])) return parts[i];
+    }
+    return '';
+  }
+
+  // ── Non-US path (last segment is a known country) ───────────────────
+  // "15 Rue de la Paix, 75002 Paris, France" → "Paris, France". Walk
+  // back past street-like prefixes; cityFromRegion strips postcode and
+  // province-code noise.
+  if (parts.length >= 2 && looksLikeCountry(last)) {
     const country = last;
-    // Try the second-to-last piece first (most common).
-    let city = cityFromRegion(parts[parts.length - 2] || '');
-    // If that only left a short state/province code, the real city is one earlier
-    // (e.g. Canada: "…, Toronto, ON M5V 3L9, Canada").
-    if ((!city || /^[A-Z]{2,3}$/.test(city)) && parts.length >= 4) {
-      const earlier = cityFromRegion(parts[parts.length - 3] || '');
-      if (earlier) city = earlier;
+    for (let i = parts.length - 2; i >= 0; i--) {
+      const cleaned = cityFromRegion(parts[i]);
+      if (cleaned && !isStreetLike(cleaned) && !/^[A-Z]{2,3}$/.test(cleaned)) {
+        return `${cleaned}, ${country}`;
+      }
     }
-    if (city && country) return `${city}, ${country}`;
-    if (country) return country;
   }
 
-  // Fallback: last segment of the short address.
-  const shortParts = (shortAddress || '').split(',').map((s) => s.trim()).filter(Boolean);
-  return shortParts[shortParts.length - 1] || shortAddress || '';
+  // ── No recognised country and no US state pattern ────────────────────
+  // Short addresses like "Park Ave S, New York" land here — the last
+  // segment is the city, not a country. Walk from the end and return
+  // the first non-street segment we can clean up. Without state context
+  // we can only show the city itself.
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const seg = parts[i];
+    if (isStreetLike(seg)) continue;
+    const cleaned = cityFromRegion(seg) || seg;
+    if (cleaned) return cleaned;
+  }
+  return '';
 }

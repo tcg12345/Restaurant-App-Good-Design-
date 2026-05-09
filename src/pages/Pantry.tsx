@@ -412,13 +412,11 @@ const RestaurantRow: React.FC<{
 
   const [isDragging, setIsDragging] = useState(false);
 
-  // Extract city, state from address
-  const location = (() => {
-    if (!address) return '';
-    const parts = address.split(',').map((s) => s.trim());
-    if (parts.length >= 2) return parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
-    return parts[0] || '';
-  })();
+  // Resolve a "City, ST" / "City, Country" label from the address. Use the
+  // shared extractor (which understands street suffixes, postcodes, and
+  // US state names) so the row matches what the editorial card shows and
+  // doesn't fall into the old "Street, City" trap.
+  const location = address ? extractCityState(address, address) : '';
 
   // Distance from the user's anchor location to the cached coords for
   // this place (populated by useRestaurantDetail). Renders inline next
@@ -601,14 +599,10 @@ const WishlistRow: React.FC<{
 }> = ({ restaurantId, name, image, cuisine, price, address, notes, onRemove }) => {
   const { restaurantMeta } = useLists();
 
-  // City label from address — same compact extractor used elsewhere.
-  const location = (() => {
-    const a = address || restaurantMeta[restaurantId]?.address || '';
-    if (!a) return '';
-    const parts = a.split(',').map((s) => s.trim());
-    if (parts.length >= 2) return parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
-    return parts[0] || '';
-  })();
+  // City label via the shared extractor — handles street prefixes, US
+  // state codes, and international postcodes.
+  const fullAddr = address || restaurantMeta[restaurantId]?.address || '';
+  const location = fullAddr ? extractCityState(fullAddr, fullAddr) : '';
 
   // Distance from the user's anchor location.
   const meta = restaurantMeta[restaurantId];
@@ -2509,12 +2503,12 @@ const AddToNightSheet: React.FC<{
     const cuisine = getCuisineLabel(place.types);
     const meta: RestaurantMeta = {
       id: place.id, name: place.name, image: place.photoUrl || '',
-      cuisine, price: '', address: place.address,
+      cuisine, price: '', address: place.fullAddress || place.address,
     };
     // Add to trip immediately
     addRestaurantToTrip(tripId, {
       restaurantId: place.id,
-      name: place.name, image: place.photoUrl || '', cuisine, price: '', address: place.address,
+      name: place.name, image: place.photoUrl || '', cuisine, price: '', address: place.fullAddress || place.address,
       night: nightIndex, mealType, status: 'planned',
       reservationTime: reservationTime || undefined,
     });
@@ -3462,7 +3456,7 @@ const CreateTripSheet: React.FC<{
     setHotels((prev) => [...prev, {
       id: crypto.randomUUID(),
       name: place.name,
-      address: place.address,
+      address: place.fullAddress || place.address,
       checkIn: startDate,
       checkOut: endDate,
       image: place.photoUrl || undefined,

@@ -185,7 +185,11 @@ export function useRestaurantDetail() {
   const { ratings, cacheRestaurantMeta } = useLists();
 
   // Cache the place's lat/lng on the meta so list cards can show distance.
-  // Keyed off place.id so we don't write on every re-render.
+  // Persist the FULL formatted address (rather than the truncated short
+  // form) so the city/state extractor always has enough context — short
+  // addresses often drop the country and state, which used to make cards
+  // display the street name as a fake city. Keyed off place.id so we
+  // don't write on every re-render.
   useEffect(() => {
     if (!place?.id || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
     cacheRestaurantMeta({
@@ -194,7 +198,7 @@ export function useRestaurantDetail() {
       image: place.photoUrl || '',
       cuisine: getCuisineLabel(place.types),
       price: priceLevelToString(place.priceLevel),
-      address: place.address,
+      address: place.fullAddress || place.address,
       lat: place.lat,
       lng: place.lng,
     });
