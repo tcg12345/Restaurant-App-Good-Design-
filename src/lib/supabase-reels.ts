@@ -219,15 +219,14 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
   }
   onProgress?.(0.85);
 
-  const { data: publicUrlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  const videoUrl = publicUrlData.publicUrl;
-
+  // Bucket is private (migration 021) — we don't store a permanent URL
+  // anymore, just the path. Clients sign URLs at read time.
   const { data: row, error: insertError } = await supabase.from('reels')
     .insert({
       user_id: userId,
       kind,
       video_path: path,
-      video_url: videoUrl,
+      video_url: '',
       caption,
       audio_label: audioLabel,
       bg_gradient: bgGradient,
@@ -249,10 +248,41 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
   }
   onProgress?.(1);
   const reel = rowToReel(row as Record<string, unknown>, new Set(), new Set());
+  // Sign a playback URL for the freshly-created reel so the UI can
+  // render the video immediately. 24h TTL — re-signed on next list().
+  const signed = await signVideoPaths([path]);
+  reel.videoUrl = signed[path] ?? '';
   // Hydrate author so the UI has a name to render immediately.
   const authors = await hydrateAuthors([reel.userId]);
   reel.author = authors[reel.userId] ?? null;
   return reel;
+}
+
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
+
+/** Batch-mint signed URLs for a set of storage paths. Drops any that
+ *  the viewer can't see (storage RLS denies → empty for that entry). */
+async function signVideoPaths(paths: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  if (!supabaseConfigured || paths.length === 0) return out;
+  // De-dup so we don't waste signatures on the same path twice.
+  const unique = Array.from(new Set(paths.filter(Boolean)));
+  if (unique.length === 0) return out;
+  try {
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(unique, SIGNED_URL_TTL_SECONDS);
+    if (error) {
+      console.warn('[Reels] createSignedUrls failed:', error.message);
+      return out;
+    }
+    for (const item of data || []) {
+      const path = (item as { path?: string | null }).path;
+      const url = (item as { signedUrl?: string }).signedUrl;
+      if (path && url) out[path] = url;
+    }
+  } catch (err) {
+    console.warn('[Reels] sign exception:', err);
+  }
+  return out;
 }
 
 /* ── Read ───────────────────────────────────────────────────────────── */
@@ -296,8 +326,15 @@ export async function listReels(opts: {
   }
 
   const reels = data.map((row) => rowToReel(row as Record<string, unknown>, myLikes, mySaves));
-  const authors = await hydrateAuthors(reels.map((r) => r.userId));
-  for (const r of reels) r.author = authors[r.userId] ?? null;
+  // Sign playback URLs and hydrate authors in parallel.
+  const [signed, authors] = await Promise.all([
+    signVideoPaths(reels.map((r) => r.videoPath)),
+    hydrateAuthors(reels.map((r) => r.userId)),
+  ]);
+  for (const r of reels) {
+    r.author = authors[r.userId] ?? null;
+    r.videoUrl = signed[r.videoPath] || '';
+  }
   return reels;
 }
 
