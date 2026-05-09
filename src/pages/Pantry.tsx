@@ -774,14 +774,16 @@ const WishlistGridCard: React.FC<{
         {/* Spacer pushes the footer to the bottom of the tile */}
         <div className="flex-1" />
 
-        {/* Footer: pin + street, city  ·  distance */}
-        <div className="flex items-center justify-between gap-2 text-[12.5px] text-on-surface/55">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <MapPin size={13} className="flex-shrink-0 text-on-surface/40" />
-            <span className="truncate">{streetCity || 'Location unavailable'}</span>
+        {/* Footer: pin + location (allowed to wrap to two lines so the
+            full "Neighborhood, City, ST" doesn't get cut off), then a
+            second muted line for the distance when we have one. */}
+        <div className="text-[12.5px] text-on-surface/55">
+          <div className="flex items-start gap-1.5 min-w-0">
+            <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
+            <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
           </div>
           {distanceLabel && (
-            <span className="flex-shrink-0 tabular-nums text-on-surface/45">{distanceLabel}</span>
+            <p className="mt-1 pl-[20px] tabular-nums text-on-surface/45">{distanceLabel}</p>
           )}
         </div>
       </Link>
@@ -904,19 +906,20 @@ const RestaurantGridCard: React.FC<{
           {/* Spacer pushes the footer to the bottom of the tile */}
           <div className="flex-1" />
 
-          {/* Footer: pin + street, city  ·  distance.  Action icons
-              fade in on hover so the resting card stays uncluttered. */}
-          <div className="flex items-center justify-between gap-2 text-[12.5px] text-on-surface/55">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <MapPin size={13} className="flex-shrink-0 text-on-surface/40" />
-              <span className="truncate">{streetCity || 'Location unavailable'}</span>
+          {/* Footer: pin + location (line-clamp 2 so the full Beli-style
+              label is never cut off), then a second line with the
+              distance label and the hover-revealed action icons. */}
+          <div className="text-[12.5px] text-on-surface/55">
+            <div className="flex items-start gap-1.5 min-w-0">
+              <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
+              <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {distanceLabel && (
+            <div className="mt-1 pl-[20px] flex items-center justify-between gap-2 min-h-[28px]">
+              {distanceLabel ? (
                 <span className="tabular-nums text-on-surface/45">{distanceLabel}</span>
-              )}
+              ) : <span />}
               {(onEdit || onRemove) && (
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                   {onEdit && (
                     <button
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
