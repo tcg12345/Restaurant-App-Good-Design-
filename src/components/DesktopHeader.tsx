@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, Plus, Heart, MessageCircle, Users, Clock, Loader2 } from 'lucide-react';
@@ -96,6 +97,29 @@ export const DesktopHeader: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
+
+  // Dropdown position is tracked in viewport coords so we can render it
+  // through a portal at <body> level. Renders outside the header's
+  // stacking context (which is created by backdrop-blur + z-index) and
+  // sidesteps any transform / overflow ancestors that would otherwise
+  // clip or obscure the panel.
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const updateDropdownPos = () => {
+    if (!wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    setDropdownPos({ top: rect.bottom + 8, left: rect.left, width: rect.width });
+  };
+  useLayoutEffect(() => {
+    if (!open) return;
+    updateDropdownPos();
+    const onScrollResize = () => updateDropdownPos();
+    window.addEventListener('scroll', onScrollResize, true);
+    window.addEventListener('resize', onScrollResize);
+    return () => {
+      window.removeEventListener('scroll', onScrollResize, true);
+      window.removeEventListener('resize', onScrollResize);
+    };
+  }, [open]);
 
   const trimmed = query.trim();
   const showResults = trimmed.length > 0;
@@ -250,21 +274,28 @@ export const DesktopHeader: React.FC = () => {
             </button>
           )}
 
-          <AnimatePresence>
-            {open && (
-              <motion.div
-                initial={{ opacity: 0, y: -4, scale: 0.99 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.99 }}
-                transition={{ duration: 0.14, ease: 'easeOut' }}
-                className={cn(
-                  'absolute left-0 right-0 top-full mt-2 z-50',
-                  'rounded-2xl bg-surface border border-on-surface/[0.08]',
-                  'shadow-[0_18px_48px_-12px_rgba(0,0,0,0.22)]',
-                  'overflow-hidden',
-                )}
-                role="listbox"
-              >
+          {createPortal(
+            <AnimatePresence>
+              {open && dropdownPos && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4, scale: 0.99 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.99 }}
+                  transition={{ duration: 0.14, ease: 'easeOut' }}
+                  style={{
+                    position: 'fixed',
+                    top: dropdownPos.top,
+                    left: dropdownPos.left,
+                    width: dropdownPos.width,
+                    zIndex: 200,
+                  }}
+                  className={cn(
+                    'rounded-2xl bg-surface border border-on-surface/[0.08]',
+                    'shadow-[0_18px_48px_-12px_rgba(0,0,0,0.22)]',
+                    'overflow-hidden',
+                  )}
+                  role="listbox"
+                >
                 {/* ── Search results state ── */}
                 {showResults ? (
                   searching && results.length === 0 ? (
@@ -346,9 +377,11 @@ export const DesktopHeader: React.FC = () => {
                     </div>
                   )
                 )}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                </motion.div>
+              )}
+            </AnimatePresence>,
+            document.body,
+          )}
         </div>
 
         {/* ── Right side actions ─────────────────────────────────── */}

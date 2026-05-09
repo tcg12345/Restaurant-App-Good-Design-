@@ -890,7 +890,7 @@ function pickComponent(
   type: string,
 ): AddressComponent | undefined {
   if (!components) return undefined;
-  return components.find((c) => c.types.includes(type));
+  return components.find((c) => Array.isArray(c?.types) && c.types.includes(type));
 }
 
 function pickAnyComponent(
@@ -899,7 +899,7 @@ function pickAnyComponent(
 ): AddressComponent | undefined {
   if (!components) return undefined;
   for (const t of types) {
-    const hit = components.find((c) => c.types.includes(t));
+    const hit = components.find((c) => Array.isArray(c?.types) && c.types.includes(t));
     if (hit) return hit;
   }
   return undefined;
@@ -910,12 +910,20 @@ export function formatLocationLabel(
   fullAddress: string = '',
   neighborhoodOverride?: string,
 ): string {
+  // Filter out malformed components — older saved data (or rows that
+  // round-tripped through a relaxed JSON shape) can have entries
+  // missing the `types` array, which would crash the .includes checks
+  // below. Drop those before doing anything.
+  if (components) {
+    components = components.filter((c) => c && Array.isArray(c.types));
+    if (components.length === 0) components = undefined;
+  }
   // Mapbox-sourced neighborhood (used to fill in what Google's address
   // components leave out for most US cities). When we have it AND a
   // proper component list, splice it in as a synthetic neighborhood so
   // the rest of the logic treats it like Google handed it to us.
   if (neighborhoodOverride && components && components.length > 0) {
-    const hasNeighborhood = components.some((c) => c.types.includes('neighborhood'));
+    const hasNeighborhood = components.some((c) => Array.isArray(c?.types) && c.types.includes('neighborhood'));
     if (!hasNeighborhood) {
       components = [
         ...components,

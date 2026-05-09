@@ -2109,6 +2109,19 @@ const ListDetailView: React.FC<{
           )}
 
           {/* No-matches empty state — wishlist view only, when filters/search hide everything */}
+          {/* Truly empty wishlist — nothing saved at all. The minimalist
+              chrome above is otherwise the only thing on the page, which
+              reads as blank. Surface a friendly explainer so the user
+              knows the page isn't broken. */}
+          {isWishlistView && wishlistedRestaurantsRaw.length === 0 && (
+            <div className="text-center py-20">
+              <div className="w-14 h-14 rounded-full bg-red-50 text-red-400 flex items-center justify-center mx-auto mb-4">
+                <Heart size={20} />
+              </div>
+              <p className="text-base font-serif font-bold text-on-surface mb-1">Your wishlist is empty</p>
+              <p className="text-sm text-on-surface/50 max-w-xs mx-auto">Tap the heart on any restaurant card to save it here for later.</p>
+            </div>
+          )}
           {isWishlistView && wishlistedRestaurantsRaw.length > 0 && wishlistedRestaurantsFinal.length === 0 && (
             <div className="text-center py-12">
               <SlidersHorizontal size={28} className="mx-auto text-on-surface/15 mb-3" />
