@@ -1,19 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
+import { useReels, type Reel, type ReelKind, type ReelComment } from '../contexts/ReelsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useToast } from '../contexts/ToastContext';
 
 /**
- * Reels — full-screen vertical video feed with two tabs.
+ * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
  *
  * Explore tab → restaurant reels (tap the bottom card to open the
  * restaurant detail page).  Recipes tab → recipe reels (tap "View" to
- * open the recipe modal). Mobile is the canonical layout; the desktop
- * variant centers a single phone-shaped column with side info so the
- * page reads on a wide viewport without stretching the video.
+ * open the recipe detail page). Mobile is the canonical layout; the
+ * desktop variant centers a single phone-shaped column with side info
+ * so the page reads on a wide viewport without stretching the video.
  */
 
 function formatCount(n: number): string {
@@ -24,15 +25,26 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-function formatDifficulty(d: 'Easy' | 'Medium' | 'Hard'): string {
-  return d;
-}
-
 function formatRecipeMeta(prepTime: number, cookTime: number, servings: number, difficulty: 'Easy' | 'Medium' | 'Hard'): string {
   const total = (prepTime || 0) + (cookTime || 0);
   const time = total > 0 ? `${total} min` : '';
   const serv = servings > 0 ? `${servings} servings` : '';
-  return [time, serv, formatDifficulty(difficulty)].filter(Boolean).join(' · ');
+  return [time, serv, difficulty].filter(Boolean).join(' · ');
+}
+
+function formatRelativeTime(iso: string): string {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d`;
+  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 /* ── Action rail (right side) ───────────────────────────────────────── */
@@ -48,12 +60,7 @@ interface ActionRailProps {
 const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment, onShare }) => {
   return (
     <div className="absolute right-3 bottom-32 z-20 flex flex-col items-center gap-5 select-none">
-      <button
-        type="button"
-        onClick={onLike}
-        className="flex flex-col items-center gap-1 group"
-        aria-label="Like"
-      >
+      <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
         <motion.span
           whileTap={{ scale: 0.8 }}
           className={cn(
@@ -66,24 +73,14 @@ const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment
         <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">{formatCount(reel.likes)}</span>
       </button>
 
-      <button
-        type="button"
-        onClick={onComment}
-        className="flex flex-col items-center gap-1 group"
-        aria-label="Comments"
-      >
+      <button type="button" onClick={onComment} className="flex flex-col items-center gap-1 group" aria-label="Comments">
         <span className="w-11 h-11 rounded-full flex items-center justify-center text-white group-hover:text-white/80 transition-colors">
           <MessageCircle size={28} strokeWidth={2.2} />
         </span>
         <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">{formatCount(reel.comments)}</span>
       </button>
 
-      <button
-        type="button"
-        onClick={onSave}
-        className="flex flex-col items-center gap-1 group"
-        aria-label="Save"
-      >
+      <button type="button" onClick={onSave} className="flex flex-col items-center gap-1 group" aria-label="Save">
         <motion.span
           whileTap={{ scale: 0.8 }}
           className={cn(
@@ -96,19 +93,13 @@ const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment
         <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">{formatCount(reel.saves)}</span>
       </button>
 
-      <button
-        type="button"
-        onClick={onShare}
-        className="flex flex-col items-center gap-1 group"
-        aria-label="Share"
-      >
+      <button type="button" onClick={onShare} className="flex flex-col items-center gap-1 group" aria-label="Share">
         <span className="w-11 h-11 rounded-full flex items-center justify-center text-white group-hover:text-white/80 transition-colors">
           <Share2 size={26} strokeWidth={2.2} />
         </span>
         <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">Share</span>
       </button>
 
-      {/* Audio disc — purely decorative (style mirror of TikTok) */}
       <motion.div
         animate={{ rotate: 360 }}
         transition={{ repeat: Infinity, duration: 8, ease: 'linear' }}
@@ -150,10 +141,7 @@ const RestaurantCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, o
         </p>
       </div>
       {score > 0 && (
-        <span className={cn(
-          'inline-flex items-center justify-center min-w-[40px] h-9 px-2.5 rounded-xl text-sm font-bold tabular-nums',
-          'bg-emerald-700 text-white',
-        )}>
+        <span className="inline-flex items-center justify-center min-w-[40px] h-9 px-2.5 rounded-xl text-sm font-bold tabular-nums bg-emerald-700 text-white">
           {score.toFixed(1)}
         </span>
       )}
@@ -196,23 +184,24 @@ interface ReelSlideProps {
   reel: Reel;
   active: boolean;
   muted: boolean;
+  isMine: boolean;
   onLike: () => void;
   onSave: () => void;
-  onFollow: () => void;
+  onComment: () => void;
+  onShare: () => void;
   onCardClick: () => void;
+  onDelete: () => void;
 }
 
-const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, onLike, onSave, onFollow, onCardClick }) => {
+const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Pause / play in sync with which slide is active. The IntersectionObserver
-  // upstream owns the "active" decision so we don't fight it here.
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
     if (active) {
       el.muted = muted;
-      el.play().catch(() => { /* autoplay can be blocked — the user can tap to unmute and retry */ });
+      el.play().catch(() => { /* autoplay may be blocked until user gesture */ });
     } else {
       el.pause();
       el.currentTime = 0;
@@ -228,7 +217,7 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, onLike, onSa
 
   return (
     <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
-      {/* Video / placeholder */}
+      {/* Video / gradient placeholder */}
       <div className="absolute inset-0">
         {reel.videoUrl ? (
           <video
@@ -253,16 +242,27 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, onLike, onSa
         )}
       </div>
 
-      {/* Top + bottom overlays for text legibility */}
+      {/* Gradient overlays for text legibility */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/55 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/75 via-black/30 to-transparent z-10" />
 
+      {/* Owner-only delete button (top-right area, below the mute pill) */}
+      {isMine && (
+        <button
+          type="button"
+          onClick={onDelete}
+          className="absolute top-16 right-3 z-20 w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center text-white/85 hover:text-rose-300 hover:bg-black/60 transition-colors"
+          aria-label="Delete reel"
+        >
+          <Trash2 size={16} />
+        </button>
+      )}
+
       {/* Action rail */}
-      <ActionRail reel={reel} onLike={onLike} onSave={onSave} onComment={() => { /* no-op for now */ }} onShare={() => { /* no-op */ }} />
+      <ActionRail reel={reel} onLike={onLike} onSave={onSave} onComment={onComment} onShare={onShare} />
 
       {/* Bottom info: author, caption, attached card */}
       <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-5 pt-10">
-        {/* Author row */}
         <div className="flex items-center gap-3 mb-2">
           <div className={cn('w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-white/30', reel.authorAvatarColor)}>
             {reel.authorInitials}
@@ -279,28 +279,14 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, onLike, onSa
             </div>
             <p className="text-white/85 text-[12px] truncate font-mono">♪ {reel.audioLabel}</p>
           </div>
-          <button
-            type="button"
-            onClick={onFollow}
-            className={cn(
-              'px-4 h-9 rounded-full text-[13px] font-bold transition-colors flex-shrink-0',
-              reel.following
-                ? 'bg-white/20 text-white'
-                : 'bg-transparent text-white border border-white',
-            )}
-          >
-            {reel.following ? 'Following' : 'Follow'}
-          </button>
         </div>
 
-        {/* Caption */}
         {reel.caption && (
           <p className="text-white text-[15px] font-serif italic leading-snug mb-3 line-clamp-3 max-w-[78%]">
             {reel.caption}
           </p>
         )}
 
-        {/* Attached card */}
         {reel.kind === 'restaurant' && reel.restaurant && (
           <RestaurantCard reel={reel} onClick={onCardClick} />
         )}
@@ -309,6 +295,170 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, onLike, onSa
         )}
       </div>
     </div>
+  );
+};
+
+/* ── Comments sheet ─────────────────────────────────────────────────── */
+
+interface CommentsSheetProps {
+  reelId: string | null;
+  onClose: () => void;
+  containerless?: boolean; // when rendered inside the desktop phone column
+}
+
+const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose, containerless = false }) => {
+  const { loadComments, addComment, deleteComment, currentUserId } = useReels();
+  const { showToast } = useToast();
+  const [comments, setComments] = useState<ReelComment[]>([]);
+  const [draft, setDraft] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [posting, setPosting] = useState(false);
+
+  useEffect(() => {
+    if (!reelId) return;
+    let cancelled = false;
+    setLoading(true);
+    loadComments(reelId).then((list) => {
+      if (cancelled) return;
+      setComments(list);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [reelId, loadComments]);
+
+  const onSubmit = async () => {
+    if (!reelId || !draft.trim() || posting) return;
+    if (!currentUserId) {
+      showToast('Sign in to comment');
+      return;
+    }
+    setPosting(true);
+    const c = await addComment(reelId, draft);
+    setPosting(false);
+    if (c) {
+      setComments((prev) => [c, ...prev]);
+      setDraft('');
+    } else {
+      showToast("Couldn't post comment");
+    }
+  };
+
+  const onDelete = async (commentId: string) => {
+    if (!reelId) return;
+    const ok = await deleteComment(reelId, commentId);
+    if (ok) setComments((prev) => prev.filter((c) => c.id !== commentId));
+  };
+
+  return (
+    <AnimatePresence>
+      {reelId && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className={cn(
+            'absolute inset-0 z-40 bg-black/55 backdrop-blur-sm flex',
+            containerless ? 'items-end' : 'items-end',
+          )}
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white w-full rounded-t-3xl flex flex-col"
+            style={{ height: containerless ? '70%' : '75%' }}
+          >
+            {/* Drag handle */}
+            <div className="pt-2 pb-1 flex justify-center">
+              <span className="w-10 h-1 rounded-full bg-stone-300" />
+            </div>
+
+            {/* Header */}
+            <div className="px-5 pt-2 pb-3 flex items-center justify-between border-b border-stone-100">
+              <h3 className="font-serif font-bold text-stone-900 text-base">
+                {comments.length === 0 ? 'Comments' : `${comments.length} comment${comments.length === 1 ? '' : 's'}`}
+              </h3>
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 flex items-center justify-center text-stone-600"
+                aria-label="Close comments"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Comments list */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-4">
+              {loading ? (
+                <div className="flex items-center justify-center py-8 text-stone-400">
+                  <Loader2 size={20} className="animate-spin" />
+                </div>
+              ) : comments.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-sm text-stone-500">No comments yet.</p>
+                  <p className="text-xs text-stone-400 mt-1">Be the first to say something.</p>
+                </div>
+              ) : (
+                comments.map((c) => (
+                  <div key={c.id} className="flex items-start gap-3">
+                    <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0', c.author?.avatarColor || 'bg-stone-500')}>
+                      {c.author?.initials || c.userId.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-[13px] font-bold text-stone-900 truncate">@{c.author?.username || c.userId.slice(0, 8)}</span>
+                        {c.author?.isExpert && (
+                          <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-sm bg-amber-200 text-amber-900 text-[9px] font-bold">EXPERT</span>
+                        )}
+                        <span className="text-[11px] text-stone-400">{formatRelativeTime(c.createdAt)}</span>
+                      </div>
+                      <p className="text-[14px] text-stone-800 leading-snug whitespace-pre-wrap break-words">{c.body}</p>
+                    </div>
+                    {c.userId === currentUserId && (
+                      <button
+                        type="button"
+                        onClick={() => onDelete(c.id)}
+                        className="text-stone-400 hover:text-rose-500 p-1"
+                        aria-label="Delete comment"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Composer */}
+            <div className="border-t border-stone-100 px-4 py-3 flex items-center gap-2 flex-shrink-0">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
+                placeholder={currentUserId ? 'Add a comment…' : 'Sign in to comment'}
+                disabled={!currentUserId || posting}
+                maxLength={500}
+                className="flex-1 h-11 rounded-full bg-stone-100 px-4 text-sm placeholder:text-stone-400 focus:outline-none focus:bg-stone-50 focus:ring-2 focus:ring-stone-900/10 disabled:opacity-50"
+              />
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={!currentUserId || !draft.trim() || posting}
+                className={cn(
+                  'w-11 h-11 rounded-full flex items-center justify-center transition-colors',
+                  draft.trim() && !posting && currentUserId
+                    ? 'bg-stone-900 text-white hover:bg-stone-800'
+                    : 'bg-stone-200 text-stone-400 cursor-not-allowed',
+                )}
+                aria-label="Post comment"
+              >
+                {posting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 
@@ -324,7 +474,6 @@ interface TopBarProps {
 const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
   return (
     <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-3">
-      {/* Pill with two tabs */}
       <div className="relative flex-1 max-w-[280px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
         {(['restaurant', 'recipe'] as const).map((k) => {
           const active = kind === k;
@@ -360,10 +509,16 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
 export const Reels: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { restaurantReels, recipeReels, toggleLike, toggleSave, toggleFollow, openAddReelModal } = useReels();
+  const {
+    restaurantReels, recipeReels, loading,
+    toggleLike, toggleSave, deleteReel, openAddReelModal,
+    openCommentsSheet, closeCommentsSheet, openCommentsReelId,
+    currentUserId,
+  } = useReels();
   const { phoneMode } = useSettings();
+  const { showToast } = useToast();
 
-  // The tab can be deep-linked via ?kind=recipe|restaurant.
+  // Tab can be deep-linked via ?kind=recipe|restaurant.
   const initialKind: ReelKind = (() => {
     const sp = new URLSearchParams(location.search);
     const k = sp.get('kind');
@@ -372,16 +527,15 @@ export const Reels: React.FC = () => {
   const [kind, setKind] = useState<ReelKind>(initialKind);
   const [muted, setMuted] = useState(true);
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const list = kind === 'restaurant' ? restaurantReels : recipeReels;
 
-  // Reset the active reel when switching tabs and pick the first one.
   useEffect(() => {
     setActiveReelId(list[0]?.id ?? null);
   }, [kind, list.length]);
 
-  // Detect which slide is most-visible inside the snap container so
-  // exactly one video plays at a time.
+  // IntersectionObserver picks the most-visible slide so exactly one video plays.
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = containerRef.current;
@@ -408,9 +562,6 @@ export const Reels: React.FC = () => {
     return () => observer.disconnect();
   }, [list]);
 
-  // Determine if we're on the wide / desktop layout by media query so we can
-  // wrap the feed in a phone-shaped column. We can't rely on phoneMode here
-  // because that's the optional preview mode toggled from Settings.
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
   );
@@ -432,6 +583,30 @@ export const Reels: React.FC = () => {
     }
   };
 
+  const handleShare = async (reel: Reel) => {
+    const url = `${window.location.origin}/reels?kind=${reel.kind}#${reel.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: reel.caption || 'Check out this reel',
+          url,
+        });
+      } else {
+        await navigator.clipboard.writeText(url);
+        showToast('Link copied');
+      }
+    } catch { /* user cancelled — silent */ }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDeleteId) return;
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
+    const ok = await deleteReel(id);
+    if (ok) showToast('Reel deleted');
+    else showToast("Couldn't delete reel");
+  };
+
   const feed = (
     <div
       ref={containerRef}
@@ -439,10 +614,21 @@ export const Reels: React.FC = () => {
       style={{ scrollbarWidth: 'none' }}
     >
       <AnimatePresence initial={false}>
-        {list.length === 0 ? (
-          <div className="h-full w-full flex items-center justify-center text-white/70 text-sm px-8 text-center">
-            No {kind === 'restaurant' ? 'restaurant' : 'recipe'} reels yet. Tap{' '}
-            <Plus size={14} className="inline-block mx-1" /> to post the first one.
+        {loading && list.length === 0 ? (
+          <div className="h-full w-full flex items-center justify-center text-white/60">
+            <Loader2 size={26} className="animate-spin" />
+          </div>
+        ) : list.length === 0 ? (
+          <div className="h-full w-full flex flex-col items-center justify-center text-white/70 text-sm px-8 text-center gap-3">
+            <p className="text-base text-white/85">No {kind === 'restaurant' ? 'restaurant' : 'recipe'} reels yet.</p>
+            <button
+              type="button"
+              onClick={() => openAddReelModal(kind)}
+              className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-white text-stone-900 text-sm font-bold"
+            >
+              <Plus size={16} />
+              Post the first one
+            </button>
           </div>
         ) : (
           list.map((reel) => (
@@ -458,13 +644,61 @@ export const Reels: React.FC = () => {
                 reel={reel}
                 active={activeReelId === reel.id}
                 muted={muted}
-                onLike={() => toggleLike(reel.id)}
-                onSave={() => toggleSave(reel.id)}
-                onFollow={() => toggleFollow(reel.authorId)}
+                isMine={!!currentUserId && reel.authorId === currentUserId}
+                onLike={() => {
+                  if (!currentUserId) { showToast('Sign in to like reels'); return; }
+                  toggleLike(reel.id);
+                }}
+                onSave={() => {
+                  if (!currentUserId) { showToast('Sign in to save reels'); return; }
+                  toggleSave(reel.id);
+                }}
+                onComment={() => openCommentsSheet(reel.id)}
+                onShare={() => handleShare(reel)}
                 onCardClick={() => handleCardClick(reel)}
+                onDelete={() => setConfirmDeleteId(reel.id)}
               />
             </motion.div>
           ))
+        )}
+      </AnimatePresence>
+
+      {/* Comments sheet floats above the feed */}
+      <CommentsSheet reelId={openCommentsReelId} onClose={closeCommentsSheet} />
+
+      {/* Delete confirmation */}
+      <AnimatePresence>
+        {confirmDeleteId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-black/70 flex items-center justify-center px-6"
+            onClick={() => setConfirmDeleteId(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 max-w-xs w-full text-center"
+            >
+              <h4 className="font-serif font-bold text-stone-900 text-lg">Delete reel?</h4>
+              <p className="text-sm text-stone-500 mt-1">This can't be undone.</p>
+              <div className="flex gap-2 mt-5">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteId(null)}
+                  className="flex-1 h-11 rounded-full bg-stone-100 text-stone-700 text-sm font-bold hover:bg-stone-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -474,7 +708,6 @@ export const Reels: React.FC = () => {
   if (showDesktopFrame) {
     return (
       <div className="relative h-[calc(100vh-64px)] w-full bg-stone-950 overflow-hidden flex">
-        {/* Left side info column */}
         <div className="hidden xl:flex w-[280px] flex-shrink-0 flex-col justify-between p-8 text-white/90">
           <div>
             <h1 className="text-3xl font-serif font-bold leading-tight">Reels</h1>
@@ -493,7 +726,6 @@ export const Reels: React.FC = () => {
           </button>
         </div>
 
-        {/* Center phone-shaped column */}
         <div className="flex-1 flex items-center justify-center p-4">
           <div
             className="relative bg-black rounded-[40px] overflow-hidden shadow-2xl border border-white/10"
@@ -504,20 +736,19 @@ export const Reels: React.FC = () => {
           </div>
         </div>
 
-        {/* Right side hint column */}
         <div className="hidden xl:flex w-[280px] flex-shrink-0 flex-col gap-4 p-8 text-white/80">
           <div className="rounded-2xl bg-white/5 p-4">
             <p className="text-xs uppercase tracking-widest text-white/40 font-bold mb-2">Now playing</p>
             <p className="text-sm text-white/90 leading-snug">
               Scroll to see the next reel. Use the mute toggle in the top right
-              to turn audio on.
+              to turn audio on. Likes, saves, and comments persist across sessions.
             </p>
           </div>
           <div className="rounded-2xl bg-white/5 p-4">
             <p className="text-xs uppercase tracking-widest text-white/40 font-bold mb-2">Tip</p>
             <p className="text-sm text-white/90 leading-snug">
-              Posting a reel? Attach a {kind === 'restaurant' ? 'restaurant' : 'recipe'} so viewers
-              can tap straight through to the details.
+              Posting? Attach a {kind === 'restaurant' ? 'restaurant' : 'recipe'} so viewers can
+              tap straight through to the details.
             </p>
           </div>
         </div>

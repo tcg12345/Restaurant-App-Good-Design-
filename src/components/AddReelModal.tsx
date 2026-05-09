@@ -1,20 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { X, Film, ChefHat, MapPin, Search, Check, Upload, Music2, Trash2 } from 'lucide-react';
+import { X, Film, ChefHat, MapPin, Search, Check, Upload, Music2, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useReels, type ReelKind } from '../contexts/ReelsContext';
+import {
+  useReels,
+  readVideoDuration,
+  REEL_MAX_DURATION_SECONDS,
+  REEL_MAX_BYTES,
+  type ReelKind,
+} from '../contexts/ReelsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useRecipes } from '../contexts/RecipesContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
-
-/* ── Avatar palette so the new reel has a consistent author chip ─────── */
-
-const AVATAR_PALETTE = [
-  'bg-emerald-700', 'bg-rose-700', 'bg-amber-600', 'bg-indigo-700',
-  'bg-sky-700', 'bg-fuchsia-700', 'bg-orange-700', 'bg-teal-700',
-];
 
 const BG_GRADIENT_POOL = [
   'from-orange-900 via-orange-800 to-orange-950',
@@ -31,17 +30,16 @@ function pickFromPool<T>(pool: T[], seed: string): T {
   return pool[h % pool.length];
 }
 
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'YO';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
 }
 
-/* ── The modal ──────────────────────────────────────────────────────── */
+/* ── Modal ──────────────────────────────────────────────────────────── */
 
 export const AddReelModal: React.FC = () => {
-  const { addReelModalOpen, addReelInitialKind, closeAddReelModal, addReel } = useReels();
+  const { addReelModalOpen, addReelInitialKind, closeAddReelModal, postReel } = useReels();
   const { ratings, wishlist, restaurantMeta, homeMeals } = useLists();
   const { myRecipes } = useRecipes();
   const { profile, user } = useAuth();
@@ -51,6 +49,7 @@ export const AddReelModal: React.FC = () => {
   const [kind, setKind] = useState<ReelKind>(addReelInitialKind ?? 'restaurant');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const [caption, setCaption] = useState('');
   const [audio, setAudio] = useState('Original audio');
   const [pickedRestaurantId, setPickedRestaurantId] = useState<string | null>(null);
@@ -58,6 +57,9 @@ export const AddReelModal: React.FC = () => {
   const [restaurantSearch, setRestaurantSearch] = useState('');
   const [recipeSearch, setRecipeSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [validationMsg, setValidationMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Reset state whenever the modal is reopened.
@@ -66,6 +68,7 @@ export const AddReelModal: React.FC = () => {
     setKind(addReelInitialKind ?? 'restaurant');
     setVideoFile(null);
     setVideoUrl(null);
+    setVideoDuration(null);
     setCaption('');
     setAudio('Original audio');
     setPickedRestaurantId(null);
@@ -73,18 +76,19 @@ export const AddReelModal: React.FC = () => {
     setRestaurantSearch('');
     setRecipeSearch('');
     setSubmitting(false);
+    setProgress(0);
+    setErrorMsg(null);
+    setValidationMsg(null);
   }, [addReelModalOpen, addReelInitialKind]);
 
-  // Revoke the object URL whenever the user picks a new video or closes.
+  // Revoke the preview URL when it's replaced or the modal closes.
   useEffect(() => {
     return () => {
       if (videoUrl) URL.revokeObjectURL(videoUrl);
     };
   }, [videoUrl]);
 
-  // ── Derived restaurant pick list ──
-  // We surface the user's rated restaurants AND wishlist entries — the
-  // viewer just needs something they can tap through to a detail page.
+  // ── Restaurant pick list (from user's data) ──
   const restaurantPickList = useMemo(() => {
     type Item = { id: string; name: string; cuisine: string; price: string; address: string; image?: string; score?: number };
     const byId = new Map<string, Item>();
@@ -110,7 +114,6 @@ export const AddReelModal: React.FC = () => {
         image: w.image,
       });
     }
-    // Restaurant meta entries that aren't yet rated (e.g. last viewed)
     for (const [id, m] of Object.entries(restaurantMeta || {})) {
       if (id.startsWith('__') || byId.has(id)) continue;
       const meta = m as { name?: string; cuisine?: string; price?: string; address?: string; image?: string };
@@ -130,8 +133,7 @@ export const AddReelModal: React.FC = () => {
     return items.filter((it) => `${it.name} ${it.cuisine} ${it.address}`.toLowerCase().includes(q)).slice(0, 50);
   }, [ratings, wishlist, restaurantMeta, restaurantSearch]);
 
-  // ── Derived recipe pick list ── pulls from cloud recipes + local home meals
-  // so the user can attach anything they've already created in the app.
+  // ── Recipe pick list ──
   const recipePickList = useMemo(() => {
     type Item = { id: string; title: string; prepTime: number; cookTime: number; servings: number; difficulty: 'Easy' | 'Medium' | 'Hard'; image?: string };
     const items: Item[] = [];
@@ -172,70 +174,93 @@ export const AddReelModal: React.FC = () => {
     [recipePickList, pickedRecipeId],
   );
 
-  const onPickFile = (file: File | null) => {
+  const onPickFile = async (file: File | null) => {
     if (!file) return;
+    setValidationMsg(null);
+    setErrorMsg(null);
     if (!file.type.startsWith('video/')) {
-      showToast('Please pick a video file');
+      setValidationMsg('Please pick a video file.');
       return;
     }
+    if (file.size > REEL_MAX_BYTES) {
+      setValidationMsg(`Video is ${formatBytes(file.size)} — max ${formatBytes(REEL_MAX_BYTES)}.`);
+      return;
+    }
+
+    // Probe duration before accepting the file.
+    let duration: number;
+    try {
+      duration = await readVideoDuration(file);
+    } catch (err) {
+      console.warn('[AddReel] probe failed:', err);
+      setValidationMsg("Couldn't read this video — try a different file.");
+      return;
+    }
+    if (duration > REEL_MAX_DURATION_SECONDS + 0.5) {
+      setValidationMsg(`Video is ${duration.toFixed(0)}s — reels are limited to ${REEL_MAX_DURATION_SECONDS}s.`);
+      return;
+    }
+
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     setVideoFile(file);
     setVideoUrl(URL.createObjectURL(file));
+    setVideoDuration(duration);
   };
 
   const canSubmit =
-    !!videoUrl
-    && (kind === 'restaurant' ? !!pickedRestaurant : !!pickedRecipe);
+    !!videoFile
+    && !!user?.id
+    && (kind === 'restaurant' ? !!pickedRestaurant : !!pickedRecipe)
+    && !submitting;
 
-  const onSubmit = () => {
-    if (!canSubmit || submitting) return;
+  const onSubmit = async () => {
+    if (!canSubmit || !videoFile || !user?.id) return;
+    setErrorMsg(null);
     setSubmitting(true);
-
-    const authorId = user?.id ?? 'local-user';
-    const username = profile?.username || profile?.display_name?.replace(/\s+/g, '').toLowerCase() || 'you';
-    const avatarColor = pickFromPool(AVATAR_PALETTE, authorId);
-    const bgGradient = pickFromPool(BG_GRADIENT_POOL, videoFile?.name || authorId);
-
-    addReel({
-      kind,
-      authorId,
-      authorUsername: username,
-      authorDisplayName: profile?.display_name || profile?.username || 'You',
-      authorAvatarColor: avatarColor,
-      authorInitials: initialsFor(profile?.display_name || profile?.username || 'You'),
-      isExpert: !!profile?.is_expert,
-      videoUrl: videoUrl ?? undefined,
-      bgGradient,
-      caption: caption.trim(),
-      audioLabel: audio.trim() || 'Original audio',
-      restaurant: kind === 'restaurant' && pickedRestaurant
-        ? {
-          id: pickedRestaurant.id,
-          name: pickedRestaurant.name,
-          cuisine: pickedRestaurant.cuisine,
-          price: pickedRestaurant.price,
-          address: pickedRestaurant.address,
-          image: pickedRestaurant.image,
-          score: pickedRestaurant.score,
-        }
-        : undefined,
-      recipe: kind === 'recipe' && pickedRecipe
-        ? {
-          id: pickedRecipe.id,
-          title: pickedRecipe.title,
-          prepTime: pickedRecipe.prepTime,
-          cookTime: pickedRecipe.cookTime,
-          servings: pickedRecipe.servings,
-          difficulty: pickedRecipe.difficulty,
-          image: pickedRecipe.image,
-        }
-        : undefined,
-    });
-    // Don't revoke the URL on close — the reel is still using it.
-    setVideoUrl(null);
-    setVideoFile(null);
-    showToast('Reel posted');
-    closeAddReelModal();
+    setProgress(0.05);
+    try {
+      const bgGradient = pickFromPool(BG_GRADIENT_POOL, videoFile.name + user.id);
+      const reel = await postReel({
+        file: videoFile,
+        kind,
+        caption: caption.trim(),
+        audioLabel: audio.trim() || 'Original audio',
+        bgGradient,
+        durationSeconds: videoDuration ?? 0,
+        restaurant: kind === 'restaurant' && pickedRestaurant
+          ? {
+            id: pickedRestaurant.id,
+            name: pickedRestaurant.name,
+            cuisine: pickedRestaurant.cuisine,
+            price: pickedRestaurant.price,
+            address: pickedRestaurant.address,
+            image: pickedRestaurant.image,
+            score: pickedRestaurant.score,
+          }
+          : undefined,
+        recipe: kind === 'recipe' && pickedRecipe
+          ? {
+            id: pickedRecipe.id,
+            title: pickedRecipe.title,
+            prepTime: pickedRecipe.prepTime,
+            cookTime: pickedRecipe.cookTime,
+            servings: pickedRecipe.servings,
+            difficulty: pickedRecipe.difficulty,
+            image: pickedRecipe.image,
+          }
+          : undefined,
+        onProgress: (n) => setProgress(n),
+      });
+      if (!reel) throw new Error("Couldn't create the reel — try again.");
+      showToast('Reel posted', { subtitle: 'It\'s live in the feed' });
+      closeAddReelModal();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Upload failed';
+      setErrorMsg(msg);
+      setProgress(0);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -247,7 +272,7 @@ export const AddReelModal: React.FC = () => {
             'fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center',
             phoneMode ? 'items-end' : 'items-end sm:items-center',
           )}
-          onClick={closeAddReelModal}
+          onClick={() => { if (!submitting) closeAddReelModal(); }}
         >
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
@@ -264,12 +289,15 @@ export const AddReelModal: React.FC = () => {
             <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-on-surface/[0.06] flex-shrink-0">
               <div>
                 <h2 className="font-serif font-bold text-lg leading-tight">Post a reel</h2>
-                <p className="text-[12px] text-on-surface/45 mt-0.5">Share a short video and link a {kind === 'restaurant' ? 'restaurant' : 'recipe'}.</p>
+                <p className="text-[12px] text-on-surface/45 mt-0.5">
+                  Up to {REEL_MAX_DURATION_SECONDS}s. Public to everyone.
+                </p>
               </div>
               <button
                 type="button"
-                onClick={closeAddReelModal}
-                className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors"
+                onClick={() => { if (!submitting) closeAddReelModal(); }}
+                disabled={submitting}
+                className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors disabled:opacity-40"
                 aria-label="Close"
               >
                 <X size={18} />
@@ -287,8 +315,9 @@ export const AddReelModal: React.FC = () => {
                       key={k}
                       type="button"
                       onClick={() => setKind(k)}
+                      disabled={submitting}
                       className={cn(
-                        'flex-1 h-10 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
+                        'flex-1 h-10 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors disabled:opacity-40',
                         active ? 'bg-white shadow text-on-surface' : 'text-on-surface/55',
                       )}
                     >
@@ -301,7 +330,14 @@ export const AddReelModal: React.FC = () => {
 
               {/* Video upload */}
               <section>
-                <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Video</label>
+                <div className="flex items-baseline justify-between mb-2">
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">Video</label>
+                  {videoDuration != null && (
+                    <span className="text-[11px] text-on-surface/40 tabular-nums">
+                      {videoDuration.toFixed(1)}s · max {REEL_MAX_DURATION_SECONDS}s
+                    </span>
+                  )}
+                </div>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -318,8 +354,10 @@ export const AddReelModal: React.FC = () => {
                         if (videoUrl) URL.revokeObjectURL(videoUrl);
                         setVideoUrl(null);
                         setVideoFile(null);
+                        setVideoDuration(null);
                       }}
-                      className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur flex items-center justify-center text-white"
+                      disabled={submitting}
+                      className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur flex items-center justify-center text-white disabled:opacity-40"
                       aria-label="Remove video"
                     >
                       <Trash2 size={15} />
@@ -336,8 +374,17 @@ export const AddReelModal: React.FC = () => {
                   >
                     <Film size={28} className="text-on-surface/40" />
                     <span className="text-sm font-semibold">Choose a video</span>
-                    <span className="text-[11px] text-on-surface/40">MP4, MOV — up to 60s recommended</span>
+                    <span className="text-[11px] text-on-surface/40">
+                      MP4, MOV — up to {REEL_MAX_DURATION_SECONDS}s · {formatBytes(REEL_MAX_BYTES)}
+                    </span>
                   </button>
+                )}
+
+                {validationMsg && (
+                  <div className="mt-2 flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                    <span>{validationMsg}</span>
+                  </div>
                 )}
               </section>
 
@@ -350,12 +397,13 @@ export const AddReelModal: React.FC = () => {
                   placeholder="What's the story? Why should people pull up?"
                   rows={3}
                   maxLength={280}
-                  className="w-full rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] px-4 py-3 text-sm placeholder:text-on-surface/35 focus:outline-none focus:border-primary/40 resize-none"
+                  disabled={submitting}
+                  className="w-full rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] px-4 py-3 text-sm placeholder:text-on-surface/35 focus:outline-none focus:border-primary/40 resize-none disabled:opacity-50"
                 />
                 <div className="text-right text-[11px] text-on-surface/35 mt-1 tabular-nums">{caption.length} / 280</div>
               </section>
 
-              {/* Audio label (decorative) */}
+              {/* Audio label */}
               <section>
                 <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Audio</label>
                 <div className="flex items-center gap-2 rounded-full bg-on-surface/[0.04] border border-on-surface/[0.06] px-4 h-11">
@@ -364,7 +412,8 @@ export const AddReelModal: React.FC = () => {
                     value={audio}
                     onChange={(e) => setAudio(e.target.value)}
                     placeholder="Original audio"
-                    className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none"
+                    disabled={submitting}
+                    className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none disabled:opacity-50"
                     maxLength={60}
                   />
                 </div>
@@ -375,11 +424,12 @@ export const AddReelModal: React.FC = () => {
                 <section>
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Featured restaurant</label>
                   {pickedRestaurant ? (
-                    <PickedRestaurantPill
+                    <PickedPill
                       name={pickedRestaurant.name}
                       meta={[pickedRestaurant.cuisine, pickedRestaurant.price].filter(Boolean).join(' · ')}
                       image={pickedRestaurant.image}
                       onClear={() => setPickedRestaurantId(null)}
+                      disabled={submitting}
                     />
                   ) : (
                     <>
@@ -435,11 +485,12 @@ export const AddReelModal: React.FC = () => {
                 <section>
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Featured recipe</label>
                   {pickedRecipe ? (
-                    <PickedRestaurantPill
+                    <PickedPill
                       name={pickedRecipe.title}
                       meta={`${(pickedRecipe.prepTime + pickedRecipe.cookTime) || 0} min · ${pickedRecipe.servings || 0} servings · ${pickedRecipe.difficulty}`}
                       image={pickedRecipe.image}
                       onClear={() => setPickedRecipeId(null)}
+                      disabled={submitting}
                     />
                   ) : (
                     <>
@@ -487,6 +538,22 @@ export const AddReelModal: React.FC = () => {
                   )}
                 </section>
               )}
+
+              {/* Auth notice */}
+              {!user?.id && (
+                <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                  <span>Sign in to post reels.</span>
+                </div>
+              )}
+
+              {/* Submit error */}
+              {errorMsg && (
+                <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
             </div>
 
             {/* Footer */}
@@ -494,23 +561,39 @@ export const AddReelModal: React.FC = () => {
               <button
                 type="button"
                 onClick={closeAddReelModal}
-                className="px-4 h-11 rounded-full text-sm font-semibold text-on-surface/65 hover:bg-on-surface/[0.05] transition-colors"
+                disabled={submitting}
+                className="px-4 h-11 rounded-full text-sm font-semibold text-on-surface/65 hover:bg-on-surface/[0.05] transition-colors disabled:opacity-40"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={onSubmit}
-                disabled={!canSubmit || submitting}
+                disabled={!canSubmit}
                 className={cn(
-                  'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
+                  'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors relative overflow-hidden',
                   canSubmit && !submitting
                     ? 'bg-primary text-white hover:bg-primary/90'
                     : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
                 )}
               >
-                <Upload size={15} />
-                Post reel
+                {submitting ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    Uploading… {Math.round(progress * 100)}%
+                  </>
+                ) : (
+                  <>
+                    <Upload size={15} />
+                    Post reel
+                  </>
+                )}
+                {submitting && (
+                  <span
+                    className="absolute left-0 bottom-0 h-0.5 bg-white/40"
+                    style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }}
+                  />
+                )}
               </button>
             </div>
           </motion.div>
@@ -522,7 +605,7 @@ export const AddReelModal: React.FC = () => {
 
 /* ── Picked-pill chip used for both restaurant and recipe ──────────── */
 
-const PickedRestaurantPill: React.FC<{ name: string; meta: string; image?: string; onClear: () => void }> = ({ name, meta, image, onClear }) => (
+const PickedPill: React.FC<{ name: string; meta: string; image?: string; onClear: () => void; disabled?: boolean }> = ({ name, meta, image, onClear, disabled }) => (
   <div className="flex items-center gap-3 rounded-2xl bg-primary/[0.06] border border-primary/15 px-3 py-2.5">
     <div className="w-10 h-10 rounded-xl overflow-hidden bg-on-surface/[0.06] flex-shrink-0 flex items-center justify-center">
       {image ? (
@@ -538,7 +621,8 @@ const PickedRestaurantPill: React.FC<{ name: string; meta: string; image?: strin
     <button
       type="button"
       onClick={onClear}
-      className="text-[11px] font-semibold text-on-surface/55 hover:text-on-surface px-2 h-8 rounded-full hover:bg-on-surface/[0.05]"
+      disabled={disabled}
+      className="text-[11px] font-semibold text-on-surface/55 hover:text-on-surface px-2 h-8 rounded-full hover:bg-on-surface/[0.05] disabled:opacity-40"
     >
       Change
     </button>
