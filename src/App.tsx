@@ -15,6 +15,7 @@ import { SearchMain } from './pages/SearchMain';
 import { RestaurantDetail } from './pages/RestaurantDetail';
 import { Onboarding } from './pages/Onboarding';
 import { BottomNav } from './components/BottomNav';
+import { Sidebar } from './components/Sidebar';
 import { AnimatePresence, motion } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -43,12 +44,35 @@ import { MealRecipePage } from './pages/MealRecipePage';
 import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
 
+/**
+ * Track whether the viewport is wide enough to render the desktop sidebar.
+ * Falls back to false during SSR / before the first matchMedia read.
+ */
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = React.useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  React.useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isDesktop;
+}
+
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/map';
   const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
+  const isDesktop = useIsDesktop();
+  // Sidebar mode: real desktop viewport AND not in the phone-frame preview.
+  // The Onboarding flow is intentionally pre-auth-only so this gate isn't
+  // needed for it; we just keep the sidebar off the few pages where it
+  // would clash (none today, but the variable exists so we can tune).
+  const useSidebar = isDesktop && !phoneMode && isSignedIn && profileComplete;
 
   if (loading) {
     return (
@@ -102,6 +126,71 @@ const AppContent: React.FC = () => {
     );
   }
 
+  // ── Routes block, shared between sidebar and phone/narrow layouts ──
+  const routesBlock = (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -4 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
+      >
+        <Routes location={location}>
+          <Route path="/" element={<Discover mode="home" />} />
+          <Route path="/map" element={<Discover mode="map" />} />
+          <Route path="/auth" element={<Navigate to="/" replace />} />
+          <Route path="/circle" element={<Circle />} />
+          <Route path="/search" element={<Search />} />
+          <Route path="/search/main" element={<SearchMain />} />
+          <Route path="/experts" element={<Experts />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/pantry" element={<Pantry />} />
+          <Route path="/restaurant/:id" element={<RestaurantDetail />} />
+          <Route path="/restaurant/:id/circle" element={<RestaurantCircleReviews />} />
+          <Route path="/onboarding" element={<Onboarding />} />
+          <Route path="/import" element={<ImportRestaurants />} />
+          <Route path="/reorder" element={<ReorderRatings />} />
+          <Route path="/recipes-for-you" element={<RecipesForYou />} />
+          <Route path="/recipe/:id" element={<RecipeDetail />} />
+          <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
+          <Route path="/user/:username" element={<UserProfile />} />
+          <Route path="/messages" element={<Messages />} />
+          <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
+          <Route path="/location" element={<LocationPage />} />
+          <Route path="/location/map" element={<LocationMap />} />
+        </Routes>
+      </motion.div>
+    </AnimatePresence>
+  );
+
+  const modals = (
+    <>
+      <RatingModal />
+      <AddToListModal />
+      <AddRestaurantModal />
+      <AddRecipeModal />
+      <AddHomeMealModal />
+      <RecipeModal />
+    </>
+  );
+
+  // ── Desktop sidebar layout ───────────────────────────────────────────
+  // Wide viewports (>= lg) render a sticky left sidebar instead of the
+  // floating BottomNav. The sidebar handles its own collapsed state.
+  if (useSidebar) {
+    return (
+      <div className="min-h-screen bg-surface text-on-surface selection:bg-primary/20 selection:text-primary flex">
+        <Sidebar />
+        <main className="flex-1 min-w-0 min-h-screen">
+          {routesBlock}
+        </main>
+        {modals}
+      </div>
+    );
+  }
+
+  // ── Phone-frame preview / narrow viewport layout (existing) ──────────
   return (
     <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : ""}>
       <div
@@ -117,46 +206,7 @@ const AppContent: React.FC = () => {
         }
       >
         <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
-          {/*
-            Route-level fade+slide transition. AnimatePresence with mode="wait"
-            so the outgoing page finishes its exit before the incoming one
-            mounts — keeps scroll reset clean. Transition intentionally brief
-            (~180ms) so navigation still feels instant.
-          */}
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={location.pathname}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-            >
-              <Routes location={location}>
-                <Route path="/" element={<Discover mode="home" />} />
-                <Route path="/map" element={<Discover mode="map" />} />
-                <Route path="/auth" element={<Navigate to="/" replace />} />
-                <Route path="/circle" element={<Circle />} />
-                <Route path="/search" element={<Search />} />
-                <Route path="/search/main" element={<SearchMain />} />
-                <Route path="/experts" element={<Experts />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/pantry" element={<Pantry />} />
-                <Route path="/restaurant/:id" element={<RestaurantDetail />} />
-                <Route path="/restaurant/:id/circle" element={<RestaurantCircleReviews />} />
-                <Route path="/onboarding" element={<Onboarding />} />
-                <Route path="/import" element={<ImportRestaurants />} />
-                <Route path="/reorder" element={<ReorderRatings />} />
-                <Route path="/recipes-for-you" element={<RecipesForYou />} />
-                <Route path="/recipe/:id" element={<RecipeDetail />} />
-                <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
-                <Route path="/user/:username" element={<UserProfile />} />
-                <Route path="/messages" element={<Messages />} />
-                <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
-                <Route path="/location" element={<LocationPage />} />
-                <Route path="/location/map" element={<LocationMap />} />
-              </Routes>
-            </motion.div>
-          </AnimatePresence>
+          {routesBlock}
         </div>
         <AnimatePresence>
           {showBottomNav && (
@@ -170,12 +220,7 @@ const AppContent: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
-        <RatingModal />
-        <AddToListModal />
-        <AddRestaurantModal />
-        <AddRecipeModal />
-        <AddHomeMealModal />
-        <RecipeModal />
+        {modals}
       </div>
     </div>
   );
