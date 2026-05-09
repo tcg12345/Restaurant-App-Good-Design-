@@ -659,11 +659,10 @@ const WishlistRow: React.FC<{
 };
 
 /* ── Wishlist grid card (desktop) ────────────────────────────────────
-   Editorial info-card mirroring RestaurantGridCard's no-image layout
-   but tuned for the wishlist context: no numeric score, a small filled
-   heart in the top-right slot instead, italic notes, location pin +
-   city · distance footer with a Remove icon button. Same hover lift
-   so a mixed grid of rated + wishlisted tiles feels coherent. ── */
+   Airy editorial tile: white surface, big serif name, filled-heart pip
+   in the top-right (also the remove control), CUISINE·PRICE under the
+   name, intentionally empty middle for breathing room, and a footer
+   line with the street address + distance. Hover lifts the card. ── */
 const WishlistGridCard: React.FC<{
   restaurantId: string;
   name: string;
@@ -673,32 +672,30 @@ const WishlistGridCard: React.FC<{
   address?: string;
   notes?: string;
   onRemove?: () => void;
-}> = ({ restaurantId, name, image, cuisine, price, address, notes, onRemove }) => {
+}> = ({ restaurantId, name, cuisine, price, address, onRemove }) => {
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement | null>(null);
   const { restaurantMeta } = useLists();
   const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine;
   const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
 
   const meta = restaurantMeta[restaurantId];
   const fullAddress = address || meta?.address || '';
-  const locationLabel = fullAddress ? extractCityState(fullAddress, fullAddress) : '';
+  const streetCity = useMemo(() => {
+    if (!fullAddress) return '';
+    // Take the first two comma segments — gives "104 E 30th St, New York"
+    // for full Google addresses and gracefully degrades to whatever's
+    // there for shorter ones.
+    const parts = fullAddress.split(',').map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0];
+    return parts.slice(0, 2).join(', ');
+  }, [fullAddress]);
   const distanceLabel = useMemo(() => {
     const home = loadLastSelectedLocation();
     if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
     if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
     return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
   }, [meta?.lat, meta?.lng]);
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [moreOpen]);
 
   return (
     <div className="group relative">
@@ -708,16 +705,28 @@ const WishlistGridCard: React.FC<{
           'block rounded-2xl bg-white border border-on-surface/[0.07]',
           'p-5 transition-all duration-200',
           'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
+          'flex flex-col min-h-[230px]',
         )}
       >
-        {/* Top row: name + heart accent */}
+        {/* Top row: name + heart pip (also the remove control) */}
         <div className="flex items-start justify-between gap-4">
           <h3 className="font-serif font-bold text-[22px] leading-tight tracking-tight text-on-surface line-clamp-2 min-w-0">
             {name}
           </h3>
-          <span className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
-            <Heart size={15} className="fill-red-400" />
-          </span>
+          {onRemove ? (
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmRemove(true); }}
+              aria-label="Remove from wishlist"
+              title="Remove from wishlist"
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center hover:bg-red-100 active:scale-95 transition-all"
+            >
+              <Heart size={15} className="fill-red-400" />
+            </button>
+          ) : (
+            <span className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
+              <Heart size={15} className="fill-red-400" />
+            </span>
+          )}
         </div>
 
         {/* Cuisine · price */}
@@ -729,60 +738,17 @@ const WishlistGridCard: React.FC<{
           </p>
         )}
 
-        {/* Italic notes / quote — same treatment as the rated card */}
-        {notes && (
-          <p className="mt-4 text-[14px] leading-relaxed italic text-on-surface/75 line-clamp-3">
-            {notes}
-          </p>
-        )}
+        {/* Spacer pushes the footer to the bottom of the tile */}
+        <div className="flex-1" />
 
-        {/* Hairline + footer: location · distance | actions */}
-        <div className="mt-4 border-t border-on-surface/[0.07]" />
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 min-w-0 text-[12.5px] text-on-surface/55">
+        {/* Footer: pin + street, city  ·  distance */}
+        <div className="flex items-center justify-between gap-2 text-[12.5px] text-on-surface/55">
+          <div className="flex items-center gap-1.5 min-w-0">
             <MapPin size={13} className="flex-shrink-0 text-on-surface/40" />
-            <span className="truncate">
-              {locationLabel || 'Location unavailable'}
-              {locationLabel && distanceLabel ? ` · ${distanceLabel}` : ''}
-            </span>
+            <span className="truncate">{streetCity || 'Location unavailable'}</span>
           </div>
-          {onRemove && (
-            <div className="relative" ref={moreRef}>
-              <button
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
-                aria-label="More options"
-                aria-haspopup="menu"
-                aria-expanded={moreOpen}
-                className={cn(
-                  'w-8 h-8 rounded-full flex items-center justify-center transition-colors',
-                  moreOpen
-                    ? 'text-on-surface bg-on-surface/[0.06]'
-                    : 'text-on-surface/35 hover:text-on-surface hover:bg-on-surface/[0.05]',
-                )}
-              >
-                <MoreHorizontal size={15} />
-              </button>
-              <AnimatePresence>
-                {moreOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                    transition={{ duration: 0.12, ease: 'easeOut' }}
-                    role="menu"
-                    className="absolute right-0 top-full mt-1.5 z-30 min-w-[180px] rounded-xl bg-white border border-on-surface/[0.08] shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)] py-1 overflow-hidden"
-                  >
-                    <button
-                      role="menuitem"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmRemove(true); }}
-                      className="w-full px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50 flex items-center gap-2"
-                    >
-                      <Trash2 size={13} /> Remove from wishlist
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+          {distanceLabel && (
+            <span className="flex-shrink-0 tabular-nums text-on-surface/45">{distanceLabel}</span>
           )}
         </div>
       </Link>
@@ -852,12 +818,23 @@ const RestaurantGridCard: React.FC<{
   }, [moreOpen]);
 
   // ── No-image variant ──────────────────────────────────────────────
-  // Editorial info-card: clean white surface, no stand-in image area.
-  // Top row: name (serif) + score (color-coded). Cuisine · price under
-  // the name. An italic quote of the user's notes (if any). Hairline
-  // divider, then a footer line with the location pin / city · distance
-  // and edit / more-options icon buttons aligned right.
+  // Same airy editorial tile as the wishlist card, just with the
+  // numeric score in the top-right slot instead of a heart pip. Big
+  // serif name, CUISINE·PRICE, breathing-room middle, footer with the
+  // street address + distance. Edit / more controls fade in on hover.
   if (!image) {
+    // Street + city derived from the first two comma segments of the
+    // stored address — gives "104 E 30th St, New York" for full Google
+    // addresses and degrades gracefully for short ones.
+    const streetCity = (() => {
+      const a = address || meta?.address || '';
+      if (!a) return '';
+      const parts = a.split(',').map((s) => s.trim()).filter(Boolean);
+      if (parts.length === 0) return '';
+      if (parts.length === 1) return parts[0];
+      return parts.slice(0, 2).join(', ');
+    })();
+
     return (
       <div className="group relative">
         <Link
@@ -866,6 +843,7 @@ const RestaurantGridCard: React.FC<{
             'block rounded-2xl bg-white border border-on-surface/[0.07]',
             'p-5 transition-all duration-200',
             'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
+            'flex flex-col min-h-[230px]',
           )}
         >
           {/* Top row: name + score */}
@@ -892,71 +870,69 @@ const RestaurantGridCard: React.FC<{
             </p>
           )}
 
-          {/* Italic notes / quote */}
-          {notes && (
-            <p className="mt-4 text-[14px] leading-relaxed italic text-on-surface/75 line-clamp-3">
-              {notes}
-            </p>
-          )}
+          {/* Spacer pushes the footer to the bottom of the tile */}
+          <div className="flex-1" />
 
-          {/* Hairline divider */}
-          <div className="mt-4 border-t border-on-surface/[0.07]" />
-
-          {/* Footer row: location + actions */}
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0 text-[12.5px] text-on-surface/55">
+          {/* Footer: pin + street, city  ·  distance.  Action icons
+              fade in on hover so the resting card stays uncluttered. */}
+          <div className="flex items-center justify-between gap-2 text-[12.5px] text-on-surface/55">
+            <div className="flex items-center gap-1.5 min-w-0">
               <MapPin size={13} className="flex-shrink-0 text-on-surface/40" />
-              <span className="truncate">
-                {locationLabel || 'Location unavailable'}
-                {locationLabel && distanceLabel ? ` · ${distanceLabel}` : ''}
-              </span>
+              <span className="truncate">{streetCity || 'Location unavailable'}</span>
             </div>
-            <div className="flex items-center gap-0.5 flex-shrink-0">
-              {onEdit && (
-                <button
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
-                  aria-label="Edit"
-                  className="w-8 h-8 rounded-full text-on-surface/35 hover:text-primary hover:bg-primary/[0.06] flex items-center justify-center transition-colors"
-                >
-                  <Edit3 size={14} />
-                </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {distanceLabel && (
+                <span className="tabular-nums text-on-surface/45">{distanceLabel}</span>
               )}
-              {onRemove && (
-                <div className="relative" ref={moreRef}>
-                  <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
-                    aria-label="More options"
-                    aria-haspopup="menu"
-                    aria-expanded={moreOpen}
-                    className={cn(
-                      'w-8 h-8 rounded-full flex items-center justify-center transition-colors',
-                      moreOpen
-                        ? 'text-on-surface bg-on-surface/[0.06]'
-                        : 'text-on-surface/35 hover:text-on-surface hover:bg-on-surface/[0.05]',
-                    )}
-                  >
-                    <MoreHorizontal size={15} />
-                  </button>
-                  <AnimatePresence>
-                    {moreOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                        transition={{ duration: 0.12, ease: 'easeOut' }}
-                        role="menu"
-                        className="absolute right-0 top-full mt-1.5 z-30 min-w-[140px] rounded-xl bg-white border border-on-surface/[0.08] shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)] py-1 overflow-hidden"
+              {(onEdit || onRemove) && (
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                  {onEdit && (
+                    <button
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+                      aria-label="Edit"
+                      className="w-7 h-7 rounded-full text-on-surface/35 hover:text-primary hover:bg-primary/[0.06] flex items-center justify-center transition-colors"
+                    >
+                      <Edit3 size={13} />
+                    </button>
+                  )}
+                  {onRemove && (
+                    <div className="relative" ref={moreRef}>
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
+                        aria-label="More options"
+                        aria-haspopup="menu"
+                        aria-expanded={moreOpen}
+                        className={cn(
+                          'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
+                          moreOpen
+                            ? 'text-on-surface bg-on-surface/[0.06]'
+                            : 'text-on-surface/35 hover:text-on-surface hover:bg-on-surface/[0.05]',
+                        )}
                       >
-                        <button
-                          role="menuitem"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmDelete(true); }}
-                          className="w-full px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50 flex items-center gap-2"
-                        >
-                          <Trash2 size={13} /> Delete
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                        <MoreHorizontal size={14} />
+                      </button>
+                      <AnimatePresence>
+                        {moreOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                            transition={{ duration: 0.12, ease: 'easeOut' }}
+                            role="menu"
+                            className="absolute right-0 bottom-full mb-1.5 z-30 min-w-[140px] rounded-xl bg-white border border-on-surface/[0.08] shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)] py-1 overflow-hidden"
+                          >
+                            <button
+                              role="menuitem"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmDelete(true); }}
+                              className="w-full px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50 flex items-center gap-2"
+                            >
+                              <Trash2 size={13} /> Delete
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1622,7 +1598,11 @@ const ListDetailView: React.FC<{
     );
   }, [isWishlistView, wishlistedRestaurants, searchQuery]);
 
-  const totalCount = isHomeCooking ? recipes.length : list.restaurantIds.length + (list.wishlistIds?.length || 0);
+  const totalCount = isHomeCooking
+    ? recipes.length
+    : isWishlistView
+      ? wishlistedRestaurantsRaw.length
+      : list.restaurantIds.length + (list.wishlistIds?.length || 0);
 
   const handlePlusClick = () => {
     if (isHomeCooking) openAddRecipeModal(list.id);
@@ -1630,72 +1610,205 @@ const ListDetailView: React.FC<{
     else setAddSheetOpen(true);
   };
 
+  // ── Editorial header derivations ──────────────────────────────────
+  // The four list "kinds" each get their own accent color, eyebrow,
+  // and icon so the page title row reads as a cover for that list.
+  const headerVariant: {
+    eyebrow: string;
+    icon: React.ReactNode;
+    accent: string; // text class
+    chipBg: string; // bg class for the icon tile
+  } = isHomeCooking
+    ? { eyebrow: 'Your kitchen', icon: <ChefHat size={26} className="text-emerald-600" strokeWidth={1.7} />, accent: 'text-emerald-600', chipBg: 'bg-emerald-50' }
+    : isHotelBreakfast
+      ? { eyebrow: 'Hotel mornings', icon: <Building2 size={26} className="text-amber-600" strokeWidth={1.7} />, accent: 'text-amber-600', chipBg: 'bg-amber-50' }
+      : isWishlistView
+        ? { eyebrow: 'Your saved places', icon: <Heart size={24} className="text-red-400 fill-red-400" />, accent: 'text-red-400', chipBg: 'bg-red-50' }
+        : { eyebrow: 'Your collection', icon: <span className="text-2xl leading-none">{list.emoji}</span>, accent: 'text-primary', chipBg: 'bg-primary/8' };
+
+  // Distinct city count for the stats row.
+  const cityCount = useMemo(() => {
+    const set = new Set<string>();
+    const items = isWishlistView
+      ? wishlistedRestaurantsRaw.map(({ info }) => info?.address || '')
+      : ratedRestaurants.map(({ info }) => info?.address || '');
+    for (const a of items) {
+      const c = extractCityState(a, a);
+      if (c) set.add(c);
+    }
+    return set.size;
+  }, [isWishlistView, ratedRestaurants, wishlistedRestaurantsRaw]);
+
+  // "Updated X ago" — most recent addedAt (wishlist) or createdAt (ratings).
+  const lastUpdated = useMemo(() => {
+    let max = 0;
+    if (isWishlistView) {
+      for (const { wishItem } of wishlistedRestaurantsRaw) {
+        if (wishItem?.addedAt && wishItem.addedAt > max) max = wishItem.addedAt;
+      }
+    } else if (isHomeCooking) {
+      for (const r of recipes) if (r.createdAt > max) max = r.createdAt;
+    } else {
+      for (const { rating } of ratedRestaurants) {
+        if (rating?.createdAt && rating.createdAt > max) max = rating.createdAt;
+      }
+    }
+    if (max === 0) return '';
+    const days = Math.floor((Date.now() - max) / 86400000);
+    if (days < 1) return 'Updated today';
+    if (days === 1) return 'Updated yesterday';
+    if (days < 7) return `Updated ${days} days ago`;
+    if (days < 14) return 'Updated last week';
+    if (days < 60) return `Updated ${Math.floor(days / 7)} weeks ago`;
+    if (days < 365) return `Updated ${Math.floor(days / 30)} months ago`;
+    return `Updated ${Math.floor(days / 365)} year${days >= 730 ? 's' : ''} ago`;
+  }, [isWishlistView, isHomeCooking, ratedRestaurants, wishlistedRestaurantsRaw, recipes]);
+
+  // ── Quick-filter pills ────────────────────────────────────────────
+  // Wishlist view derives its pill row from the actual saved places,
+  // showing the top cities, prices, and cuisines so the user can narrow
+  // the grid in one click. Tapping a pill toggles it on the existing
+  // wishlist filter state. The "Filters" pill opens the full sheet.
+  const quickFilterPills = useMemo(() => {
+    if (!isWishlistView) return [] as Array<{ key: string; label: string; count: number; kind: 'city' | 'price' | 'cuisine'; active: boolean; onClick: () => void }>;
+    const items = wishlistedRestaurantsRaw;
+    const cityCounts = new Map<string, number>();
+    const priceCounts = new Map<string, number>();
+    const cuisineCounts = new Map<string, number>();
+    for (const { info } of items) {
+      const city = extractCityState(info?.address || '', info?.address || '');
+      if (city) cityCounts.set(city, (cityCounts.get(city) ?? 0) + 1);
+      if (info?.price) priceCounts.set(info.price, (priceCounts.get(info.price) ?? 0) + 1);
+      if (info?.cuisine) cuisineCounts.set(info.cuisine, (cuisineCounts.get(info.cuisine) ?? 0) + 1);
+    }
+    const pickTop = <T,>(m: Map<T, number>, n: number): Array<[T, number]> =>
+      Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, n);
+    const out: Array<{ key: string; label: string; count: number; kind: 'city' | 'price' | 'cuisine'; active: boolean; onClick: () => void }> = [];
+    for (const [city, count] of pickTop(cityCounts, 3)) {
+      out.push({
+        key: `city:${city}`,
+        label: String(city),
+        count,
+        kind: 'city',
+        active: wishlistCityFilter.includes(String(city)),
+        onClick: () => setWishlistCityFilter((prev) => prev.includes(String(city)) ? prev.filter((x) => x !== String(city)) : [...prev, String(city)]),
+      });
+    }
+    for (const [price, count] of pickTop(priceCounts, 2)) {
+      out.push({
+        key: `price:${price}`,
+        label: String(price),
+        count,
+        kind: 'price',
+        active: wishlistPriceFilter === String(price),
+        onClick: () => setWishlistPriceFilter((prev) => prev === String(price) ? null : String(price)),
+      });
+    }
+    for (const [cuisine, count] of pickTop(cuisineCounts, 3)) {
+      out.push({
+        key: `cuisine:${cuisine}`,
+        label: String(cuisine),
+        count,
+        kind: 'cuisine',
+        active: wishlistCuisineFilter.includes(String(cuisine)),
+        onClick: () => setWishlistCuisineFilter((prev) => prev.includes(String(cuisine)) ? prev.filter((x) => x !== String(cuisine)) : [...prev, String(cuisine)]),
+      });
+    }
+    return out;
+  }, [isWishlistView, wishlistedRestaurantsRaw, wishlistCityFilter, wishlistPriceFilter, wishlistCuisineFilter]);
+
   return (
     <div>
+      {/* ── Top utility bar — search + primary action ─────────────────
+          Search input is wide and centered-ish; the primary CTA on the
+          right matches the "Add to wishlist" pattern from the design. */}
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+        <button
+          onClick={onBack}
+          aria-label="Back"
+          className="lg:hidden p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
+        >
           <ArrowLeft size={20} />
         </button>
-        <span className="text-2xl">{list.emoji}</span>
-        <div className="flex-1 min-w-0">
-          <h2 className="font-serif font-bold text-xl">{list.name}</h2>
-          <p className="text-xs text-on-surface/40">
-            {isHomeCooking ? `${totalCount} recipe${totalCount !== 1 ? 's' : ''}` : `${totalCount} restaurant${totalCount !== 1 ? 's' : ''}`}
-          </p>
+        <div className="relative flex-1 max-w-2xl">
+          <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/35 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={isHomeCooking ? 'Search your recipes...' : `Search restaurants in ${list.name.toLowerCase()}...`}
+            className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06] focus:bg-on-surface/[0.06] rounded-full py-2.5 pl-11 pr-10 text-sm font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/35 hover:text-on-surface/70 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
-        <button onClick={() => setSearchOpen(!searchOpen)}
-          className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
-          <Search size={18} />
-        </button>
-        {isWishlistView && (
+        <div className="ml-auto flex items-center gap-2">
           <button
-            onClick={() => setWishlistFilterOpen(true)}
-            className={cn(
-              "relative p-2 rounded-full transition-colors",
-              wishlistActiveFilterCount > 0
-                ? "text-primary bg-primary/10"
-                : "text-on-surface/40 hover:text-on-surface hover:bg-on-surface/5",
-            )}
-            aria-label="Filter wishlist"
-            title="Filter wishlist"
+            onClick={isWishlistView ? () => navigate('/search/main') : handlePlusClick}
+            className="inline-flex items-center gap-2 bg-on-surface text-surface rounded-full px-4 py-2.5 text-[13px] font-semibold hover:bg-on-surface/90 active:scale-[0.99] transition-all flex-shrink-0"
           >
-            <SlidersHorizontal size={17} />
-            {wishlistActiveFilterCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center ring-2 ring-surface">
-                {wishlistActiveFilterCount}
-              </span>
-            )}
+            <Plus size={15} strokeWidth={2.5} />
+            <span className="hidden sm:inline">
+              {isHomeCooking ? 'Add recipe' : isHotelBreakfast ? 'Add hotel' : isWishlistView ? 'Add to wishlist' : 'Add restaurants'}
+            </span>
           </button>
-        )}
-        {!isWishlistView && (
-          <button onClick={handlePlusClick}
-            className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title={isHomeCooking ? "Add recipe" : isHotelBreakfast ? "Add hotel" : "Add restaurants"}>
-            <Plus size={20} />
-          </button>
-        )}
-        {!isWishlistView && (
-          <button onClick={() => setConfirmDeleteList(true)}
-            className="p-2 text-red-400 hover:text-red-500 transition-colors">
-            <Trash2 size={16} />
-          </button>
-        )}
+          {!isWishlistView && !isHomeCooking && (
+            <button
+              onClick={() => setConfirmDeleteList(true)}
+              aria-label="Delete list"
+              className="p-2 rounded-full text-on-surface/35 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Search bar */}
-      <AnimatePresence>
-        {searchOpen && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search restaurants..."
-                autoFocus className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-              {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30"><X size={14} /></button>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ── Editorial header: breadcrumb + icon tile + meta ─────────── */}
+      <nav className="flex items-center gap-2 text-[13px] text-on-surface/45 mb-4">
+        <button onClick={onBack} className="hover:text-on-surface transition-colors">Lists</button>
+        <span className="text-on-surface/25">/</span>
+        <span className="text-on-surface/75 font-medium truncate">{list.name}</span>
+      </nav>
+
+      <div className="flex items-start gap-5 mb-6">
+        <div className={cn(
+          'w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0',
+          headerVariant.chipBg,
+        )}>
+          {headerVariant.icon}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className={cn('text-[10px] font-bold uppercase tracking-[0.18em]', headerVariant.accent)}>
+            {headerVariant.eyebrow}
+          </p>
+          <h1 className="font-serif font-bold text-[34px] leading-[1.05] tracking-tight text-on-surface mt-0.5">
+            {list.name}
+          </h1>
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-on-surface/55">
+            <span><span className="font-bold text-on-surface">{totalCount}</span> {isHomeCooking ? `recipe${totalCount === 1 ? '' : 's'}` : `restaurant${totalCount === 1 ? '' : 's'}`}</span>
+            {!isHomeCooking && cityCount > 0 && (
+              <>
+                <span className="text-on-surface/25">·</span>
+                <span><span className="font-bold text-on-surface">{cityCount}</span> {cityCount === 1 ? 'city' : 'cities'}</span>
+              </>
+            )}
+            {lastUpdated && (
+              <>
+                <span className="text-on-surface/25">·</span>
+                <span>{lastUpdated}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Delete list confirmation */}
       <AnimatePresence>
@@ -1712,10 +1825,71 @@ const ListDetailView: React.FC<{
         )}
       </AnimatePresence>
 
-      {/* View mode toggle for desktop */}
-      {totalCount > 0 && (
-        <div className="flex justify-end mb-3">
-          <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
+      {/* ── Filter pill row + view toggle ─────────────────────────────
+          Filters pill opens the full sheet. "All" clears every active
+          quick filter. Each subsequent pill toggles a city / price /
+          cuisine filter — counts come from the actual list. */}
+      {(isWishlistView ? wishlistedRestaurantsRaw.length > 0 : totalCount > 0) && (
+        <div className="flex items-center gap-2 mb-5 -mx-1 px-1 overflow-x-auto scrollbar-hide pb-1">
+          {isWishlistView && (
+            <>
+              <button
+                onClick={() => setWishlistFilterOpen(true)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold border transition-colors flex-shrink-0',
+                  wishlistActiveFilterCount > 0
+                    ? 'border-primary/30 bg-primary/[0.06] text-primary'
+                    : 'border-on-surface/[0.08] text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
+                )}
+              >
+                <SlidersHorizontal size={12} />
+                Filters
+                {wishlistActiveFilterCount > 0 && (
+                  <span className="ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold">{wishlistActiveFilterCount}</span>
+                )}
+              </button>
+
+              <span className="w-px h-4 bg-on-surface/[0.08] mx-1 flex-shrink-0" />
+
+              {/* "All" pill — solid when no quick filter is active */}
+              <button
+                onClick={resetWishlistFilters}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors flex-shrink-0',
+                  wishlistActiveFilterCount === 0
+                    ? 'bg-on-surface text-surface'
+                    : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
+                )}
+              >
+                All
+                <span className={cn('text-[11px] tabular-nums', wishlistActiveFilterCount === 0 ? 'text-surface/65' : 'text-on-surface/40')}>
+                  {wishlistedRestaurantsRaw.length}
+                </span>
+              </button>
+
+              {quickFilterPills.map((pill) => (
+                <button
+                  key={pill.key}
+                  onClick={pill.onClick}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors flex-shrink-0',
+                    pill.active
+                      ? 'bg-on-surface text-surface'
+                      : 'text-on-surface/65 hover:text-on-surface hover:bg-on-surface/[0.04]',
+                  )}
+                >
+                  {pill.label}
+                  <span className={cn('text-[11px] tabular-nums', pill.active ? 'text-surface/65' : 'text-on-surface/40')}>
+                    {pill.count}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
+
+          <div className="ml-auto flex-shrink-0 hidden lg:block">
+            <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
+          </div>
         </div>
       )}
 
