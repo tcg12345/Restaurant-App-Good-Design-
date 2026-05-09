@@ -10,10 +10,30 @@ import {
   type ReelKind,
 } from '../contexts/ReelsContext';
 import { useLists } from '../contexts/ListsContext';
-import { useRecipes } from '../contexts/RecipesContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
+import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+
+// Build a Google Places type → human label lookup once (e.g.
+// "italian_restaurant" → "Italian"). The first matching type on a
+// Places result becomes the cuisine label we display.
+const PLACE_TYPE_TO_CUISINE: Record<string, string> = {};
+for (const c of CUISINE_TYPES) {
+  if (c.type) PLACE_TYPE_TO_CUISINE[c.type] = c.label;
+}
+const cuisineFromTypes = (types: string[] | undefined): string => {
+  if (!types) return '';
+  for (const t of types) {
+    if (PLACE_TYPE_TO_CUISINE[t]) return PLACE_TYPE_TO_CUISINE[t];
+  }
+  return '';
+};
+
+// Default location bias for the Places search if we can't read geolocation.
+// (Mid-NYC; matches the rest of the app's default.)
+const DEFAULT_LAT = 40.735;
+const DEFAULT_LNG = -74.027;
 
 const BG_GRADIENT_POOL = [
   'from-orange-900 via-orange-800 to-orange-950',
@@ -41,7 +61,6 @@ function formatBytes(bytes: number): string {
 export const AddReelModal: React.FC = () => {
   const { addReelModalOpen, addReelInitialKind, closeAddReelModal, postReel } = useReels();
   const { ratings, wishlist, restaurantMeta, homeMeals } = useLists();
-  const { myRecipes } = useRecipes();
   const { profile, user } = useAuth();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
@@ -66,6 +85,17 @@ export const AddReelModal: React.FC = () => {
   const dragActive = dragDepth > 0;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Restaurant search (Google Places) ──
+  // Lets the user attach ANY restaurant, not just ones they've rated. We
+  // bias the query by the user's location when available so local matches
+  // float to the top, but Google still returns global results.
+  const [userLat, setUserLat] = useState<number>(DEFAULT_LAT);
+  const [userLng, setUserLng] = useState<number>(DEFAULT_LNG);
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
+  const [searchingPlaces, setSearchingPlaces] = useState(false);
+  const placeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPlaceQueryRef = useRef<string>('');
+
   // Reset state whenever the modal is reopened.
   useEffect(() => {
     if (!addReelModalOpen) return;
@@ -79,6 +109,8 @@ export const AddReelModal: React.FC = () => {
     setPickedRecipeId(null);
     setRestaurantSearch('');
     setRecipeSearch('');
+    setPlaceResults([]);
+    setSearchingPlaces(false);
     setSubmitting(false);
     setProgress(0);
     setErrorMsg(null);
@@ -93,6 +125,57 @@ export const AddReelModal: React.FC = () => {
     };
   }, [videoUrl]);
 
+  // Best-effort geolocation lookup for biasing the Places query — runs once
+  // per modal-open so we don't spam permission prompts. Failure is silent;
+  // we just keep the NYC-default bias.
+  useEffect(() => {
+    if (!addReelModalOpen) return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (cancelled) return;
+        setUserLat(pos.coords.latitude);
+        setUserLng(pos.coords.longitude);
+      },
+      () => { /* permission denied or timeout — keep default bias */ },
+      { timeout: 5000 },
+    );
+    return () => { cancelled = true; };
+  }, [addReelModalOpen]);
+
+  // Debounced Places API search. Runs only when the user is on the
+  // Restaurant tab and has typed at least 2 chars. Results are merged
+  // with the local rated/wishlisted set in restaurantPickList below.
+  useEffect(() => {
+    if (!addReelModalOpen || kind !== 'restaurant') return;
+    if (placeDebounceRef.current) clearTimeout(placeDebounceRef.current);
+    const q = restaurantSearch.trim();
+    if (q.length < 2) {
+      setPlaceResults([]);
+      setSearchingPlaces(false);
+      return;
+    }
+    setSearchingPlaces(true);
+    placeDebounceRef.current = setTimeout(async () => {
+      lastPlaceQueryRef.current = q;
+      try {
+        const found = await searchPlacesByText(q, userLat, userLng);
+        // Discard stale responses if the query changed mid-flight.
+        if (lastPlaceQueryRef.current !== q) return;
+        setPlaceResults(found);
+      } catch (err) {
+        console.warn('[AddReel] places search failed', err);
+        if (lastPlaceQueryRef.current === q) setPlaceResults([]);
+      } finally {
+        if (lastPlaceQueryRef.current === q) setSearchingPlaces(false);
+      }
+    }, 300);
+    return () => {
+      if (placeDebounceRef.current) clearTimeout(placeDebounceRef.current);
+    };
+  }, [addReelModalOpen, kind, restaurantSearch, userLat, userLng]);
+
   // Strip base64 data: URLs from the picker — rendering 20+ of them in a
   // dropdown decodes/rasterizes hundreds of megabytes simultaneously, which
   // is what was making the modal lag and crash on lower-spec devices. The
@@ -106,15 +189,29 @@ export const AddReelModal: React.FC = () => {
 
   const PICKER_LIMIT = 20;
 
-  // ── Restaurant pick list (from user's data) ──
-  // Skip building until the modal is open so we don't waste CPU on every
-  // unrelated re-render of the app.
+  // ── Restaurant pick list ──
+  // Combines the user's local rated/wishlisted/seen restaurants with live
+  // Google Places results so they can attach ANY restaurant. Score is only
+  // attached when the user has rated that specific place — Places API's own
+  // public rating is intentionally not surfaced here (the reel card shows
+  // the *poster's* rating, not Google's average).
   const restaurantPickList = useMemo(() => {
-    type Item = { id: string; name: string; cuisine: string; price: string; address: string; image?: string; score?: number };
+    type Item = { id: string; name: string; cuisine: string; price: string; address: string; image?: string; score?: number; fromUser: boolean };
     if (!addReelModalOpen) return [] as Item[];
-    const byId = new Map<string, Item>();
+
+    const q = restaurantSearch.trim().toLowerCase();
+    const seen = new Set<string>();
+    const items: Item[] = [];
+
+    // Step 1: local items (rated → wishlist → meta), filtered by query.
+    const ratingScoreById = new Map<string, number>();
     for (const r of ratings) {
-      byId.set(r.restaurantId, {
+      ratingScoreById.set(r.restaurantId, r.score);
+      if (seen.has(r.restaurantId)) continue;
+      const passesQ = !q || `${r.name} ${r.cuisine} ${r.address}`.toLowerCase().includes(q);
+      if (!passesQ) continue;
+      seen.add(r.restaurantId);
+      items.push({
         id: r.restaurantId,
         name: r.name,
         cuisine: r.cuisine,
@@ -122,70 +219,90 @@ export const AddReelModal: React.FC = () => {
         address: r.address,
         image: safePickerImage(r.image),
         score: r.score,
+        fromUser: true,
       });
     }
     for (const w of wishlist) {
-      if (byId.has(w.restaurantId)) continue;
-      byId.set(w.restaurantId, {
+      if (seen.has(w.restaurantId)) continue;
+      const passesQ = !q || `${w.name} ${w.cuisine} ${w.address}`.toLowerCase().includes(q);
+      if (!passesQ) continue;
+      seen.add(w.restaurantId);
+      items.push({
         id: w.restaurantId,
         name: w.name,
         cuisine: w.cuisine,
         price: w.price,
         address: w.address,
         image: safePickerImage(w.image),
+        score: ratingScoreById.get(w.restaurantId),
+        fromUser: true,
       });
     }
     for (const [id, m] of Object.entries(restaurantMeta || {})) {
-      if (id.startsWith('__') || byId.has(id)) continue;
+      if (id.startsWith('__') || seen.has(id)) continue;
       const meta = m as { name?: string; cuisine?: string; price?: string; address?: string; image?: string };
       if (!meta?.name) continue;
-      byId.set(id, {
+      const passesQ = !q || `${meta.name} ${meta.cuisine || ''} ${meta.address || ''}`.toLowerCase().includes(q);
+      if (!passesQ) continue;
+      seen.add(id);
+      items.push({
         id,
         name: meta.name,
         cuisine: meta.cuisine || '',
         price: meta.price || '',
         address: meta.address || '',
         image: safePickerImage(meta.image),
+        score: ratingScoreById.get(id),
+        fromUser: true,
       });
     }
-    const items = Array.from(byId.values());
-    const q = restaurantSearch.trim().toLowerCase();
-    if (!q) return items.slice(0, PICKER_LIMIT);
-    return items.filter((it) => `${it.name} ${it.cuisine} ${it.address}`.toLowerCase().includes(q)).slice(0, PICKER_LIMIT);
-  }, [addReelModalOpen, ratings, wishlist, restaurantMeta, restaurantSearch]);
+
+    // Step 2: Places API results — only when the user is searching. Skip any
+    // ids we already have locally (the local entry wins so the user's score
+    // is preserved).
+    if (q) {
+      for (const p of placeResults) {
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
+        items.push({
+          id: p.id,
+          name: p.name,
+          cuisine: cuisineFromTypes(p.types),
+          price: priceLevelToString(p.priceLevel) || '',
+          address: p.address || p.fullAddress || '',
+          image: undefined,
+          // Score = user's own rating only. If they haven't rated this
+          // place, leave it undefined so the reel card hides the chip.
+          score: ratingScoreById.get(p.id),
+          fromUser: false,
+        });
+      }
+    }
+
+    return items.slice(0, q ? 30 : PICKER_LIMIT);
+  }, [addReelModalOpen, ratings, wishlist, restaurantMeta, restaurantSearch, placeResults]);
 
   // ── Recipe pick list ──
+  // Source: only the user's Home Cooking entries (homeMeals). The cloud
+  // `myRecipes` table sometimes contains rows that look like restaurants
+  // (legacy import data) and confuses the picker — the user explicitly
+  // wants this list to mirror the Pantry's "Home Cooking" view.
   const recipePickList = useMemo(() => {
     type Item = { id: string; title: string; prepTime: number; cookTime: number; servings: number; difficulty: 'Easy' | 'Medium' | 'Hard'; image?: string };
     if (!addReelModalOpen) return [] as Item[];
-    const items: Item[] = [];
-    for (const r of myRecipes) {
-      const diff = (r.difficulty || 'easy').toLowerCase();
-      items.push({
-        id: r.id,
-        title: r.title,
-        prepTime: r.prepTimeMinutes ?? 0,
-        cookTime: r.cookTimeMinutes ?? 0,
-        servings: r.servings ?? 0,
-        difficulty: (diff === 'medium' ? 'Medium' : diff === 'hard' ? 'Hard' : 'Easy'),
-        image: safePickerImage(r.photos?.[0]),
-      });
-    }
-    for (const m of homeMeals) {
-      items.push({
-        id: m.id,
-        title: m.name,
-        prepTime: m.prepTime ?? 0,
-        cookTime: m.cookTime ?? 0,
-        servings: m.servings ?? 0,
-        difficulty: m.difficulty ?? 'Easy',
-        image: safePickerImage(m.coverPhoto || m.photos?.[0]?.url),
-      });
-    }
+    const items: Item[] = homeMeals.map((m) => ({
+      id: m.id,
+      title: m.name,
+      prepTime: m.prepTime ?? 0,
+      cookTime: m.cookTime ?? 0,
+      servings: m.servings ?? 0,
+      difficulty: m.difficulty ?? 'Easy',
+      image: safePickerImage(m.coverPhoto || m.photos?.[0]?.url),
+    }));
     const q = recipeSearch.trim().toLowerCase();
     if (!q) return items.slice(0, PICKER_LIMIT);
     return items.filter((it) => it.title.toLowerCase().includes(q)).slice(0, PICKER_LIMIT);
-  }, [addReelModalOpen, myRecipes, homeMeals, recipeSearch]);
+  }, [addReelModalOpen, homeMeals, recipeSearch]);
 
   const pickedRestaurant = useMemo(
     () => restaurantPickList.find((r) => r.id === pickedRestaurantId) ?? null,
@@ -525,13 +642,18 @@ export const AddReelModal: React.FC = () => {
                         <input
                           value={restaurantSearch}
                           onChange={(e) => setRestaurantSearch(e.target.value)}
-                          placeholder="Search your rated places, wishlist…"
+                          placeholder="Search any restaurant…"
                           className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none"
                         />
+                        {searchingPlaces && (
+                          <Loader2 size={14} className="text-on-surface/40 animate-spin flex-shrink-0" />
+                        )}
                       </div>
                       {restaurantPickList.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-on-surface/10 px-4 py-6 text-center text-[12px] text-on-surface/45">
-                          No matches. Rate or wishlist a restaurant first to attach it.
+                          {searchingPlaces ? 'Searching…' : restaurantSearch.trim().length === 0
+                            ? 'Rate or wishlist a restaurant to start, or just type to search any place.'
+                            : 'No matches.'}
                         </div>
                       ) : (
                         <ul className="rounded-2xl border border-on-surface/[0.06] divide-y divide-on-surface/[0.06] max-h-[260px] overflow-y-auto">
@@ -593,13 +715,13 @@ export const AddReelModal: React.FC = () => {
                         <input
                           value={recipeSearch}
                           onChange={(e) => setRecipeSearch(e.target.value)}
-                          placeholder="Search your recipes and home meals…"
+                          placeholder="Search your home cooking…"
                           className="flex-1 bg-transparent text-sm placeholder:text-on-surface/35 focus:outline-none"
                         />
                       </div>
                       {recipePickList.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-on-surface/10 px-4 py-6 text-center text-[12px] text-on-surface/45">
-                          No recipes yet. Create one in the Pantry first to attach it here.
+                          No home cooking entries yet. Add one in the Pantry's Home Cooking list first to attach it here.
                         </div>
                       ) : (
                         <ul className="rounded-2xl border border-on-surface/[0.06] divide-y divide-on-surface/[0.06] max-h-[260px] overflow-y-auto">
