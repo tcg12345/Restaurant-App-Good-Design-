@@ -886,7 +886,11 @@ export const Reels: React.FC = () => {
       return;
     }
     if (reel.kind === 'recipe' && reel.recipe) {
-      navigate(`/recipe/${reel.recipe.id}`);
+      // Recipes attached to reels come from the author's Home Cooking
+      // list (homeMeals), not the cloud recipes table — so we route to
+      // /meal/:userId/:mealId, which is the read view that knows how
+      // to load home-meal entries.
+      navigate(`/meal/${encodeURIComponent(reel.authorId)}/${encodeURIComponent(reel.recipe.id)}`);
     }
   };
 
@@ -904,7 +908,7 @@ export const Reels: React.FC = () => {
     const attachedRoute = reel.kind === 'restaurant' && reel.restaurant
       ? `/restaurant/${reel.restaurant.id}`
       : reel.recipe
-        ? `/recipe/${reel.recipe.id}`
+        ? `/meal/${encodeURIComponent(reel.authorId)}/${encodeURIComponent(reel.recipe.id)}`
         : '/reels';
     return {
       reelId: reel.id,
@@ -948,11 +952,14 @@ export const Reels: React.FC = () => {
     else showToast("Couldn't delete post");
   };
 
-  const handlePostItemClick = (item: PostItemRow) => {
+  // Per-item attachment click — routes to the right detail page.
+  // Recipes attached to a post are home-meal entries owned by the post's
+  // author, so they live under /meal/:userId/:mealId, not /recipe/:id.
+  const handlePostItemClick = (postUserId: string, item: PostItemRow) => {
     if (item.attachedKind === 'restaurant' && item.restaurant) {
       navigate(`/restaurant/${item.restaurant.id}`);
     } else if (item.attachedKind === 'recipe' && item.recipe) {
-      navigate(`/recipe/${item.recipe.id}`);
+      navigate(`/meal/${encodeURIComponent(postUserId)}/${encodeURIComponent(item.recipe.id)}`);
     }
   };
 
@@ -1051,7 +1058,7 @@ export const Reels: React.FC = () => {
                   }}
                   onComment={() => openPostCommentsSheet(item.post.id)}
                   onShare={() => showToast('Sharing posts is coming soon')}
-                  onItemAttachmentClick={handlePostItemClick}
+                  onItemAttachmentClick={(postItem) => handlePostItemClick(item.post.userId, postItem)}
                   onDelete={() => setConfirmDeletePostId(item.post.id)}
                 />
               )}
