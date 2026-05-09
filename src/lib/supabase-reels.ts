@@ -12,7 +12,10 @@ import { supabase, supabaseConfigured } from './supabase';
 
 const BUCKET = 'reels-videos';
 export const REEL_MAX_DURATION_SECONDS = 60;
-export const REEL_MAX_BYTES = 80 * 1024 * 1024; // 80 MB
+// Reels are duration-capped (60 seconds) but otherwise have no size cap.
+// Storage RLS still gates uploads to the user's own folder, and the
+// browser's own memory limits will catch absurdly large files at upload
+// time, so we don't enforce a fixed byte ceiling here.
 
 /* ── Types ──────────────────────────────────────────────────────────── */
 
@@ -221,24 +224,36 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
 
   // Bucket is private (migration 021) — we don't store a permanent URL
   // anymore, just the path. Clients sign URLs at read time.
-  const { data: row, error: insertError } = await supabase.from('reels')
-    .insert({
-      user_id: userId,
-      kind,
-      video_path: path,
-      video_url: '',
-      caption,
-      audio_label: audioLabel,
-      bg_gradient: bgGradient,
-      duration_seconds: durationSeconds,
-      is_public: isPublic,
-      restaurant_id: restaurant?.id ?? null,
-      restaurant_data: restaurant ?? null,
-      recipe_id: recipe?.id ?? null,
-      recipe_data: recipe ?? null,
-    })
-    .select('*, reel_likes(count), reel_saves(count), reel_comments(count)')
-    .single();
+  const insertPayload: Record<string, unknown> = {
+    user_id: userId,
+    kind,
+    video_path: path,
+    video_url: '',
+    caption,
+    audio_label: audioLabel,
+    bg_gradient: bgGradient,
+    duration_seconds: durationSeconds,
+    is_public: isPublic,
+    restaurant_id: restaurant?.id ?? null,
+    restaurant_data: restaurant ?? null,
+    recipe_id: recipe?.id ?? null,
+    recipe_data: recipe ?? null,
+  };
+  const insertSelect = '*, reel_likes(count), reel_saves(count), reel_comments(count)';
+
+  let insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
+
+  // Tolerate environments where migration 020 (which adds is_public) hasn't
+  // been applied yet: PostgREST returns PGRST204 with the missing-column
+  // hint, so we strip the column and retry. The reel posts as plain public
+  // since the privacy column doesn't exist there anyway.
+  if (insertResult.error && insertResult.error.code === 'PGRST204' && /is_public/i.test(insertResult.error.message || '')) {
+    console.warn('[Reels] is_public column missing — falling back to a public-only insert. Run migration 020 to enable per-reel privacy.');
+    delete insertPayload.is_public;
+    insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
+  }
+
+  const { data: row, error: insertError } = insertResult;
 
   if (insertError || !row) {
     console.error('[Reels] insert failed:', insertError);
@@ -396,7 +411,11 @@ export async function setReelVisibility(reelId: string, isPublic: boolean): Prom
     .update({ is_public: isPublic })
     .eq('id', reelId);
   if (error) {
-    console.warn('[Reels] setVisibility failed:', error.message);
+    if (error.code === 'PGRST204' && /is_public/i.test(error.message || '')) {
+      console.warn('[Reels] setVisibility no-op — run migration 020 to enable per-reel privacy.');
+    } else {
+      console.warn('[Reels] setVisibility failed:', error.message);
+    }
     return false;
   }
   return true;

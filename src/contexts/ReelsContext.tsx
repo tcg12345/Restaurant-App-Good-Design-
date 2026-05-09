@@ -13,7 +13,6 @@ import {
   deleteComment as cloudDeleteComment,
   readVideoDuration,
   REEL_MAX_DURATION_SECONDS,
-  REEL_MAX_BYTES,
   type ReelRow,
   type ReelKind,
   type ReelRestaurantSnapshot,
@@ -22,7 +21,7 @@ import {
 } from '../lib/supabase-reels';
 
 export type { ReelKind, ReelRestaurantSnapshot, ReelRecipeSnapshot, ReelComment };
-export { REEL_MAX_DURATION_SECONDS, REEL_MAX_BYTES };
+export { REEL_MAX_DURATION_SECONDS };
 
 /* ── UI-shape Reel type. Mirrors what the Reels page already expects. ── */
 

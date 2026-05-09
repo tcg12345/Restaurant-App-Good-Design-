@@ -6,7 +6,6 @@ import {
   useReels,
   readVideoDuration,
   REEL_MAX_DURATION_SECONDS,
-  REEL_MAX_BYTES,
   type ReelKind,
 } from '../contexts/ReelsContext';
 import { useLists } from '../contexts/ListsContext';
@@ -48,12 +47,6 @@ function pickFromPool<T>(pool: T[], seed: string): T {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
   return pool[h % pool.length];
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${bytes} B`;
 }
 
 /* ── Modal ──────────────────────────────────────────────────────────── */
@@ -356,11 +349,8 @@ export const AddReelModal: React.FC = () => {
       setValidationMsg('Please pick a video file.');
       return;
     }
-    if (file.size > REEL_MAX_BYTES) {
-      setValidationMsg(`Video is ${formatBytes(file.size)} — max ${formatBytes(REEL_MAX_BYTES)}.`);
-      return;
-    }
 
+    // No file-size cap by design — only the 60s duration limit applies.
     // Probe duration before accepting the file. If the browser can't decode
     // it (rare HEVC/.mov containers, codec issues), we fail with a useful
     // error so the user can re-encode.
@@ -582,7 +572,7 @@ export const AddReelModal: React.FC = () => {
                       {dragActive ? 'Drop your video' : 'Choose or drag a video'}
                     </span>
                     <span className={cn('text-[11px]', dragActive ? 'text-primary/80' : 'text-on-surface/40')}>
-                      MP4, MOV — up to {REEL_MAX_DURATION_SECONDS}s · {formatBytes(REEL_MAX_BYTES)}
+                      MP4, MOV — up to {REEL_MAX_DURATION_SECONDS}s
                     </span>
                   </button>
                 )}
