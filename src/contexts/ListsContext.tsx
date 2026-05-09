@@ -49,6 +49,11 @@ export interface RestaurantMeta {
    *  Beli-style "Neighborhood, Borough" / "Neighborhood, City, ST"
    *  display labels. Older rows fall back to parsing `address`. */
   addressComponents?: Array<{ longText: string; shortText: string; types: string[] }>;
+  /** Mapbox-sourced neighborhood name (e.g. "West Village", "Mission",
+   *  "Williamsburg"). Backfilled by the location enricher because
+   *  Google's Places components don't include neighborhood data for
+   *  most cities. */
+  neighborhood?: string;
 }
 
 export interface RecipeIngredient {
@@ -203,7 +208,7 @@ interface ListsContextValue {
 
   // Restaurant metadata cache
   restaurantMeta: Record<string, RestaurantMeta>;
-  cacheRestaurantMeta: (meta: RestaurantMeta) => void;
+  cacheRestaurantMeta: (meta: Partial<RestaurantMeta> & { id: string }) => void;
   getRestaurantInfo: (restaurantId: string) => RestaurantMeta | undefined;
   /** Set an arbitrary key inside restaurantMeta and sync to cloud. Used by
    *  the review system to stash __my_meal_reviews__ through the context
@@ -946,10 +951,13 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
 
   // Restaurant metadata cache
-  const cacheRestaurantMeta = useCallback((meta: RestaurantMeta) => {
+  const cacheRestaurantMeta = useCallback((meta: Partial<RestaurantMeta> & { id: string }) => {
     // Defensively strip any Google Places photo URL so we never persist a
     // URL whose render would trigger a billed Google API call.
-    const cleaned: RestaurantMeta = { ...meta, image: safeImage(meta.image) };
+    const cleaned: Partial<RestaurantMeta> & { id: string } = {
+      ...meta,
+      ...(meta.image !== undefined ? { image: safeImage(meta.image) } : {}),
+    };
     setRestaurantMeta((prev) => {
       // Merge with existing entry so we don't drop coordinate or other
       // fields the new caller didn't bother to provide. (e.g. the heart
@@ -963,8 +971,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             lat: cleaned.lat ?? existing.lat,
             lng: cleaned.lng ?? existing.lng,
             addressComponents: cleaned.addressComponents ?? existing.addressComponents,
-          }
-        : cleaned;
+            neighborhood: cleaned.neighborhood ?? existing.neighborhood,
+          } as RestaurantMeta
+        : ({
+            id: cleaned.id,
+            name: cleaned.name ?? '',
+            image: cleaned.image ?? '',
+            cuisine: cleaned.cuisine ?? '',
+            price: cleaned.price ?? '',
+            address: cleaned.address ?? '',
+            lat: cleaned.lat,
+            lng: cleaned.lng,
+            addressComponents: cleaned.addressComponents,
+            neighborhood: cleaned.neighborhood,
+          } as RestaurantMeta);
       const next = { ...prev, [cleaned.id]: merged };
       saveToStorage(STORAGE_KEY_META, next);
       syncMetaToCloud(next);

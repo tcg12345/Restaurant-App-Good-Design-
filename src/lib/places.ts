@@ -2,6 +2,14 @@
 const _gk = ['AIzaSyCK5fxS', 'q7aPDRCIRbNB', '18WmxCTs9mByfZk'];
 const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || _gk.join('');
 
+// Mapbox public token (also domain-restricted). Used by the location
+// backfill below to reverse-geocode for a neighborhood — Google's
+// addressComponents only ever returns sublocality / locality / state
+// for the places we care about, so we lean on Mapbox to fill in the
+// "West Village" / "Williamsburg" tier.
+const _mb = ['pk.eyJ1IjoidGcxMjM0N', 'TYiLCJhIjoiY21kN3g1Z', 'mJ4MG9iaTJpcHY5ajlld', 'XJ4OCJ9.MotLpY7BXT31', '0zCzDNJWwA'];
+const MAPBOX_TOKEN_FOR_NEIGHBORHOOD = import.meta.env.VITE_MAPBOX_TOKEN || _mb.join('');
+
 const BASE_URL = 'https://places.googleapis.com/v1';
 
 export interface AddressComponent {
@@ -900,7 +908,21 @@ function pickAnyComponent(
 export function formatLocationLabel(
   components: AddressComponent[] | undefined,
   fullAddress: string = '',
+  neighborhoodOverride?: string,
 ): string {
+  // Mapbox-sourced neighborhood (used to fill in what Google's address
+  // components leave out for most US cities). When we have it AND a
+  // proper component list, splice it in as a synthetic neighborhood so
+  // the rest of the logic treats it like Google handed it to us.
+  if (neighborhoodOverride && components && components.length > 0) {
+    const hasNeighborhood = components.some((c) => c.types.includes('neighborhood'));
+    if (!hasNeighborhood) {
+      components = [
+        ...components,
+        { longText: neighborhoodOverride, shortText: neighborhoodOverride, types: ['neighborhood', 'political'] },
+      ];
+    }
+  }
   // ── Component-driven path (preferred) ──────────────────────────
   if (components && components.length > 0) {
     const country = pickComponent(components, 'country');
@@ -976,12 +998,16 @@ export function formatLocationLabel(
   // "Brooklyn" rather than "Brooklyn, NY" (matching the borough
   // rule for component-driven output).
   const cityState = extractCityState(fullAddress, fullAddress);
-  if (!cityState) return '';
+  if (!cityState && !neighborhoodOverride) return '';
   // cityState is "City, ST" / "City, Country" / just "City". Detect
   // the NYC-borough pair and drop the state.
   const m = cityState.match(/^(Manhattan|Brooklyn|Queens|Bronx|Staten Island),\s*NY$/);
-  if (m) return m[1];
-  return cityState;
+  const cityTier = m ? m[1] : cityState;
+  // If we have a Mapbox neighborhood, prepend it.
+  if (neighborhoodOverride && cityTier && neighborhoodOverride !== cityTier) {
+    return `${neighborhoodOverride}, ${cityTier}`;
+  }
+  return cityTier || neighborhoodOverride || '';
 }
 
 function joinTiers(tiers: string[]): string {
@@ -990,4 +1016,70 @@ function joinTiers(tiers: string[]): string {
     .filter(Boolean)
     .filter((t, i, arr) => arr.indexOf(t) === i) // dedupe consecutive
     .join(', ');
+}
+
+// ── Lazy backfill of address components + Mapbox neighborhood ──────
+// formatLocationLabel can produce hierarchical labels ("West Village,
+// Manhattan") only when it has a neighborhood. Google's Places API
+// reliably returns sublocality / locality / state, but for the spots
+// we care about it does NOT return a `neighborhood` component — the
+// "West Village" tier just isn't there. To fill that gap we reverse-
+// geocode the place's lat/lng through Mapbox (`types=neighborhood`)
+// and store the result alongside the Google components.
+//
+// fetchLocationDataForPlace runs both requests once per restaurant
+// (deduped via an inflight map + the existing place-details cache)
+// and returns everything callers need to upgrade their cached meta.
+// Once the data lands we write to the shared restaurantMeta and every
+// card using that meta picks up the richer label automatically.
+
+interface BackfilledLocationData {
+  addressComponents?: AddressComponent[];
+  neighborhood?: string;
+  lat?: number;
+  lng?: number;
+}
+
+const locationInflight = new Map<string, Promise<BackfilledLocationData>>();
+
+async function fetchMapboxNeighborhood(lat: number, lng: number): Promise<string | undefined> {
+  if (!MAPBOX_TOKEN_FOR_NEIGHBORHOOD) return undefined;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined;
+  try {
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN_FOR_NEIGHBORHOOD}&types=neighborhood&limit=1`;
+    const res = await fetch(url);
+    if (!res.ok) return undefined;
+    const data = await res.json();
+    const feature = data.features?.[0];
+    return typeof feature?.text === 'string' ? feature.text : undefined;
+  } catch (err) {
+    console.warn('[Mapbox] neighborhood lookup failed', err);
+    return undefined;
+  }
+}
+
+export function fetchLocationDataForPlace(placeId: string): Promise<BackfilledLocationData> {
+  if (!placeId) return Promise.resolve({});
+  const existing = locationInflight.get(placeId);
+  if (existing) return existing;
+  const p = (async () => {
+    try {
+      const details = await getPlaceDetails(placeId);
+      const components = details.addressComponents;
+      const lat = Number.isFinite(details.lat) ? details.lat : undefined;
+      const lng = Number.isFinite(details.lng) ? details.lng : undefined;
+      let neighborhood: string | undefined;
+      if (lat != null && lng != null) {
+        neighborhood = await fetchMapboxNeighborhood(lat, lng);
+      }
+      return { addressComponents: components, neighborhood, lat, lng };
+    } catch (err) {
+      console.warn('[Places] backfill failed for', placeId, err);
+      return {} as BackfilledLocationData;
+    } finally {
+      locationInflight.delete(placeId);
+    }
+  })();
+  locationInflight.set(placeId, p);
+  return p;
 }

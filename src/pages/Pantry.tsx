@@ -12,7 +12,7 @@ import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaura
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
+import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useAuth } from '../contexts/AuthContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
@@ -386,6 +386,35 @@ const AddFromRatedSheet: React.FC<{
   );
 };
 
+// Backfill location data on saved restaurants so cards can render the
+// Beli-style "Neighborhood, Borough" / "Neighborhood, City, ST" label.
+// One Places call (deduped via inflight + cache) gives us the address
+// components; one Mapbox reverse-geocode gives us the neighborhood
+// (Google rarely returns neighborhood components). Once written to the
+// shared restaurantMeta, every card using that meta upgrades to the
+// richer label automatically.
+function useBackfillLocationComponents(restaurantId: string, hasFullData: boolean) {
+  const { cacheRestaurantMeta } = useLists();
+  useEffect(() => {
+    if (!restaurantId || hasFullData) return;
+    let cancelled = false;
+    fetchLocationDataForPlace(restaurantId).then(({ addressComponents, neighborhood, lat, lng }) => {
+      if (cancelled) return;
+      // Skip the meta write if both fields are empty so we don't
+      // pointlessly bump the cache.
+      if (!addressComponents?.length && !neighborhood && lat == null && lng == null) return;
+      cacheRestaurantMeta({
+        id: restaurantId,
+        ...(addressComponents?.length ? { addressComponents } : {}),
+        ...(neighborhood ? { neighborhood } : {}),
+        ...(lat != null ? { lat } : {}),
+        ...(lng != null ? { lng } : {}),
+      });
+    });
+    return () => { cancelled = true; };
+  }, [restaurantId, hasFullData, cacheRestaurantMeta]);
+}
+
 /* ── Restaurant row card ── */
 const RestaurantRow: React.FC<{
   restaurantId: string;
@@ -417,8 +446,9 @@ const RestaurantRow: React.FC<{
   // when address components are cached, falls back to formatted-address
   // parsing for older saved restaurants.
   const meta = restaurantMeta[restaurantId];
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined);
   const location = address || meta?.address
-    ? formatLocationLabel(meta?.addressComponents, address || meta?.address || '')
+    ? formatLocationLabel(meta?.addressComponents, address || meta?.address || '', meta?.neighborhood)
     : '';
 
   // Distance from the user's anchor location to the cached coords for
@@ -604,8 +634,9 @@ const WishlistRow: React.FC<{
   // Beli-style label: neighborhood + borough/city + state, falling back
   // to formatted-address parsing when no addressComponents are cached.
   const wlMeta = restaurantMeta[restaurantId];
+  useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined);
   const fullAddr = address || wlMeta?.address || '';
-  const location = fullAddr ? formatLocationLabel(wlMeta?.addressComponents, fullAddr) : '';
+  const location = fullAddr ? formatLocationLabel(wlMeta?.addressComponents, fullAddr, wlMeta?.neighborhood) : '';
 
   // Distance from the user's anchor location.
   const distanceLabel = useMemo(() => {
@@ -681,14 +712,16 @@ const WishlistGridCard: React.FC<{
   const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
 
   const meta = restaurantMeta[restaurantId];
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined);
   const fullAddress = address || meta?.address || '';
-  // Beli-style hierarchical label using Google's address components when
-  // available; falls back to formatted-address parsing for older saved
-  // restaurants. Renders as "West Village, Manhattan", "Mission, San
-  // Francisco, CA", "Stowe, VT", etc.
+  // Beli-style hierarchical label using Google's address components plus
+  // Mapbox-derived neighborhood when available; falls back to
+  // formatted-address parsing for older saved restaurants. Renders as
+  // "West Village, Manhattan", "Mission, San Francisco, CA", "Stowe,
+  // VT", etc.
   const streetCity = useMemo(
-    () => fullAddress ? formatLocationLabel(meta?.addressComponents, fullAddress) : '',
-    [fullAddress, meta?.addressComponents],
+    () => fullAddress ? formatLocationLabel(meta?.addressComponents, fullAddress, meta?.neighborhood) : '',
+    [fullAddress, meta?.addressComponents, meta?.neighborhood],
   );
   const distanceLabel = useMemo(() => {
     const home = loadLastSelectedLocation();
@@ -794,11 +827,12 @@ const RestaurantGridCard: React.FC<{
   // the meta entry — that way we still show a location for restaurants
   // re-hydrated from cloud where the rating may not include an address.
   const meta = restaurantMeta[restaurantId];
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined);
   const fullAddress = address || meta?.address || '';
   // Hierarchical Beli-style label — neighborhood + borough/city + state
   // when components are cached, falling back to the formatted address.
   const locationLabel = fullAddress
-    ? formatLocationLabel(meta?.addressComponents, fullAddress)
+    ? formatLocationLabel(meta?.addressComponents, fullAddress, meta?.neighborhood)
     : '';
 
   // Distance in miles from the user's anchor location to the cached
