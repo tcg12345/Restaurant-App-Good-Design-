@@ -11,9 +11,10 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Film, Lock, Globe, Trash2, ChevronRight } from 'lucide-react';
+import { Heart, Film, Lock, Globe, Trash2, ChevronRight, Layers } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { Reel } from '../contexts/ReelsContext';
+import type { Post } from '../contexts/PostsContext';
 
 interface ProfileReelsSectionProps {
   reels: Reel[];
@@ -28,6 +29,123 @@ interface ProfileReelsSectionProps {
   /** Optional CTA shown next to the title (e.g. "Open feed"). */
   trailing?: React.ReactNode;
 }
+
+/* ── Posts grid (parallel to reels grid, same compact 3-up layout) ───── */
+
+interface ProfilePostsSectionProps {
+  posts: Post[];
+  isOwn?: boolean;
+  onTileClick?: (post: Post) => void;
+  onDelete?: (postId: string) => void;
+  onToggleVisibility?: (postId: string, nextIsPublic: boolean) => void;
+  title?: string;
+  trailing?: React.ReactNode;
+}
+
+export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
+  posts, isOwn = false, onTileClick, onDelete, onToggleVisibility, title, trailing,
+}) => {
+  const navigate = useNavigate();
+  const [showAll, setShowAll] = useState(false);
+  if (posts.length === 0) return null;
+  const VISIBLE_LIMIT = 6;
+  const visible = showAll ? posts : posts.slice(0, VISIBLE_LIMIT);
+
+  const handleClick = (p: Post) => {
+    if (onTileClick) { onTileClick(p); return; }
+    navigate('/reels?kind=post');
+  };
+
+  return (
+    <section>
+      <div className="flex items-baseline justify-between mb-3">
+        <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
+          {title ?? (isOwn ? 'My Posts' : 'Posts')}
+          <span className="text-on-surface/30 font-medium ml-1.5">{posts.length}</span>
+        </h3>
+        {trailing}
+      </div>
+      <div className="grid grid-cols-3 gap-1 max-w-md">
+        {visible.map((p) => {
+          const cover = p.items[0];
+          // First item drives the tile preview.
+          return (
+            <div key={p.id} className="relative group">
+              <button
+                type="button"
+                onClick={() => handleClick(p)}
+                className="block w-full aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] relative"
+                aria-label={p.caption || 'Open post'}
+              >
+                {cover?.mediaType === 'video' && cover.mediaUrl ? (
+                  <video src={cover.mediaUrl} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
+                ) : cover?.mediaUrl ? (
+                  <img src={cover.mediaUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                ) : (
+                  <div className={cn('absolute inset-0 bg-gradient-to-b', cover?.bgGradient || 'from-stone-800 to-stone-900')} />
+                )}
+                {/* Multi-item indicator (top-right corner) */}
+                {p.items.length > 1 && (
+                  <span className="absolute top-1.5 right-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/55 text-white">
+                    <Layers size={11} />
+                  </span>
+                )}
+                {/* Likes pill */}
+                <div className="absolute top-1.5 left-1.5 flex items-center gap-0.5 bg-black/45 backdrop-blur rounded-full px-1.5 h-5 text-white text-[9px] font-bold">
+                  <Heart size={9} className="fill-white" />
+                  <span className="tabular-nums">{p.likesCount}</span>
+                </div>
+                {/* Private chip */}
+                {!p.isPublic && (
+                  <div className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 bg-black/55 backdrop-blur rounded-full px-1.5 h-5 text-white text-[9px] font-bold">
+                    <Lock size={8} />
+                  </div>
+                )}
+              </button>
+              {isOwn && (
+                <div className={cn('absolute top-1.5 right-1.5 flex items-center gap-1', 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity', p.items.length > 1 && '!top-7')}>
+                  {onToggleVisibility && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleVisibility(p.id, !p.isPublic)}
+                      className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
+                      aria-label={p.isPublic ? 'Make private' : 'Make public'}
+                      title={p.isPublic ? 'Public — tap to make followers-only' : 'Followers only — tap to make public'}
+                    >
+                      {p.isPublic ? <Globe size={11} /> : <Lock size={11} />}
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(p.id)}
+                      className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600"
+                      aria-label="Delete post"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {posts.length > VISIBLE_LIMIT && (
+        <div className="mt-2.5 max-w-md">
+          {showAll ? (
+            <button type="button" onClick={() => setShowAll(false)} className="text-[12px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
+          ) : (
+            <button type="button" onClick={() => setShowAll(true)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary">
+              See all {posts.length} posts
+              <ChevronRight size={12} />
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+};
 
 const VISIBLE_LIMIT = 6;
 

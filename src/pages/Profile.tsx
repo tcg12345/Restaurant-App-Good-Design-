@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film,
+  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useReels } from '../contexts/ReelsContext';
-import { ProfileReelsSection } from '../components/ProfileReelsSection';
+import { usePosts } from '../contexts/PostsContext';
+import { ProfileReelsSection, ProfilePostsSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../lib/supabase-community';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -53,27 +54,39 @@ export const Profile: React.FC = () => {
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
   const listsCtx = useLists();
   const { openAddReelModal, reels, deleteReel, setReelVisibility } = useReels();
+  const { openAddPostModal, posts, deletePost, setPostVisibility } = usePosts();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
   const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
 
-  // Reels posted by the signed-in user. Authoritative source is the
-  // ReelsContext (which is loaded from Supabase on mount).
+  // Reels and posts authored by the signed-in user. Both come from their
+  // respective contexts (loaded once at mount), filtered locally.
   const myReels = useMemo(
     () => reels.filter((r) => r.authorId === user?.id),
     [reels, user?.id],
   );
+  const myPosts = useMemo(
+    () => posts.filter((p) => p.userId === user?.id),
+    [posts, user?.id],
+  );
   const [confirmDeleteReelId, setConfirmDeleteReelId] = useState<string | null>(null);
+  const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [deletingReel, setDeletingReel] = useState(false);
+  const [deletingPost, setDeletingPost] = useState(false);
   const onConfirmDeleteReel = async () => {
     if (!confirmDeleteReelId) return;
     setDeletingReel(true);
     const ok = await deleteReel(confirmDeleteReelId);
     setDeletingReel(false);
     setConfirmDeleteReelId(null);
-    if (!ok) {
-      // The grid will simply not remove the entry; surface a toast-ish msg.
-      alert("Couldn't delete that reel. Try again.");
-    }
+    if (!ok) alert("Couldn't delete that reel. Try again.");
+  };
+  const onConfirmDeletePost = async () => {
+    if (!confirmDeletePostId) return;
+    setDeletingPost(true);
+    const ok = await deletePost(confirmDeletePostId);
+    setDeletingPost(false);
+    setConfirmDeletePostId(null);
+    if (!ok) alert("Couldn't delete that post. Try again.");
   };
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -346,16 +359,26 @@ export const Profile: React.FC = () => {
             </button>
           </div>
 
-          {/* Post a reel CTA — mobile entry point for the AddReelModal.
-              The desktop sidebar has its own "Post Reel" button. */}
-          <button
-            type="button"
-            onClick={() => openAddReelModal()}
-            className="mt-2 w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors"
-          >
-            <Film size={14} />
-            Post a reel
-          </button>
+          {/* Mobile create CTAs — Post (multi-media) + Reel. The desktop
+              sidebar has the same options under its single "Create" button. */}
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => openAddPostModal()}
+              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors"
+            >
+              <Plus size={14} strokeWidth={2.5} />
+              New post
+            </button>
+            <button
+              type="button"
+              onClick={() => openAddReelModal()}
+              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-on-surface/[0.06] text-on-surface/80 text-xs font-bold border border-on-surface/[0.08] hover:bg-on-surface/[0.1] transition-colors"
+            >
+              <Film size={14} />
+              New reel
+            </button>
+          </div>
 
           {/* Badges */}
           <div className="flex flex-wrap gap-1.5 mt-3">
@@ -442,6 +465,27 @@ export const Profile: React.FC = () => {
             </div>
           </section>
         )}
+
+        {/* My Posts — multi-item carousels. Compact tile shows the first
+            item's media; a layered chip indicates multi-item posts. */}
+        <ProfilePostsSection
+          posts={myPosts}
+          isOwn
+          onDelete={(id) => setConfirmDeletePostId(id)}
+          onToggleVisibility={(id, next) => setPostVisibility(id, next)}
+          trailing={
+            myPosts.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => navigate('/reels?kind=post')}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
+              >
+                Open feed
+                <ChevronRight size={13} />
+              </button>
+            ) : null
+          }
+        />
 
         {/* My Reels — compact 3-up grid (max 6 visible, see-all to expand). */}
         <ProfileReelsSection
@@ -547,8 +591,8 @@ export const Profile: React.FC = () => {
         )}
       </main>
 
-      {/* Delete-reel confirmation. Calls ReelsContext.deleteReel() which
-          removes both the DB row and the storage object. */}
+      {/* Delete-reel / Delete-post confirmations. Both call into their
+          respective contexts and clean up storage objects. */}
       <AnimatePresence>
         {confirmDeleteReelId && (
           <motion.div
@@ -564,22 +608,28 @@ export const Profile: React.FC = () => {
               <h4 className="font-serif font-bold text-on-surface text-lg">Delete reel?</h4>
               <p className="text-sm text-on-surface/55 mt-1">This permanently removes the video and all of its likes, saves, and comments. It can't be undone.</p>
               <div className="flex gap-2 mt-5">
-                <button
-                  type="button"
-                  onClick={() => setConfirmDeleteReelId(null)}
-                  disabled={deletingReel}
-                  className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={onConfirmDeleteReel}
-                  disabled={deletingReel}
-                  className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60"
-                >
-                  {deletingReel ? 'Deleting…' : 'Delete'}
-                </button>
+                <button type="button" onClick={() => setConfirmDeleteReelId(null)} disabled={deletingReel} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
+                <button type="button" onClick={onConfirmDeleteReel} disabled={deletingReel} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingReel ? 'Deleting…' : 'Delete'}</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {confirmDeletePostId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center px-6"
+            onClick={() => { if (!deletingPost) setConfirmDeletePostId(null); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-surface rounded-3xl p-6 max-w-xs w-full text-center"
+            >
+              <h4 className="font-serif font-bold text-on-surface text-lg">Delete post?</h4>
+              <p className="text-sm text-on-surface/55 mt-1">This permanently removes every photo / video and the comments. It can't be undone.</p>
+              <div className="flex gap-2 mt-5">
+                <button type="button" onClick={() => setConfirmDeletePostId(null)} disabled={deletingPost} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
+                <button type="button" onClick={onConfirmDeletePost} disabled={deletingPost} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingPost ? 'Deleting…' : 'Delete'}</button>
               </div>
             </motion.div>
           </motion.div>

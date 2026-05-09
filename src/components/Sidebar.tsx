@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronsLeft, ChevronsRight, ChevronDown, Heart, ChefHat, Plane, MessageCircle, Film } from 'lucide-react';
+import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronsLeft, ChevronsRight, ChevronDown, Heart, ChefHat, Plane, MessageCircle, Film, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
 import { useReels } from '../contexts/ReelsContext';
+import { usePosts } from '../contexts/PostsContext';
 
 /**
  * Desktop-only collapsible sidebar. App.tsx decides when to mount it
@@ -52,9 +53,25 @@ export const Sidebar: React.FC = () => {
   const { ratings, lists, wishlist, homeMeals, trips } = useLists();
   const { unreadCount } = useChat();
   const { openAddReelModal } = useReels();
+  const { openAddPostModal } = usePosts();
 
   const [collapsed, setCollapsed] = useState<boolean>(() => loadFlag(COLLAPSE_KEY, false));
   const [pantryOpen, setPantryOpen] = useState<boolean>(() => loadFlag(PANTRY_OPEN_KEY, false));
+  // Create menu — small popover anchored to the Create button.
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const createWrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!createMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (createWrapRef.current && !createWrapRef.current.contains(e.target as Node)) {
+        setCreateMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [createMenuOpen]);
+  useEffect(() => { setCreateMenuOpen(false); }, [location.pathname]);
 
   useEffect(() => {
     try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch {}
@@ -187,13 +204,15 @@ export const Sidebar: React.FC = () => {
 
       <div className="border-t border-on-surface/[0.06] mx-3" />
 
-      {/* ── Create CTA — single red button that opens the Post Reel modal.
-              Replaces the previous two-button stack. */}
-      <div className={cn('px-3 pt-4 pb-3', collapsed && 'px-2')}>
+      {/* ── Create CTA — single red button that opens a small menu with
+              Post and Reel choices. */}
+      <div ref={createWrapRef} className={cn('relative px-3 pt-4 pb-3', collapsed && 'px-2')}>
         <button
           type="button"
-          onClick={() => openAddReelModal()}
-          aria-label="Create — post a reel"
+          onClick={() => setCreateMenuOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={createMenuOpen}
+          aria-label="Create"
           title={collapsed ? 'Create' : undefined}
           className={cn(
             'w-full bg-primary text-white rounded-full font-semibold text-sm',
@@ -202,9 +221,61 @@ export const Sidebar: React.FC = () => {
             collapsed ? 'h-11 px-0' : 'h-11 px-4',
           )}
         >
-          <Plus size={18} strokeWidth={2.5} />
+          <Plus
+            size={18}
+            strokeWidth={2.5}
+            className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')}
+          />
           {!collapsed && <span>Create</span>}
         </button>
+
+        <AnimatePresence>
+          {createMenuOpen && (
+            <motion.div
+              role="menu"
+              initial={{ opacity: 0, y: -4, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.97 }}
+              transition={{ duration: 0.14, ease: 'easeOut' }}
+              className={cn(
+                'absolute z-40 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden',
+                collapsed
+                  ? 'left-full top-2 ml-2 min-w-[200px]'
+                  : 'left-3 right-3 top-[calc(100%-0.25rem)]',
+              )}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+              >
+                <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                  <ImageIcon size={16} strokeWidth={2.2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-bold leading-tight">Post</span>
+                  <span className="block text-[12px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
+                </span>
+              </button>
+              <div className="border-t border-on-surface/[0.06]" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+              >
+                <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
+                  <Film size={16} strokeWidth={2.2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-bold leading-tight">Reel</span>
+                  <span className="block text-[12px] text-on-surface/50 leading-tight">Single short video</span>
+                </span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* ── Nav list ───────────────────────────────────────────────────── */}

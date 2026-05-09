@@ -7,7 +7,8 @@ import { scoreColor } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useReels } from '../contexts/ReelsContext';
-import { ProfileReelsSection } from '../components/ProfileReelsSection';
+import { usePosts } from '../contexts/PostsContext';
+import { ProfileReelsSection, ProfilePostsSection } from '../components/ProfileReelsSection';
 import {
   getProfileByUsername, getFollowCounts, canViewProfile, getFriends,
   sendFriendRequest, followPublicAccount, getUserRatings, getUserPhotos, getUserLists,
@@ -36,6 +37,7 @@ export const UserProfile: React.FC = () => {
   const { user } = useAuth();
   const { ratings: myRatings } = useLists();
   const { reels } = useReels();
+  const { posts } = usePosts();
   const userId = user?.id ?? null;
 
   const [profile, setProfile] = useState<UserProfileType | null>(null);
@@ -215,11 +217,15 @@ export const UserProfile: React.FC = () => {
   }, [username, userId]);
 
   // Shared restaurants
-  // Reels by this profile owner. RLS already filters out followers-only
-  // reels the viewer can't see, so we just match by authorId.
+  // Reels and posts by this profile owner. RLS already filters out
+  // followers-only entries the viewer can't see, so we just match by id.
   const profileReels = useMemo(
     () => (profile?.user_id ? reels.filter((r) => r.authorId === profile.user_id) : []),
     [reels, profile?.user_id],
+  );
+  const profilePosts = useMemo(
+    () => (profile?.user_id ? posts.filter((p) => p.userId === profile.user_id) : []),
+    [posts, profile?.user_id],
   );
 
   const sharedRestaurants = useMemo(() => {
@@ -550,8 +556,13 @@ export const UserProfile: React.FC = () => {
               </section>
             )}
 
-            {/* Reels by this user — read-only grid; followers-only reels are
-                already filtered out by RLS for non-followers. */}
+            {/* Posts + reels by this user — read-only grids. RLS already
+                filters out followers-only items the viewer can't see. */}
+            {profilePosts.length > 0 && (
+              <div className="mb-5">
+                <ProfilePostsSection posts={profilePosts} />
+              </div>
+            )}
             {profileReels.length > 0 && (
               <div className="mb-5">
                 <ProfileReelsSection reels={profileReels} />

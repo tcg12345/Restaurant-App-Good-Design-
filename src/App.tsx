@@ -30,6 +30,7 @@ import { AddRestaurantModal } from './components/AddRestaurantModal';
 import { AddRecipeModal } from './components/AddRecipeModal';
 import { AddHomeMealModal } from './components/AddHomeMealModal';
 import { AddReelModal } from './components/AddReelModal';
+import { AddPostModal } from './components/AddPostModal';
 import { RecipeModal } from './components/RecipeModal';
 import { RecipeDetail } from './pages/RecipeDetail';
 import { RecipesForYou } from './pages/RecipesForYou';
@@ -47,6 +48,7 @@ import { MealRecipePage } from './pages/MealRecipePage';
 import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
 import { ReelsProvider } from './contexts/ReelsContext';
+import { PostsProvider } from './contexts/PostsContext';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
@@ -178,6 +180,7 @@ const AppContent: React.FC = () => {
       <AddRecipeModal />
       <AddHomeMealModal />
       <AddReelModal />
+      <AddPostModal />
       <RecipeModal />
     </>
   );
@@ -249,7 +252,9 @@ export default function App() {
               <RecipesProvider>
                 <ChatProvider>
                   <ReelsProvider>
-                    <AppContent />
+                    <PostsProvider>
+                      <AppContent />
+                    </PostsProvider>
                   </ReelsProvider>
                 </ChatProvider>
               </RecipesProvider>

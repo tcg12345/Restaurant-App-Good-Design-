@@ -3,11 +3,13 @@ import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { useReels, type Reel, type ReelKind, type ReelComment } from '../contexts/ReelsContext';
+import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
+import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { ShareReelDialog } from '../components/ShareReelDialog';
 import { type SharedReel } from '../contexts/ChatContext';
+import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -457,17 +459,32 @@ const DesktopSideActions: React.FC<DesktopSideActionsProps> = ({ reel, isMine, o
 
 /* ── Comments body (shared between mobile sheet and desktop panel) ──── */
 
+// Polymorphic comment shape — works for both reel and post comments
+// (which have the same fields after row → object mapping).
+interface UnifiedComment {
+  id: string;
+  userId: string;
+  body: string;
+  createdAt: string;
+  author?: { username: string; displayName?: string; avatarColor: string; initials: string; isExpert: boolean };
+}
+
 interface CommentsBodyProps {
-  reelId: string;
+  /** The id we operate against (a reel id or a post id depending on caller). */
+  targetId: string;
   onClose: () => void;
   variant: 'sheet' | 'panel';
+  /** Polymorphic adapters — caller picks reels or posts. */
+  loadComments: (id: string) => Promise<UnifiedComment[]>;
+  addComment: (id: string, body: string) => Promise<UnifiedComment | null>;
+  deleteComment: (id: string, commentId: string) => Promise<boolean>;
+  currentUserId: string | null;
 }
 
 /** State + composer + list. The wrapper (sheet/panel) decides chrome. */
-const CommentsBody: React.FC<CommentsBodyProps> = ({ reelId, onClose, variant }) => {
-  const { loadComments, addComment, deleteComment, currentUserId } = useReels();
+export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, variant, loadComments, addComment, deleteComment, currentUserId }) => {
   const { showToast } = useToast();
-  const [comments, setComments] = useState<ReelComment[]>([]);
+  const [comments, setComments] = useState<UnifiedComment[]>([]);
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -475,13 +492,13 @@ const CommentsBody: React.FC<CommentsBodyProps> = ({ reelId, onClose, variant })
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    loadComments(reelId).then((list) => {
+    loadComments(targetId).then((list) => {
       if (cancelled) return;
       setComments(list);
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [reelId, loadComments]);
+  }, [targetId, loadComments]);
 
   const onSubmit = async () => {
     if (!draft.trim() || posting) return;
@@ -490,7 +507,7 @@ const CommentsBody: React.FC<CommentsBodyProps> = ({ reelId, onClose, variant })
       return;
     }
     setPosting(true);
-    const c = await addComment(reelId, draft);
+    const c = await addComment(targetId, draft);
     setPosting(false);
     if (c) {
       setComments((prev) => [c, ...prev]);
@@ -501,7 +518,7 @@ const CommentsBody: React.FC<CommentsBodyProps> = ({ reelId, onClose, variant })
   };
 
   const onDeleteOne = async (commentId: string) => {
-    const ok = await deleteComment(reelId, commentId);
+    const ok = await deleteComment(targetId, commentId);
     if (ok) setComments((prev) => prev.filter((c) => c.id !== commentId));
   };
 
@@ -619,14 +636,18 @@ const CommentsBody: React.FC<CommentsBodyProps> = ({ reelId, onClose, variant })
 /* ── Mobile bottom sheet ─────────────────────────────────────────────── */
 
 interface CommentsSheetProps {
-  reelId: string | null;
+  targetId: string | null;
   onClose: () => void;
+  loadComments: (id: string) => Promise<UnifiedComment[]>;
+  addComment: (id: string, body: string) => Promise<UnifiedComment | null>;
+  deleteComment: (id: string, commentId: string) => Promise<boolean>;
+  currentUserId: string | null;
 }
 
-const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose }) => {
+const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadComments, addComment, deleteComment, currentUserId }) => {
   return (
     <AnimatePresence>
-      {reelId && (
+      {targetId && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className="absolute inset-0 z-40 bg-black/55 backdrop-blur-sm flex items-end"
@@ -642,7 +663,15 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose }) => {
             <div className="pt-2 pb-1 flex justify-center">
               <span className="w-10 h-1 rounded-full bg-stone-300" />
             </div>
-            <CommentsBody reelId={reelId} onClose={onClose} variant="sheet" />
+            <CommentsBody
+              targetId={targetId}
+              onClose={onClose}
+              variant="sheet"
+              loadComments={loadComments}
+              addComment={addComment}
+              deleteComment={deleteComment}
+              currentUserId={currentUserId}
+            />
           </motion.div>
         </motion.div>
       )}
@@ -651,20 +680,22 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose }) => {
 };
 
 /* ── Desktop side panel ──────────────────────────────────────────────── */
-// Inline column rendered to the right of the action buttons. Slides in/out
-// from the right; bg-surface so it blends with the page chrome.
 
 interface CommentsPanelProps {
-  reelId: string | null;
+  targetId: string | null;
   onClose: () => void;
+  loadComments: (id: string) => Promise<UnifiedComment[]>;
+  addComment: (id: string, body: string) => Promise<UnifiedComment | null>;
+  deleteComment: (id: string, commentId: string) => Promise<boolean>;
+  currentUserId: string | null;
 }
 
-const CommentsPanel: React.FC<CommentsPanelProps> = ({ reelId, onClose }) => {
+const CommentsPanel: React.FC<CommentsPanelProps> = ({ targetId, onClose, loadComments, addComment, deleteComment, currentUserId }) => {
   return (
     <AnimatePresence>
-      {reelId && (
+      {targetId && (
         <motion.div
-          key={reelId}
+          key={targetId}
           initial={{ opacity: 0, x: 20, width: 0 }}
           animate={{ opacity: 1, x: 0, width: 360 }}
           exit={{ opacity: 0, x: 20, width: 0 }}
@@ -672,7 +703,15 @@ const CommentsPanel: React.FC<CommentsPanelProps> = ({ reelId, onClose }) => {
           className="h-full bg-surface border border-on-surface/[0.08] rounded-[24px] overflow-hidden flex flex-col flex-shrink-0"
         >
           <div className="w-[360px] h-full flex flex-col">
-            <CommentsBody reelId={reelId} onClose={onClose} variant="panel" />
+            <CommentsBody
+              targetId={targetId}
+              onClose={onClose}
+              variant="panel"
+              loadComments={loadComments}
+              addComment={addComment}
+              deleteComment={deleteComment}
+              currentUserId={currentUserId}
+            />
           </div>
         </motion.div>
       )}
@@ -682,9 +721,13 @@ const CommentsPanel: React.FC<CommentsPanelProps> = ({ reelId, onClose }) => {
 
 /* ── Tabs + mute pill (top header) ──────────────────────────────────── */
 
+// The page-level "kind" extends ReelKind with a 'post' option, so the
+// feed can switch between restaurant reels, recipe reels, and posts.
+type FeedKind = ReelKind | 'post';
+
 interface TopBarProps {
-  kind: ReelKind;
-  setKind: (k: ReelKind) => void;
+  kind: FeedKind;
+  setKind: (k: FeedKind) => void;
   muted: boolean;
   setMuted: (m: boolean) => void;
 }
@@ -692,20 +735,24 @@ interface TopBarProps {
 const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
   return (
     <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-3">
-      <div className="relative flex-1 max-w-[280px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
-        {(['restaurant', 'recipe'] as const).map((k) => {
-          const active = kind === k;
+      <div className="relative flex-1 max-w-[340px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
+        {([
+          { value: 'restaurant', label: 'Explore' },
+          { value: 'recipe', label: 'Recipes' },
+          { value: 'post', label: 'Posts' },
+        ] as const).map((opt) => {
+          const active = kind === opt.value;
           return (
             <button
-              key={k}
+              key={opt.value}
               type="button"
-              onClick={() => setKind(k)}
+              onClick={() => setKind(opt.value)}
               className={cn(
-                'flex-1 h-9 rounded-full text-[14px] font-bold transition-colors',
+                'flex-1 h-9 rounded-full text-[13px] font-bold transition-colors',
                 active ? 'bg-white text-stone-900 shadow' : 'text-white/85',
               )}
             >
-              {k === 'restaurant' ? 'Explore' : 'Recipes'}
+              {opt.label}
             </button>
           );
         })}
@@ -728,52 +775,80 @@ export const Reels: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const {
-    restaurantReels, recipeReels, loading,
+    restaurantReels, recipeReels, loading: reelsLoading,
     toggleLike, toggleSave, deleteReel, openAddReelModal,
     openCommentsSheet, closeCommentsSheet, openCommentsReelId,
     currentUserId,
+    loadComments: reelLoadComments, addComment: reelAddComment, deleteComment: reelDeleteComment,
   } = useReels();
+  const {
+    posts: allPosts, loading: postsLoading,
+    togglePostLike, togglePostSave, deletePost,
+    setPostVisibility: _setPostVisibility,
+    openAddPostModal,
+    openPostCommentsSheet, closePostCommentsSheet, openPostCommentsId,
+    loadPostComments, addPostComment, deletePostComment,
+  } = usePosts();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
 
-  // Tab can be deep-linked via ?kind=recipe|restaurant.
-  const initialKind: ReelKind = (() => {
+  // Tab can be deep-linked via ?kind=recipe|restaurant|post.
+  const initialKind: FeedKind = (() => {
     const sp = new URLSearchParams(location.search);
     const k = sp.get('kind');
-    return k === 'recipe' ? 'recipe' : 'restaurant';
+    if (k === 'recipe') return 'recipe';
+    if (k === 'post') return 'post';
+    return 'restaurant';
   })();
-  const [kind, setKind] = useState<ReelKind>(initialKind);
+  const [kind, setKind] = useState<FeedKind>(initialKind);
   const [muted, setMuted] = useState(true);
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
+  const [activePostId, setActivePostId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [sharePayload, setSharePayload] = useState<SharedReel | null>(null);
 
-  const list = kind === 'restaurant' ? restaurantReels : recipeReels;
+  const loading = reelsLoading || postsLoading;
+  const reelList: Reel[] = kind === 'restaurant' ? restaurantReels : kind === 'recipe' ? recipeReels : [];
+  // The Posts tab shows every post. Reel tabs show no posts.
+  const postList: Post[] = kind === 'post' ? allPosts : [];
+  const list = kind === 'post' ? postList : reelList;
 
   useEffect(() => {
-    setActiveReelId(list[0]?.id ?? null);
-  }, [kind, list.length]);
+    if (kind === 'post') {
+      setActivePostId(postList[0]?.id ?? null);
+      setActiveReelId(null);
+    } else {
+      setActiveReelId(reelList[0]?.id ?? null);
+      setActivePostId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, reelList.length, postList.length]);
 
-  // IntersectionObserver picks the most-visible slide so exactly one video plays.
+  // IntersectionObserver picks the most-visible slide so exactly one video
+  // plays. Slides carry data-reel-id OR data-post-id depending on which
+  // tab is active; we update the corresponding setter on the way through.
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
-    const slides = Array.from(root.querySelectorAll<HTMLDivElement>('[data-reel-id]'));
+    const slides = Array.from(root.querySelectorAll<HTMLDivElement>('[data-reel-id], [data-post-id]'));
     if (slides.length === 0) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        let bestId: string | null = null;
+        let bestEl: HTMLDivElement | null = null;
         let bestRatio = 0;
         for (const e of entries) {
-          const id = (e.target as HTMLDivElement).dataset.reelId || '';
           if (e.intersectionRatio > bestRatio) {
             bestRatio = e.intersectionRatio;
-            bestId = id;
+            bestEl = e.target as HTMLDivElement;
           }
         }
-        if (bestId && bestRatio > 0.6) setActiveReelId(bestId);
+        if (bestEl && bestRatio > 0.6) {
+          if (bestEl.dataset.postId) setActivePostId(bestEl.dataset.postId);
+          else if (bestEl.dataset.reelId) setActiveReelId(bestEl.dataset.reelId);
+        }
       },
       { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
     );
@@ -851,6 +926,32 @@ export const Reels: React.FC = () => {
     else showToast("Couldn't delete reel");
   };
 
+  const handleConfirmDeletePost = async () => {
+    if (!confirmDeletePostId) return;
+    const id = confirmDeletePostId;
+    setConfirmDeletePostId(null);
+    const ok = await deletePost(id);
+    if (ok) showToast('Post deleted');
+    else showToast("Couldn't delete post");
+  };
+
+  const handlePostItemClick = (item: PostItemRow) => {
+    if (item.attachedKind === 'restaurant' && item.restaurant) {
+      navigate(`/restaurant/${item.restaurant.id}`);
+    } else if (item.attachedKind === 'recipe' && item.recipe) {
+      navigate(`/recipe/${item.recipe.id}`);
+    }
+  };
+
+  // The Reels comments use reel APIs; the Posts tab swaps in post APIs
+  // through the same CommentsBody/Sheet/Panel components.
+  const isPostsTab = kind === 'post';
+  const commentsTargetId = isPostsTab ? openPostCommentsId : openCommentsReelId;
+  const commentsClose = isPostsTab ? closePostCommentsSheet : closeCommentsSheet;
+  const commentsLoad = isPostsTab ? loadPostComments : reelLoadComments;
+  const commentsAdd = isPostsTab ? addPostComment : reelAddComment;
+  const commentsDelete = isPostsTab ? deletePostComment : reelDeleteComment;
+
   const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean }) => (
     <div
       ref={containerRef}
@@ -864,18 +965,54 @@ export const Reels: React.FC = () => {
           </div>
         ) : list.length === 0 ? (
           <div className="h-full w-full flex flex-col items-center justify-center text-white/70 text-sm px-8 text-center gap-3">
-            <p className="text-base text-white/85">No {kind === 'restaurant' ? 'restaurant' : 'recipe'} reels yet.</p>
+            <p className="text-base text-white/85">
+              {kind === 'restaurant' ? 'No restaurant reels yet.'
+                : kind === 'recipe' ? 'No recipe reels yet.'
+                : 'No posts yet.'}
+            </p>
             <button
               type="button"
-              onClick={() => openAddReelModal(kind)}
+              onClick={() => kind === 'post' ? openAddPostModal() : openAddReelModal(kind as ReelKind)}
               className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-white text-stone-900 text-sm font-bold"
             >
               <Plus size={16} />
               Post the first one
             </button>
           </div>
+        ) : kind === 'post' ? (
+          (list as Post[]).map((post) => (
+            <motion.div
+              key={post.id}
+              data-post-id={post.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="h-full w-full snap-start snap-always"
+            >
+              <PostSlide
+                post={post}
+                active={activePostId === post.id}
+                muted={muted}
+                isMine={!!currentUserId && post.userId === currentUserId}
+                hideActionRail={opts.hideActionRail}
+                hideOwnerDelete={opts.hideOwnerDelete}
+                onLike={() => {
+                  if (!currentUserId) { showToast('Sign in to like posts'); return; }
+                  togglePostLike(post.id);
+                }}
+                onSave={() => {
+                  if (!currentUserId) { showToast('Sign in to save posts'); return; }
+                  togglePostSave(post.id);
+                }}
+                onComment={() => openPostCommentsSheet(post.id)}
+                onShare={() => showToast('Sharing posts is coming soon')}
+                onItemAttachmentClick={handlePostItemClick}
+                onDelete={() => setConfirmDeletePostId(post.id)}
+              />
+            </motion.div>
+          ))
         ) : (
-          list.map((reel) => (
+          (list as Reel[]).map((reel) => (
             <motion.div
               key={reel.id}
               data-reel-id={reel.id}
@@ -909,13 +1046,21 @@ export const Reels: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Comments sheet floats above the feed (mobile only — on desktop
-          the panel is rendered next to the reel by the layout above). */}
+      {/* Comments sheet floats above the feed (mobile only — desktop uses
+          the side panel rendered by the layout). The target id and adapter
+          callbacks switch between reel and post engagement APIs. */}
       {!opts.hideCommentsSheet && (
-        <CommentsSheet reelId={openCommentsReelId} onClose={closeCommentsSheet} />
+        <CommentsSheet
+          targetId={commentsTargetId}
+          onClose={commentsClose}
+          loadComments={commentsLoad}
+          addComment={commentsAdd}
+          deleteComment={commentsDelete}
+          currentUserId={currentUserId}
+        />
       )}
 
-      {/* Delete confirmation */}
+      {/* Delete confirmations — separate states for reel vs post. */}
       <AnimatePresence>
         {confirmDeleteId && (
           <motion.div
@@ -931,20 +1076,28 @@ export const Reels: React.FC = () => {
               <h4 className="font-serif font-bold text-stone-900 text-lg">Delete reel?</h4>
               <p className="text-sm text-stone-500 mt-1">This can't be undone.</p>
               <div className="flex gap-2 mt-5">
-                <button
-                  type="button"
-                  onClick={() => setConfirmDeleteId(null)}
-                  className="flex-1 h-11 rounded-full bg-stone-100 text-stone-700 text-sm font-bold hover:bg-stone-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmDelete}
-                  className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700"
-                >
-                  Delete
-                </button>
+                <button type="button" onClick={() => setConfirmDeleteId(null)} className="flex-1 h-11 rounded-full bg-stone-100 text-stone-700 text-sm font-bold hover:bg-stone-200">Cancel</button>
+                <button type="button" onClick={handleConfirmDelete} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700">Delete</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {confirmDeletePostId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-black/70 flex items-center justify-center px-6"
+            onClick={() => setConfirmDeletePostId(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 max-w-xs w-full text-center"
+            >
+              <h4 className="font-serif font-bold text-stone-900 text-lg">Delete post?</h4>
+              <p className="text-sm text-stone-500 mt-1">This permanently removes every photo / video and the comments. It can't be undone.</p>
+              <div className="flex gap-2 mt-5">
+                <button type="button" onClick={() => setConfirmDeletePostId(null)} className="flex-1 h-11 rounded-full bg-stone-100 text-stone-700 text-sm font-bold hover:bg-stone-200">Cancel</button>
+                <button type="button" onClick={handleConfirmDeletePost} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700">Delete</button>
               </div>
             </motion.div>
           </motion.div>
@@ -953,7 +1106,8 @@ export const Reels: React.FC = () => {
     </div>
   );
 
-  const activeReel = list.find((r) => r.id === activeReelId) ?? list[0] ?? null;
+  const activeReel = (kind === 'post' ? null : (reelList.find((r) => r.id === activeReelId) ?? reelList[0] ?? null));
+  const activePost = (kind !== 'post' ? null : (postList.find((p) => p.id === activePostId) ?? postList[0] ?? null));
 
   /* ── Desktop layout ──
      Instagram-style: app surface background, no copy / side panels, no
@@ -976,7 +1130,8 @@ export const Reels: React.FC = () => {
           {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true })}
         </div>
 
-        {/* Side actions — bottom-aligned with the reel, like Instagram. */}
+        {/* Side actions — bottom-aligned, dispatched to reel or post APIs
+            based on which tab is active. */}
         {activeReel && (
           <div className="self-end pb-2">
             <DesktopSideActions
@@ -996,9 +1151,35 @@ export const Reels: React.FC = () => {
             />
           </div>
         )}
+        {activePost && (
+          <div className="self-end pb-2">
+            <DesktopPostSideActions
+              post={activePost}
+              isMine={!!currentUserId && activePost.userId === currentUserId}
+              onLike={() => {
+                if (!currentUserId) { showToast('Sign in to like posts'); return; }
+                togglePostLike(activePost.id);
+              }}
+              onSave={() => {
+                if (!currentUserId) { showToast('Sign in to save posts'); return; }
+                togglePostSave(activePost.id);
+              }}
+              onComment={() => openPostCommentsSheet(activePost.id)}
+              onShare={() => showToast('Sharing posts is coming soon')}
+              onDelete={() => setConfirmDeletePostId(activePost.id)}
+            />
+          </div>
+        )}
 
-        {/* Comments panel — slides in from the right of the action column. */}
-        <CommentsPanel reelId={openCommentsReelId} onClose={closeCommentsSheet} />
+        {/* Comments panel — switches data source based on active tab. */}
+        <CommentsPanel
+          targetId={commentsTargetId}
+          onClose={commentsClose}
+          loadComments={commentsLoad}
+          addComment={commentsAdd}
+          deleteComment={commentsDelete}
+          currentUserId={currentUserId}
+        />
 
         {/* Share dialog — fixed-position, floats above the layout. */}
         <ShareReelDialog
