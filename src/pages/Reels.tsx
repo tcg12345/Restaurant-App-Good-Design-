@@ -6,6 +6,8 @@ import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind, type ReelComment } from '../contexts/ReelsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
+import { ShareReelDialog } from '../components/ShareReelDialog';
+import { type SharedReel } from '../contexts/ChatContext';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -736,6 +738,7 @@ export const Reels: React.FC = () => {
   const [muted, setMuted] = useState(true);
   const [activeReelId, setActiveReelId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [sharePayload, setSharePayload] = useState<SharedReel | null>(null);
 
   const list = kind === 'restaurant' ? restaurantReels : recipeReels;
 
@@ -791,19 +794,44 @@ export const Reels: React.FC = () => {
     }
   };
 
-  const handleShare = async (reel: Reel) => {
-    const url = `${window.location.origin}/reels?kind=${reel.kind}#${reel.id}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: reel.caption || 'Check out this reel',
-          url,
-        });
-      } else {
-        await navigator.clipboard.writeText(url);
-        showToast('Link copied');
-      }
-    } catch { /* user cancelled — silent */ }
+  // Build the snapshot we hand to the share dialog. Same shape as the chat
+  // message attachment so the recipient's thread can render the rich card.
+  const buildSharedReel = (reel: Reel): SharedReel => {
+    const attachedTitle = reel.kind === 'restaurant'
+      ? (reel.restaurant?.name || 'Untitled')
+      : (reel.recipe?.title || 'Untitled');
+    const attachedSubtitle = reel.kind === 'restaurant'
+      ? [reel.restaurant?.cuisine, reel.restaurant?.price].filter(Boolean).join(' · ') || undefined
+      : reel.recipe
+        ? `${(reel.recipe.prepTime + reel.recipe.cookTime) || 0} min · ${reel.recipe.servings || 0} servings · ${reel.recipe.difficulty}`
+        : undefined;
+    const attachedRoute = reel.kind === 'restaurant' && reel.restaurant
+      ? `/restaurant/${reel.restaurant.id}`
+      : reel.recipe
+        ? `/recipe/${reel.recipe.id}`
+        : '/reels';
+    return {
+      reelId: reel.id,
+      authorId: reel.authorId,
+      authorUsername: reel.authorUsername,
+      authorDisplayName: reel.authorDisplayName,
+      authorAvatarColor: reel.authorAvatarColor,
+      authorInitials: reel.authorInitials,
+      isExpert: reel.isExpert,
+      kind: reel.kind,
+      videoUrl: reel.videoUrl,
+      posterUrl: reel.posterUrl,
+      bgGradient: reel.bgGradient,
+      caption: reel.caption,
+      attachedTitle,
+      attachedSubtitle,
+      attachedImage: reel.kind === 'restaurant' ? reel.restaurant?.image : reel.recipe?.image,
+      attachedRoute,
+    };
+  };
+
+  const handleShare = (reel: Reel) => {
+    setSharePayload(buildSharedReel(reel));
   };
 
   const handleConfirmDelete = async () => {
@@ -963,6 +991,13 @@ export const Reels: React.FC = () => {
 
         {/* Comments panel — slides in from the right of the action column. */}
         <CommentsPanel reelId={openCommentsReelId} onClose={closeCommentsSheet} />
+
+        {/* Share dialog — fixed-position, floats above the layout. */}
+        <ShareReelDialog
+          open={!!sharePayload}
+          reel={sharePayload}
+          onClose={() => setSharePayload(null)}
+        />
       </div>
     );
   }
@@ -972,6 +1007,11 @@ export const Reels: React.FC = () => {
     <div className="relative h-screen w-full bg-black overflow-hidden">
       <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
       {renderFeed({})}
+      <ShareReelDialog
+        open={!!sharePayload}
+        reel={sharePayload}
+        onClose={() => setSharePayload(null)}
+      />
     </div>
   );
 };
