@@ -12,6 +12,7 @@ import { Pantry } from './pages/Pantry';
 import { Circle } from './pages/Circle';
 import { Search } from './pages/Search';
 import { SearchMain } from './pages/SearchMain';
+import { Reels } from './pages/Reels';
 import { RestaurantDetail } from './pages/RestaurantDetail';
 import { Onboarding } from './pages/Onboarding';
 import { BottomNav } from './components/BottomNav';
@@ -28,6 +29,8 @@ import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
 import { AddRecipeModal } from './components/AddRecipeModal';
 import { AddHomeMealModal } from './components/AddHomeMealModal';
+import { AddReelModal } from './components/AddReelModal';
+import { AddPostModal } from './components/AddPostModal';
 import { RecipeModal } from './components/RecipeModal';
 import { RecipeDetail } from './pages/RecipeDetail';
 import { RecipesForYou } from './pages/RecipesForYou';
@@ -44,6 +47,8 @@ import { RestaurantCircleReviews } from './pages/RestaurantCircleReviews';
 import { MealRecipePage } from './pages/MealRecipePage';
 import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
+import { ReelsProvider } from './contexts/ReelsContext';
+import { PostsProvider } from './contexts/PostsContext';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
@@ -65,7 +70,8 @@ function useIsDesktop(): boolean {
 const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/map';
-  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
+  const isReelsPage = location.pathname === '/reels';
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/reels'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
@@ -144,6 +150,7 @@ const AppContent: React.FC = () => {
           <Route path="/circle" element={<Circle />} />
           <Route path="/search" element={<Search />} />
           <Route path="/search/main" element={<SearchMain />} />
+          <Route path="/reels" element={<Reels />} />
           <Route path="/experts" element={<Experts />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/pantry" element={<Pantry />} />
@@ -172,6 +179,8 @@ const AppContent: React.FC = () => {
       <AddRestaurantModal />
       <AddRecipeModal />
       <AddHomeMealModal />
+      <AddReelModal />
+      <AddPostModal />
       <RecipeModal />
     </>
   );
@@ -182,7 +191,7 @@ const AppContent: React.FC = () => {
   // the map page (and on /messages, which has its own chrome) so its
   // chrome doesn't fight the rendered content.
   if (useSidebar) {
-    const hideHeader = isMapPage || location.pathname.startsWith('/messages');
+    const hideHeader = isMapPage || isReelsPage || location.pathname.startsWith('/messages');
     return (
       <div className="min-h-screen bg-surface text-on-surface selection:bg-primary/20 selection:text-primary flex">
         <Sidebar />
@@ -242,7 +251,11 @@ export default function App() {
             <ListsProvider>
               <RecipesProvider>
                 <ChatProvider>
-                  <AppContent />
+                  <ReelsProvider>
+                    <PostsProvider>
+                      <AppContent />
+                    </PostsProvider>
+                  </ReelsProvider>
                 </ChatProvider>
               </RecipesProvider>
             </ListsProvider>

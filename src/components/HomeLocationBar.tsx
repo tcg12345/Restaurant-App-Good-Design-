@@ -88,6 +88,36 @@ export async function geocodePlace(query: string): Promise<HomeLocation | null> 
   }
 }
 
+/**
+ * Mapbox forward-geocoding suggestions for an autocomplete input. Returns
+ * up to 6 results spanning neighborhoods → cities → regions → countries
+ * so the user can pin a post to either a precise spot ("West Village,
+ * Manhattan") or a broader scope ("Italy"). All entries carry lat/lng so
+ * downstream code can store coordinates if it wants to.
+ */
+export async function searchLocations(query: string): Promise<HomeLocation[]> {
+  const q = query.trim();
+  if (!q) return [];
+  try {
+    const res = await fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,district,neighborhood,region,country&limit=6&autocomplete=true`,
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const features: any[] = Array.isArray(data.features) ? data.features : [];
+    return features
+      .filter((f) => Array.isArray(f.center) && f.center.length >= 2)
+      .map((f) => ({
+        label: (f.place_name as string) || (f.text as string) || '',
+        lat: f.center[1] as number,
+        lng: f.center[0] as number,
+      }))
+      .filter((l) => l.label);
+  } catch {
+    return [];
+  }
+}
+
 // Reverse-geocode a coordinate into a street-address label
 // ("123 Main St, San Francisco, CA") using Mapbox. Falls back to the
 // city/locality label if no address feature is returned, and to

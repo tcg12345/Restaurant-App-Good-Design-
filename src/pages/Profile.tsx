@@ -1,12 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon,
+  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useReels } from '../contexts/ReelsContext';
+import { usePosts } from '../contexts/PostsContext';
+import { ProfileReelsSection, ProfilePostsSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../lib/supabase-community';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -50,11 +53,59 @@ export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
   const listsCtx = useLists();
+  const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
+  const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
   const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
+
+  // Reels and posts authored by the signed-in user. Both come from their
+  // respective contexts (loaded once at mount), filtered locally.
+  const myReels = useMemo(
+    () => reels.filter((r) => r.authorId === user?.id),
+    [reels, user?.id],
+  );
+  const myPosts = useMemo(
+    () => posts.filter((p) => p.userId === user?.id),
+    [posts, user?.id],
+  );
+  const [confirmDeleteReelId, setConfirmDeleteReelId] = useState<string | null>(null);
+  const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
+  const [deletingReel, setDeletingReel] = useState(false);
+  const [deletingPost, setDeletingPost] = useState(false);
+  const onConfirmDeleteReel = async () => {
+    if (!confirmDeleteReelId) return;
+    setDeletingReel(true);
+    const ok = await deleteReel(confirmDeleteReelId);
+    setDeletingReel(false);
+    setConfirmDeleteReelId(null);
+    if (!ok) alert("Couldn't delete that reel. Try again.");
+  };
+  const onConfirmDeletePost = async () => {
+    if (!confirmDeletePostId) return;
+    setDeletingPost(true);
+    const ok = await deletePost(confirmDeletePostId);
+    setDeletingPost(false);
+    setConfirmDeletePostId(null);
+    if (!ok) alert("Couldn't delete that post. Try again.");
+  };
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
+  // Create menu — single button under the action row that opens a small
+  // popover offering Post or Reel. Mirrors the desktop sidebar's pattern.
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const createWrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!createMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (createWrapRef.current && !createWrapRef.current.contains(e.target as Node)) {
+        setCreateMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [createMenuOpen]);
 
   const [editName, setEditName] = useState('');
   const [editUsername, setEditUsername] = useState('');
@@ -323,6 +374,68 @@ export const Profile: React.FC = () => {
             </button>
           </div>
 
+          {/* Single Create button — opens a popover with Post and Reel
+              choices (same pattern as the desktop sidebar). */}
+          <div ref={createWrapRef} className="relative mt-2">
+            <button
+              type="button"
+              onClick={() => setCreateMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={createMenuOpen}
+              className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors"
+            >
+              <Plus
+                size={14}
+                strokeWidth={2.5}
+                className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')}
+              />
+              Create
+            </button>
+
+            <AnimatePresence>
+              {createMenuOpen && (
+                <motion.div
+                  role="menu"
+                  initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  transition={{ duration: 0.14, ease: 'easeOut' }}
+                  className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                  >
+                    <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                      <ImageIcon size={16} strokeWidth={2.2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[14px] font-bold leading-tight">Post</span>
+                      <span className="block text-[12px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
+                    </span>
+                  </button>
+                  <div className="border-t border-on-surface/[0.06]" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                  >
+                    <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
+                      <Film size={16} strokeWidth={2.2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[14px] font-bold leading-tight">Reel</span>
+                      <span className="block text-[12px] text-on-surface/50 leading-tight">Single short video</span>
+                    </span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           {/* Badges */}
           <div className="flex flex-wrap gap-1.5 mt-3">
             {profile?.is_expert && (
@@ -409,6 +522,49 @@ export const Profile: React.FC = () => {
           </section>
         )}
 
+        {/* My Posts — multi-item carousels. Compact tile shows the first
+            item's media; a layered chip indicates multi-item posts. */}
+        <ProfilePostsSection
+          posts={myPosts}
+          isOwn
+          onEdit={(id) => openEditPostModal(id)}
+          onDelete={(id) => setConfirmDeletePostId(id)}
+          onToggleVisibility={(id, next) => setPostVisibility(id, next)}
+          trailing={
+            myPosts.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => navigate('/reels?kind=post')}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
+              >
+                Open feed
+                <ChevronRight size={13} />
+              </button>
+            ) : null
+          }
+        />
+
+        {/* My Reels — compact 3-up grid (max 6 visible, see-all to expand). */}
+        <ProfileReelsSection
+          reels={myReels}
+          isOwn
+          onEdit={(id) => openEditReelModal(id)}
+          onDelete={(id) => setConfirmDeleteReelId(id)}
+          onToggleVisibility={(id, next) => setReelVisibility(id, next)}
+          trailing={
+            myReels.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => navigate('/reels')}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
+              >
+                Open feed
+                <ChevronRight size={13} />
+              </button>
+            ) : null
+          }
+        />
+
         {/* Recent — clean divided list, with a See all link routing to the Map's My Ratings mode */}
         {recentRatings.length > 0 && (
           <section>
@@ -492,6 +648,51 @@ export const Profile: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Delete-reel / Delete-post confirmations. Both call into their
+          respective contexts and clean up storage objects. */}
+      <AnimatePresence>
+        {confirmDeleteReelId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center px-6"
+            onClick={() => { if (!deletingReel) setConfirmDeleteReelId(null); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-surface rounded-3xl p-6 max-w-xs w-full text-center"
+            >
+              <h4 className="font-serif font-bold text-on-surface text-lg">Delete reel?</h4>
+              <p className="text-sm text-on-surface/55 mt-1">This permanently removes the video and all of its likes, saves, and comments. It can't be undone.</p>
+              <div className="flex gap-2 mt-5">
+                <button type="button" onClick={() => setConfirmDeleteReelId(null)} disabled={deletingReel} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
+                <button type="button" onClick={onConfirmDeleteReel} disabled={deletingReel} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingReel ? 'Deleting…' : 'Delete'}</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {confirmDeletePostId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center px-6"
+            onClick={() => { if (!deletingPost) setConfirmDeletePostId(null); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-surface rounded-3xl p-6 max-w-xs w-full text-center"
+            >
+              <h4 className="font-serif font-bold text-on-surface text-lg">Delete post?</h4>
+              <p className="text-sm text-on-surface/55 mt-1">This permanently removes every photo / video and the comments. It can't be undone.</p>
+              <div className="flex gap-2 mt-5">
+                <button type="button" onClick={() => setConfirmDeletePostId(null)} disabled={deletingPost} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
+                <button type="button" onClick={onConfirmDeletePost} disabled={deletingPost} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingPost ? 'Deleting…' : 'Delete'}</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Settings Sheet — unified: main, edit profile, account sub-pages */}
       <AnimatePresence>

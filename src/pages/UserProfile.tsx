@@ -6,6 +6,9 @@ import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useReels } from '../contexts/ReelsContext';
+import { usePosts } from '../contexts/PostsContext';
+import { ProfileReelsSection, ProfilePostsSection } from '../components/ProfileReelsSection';
 import {
   getProfileByUsername, getFollowCounts, canViewProfile, getFriends,
   sendFriendRequest, followPublicAccount, getUserRatings, getUserPhotos, getUserLists,
@@ -33,6 +36,8 @@ export const UserProfile: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { ratings: myRatings } = useLists();
+  const { reels } = useReels();
+  const { posts } = usePosts();
   const userId = user?.id ?? null;
 
   const [profile, setProfile] = useState<UserProfileType | null>(null);
@@ -99,72 +104,130 @@ export const UserProfile: React.FC = () => {
     (async () => {
       setLoading(true);
       const p = await getProfileByUsername(username);
-      if (cancelled || !p) { setProfile(p); setLoading(false); return; }
+      if (cancelled) return;
       setProfile(p);
+      // Drop the spinner the moment we have the profile. Every secondary
+      // query (ratings, photos, lists, etc.) backfills its own state and
+      // each section already handles "no data yet" gracefully.
+      setLoading(false);
+      if (!p) return;
 
       const isAuthed = !!userId;
-      const queries: Promise<any>[] = [
-        getFollowCounts(p.user_id),
-        getUserRatings(p.user_id),
-        getUserLists(p.user_id),
-        getUserWishlist(p.user_id),
-        getUserPublicHomeMeals(p.user_id),
-      ];
+
+      // Fire every secondary query in parallel and wire each result to
+      // its own setter as soon as it lands — no global await Promise.all.
+      const fSnapshot: Partial<typeof profileCache[string]> = {
+        profile: p,
+        ratings: [], photos: [], lists: [], wishlistItems: [],
+        publicHomeMeals: [], followers: 0, following: 0,
+        canView: !isAuthed && !!p.is_public, isFollowing: false,
+      };
+      const promises: Promise<void>[] = [];
+
+      promises.push(getFollowCounts(p.user_id).then((counts) => {
+        if (cancelled) return;
+        const c = counts || { followers: 0, following: 0 };
+        setFollowers(c.followers || 0);
+        setFollowing(c.following || 0);
+        fSnapshot.followers = c.followers || 0;
+        fSnapshot.following = c.following || 0;
+      }));
+
+      promises.push(getUserRatings(p.user_id).then((ratings) => {
+        if (cancelled) return;
+        const r = (ratings || []) as CommunityRating[];
+        setUserRatings(r);
+        fSnapshot.ratings = r;
+      }));
+
+      promises.push(getUserLists(p.user_id).then((lists) => {
+        if (cancelled) return;
+        const l = ((lists || []) as any[]).filter((x: any) => x.restaurantIds?.length > 0);
+        setUserLists(l);
+        fSnapshot.lists = l;
+      }));
+
+      promises.push(getUserWishlist(p.user_id).then((wishlist) => {
+        if (cancelled) return;
+        const w = (wishlist || []) as typeof userWishlistItems;
+        setUserWishlistItems(w);
+        fSnapshot.wishlistItems = w;
+      }));
+
+      promises.push(getUserPublicHomeMeals(p.user_id).then((meals) => {
+        if (cancelled) return;
+        const m = (meals || []) as HomeMeal[];
+        setPublicHomeMeals(m);
+        fSnapshot.publicHomeMeals = m;
+      }));
+
       if (isAuthed) {
-        queries.push(canViewProfile(userId!, p));
-        queries.push(getFriends(userId!));
-        queries.push(getUserPhotos(p.user_id));
+        promises.push(canViewProfile(userId!, p).then((viewable) => {
+          if (cancelled) return;
+          const v = !!viewable;
+          setCanView(v);
+          fSnapshot.canView = v;
+        }));
+        promises.push(getFriends(userId!).then((friends) => {
+          if (cancelled) return;
+          const isFollowing = (friends || []).some((f: any) => f.friend_id === p.user_id);
+          setIsFollowing(isFollowing);
+          fSnapshot.isFollowing = isFollowing;
+        }));
+        promises.push(getUserPhotos(p.user_id).then((photos) => {
+          if (cancelled) return;
+          const f = (photos || []) as CommunityPhoto[];
+          setUserPhotos(f);
+          fSnapshot.photos = f;
+        }));
       } else if (p.is_public) {
-        queries.push(Promise.resolve(true));
-        queries.push(Promise.resolve([]));
-        queries.push(getUserPhotos(p.user_id));
+        promises.push(getUserPhotos(p.user_id).then((photos) => {
+          if (cancelled) return;
+          const f = (photos || []) as CommunityPhoto[];
+          setUserPhotos(f);
+          fSnapshot.photos = f;
+        }));
       }
 
-      const results = await Promise.all(queries);
-      if (cancelled) return;
-
-      const [counts, ratings, lists, wishlistItems, pubMeals, viewable, friends, photos] = results;
-      const fCounts = counts as { followers: number; following: number };
-      const fRatings = (ratings || []) as CommunityRating[];
-      const fLists = ((lists || []) as any[]).filter((l: any) => l.restaurantIds?.length > 0);
-      const fPhotos = (photos || []) as CommunityPhoto[];
-      const fCanView = !!viewable;
-      const fIsFollowing = (friends || []).some((f: any) => f.friend_id === p.user_id);
-
-      setFollowers(fCounts.followers || 0);
-      setFollowing(fCounts.following || 0);
-      const fWishlistItems = (wishlistItems || []) as typeof userWishlistItems;
-
-      const fPublicHomeMeals = (pubMeals || []) as HomeMeal[];
-
-      setUserRatings(fRatings);
-      setUserLists(fLists);
-      setUserWishlistItems(fWishlistItems);
-      setPublicHomeMeals(fPublicHomeMeals);
-      setCanView(fCanView);
-      setIsFollowing(fIsFollowing);
-      setUserPhotos(fPhotos);
-
-      // Fetch expert recommendation count if this is an expert
+      // Expert pick count is rare — fire-and-forget so it never blocks.
       if (p.is_expert) {
         getExpertRecommendationCount(p.user_id).then((c) => { if (!cancelled) setExpertRecCount(c); });
       }
 
-      // Save to cache
-      profileCache[cacheKey] = {
-        profile: p, canView: fCanView, followers: fCounts.followers || 0,
-        following: fCounts.following || 0, isFollowing: fIsFollowing,
-        ratings: fRatings, photos: fPhotos, lists: fLists,
-        wishlistItems: fWishlistItems, publicHomeMeals: fPublicHomeMeals, ts: Date.now(),
-      };
-
-      setLoading(false);
+      // Cache once everything settles.
+      Promise.allSettled(promises).then(() => {
+        if (cancelled) return;
+        profileCache[cacheKey] = {
+          profile: p,
+          canView: fSnapshot.canView ?? false,
+          followers: fSnapshot.followers ?? 0,
+          following: fSnapshot.following ?? 0,
+          isFollowing: fSnapshot.isFollowing ?? false,
+          ratings: fSnapshot.ratings ?? [],
+          photos: fSnapshot.photos ?? [],
+          lists: fSnapshot.lists ?? [],
+          wishlistItems: fSnapshot.wishlistItems ?? [],
+          publicHomeMeals: fSnapshot.publicHomeMeals ?? [],
+          ts: Date.now(),
+        };
+      });
     })();
 
     return () => { cancelled = true; };
   }, [username, userId]);
 
   // Shared restaurants
+  // Reels and posts by this profile owner. RLS already filters out
+  // followers-only entries the viewer can't see, so we just match by id.
+  const profileReels = useMemo(
+    () => (profile?.user_id ? reels.filter((r) => r.authorId === profile.user_id) : []),
+    [reels, profile?.user_id],
+  );
+  const profilePosts = useMemo(
+    () => (profile?.user_id ? posts.filter((p) => p.userId === profile.user_id) : []),
+    [posts, profile?.user_id],
+  );
+
   const sharedRestaurants = useMemo(() => {
     if (!canView || !userId || !profile) return [];
     const theyTaggedMe = userRatings.filter((r) => (r.friend_ids || []).includes(userId));
@@ -491,6 +554,19 @@ export const UserProfile: React.FC = () => {
                   })}
                 </div>
               </section>
+            )}
+
+            {/* Posts + reels by this user — read-only grids. RLS already
+                filters out followers-only items the viewer can't see. */}
+            {profilePosts.length > 0 && (
+              <div className="mb-5">
+                <ProfilePostsSection posts={profilePosts} />
+              </div>
+            )}
+            {profileReels.length > 0 && (
+              <div className="mb-5">
+                <ProfileReelsSection reels={profileReels} />
+              </div>
             )}
 
             {/* Search bar + filters button */}

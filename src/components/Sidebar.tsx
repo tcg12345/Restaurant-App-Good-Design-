@@ -1,11 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronsLeft, ChevronsRight, ChevronDown, Heart, ChefHat, Plane, MessageCircle } from 'lucide-react';
+import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, ChevronDown, Heart, ChefHat, Plane, MessageCircle, Film, Image as ImageIcon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
+import { useReels } from '../contexts/ReelsContext';
+import { usePosts } from '../contexts/PostsContext';
 
 /**
  * Desktop-only collapsible sidebar. App.tsx decides when to mount it
@@ -31,7 +33,6 @@ import { useChat } from '../contexts/ChatContext';
  *  └──────────────────┘
  */
 
-const COLLAPSE_KEY = 'gourmad-sidebar-collapsed';
 const PANTRY_OPEN_KEY = 'gourmad-sidebar-pantry-open';
 
 export const SIDEBAR_EXPANDED_WIDTH = 264;
@@ -50,13 +51,46 @@ export const Sidebar: React.FC = () => {
   const { profile } = useAuth();
   const { ratings, lists, wishlist, homeMeals, trips } = useLists();
   const { unreadCount } = useChat();
+  const { openAddReelModal } = useReels();
+  const { openAddPostModal } = usePosts();
 
-  const [collapsed, setCollapsed] = useState<boolean>(() => loadFlag(COLLAPSE_KEY, false));
-  const [pantryOpen, setPantryOpen] = useState<boolean>(() => loadFlag(PANTRY_OPEN_KEY, true));
+  // The rail is always collapsed by default. Hover expands it; leaving
+  // collapses it again. We don't persist this — the rail is hover-driven
+  // every session. A small "leave delay" prevents the rail from snapping
+  // shut when the cursor briefly grazes outside the bounds.
+  const [hovered, setHovered] = useState(false);
+  const [pantryOpen, setPantryOpen] = useState<boolean>(() => loadFlag(PANTRY_OPEN_KEY, false));
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Create menu — small popover anchored to the Create button.
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const createWrapRef = useRef<HTMLDivElement>(null);
+
+  // Keep the rail expanded while a popover or tray inside it is open
+  // (otherwise it'd snap shut underneath the cursor when the user moves
+  // onto a menu item that's anchored to the rail).
+  const collapsed = !(hovered || createMenuOpen);
+
+  const onAsideMouseEnter = () => {
+    if (leaveTimerRef.current) { clearTimeout(leaveTimerRef.current); leaveTimerRef.current = null; }
+    setHovered(true);
+  };
+  const onAsideMouseLeave = () => {
+    if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    leaveTimerRef.current = setTimeout(() => setHovered(false), 120);
+  };
 
   useEffect(() => {
-    try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch {}
-  }, [collapsed]);
+    if (!createMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (createWrapRef.current && !createWrapRef.current.contains(e.target as Node)) {
+        setCreateMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [createMenuOpen]);
+  useEffect(() => { setCreateMenuOpen(false); }, [location.pathname]);
+
   useEffect(() => {
     try { localStorage.setItem(PANTRY_OPEN_KEY, pantryOpen ? '1' : '0'); } catch {}
   }, [pantryOpen]);
@@ -77,6 +111,7 @@ export const Sidebar: React.FC = () => {
 
   const isHomeActive = location.pathname === '/' || location.pathname === '/index.html';
   const isMapActive = location.pathname === '/map';
+  const isReelsActive = location.pathname === '/reels';
   const isPantryActive = location.pathname === '/pantry' || location.pathname.startsWith('/pantry/');
   const isCircleActive = location.pathname === '/circle';
   const isMessagesActive = location.pathname === '/messages' || location.pathname.startsWith('/messages/');
@@ -89,31 +124,6 @@ export const Sidebar: React.FC = () => {
     const sp = new URLSearchParams(location.search);
     return { list: sp.get('list'), view: sp.get('view') };
   }, [isPantryActive, location.search]);
-
-  // Click anywhere blank on the rail (only while collapsed) to expand.
-  const handleAsideClick = (e: React.MouseEvent<HTMLElement>) => {
-    if (!collapsed) return;
-    const target = e.target as HTMLElement | null;
-    if (!target) return;
-    if (target.closest('button, a, [role="button"]')) return;
-    setCollapsed(false);
-  };
-
-  const ToggleButton: React.FC<{ size?: number; className?: string }> = ({ size = 16, className }) => (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c); }}
-      aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      className={cn(
-        'rounded-lg flex items-center justify-center flex-shrink-0',
-        'text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors',
-        className,
-      )}
-    >
-      {collapsed ? <ChevronsRight size={size} /> : <ChevronsLeft size={size} />}
-    </button>
-  );
 
   // Reusable nav-row className for the top-level items.
   const navRowClass = (active: boolean) =>
@@ -145,11 +155,11 @@ export const Sidebar: React.FC = () => {
     <motion.aside
       animate={{ width }}
       transition={{ type: 'spring', damping: 28, stiffness: 280, mass: 0.9 }}
-      onClick={handleAsideClick}
+      onMouseEnter={onAsideMouseEnter}
+      onMouseLeave={onAsideMouseLeave}
       className={cn(
         'h-screen sticky top-0 flex-shrink-0 border-r border-on-surface/[0.07] bg-surface',
         'flex flex-col z-30',
-        collapsed && 'cursor-e-resize',
       )}
       aria-label="Primary"
     >
@@ -168,17 +178,20 @@ export const Sidebar: React.FC = () => {
             </h1>
           )}
         </div>
-        <ToggleButton size={16} className="w-8 h-8" />
       </div>
 
       <div className="border-t border-on-surface/[0.06] mx-3" />
 
-      {/* ── New Rating CTA ─────────────────────────────────────────────── */}
-      <div className={cn('px-3 pt-4 pb-3', collapsed && 'px-2')}>
+      {/* ── Create CTA — single red button that opens a small menu with
+              Post and Reel choices. */}
+      <div ref={createWrapRef} className={cn('relative px-3 pt-4 pb-3', collapsed && 'px-2')}>
         <button
           type="button"
-          onClick={() => navigate('/search/main')}
-          aria-label="New rating"
+          onClick={() => setCreateMenuOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={createMenuOpen}
+          aria-label="Create"
+          title={collapsed ? 'Create' : undefined}
           className={cn(
             'w-full bg-primary text-white rounded-full font-semibold text-sm',
             'flex items-center justify-center gap-2',
@@ -186,9 +199,61 @@ export const Sidebar: React.FC = () => {
             collapsed ? 'h-11 px-0' : 'h-11 px-4',
           )}
         >
-          <Plus size={18} strokeWidth={2.5} />
-          {!collapsed && <span>New Rating</span>}
+          <Plus
+            size={18}
+            strokeWidth={2.5}
+            className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')}
+          />
+          {!collapsed && <span>Create</span>}
         </button>
+
+        <AnimatePresence>
+          {createMenuOpen && (
+            <motion.div
+              role="menu"
+              initial={{ opacity: 0, y: -4, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.97 }}
+              transition={{ duration: 0.14, ease: 'easeOut' }}
+              className={cn(
+                'absolute z-40 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden',
+                collapsed
+                  ? 'left-full top-2 ml-2 min-w-[200px]'
+                  : 'left-3 right-3 top-[calc(100%-0.25rem)]',
+              )}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+              >
+                <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                  <ImageIcon size={16} strokeWidth={2.2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-bold leading-tight">Post</span>
+                  <span className="block text-[12px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
+                </span>
+              </button>
+              <div className="border-t border-on-surface/[0.06]" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+              >
+                <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
+                  <Film size={16} strokeWidth={2.2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-bold leading-tight">Reel</span>
+                  <span className="block text-[12px] text-on-surface/50 leading-tight">Single short video</span>
+                </span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* ── Nav list ───────────────────────────────────────────────────── */}
@@ -207,6 +272,14 @@ export const Sidebar: React.FC = () => {
             <NavLink to="/map" className={navRowClass(isMapActive)} title={collapsed ? 'Map' : undefined}>
               <MapIcon size={20} strokeWidth={isMapActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isMapActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Map</span>}
+            </NavLink>
+          </li>
+
+          {/* Reels */}
+          <li>
+            <NavLink to="/reels" className={navRowClass(isReelsActive)} title={collapsed ? 'Reels' : undefined}>
+              <Film size={20} strokeWidth={isReelsActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isReelsActive ? 'text-on-surface' : 'text-on-surface/65')} />
+              {!collapsed && <span className="truncate">Reels</span>}
             </NavLink>
           </li>
 
@@ -407,19 +480,6 @@ export const Sidebar: React.FC = () => {
             </div>
           )}
         </NavLink>
-        <button
-          type="button"
-          onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className={cn(
-            'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
-            'text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors',
-            collapsed && 'hidden',
-          )}
-        >
-          <ChevronsLeft size={16} />
-        </button>
       </div>
     </motion.aside>
   );

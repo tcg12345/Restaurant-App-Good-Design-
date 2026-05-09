@@ -12,6 +12,7 @@ import { scoreColor } from '../lib/score';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
+import { ShareDialog } from '../components/ShareDialog';
 import { useAuth } from '../contexts/AuthContext';
 import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
 import { priceLevelToString } from '../lib/places';
@@ -110,6 +111,10 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   const [sendToChatOpen, setSendToChatOpen] = useState(false);
   const [chatSent, setChatSent] = useState(false);
+  // Unified share dialog payload — built at click time from `place` + the
+  // viewer's rating. The dialog owns the friends list, multi-select, and
+  // auto-create-chat logic.
+  const [chatShareTarget, setChatShareTarget] = useState<SharedRestaurant | null>(null);
   const [diningFilter, setDiningFilter] = useState<DiningType | 'all'>('all');
   const [addDiningOpen, setAddDiningOpen] = useState(false);
   const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
@@ -497,7 +502,21 @@ export const RestaurantDetailDesktop: React.FC = () => {
           )}
           <button
             type="button"
-            onClick={() => setSendToChatOpen(true)}
+            onClick={() => setChatShareTarget({
+              restaurantId: place.id,
+              name: place.name,
+              image: place.photoUrl || '',
+              cuisine,
+              price: priceStr,
+              address: place.fullAddress || place.address,
+              ...(myRating ? {
+                score: myRating.score,
+                notes: myRating.notes,
+                wouldReturn: myRating.wouldReturn,
+                tags: myRating.tags,
+                isReview: true,
+              } : { isReview: false }),
+            })}
             className="flex flex-col items-center gap-2 hover:opacity-70 transition-opacity"
           >
             <span className="w-14 h-14 rounded-full border border-on-surface/15 flex items-center justify-center">
@@ -755,7 +774,21 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   </p>
                   <button
                     type="button"
-                    onClick={() => setSendToChatOpen(true)}
+                    onClick={() => setChatShareTarget({
+              restaurantId: place.id,
+              name: place.name,
+              image: place.photoUrl || '',
+              cuisine,
+              price: priceStr,
+              address: place.fullAddress || place.address,
+              ...(myRating ? {
+                score: myRating.score,
+                notes: myRating.notes,
+                wouldReturn: myRating.wouldReturn,
+                tags: myRating.tags,
+                isReview: true,
+              } : { isReview: false }),
+            })}
                     className="mt-2 text-sm font-semibold text-primary hover:opacity-70 transition-opacity"
                   >
                     Share with a friend
@@ -1506,91 +1539,13 @@ export const RestaurantDetailDesktop: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* ── Send to Chat Sheet ── */}
-      <AnimatePresence>
-        {sendToChatOpen && (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[70]" onClick={() => setSendToChatOpen(false)} />
-            <motion.div
-              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 z-[70] bg-surface rounded-t-3xl flex flex-col overflow-hidden max-h-[60vh]"
-            >
-              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-on-surface/6 flex-shrink-0">
-                <h3 className="font-serif font-bold text-lg">Send to Chat</h3>
-                <button onClick={() => setSendToChatOpen(false)} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
-                  <X size={16} className="text-on-surface/60" />
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto px-5 pb-5">
-                {conversations.length === 0 ? (
-                  <div className="text-center py-12">
-                    <MessageCircle size={28} className="mx-auto text-on-surface/15 mb-2" />
-                    <p className="text-sm text-on-surface/35">No conversations yet</p>
-                    <button onClick={() => { setSendToChatOpen(false); navigate('/messages'); }}
-                      className="mt-3 text-primary text-xs font-semibold">Go to Messages</button>
-                  </div>
-                ) : (
-                  <div className="space-y-1 pt-2">
-                    <div className="flex gap-2 mb-3">
-                      <span className="text-xs font-bold uppercase tracking-widest text-on-surface/35 self-center">Sharing:</span>
-                      <span className="text-[13px] font-semibold text-on-surface/60 truncate">{place.name}</span>
-                      {myRating && <span className="text-xs text-green-500 font-semibold self-center">+ Your Review</span>}
-                    </div>
-                    {conversations.map((conv) => (
-                      <button key={conv.id}
-                        onClick={() => {
-                          const shared: SharedRestaurant = {
-                            restaurantId: place.id,
-                            name: place.name,
-                            image: place.photoUrl || '',
-                            cuisine,
-                            price: priceStr,
-                            address: place.fullAddress || place.address,
-                            ...(myRating ? {
-                              score: myRating.score,
-                              notes: myRating.notes,
-                              wouldReturn: myRating.wouldReturn,
-                              tags: myRating.tags,
-                              isReview: true,
-                            } : { isReview: false }),
-                          };
-                          sendMessage(conv.id, '', shared);
-                          setChatSent(true);
-                          setTimeout(() => { setChatSent(false); setSendToChatOpen(false); }, 1200);
-                        }}
-                        className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-on-surface/3 transition-colors text-left">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                          {conv.isGroup
-                            ? <Users size={14} className="text-primary" />
-                            : <span className="text-sm font-bold text-primary">{(conv.name || 'C').charAt(0).toUpperCase()}</span>
-                          }
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-on-surface/70 truncate">{conv.name || 'Direct Message'}</p>
-                        </div>
-                        <Send size={14} className="text-on-surface/25" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <AnimatePresence>
-                {chatSent && (
-                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                    className="absolute inset-0 bg-surface/95 flex flex-col items-center justify-center rounded-t-3xl">
-                    <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-3">
-                      <Check size={28} className="text-green-500" />
-                    </div>
-                    <p className="text-sm font-semibold text-on-surface/70">Sent!</p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+      {/* Unified share dialog — friends list, multi-select, auto-creates
+          chats. Old "Send to Chat" inline sheet replaced by this. */}
+      <ShareDialog
+        open={!!chatShareTarget}
+        payload={chatShareTarget ? { sharedRestaurant: chatShareTarget } : null}
+        onClose={() => setChatShareTarget(null)}
+      />
 
       {/* Add Hotel Dining Modal */}
       {place && isHotel && user?.id && (

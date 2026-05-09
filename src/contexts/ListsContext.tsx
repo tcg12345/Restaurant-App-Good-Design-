@@ -367,7 +367,14 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  // Swallow QuotaExceededError (and any other localStorage failures) so they
+  // don't propagate out of setState updaters and crash the page render. The
+  // cloud sync layer is the source of truth — local persistence is best-effort.
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn(`[ListsContext] saveToStorage(${key}) failed:`, err);
+  }
 }
 
 const DEFAULT_LISTS: CustomList[] = [
@@ -388,11 +395,27 @@ function migrateLists(lists: CustomList[]): CustomList[] {
 
 // Strips stale Google Places photo URLs cached on RestaurantMeta entries
 // before photo fetching was disabled — see migrateRatings comment.
+//
+// Pass through any "__"-prefixed keys unmodified — those are stash slots
+// for fallback data (home meals, trips, custom order, my-meal-reviews)
+// stored *inside* restaurant_meta. They aren't real RestaurantMeta
+// entries, so applying the {...v, image: safeImage(v.image)} treatment
+// would corrupt them — for example, spreading a HomeMeal[] array into
+// an object literal turns it into {0: meal0, 1: meal1, …, image: undef},
+// which Array.isArray() then rejects on the next load and the fallback
+// silently returns []. That's how home cooking entries used to vanish
+// after the meta JSONB got rewritten for any other reason.
 function migrateMeta(meta: Record<string, RestaurantMeta> | null | undefined): Record<string, RestaurantMeta> {
   if (!meta || typeof meta !== 'object') return {};
   const out: Record<string, RestaurantMeta> = {};
   for (const [k, v] of Object.entries(meta)) {
-    if (v && typeof v === 'object') out[k] = { ...v, image: safeImage(v.image) };
+    if (v == null) continue;
+    if (k.startsWith('__')) {
+      // Stash slot — preserve the value as-is.
+      out[k] = v as RestaurantMeta;
+      continue;
+    }
+    if (typeof v === 'object') out[k] = { ...v, image: safeImage(v.image) };
   }
   return out;
 }
@@ -493,7 +516,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setCustomOrderState([]);
       setHomeMeals([]);
     }
-    localStorage.setItem('gourmad-user-id', userId);
+    try { localStorage.setItem('gourmad-user-id', userId); } catch { /* quota — best-effort */ }
 
     let cancelled = false;
 
@@ -562,14 +585,26 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const metaHomeMeals = Array.isArray((cloudMeta as Record<string, unknown>).__home_meals__)
           ? ((cloudMeta as Record<string, unknown>).__home_meals__ as HomeMeal[])
           : [];
-        const cloudHomeMeals = migrateHomeMeals(
-          rawCloudHomeMeals.length > 0
-            ? rawCloudHomeMeals
-            : metaHomeMeals.length > 0
-              ? metaHomeMeals
-              : localHomeMeals.length > 0 ? localHomeMeals : []
-        );
-        const homeMealsUsedLocalFallback = rawCloudHomeMeals.length === 0 && metaHomeMeals.length === 0 && localHomeMeals.length > 0;
+        // Pick the strongest available source first (column → meta → local),
+        // then *union* with localStorage so freshly-created entries that
+        // haven't yet round-tripped to the cloud aren't wiped out by an
+        // older cloud snapshot. Cloud wins on id conflicts (so an edit on
+        // another device beats a stale local copy); brand-new local-only
+        // entries survive.
+        const baseCloudHomeMeals: HomeMeal[] = rawCloudHomeMeals.length > 0
+          ? rawCloudHomeMeals
+          : metaHomeMeals.length > 0
+            ? metaHomeMeals
+            : [];
+        const mergedById = new Map<string, HomeMeal>();
+        for (const m of localHomeMeals) if (m && m.id) mergedById.set(m.id, m);
+        for (const m of baseCloudHomeMeals) if (m && m.id) mergedById.set(m.id, m);
+        const cloudHomeMeals = migrateHomeMeals(Array.from(mergedById.values()));
+        // We need to push back to cloud whenever local had something cloud
+        // didn't — that's how the unioned set lands in the dedicated column.
+        const localOnlyIds = localHomeMeals.filter((m) => m && m.id && !baseCloudHomeMeals.some((c) => c.id === m.id));
+        const homeMealsUsedLocalFallback = localOnlyIds.length > 0
+          || (rawCloudHomeMeals.length === 0 && metaHomeMeals.length === 0 && localHomeMeals.length > 0);
 
         // Reconcile: ensure every rating's listIds are reflected in
         // list.restaurantIds (fixes data drift where ratings exist but
@@ -601,7 +636,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_CUSTOM_ORDER, cloudCustomOrder);
         saveToStorage(STORAGE_KEY_HOME_MEALS, cloudHomeMeals);
         if (cloudRecentViews.length > 0) {
-          localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews));
+          try { localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews)); } catch { /* quota — best-effort */ }
         }
 
         // If we used local fallback data (cloud was empty but local had content), or lists were reconciled, save back to cloud

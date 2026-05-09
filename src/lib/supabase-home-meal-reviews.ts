@@ -20,6 +20,12 @@ export interface HomeMealReview {
   updatedAt: string;
 }
 
+// recipe_reviews.recipe_id is a UUID column. Local home-meal ids like
+// "meal-1777659500373-zohzwnt" aren't UUIDs, and PostgREST returns 400 for
+// them. Use this guard before any supabase call that filters by recipe_id.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (v: string): boolean => UUID_RE.test(v);
+
 const rowToHomeMealReview = (row: Record<string, unknown>): HomeMealReview => ({
   id: (row.id as string) || '',
   userId: (row.user_id as string) || '',
@@ -88,9 +94,10 @@ export async function upsertHomeMealReview(
   if (!supabaseConfigured || !userId || !mealId) return null;
 
   const now = new Date().toISOString();
+  const canUseTable = isUuid(mealId);
 
-  // Try the dedicated table first.
-  try {
+  // Try the dedicated table first (only for UUID-shaped ids — the column is uuid).
+  if (canUseTable) try {
     const { data: row, error } = await supabase.from('recipe_reviews')
       .upsert({
         user_id: userId,
@@ -134,7 +141,7 @@ export async function deleteHomeMealReview(
   mealId: string,
 ): Promise<boolean> {
   if (!supabaseConfigured || !userId || !mealId) return false;
-  try {
+  if (isUuid(mealId)) try {
     await supabase.from('recipe_reviews')
       .delete()
       .eq('user_id', userId)
@@ -172,8 +179,9 @@ export async function getHomeMealReviews(
   if (!supabaseConfigured || !mealId) return [];
   const byUser = new Map<string, HomeMealReview>();
 
-  // 1. Dedicated table (preferred — wins on duplicates).
-  try {
+  // 1. Dedicated table (preferred — wins on duplicates). Skip when the id
+  //    isn't UUID-shaped — the column is uuid and PostgREST returns 400.
+  if (isUuid(mealId)) try {
     const { data, error } = await supabase.from('recipe_reviews')
       .select('*')
       .eq('recipe_id', mealId)
@@ -229,8 +237,8 @@ export async function getMyHomeMealReview(
 ): Promise<HomeMealReview | null> {
   if (!supabaseConfigured || !userId || !mealId) return null;
 
-  // Try the dedicated table.
-  try {
+  // Try the dedicated table — only for UUID-shaped ids (column is uuid).
+  if (isUuid(mealId)) try {
     const { data, error } = await supabase.from('recipe_reviews')
       .select('*')
       .eq('user_id', userId)
@@ -278,11 +286,16 @@ export async function getReviewSummariesBatch(
   // Map: mealId → (userId → rating). Table entries win on duplicates.
   const perMeal: Record<string, Map<string, number>> = {};
 
+  // recipe_reviews.recipe_id is a UUID column — non-UUID ids (e.g. local
+  // "meal-…" ids that haven't been published) make the .in() filter return a
+  // 400 from PostgREST. Filter to UUID-shaped ids before querying.
+  const tableMealIds = mealIds.filter(isUuid);
+
   // 1. Table.
-  try {
+  if (tableMealIds.length > 0) try {
     const { data, error } = await supabase.from('recipe_reviews')
       .select('recipe_id, user_id, rating')
-      .in('recipe_id', mealIds);
+      .in('recipe_id', tableMealIds);
     if (!error && data) {
       for (const row of data) {
         const meal = row.recipe_id as string;
