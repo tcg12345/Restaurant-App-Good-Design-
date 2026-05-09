@@ -664,6 +664,148 @@ const WishlistRow: React.FC<{
   );
 };
 
+/* ── Wishlist grid card (desktop) ────────────────────────────────────
+   Editorial info-card mirroring RestaurantGridCard's no-image layout
+   but tuned for the wishlist context: no numeric score, a small filled
+   heart in the top-right slot instead, italic notes, location pin +
+   city · distance footer with a Remove icon button. Same hover lift
+   so a mixed grid of rated + wishlisted tiles feels coherent. ── */
+const WishlistGridCard: React.FC<{
+  restaurantId: string;
+  name: string;
+  image: string;
+  cuisine: string;
+  price: string;
+  address?: string;
+  notes?: string;
+  onRemove?: () => void;
+}> = ({ restaurantId, name, image, cuisine, price, address, notes, onRemove }) => {
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement | null>(null);
+  const { restaurantMeta } = useLists();
+  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine;
+  const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
+
+  const meta = restaurantMeta[restaurantId];
+  const fullAddress = address || meta?.address || '';
+  const locationLabel = fullAddress ? extractCityState(fullAddress, fullAddress) : '';
+  const distanceLabel = useMemo(() => {
+    const home = loadLastSelectedLocation();
+    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
+    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
+    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
+  }, [meta?.lat, meta?.lng]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [moreOpen]);
+
+  return (
+    <div className="group relative">
+      <Link
+        to={`/restaurant/${restaurantId}`}
+        className={cn(
+          'block rounded-2xl bg-white border border-on-surface/[0.07]',
+          'p-5 transition-all duration-200',
+          'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
+        )}
+      >
+        {/* Top row: name + heart accent */}
+        <div className="flex items-start justify-between gap-4">
+          <h3 className="font-serif font-bold text-[22px] leading-tight tracking-tight text-on-surface line-clamp-2 min-w-0">
+            {name}
+          </h3>
+          <span className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
+            <Heart size={15} className="fill-red-400" />
+          </span>
+        </div>
+
+        {/* Cuisine · price */}
+        {(cuisineLabel || showPrice) && (
+          <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
+            {cuisineLabel}
+            {cuisineLabel && showPrice ? ' · ' : ''}
+            {showPrice && price}
+          </p>
+        )}
+
+        {/* Italic notes / quote — same treatment as the rated card */}
+        {notes && (
+          <p className="mt-4 text-[14px] leading-relaxed italic text-on-surface/75 line-clamp-3">
+            {notes}
+          </p>
+        )}
+
+        {/* Hairline + footer: location · distance | actions */}
+        <div className="mt-4 border-t border-on-surface/[0.07]" />
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0 text-[12.5px] text-on-surface/55">
+            <MapPin size={13} className="flex-shrink-0 text-on-surface/40" />
+            <span className="truncate">
+              {locationLabel || 'Location unavailable'}
+              {locationLabel && distanceLabel ? ` · ${distanceLabel}` : ''}
+            </span>
+          </div>
+          {onRemove && (
+            <div className="relative" ref={moreRef}>
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
+                aria-label="More options"
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
+                className={cn(
+                  'w-8 h-8 rounded-full flex items-center justify-center transition-colors',
+                  moreOpen
+                    ? 'text-on-surface bg-on-surface/[0.06]'
+                    : 'text-on-surface/35 hover:text-on-surface hover:bg-on-surface/[0.05]',
+                )}
+              >
+                <MoreHorizontal size={15} />
+              </button>
+              <AnimatePresence>
+                {moreOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                    role="menu"
+                    className="absolute right-0 top-full mt-1.5 z-30 min-w-[180px] rounded-xl bg-white border border-on-surface/[0.08] shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)] py-1 overflow-hidden"
+                  >
+                    <button
+                      role="menuitem"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmRemove(true); }}
+                      className="w-full px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <Trash2 size={13} /> Remove from wishlist
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+      </Link>
+
+      {confirmRemove && (
+        <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-3 p-4">
+          <p className="text-sm text-on-surface/70 font-medium text-center">Remove from wishlist?</p>
+          <div className="flex gap-2">
+            <button onClick={() => setConfirmRemove(false)} className="px-4 py-2 text-xs font-semibold text-on-surface/55 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10">Cancel</button>
+            <button onClick={() => { if (onRemove) onRemove(); }} className="px-4 py-2 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Remove</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── Grid card for desktop grid view ── */
 const RestaurantGridCard: React.FC<{
   restaurantId: string;
@@ -1720,21 +1862,39 @@ const ListDetailView: React.FC<{
                 <Heart size={14} className="text-red-400" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
-              <div className="divide-y divide-on-surface/[0.06]">
-                {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
-                  <WishlistRow
-                    key={id}
-                    restaurantId={id}
-                    name={info?.name ?? id}
-                    image={info?.image ?? ''}
-                    cuisine={info?.cuisine ?? ''}
-                    price={info?.price ?? ''}
-                    address={info?.address}
-                    notes={wishItem?.notes}
-                    onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
-                  />
-                ))}
-              </div>
+              {viewMode === 'grid' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6">
+                  {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
+                    <WishlistGridCard
+                      key={id}
+                      restaurantId={id}
+                      name={info?.name ?? id}
+                      image={info?.image ?? ''}
+                      cuisine={info?.cuisine ?? ''}
+                      price={info?.price ?? ''}
+                      address={info?.address}
+                      notes={wishItem?.notes}
+                      onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="divide-y divide-on-surface/[0.06]">
+                  {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
+                    <WishlistRow
+                      key={id}
+                      restaurantId={id}
+                      name={info?.name ?? id}
+                      image={info?.image ?? ''}
+                      cuisine={info?.cuisine ?? ''}
+                      price={info?.price ?? ''}
+                      address={info?.address}
+                      notes={wishItem?.notes}
+                      onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {/* Add more button — hidden in the synthetic Wishlist view because
