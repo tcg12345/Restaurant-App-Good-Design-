@@ -12,7 +12,7 @@ import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaura
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate } from 'react-router-dom';
-import { searchHotels, searchPlacesByText, type PlaceResult } from '../lib/places';
+import { searchHotels, searchPlacesByText, extractCityState, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useAuth } from '../contexts/AuthContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
@@ -1165,6 +1165,25 @@ const ListDetailView: React.FC<{
   const isHotelBreakfast = list.type === 'hotel-breakfast';
   const isHomeCooking = list.type === 'home-cooking';
 
+  // ── Wishlist-only filter state ─────────────────────────────────────
+  // Lives on ListView (not the global page) so the sheet's selections
+  // reset cleanly when the user closes the view.
+  const [wishlistFilterOpen, setWishlistFilterOpen] = useState(false);
+  const [wishlistSort, setWishlistSort] = useState<WishlistSort>('recent');
+  const [wishlistCuisineFilter, setWishlistCuisineFilter] = useState<string[]>([]);
+  const [wishlistCityFilter, setWishlistCityFilter] = useState<string[]>([]);
+  const [wishlistPriceFilter, setWishlistPriceFilter] = useState<string | null>(null);
+  const wishlistActiveFilterCount =
+    (wishlistCuisineFilter.length > 0 ? 1 : 0) +
+    (wishlistCityFilter.length > 0 ? 1 : 0) +
+    (wishlistPriceFilter ? 1 : 0);
+  const resetWishlistFilters = () => {
+    setWishlistCuisineFilter([]);
+    setWishlistCityFilter([]);
+    setWishlistPriceFilter(null);
+    setWishlistSort('recent');
+  };
+
   const recipes = getRecipes(list.id);
   const filteredRecipes = useMemo(() => {
     if (!searchQuery.trim()) return recipes;
@@ -1185,17 +1204,85 @@ const ListDetailView: React.FC<{
     return info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q);
   });
 
-  const wishlistedRestaurants = isHotelBreakfast
+  const wishlistedRestaurantsRaw = isHotelBreakfast
     ? wishlist.filter((w) => w.cuisine === 'Hotel Breakfast').map((w) => ({
         id: w.restaurantId,
         info: getRestaurantInfo(w.restaurantId) || { id: w.restaurantId, name: w.name, image: w.image, cuisine: w.cuisine, price: w.price, address: w.address },
         wishItem: w,
       }))
-    : (list.wishlistIds || []).map((id) => {
-        const info = getRestaurantInfo(id);
-        const wishItem = wishlist.find((w) => w.restaurantId === id);
-        return { id, info, wishItem };
-      }).filter(({ info }) => info);
+    : isWishlistView
+      // Drive the global wishlist view directly off the wishlist array so
+      // recently-toggled hearts show up immediately, in the order the user
+      // added them. The synthetic list only has wishlistIds, which loses
+      // the addedAt timestamp we need for sort.
+      ? wishlist.filter((w) => w.cuisine !== 'Hotel Breakfast').map((w) => ({
+          id: w.restaurantId,
+          info: getRestaurantInfo(w.restaurantId) || { id: w.restaurantId, name: w.name, image: w.image, cuisine: w.cuisine, price: w.price, address: w.address },
+          wishItem: w,
+        }))
+      : (list.wishlistIds || []).map((id) => {
+          const info = getRestaurantInfo(id);
+          const wishItem = wishlist.find((w) => w.restaurantId === id);
+          return { id, info, wishItem };
+        }).filter(({ info }) => info);
+
+  // Filter + sort options pulled from the actual wishlist contents, so
+  // the sheet only ever offers cuisines / cities the user has saved.
+  const wishlistAllCuisines = useMemo(() => {
+    if (!isWishlistView) return [] as string[];
+    const set = new Set<string>();
+    wishlistedRestaurantsRaw.forEach(({ info }) => { if (info?.cuisine) set.add(info.cuisine); });
+    return Array.from(set).sort();
+  }, [isWishlistView, wishlistedRestaurantsRaw]);
+  const wishlistAllCities = useMemo(() => {
+    if (!isWishlistView) return [] as string[];
+    const set = new Set<string>();
+    wishlistedRestaurantsRaw.forEach(({ info }) => {
+      const c = extractCityState(info?.address || '', info?.address || '');
+      if (c) set.add(c);
+    });
+    return Array.from(set).sort();
+  }, [isWishlistView, wishlistedRestaurantsRaw]);
+
+  const wishlistedRestaurants = useMemo(() => {
+    if (!isWishlistView) return wishlistedRestaurantsRaw;
+    let out = wishlistedRestaurantsRaw;
+    if (wishlistCuisineFilter.length > 0) {
+      out = out.filter(({ info }) => info?.cuisine && wishlistCuisineFilter.includes(info.cuisine));
+    }
+    if (wishlistCityFilter.length > 0) {
+      out = out.filter(({ info }) => {
+        const c = extractCityState(info?.address || '', info?.address || '');
+        return c && wishlistCityFilter.includes(c);
+      });
+    }
+    if (wishlistPriceFilter) {
+      out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
+    }
+    const sorted = [...out];
+    sorted.sort((a, b) => {
+      switch (wishlistSort) {
+        case 'oldest': return (a.wishItem?.addedAt ?? 0) - (b.wishItem?.addedAt ?? 0);
+        case 'name-asc': return (a.info?.name || '').localeCompare(b.info?.name || '');
+        case 'name-desc': return (b.info?.name || '').localeCompare(a.info?.name || '');
+        case 'recent':
+        default: return (b.wishItem?.addedAt ?? 0) - (a.wishItem?.addedAt ?? 0);
+      }
+    });
+    return sorted;
+  }, [isWishlistView, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistSort]);
+
+  // Apply the search input on top of the filter pipeline (wishlist view
+  // only — the rated and hotel-breakfast paths already filter above).
+  const wishlistedRestaurantsFinal = useMemo(() => {
+    if (!isWishlistView || !searchQuery.trim()) return wishlistedRestaurants;
+    const q = searchQuery.toLowerCase();
+    return wishlistedRestaurants.filter(({ info }) =>
+      (info?.name || '').toLowerCase().includes(q) ||
+      (info?.cuisine || '').toLowerCase().includes(q) ||
+      (info?.address || '').toLowerCase().includes(q),
+    );
+  }, [isWishlistView, wishlistedRestaurants, searchQuery]);
 
   const totalCount = isHomeCooking ? recipes.length : list.restaurantIds.length + (list.wishlistIds?.length || 0);
 
@@ -1222,6 +1309,26 @@ const ListDetailView: React.FC<{
           className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
           <Search size={18} />
         </button>
+        {isWishlistView && (
+          <button
+            onClick={() => setWishlistFilterOpen(true)}
+            className={cn(
+              "relative p-2 rounded-full transition-colors",
+              wishlistActiveFilterCount > 0
+                ? "text-primary bg-primary/10"
+                : "text-on-surface/40 hover:text-on-surface hover:bg-on-surface/5",
+            )}
+            aria-label="Filter wishlist"
+            title="Filter wishlist"
+          >
+            <SlidersHorizontal size={17} />
+            {wishlistActiveFilterCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center ring-2 ring-surface">
+                {wishlistActiveFilterCount}
+              </span>
+            )}
+          </button>
+        )}
         {!isWishlistView && (
           <button onClick={handlePlusClick}
             className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title={isHomeCooking ? "Add recipe" : isHotelBreakfast ? "Add hotel" : "Add restaurants"}>
@@ -1385,15 +1492,32 @@ const ListDetailView: React.FC<{
             </div>
           )}
 
+          {/* No-matches empty state — wishlist view only, when filters/search hide everything */}
+          {isWishlistView && wishlistedRestaurantsRaw.length > 0 && wishlistedRestaurantsFinal.length === 0 && (
+            <div className="text-center py-12">
+              <SlidersHorizontal size={28} className="mx-auto text-on-surface/15 mb-3" />
+              <p className="text-sm font-medium text-on-surface/40">No matches</p>
+              <p className="text-xs text-on-surface/30 mt-1">Try adjusting your filters or search</p>
+              {wishlistActiveFilterCount > 0 && (
+                <button
+                  onClick={resetWishlistFilters}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-primary bg-primary/10 rounded-full hover:bg-primary/15 transition-colors"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Wishlist section */}
-          {wishlistedRestaurants.length > 0 && (
+          {wishlistedRestaurantsFinal.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Heart size={14} className="text-red-400" />
-                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurants.length})</h3>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
               <div className="divide-y divide-on-surface/[0.06]">
-                {wishlistedRestaurants.map(({ id, info, wishItem }) => (
+                {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
                   <WishlistRow
                     key={id}
                     restaurantId={id}
@@ -1408,11 +1532,14 @@ const ListDetailView: React.FC<{
               </div>
             </div>
           )}
-          {/* Add more button */}
-          <button onClick={handlePlusClick}
-            className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
-            <Plus size={16} /><span className="text-sm font-semibold">{isHotelBreakfast ? 'Add Hotel' : 'Add Restaurants'}</span>
-          </button>
+          {/* Add more button — hidden in the synthetic Wishlist view because
+              the heart icons across the app are how you add to the wishlist. */}
+          {!isWishlistView && (
+            <button onClick={handlePlusClick}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
+              <Plus size={16} /><span className="text-sm font-semibold">{isHotelBreakfast ? 'Add Hotel' : 'Add Restaurants'}</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1424,6 +1551,24 @@ const ListDetailView: React.FC<{
         }}
       />
       <AddHotelBreakfastModal open={hotelModalOpen} onClose={() => setHotelModalOpen(false)} listId={list.id} />
+      {isWishlistView && (
+        <WishlistFilterSheet
+          open={wishlistFilterOpen}
+          onClose={() => setWishlistFilterOpen(false)}
+          sortBy={wishlistSort}
+          onSortBy={setWishlistSort}
+          cuisineFilter={wishlistCuisineFilter}
+          onCuisineFilter={setWishlistCuisineFilter}
+          cityFilter={wishlistCityFilter}
+          onCityFilter={setWishlistCityFilter}
+          priceFilter={wishlistPriceFilter}
+          onPriceFilter={setWishlistPriceFilter}
+          allCuisines={wishlistAllCuisines}
+          allCities={wishlistAllCities}
+          onReset={resetWishlistFilters}
+          activeCount={wishlistActiveFilterCount}
+        />
+      )}
     </div>
   );
 };
@@ -1608,6 +1753,274 @@ const FilterSheet: React.FC<{
                 className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors">Reset</button>
               <button onClick={onClose}
                 className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25">Apply</button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+/* ── Wishlist filter sheet ──────────────────────────────────────────────
+   Drag-to-dismiss bottom sheet tailored to the wishlist view: sort by
+   recency / name, filter by cuisine, price, and city. Cuisine + city are
+   collapsible and searchable so the sheet stays compact even with long
+   collections. Backdrop fades in, panel springs up. Same animation feel
+   as FilterSheet above so the two share muscle memory. ──────────────── */
+export type WishlistSort = 'recent' | 'oldest' | 'name-asc' | 'name-desc';
+
+const WishlistFilterSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  sortBy: WishlistSort;
+  onSortBy: (v: WishlistSort) => void;
+  cuisineFilter: string[];
+  onCuisineFilter: (v: string[]) => void;
+  cityFilter: string[];
+  onCityFilter: (v: string[]) => void;
+  priceFilter: string | null;
+  onPriceFilter: (v: string | null) => void;
+  allCuisines: string[];
+  allCities: string[];
+  onReset: () => void;
+  activeCount: number;
+}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, allCuisines, allCities, onReset, activeCount }) => {
+  const { phoneMode } = useSettings();
+  const [cuisineOpen, setCuisineOpen] = useState(false);
+  const [cityOpen, setCityOpen] = useState(false);
+  const [cuisineSearch, setCuisineSearch] = useState('');
+  const [citySearch, setCitySearch] = useState('');
+
+  const filteredCuisines = cuisineSearch.trim()
+    ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase()))
+    : allCuisines;
+  const filteredCities = citySearch.trim()
+    ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase()))
+    : allCities;
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="fixed inset-0 bg-black/45 backdrop-blur-md z-[120]"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 320, mass: 0.9 }}
+            drag={phoneMode ? 'y' : false}
+            dragConstraints={{ top: 0 }}
+            dragElastic={{ top: 0, bottom: 0.4 }}
+            onDragEnd={(_: any, info: any) => { if (info.offset.y > 90 || info.velocity.y > 350) onClose(); }}
+            className={cn(
+              "fixed bottom-0 left-0 right-0 z-[120] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+              "shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]",
+              phoneMode ? "h-[88vh]" : "max-h-[78vh] sm:max-w-md sm:left-1/2 sm:-translate-x-1/2 sm:rounded-3xl sm:bottom-6"
+            )}
+          >
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
+              <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-on-surface/[0.06] flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
+                  <SlidersHorizontal size={15} />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-lg leading-tight">Filter wishlist</h3>
+                  {activeCount > 0 && (
+                    <p className="text-[11px] text-on-surface/45 font-medium">
+                      {activeCount} active filter{activeCount === 1 ? '' : 's'}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+              >
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              {/* Sort */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    ['recent', 'Recently Added'],
+                    ['oldest', 'Oldest First'],
+                    ['name-asc', 'Name A–Z'],
+                    ['name-desc', 'Name Z–A'],
+                  ] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => onSortBy(key)}
+                      className={cn(
+                        "px-3.5 py-2 rounded-full text-xs font-semibold transition-all",
+                        sortBy === key
+                          ? "bg-primary text-white shadow-sm shadow-primary/20"
+                          : "bg-on-surface/5 text-on-surface/55 hover:bg-on-surface/10",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Price */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Price</p>
+                <div className="flex gap-2">
+                  {['$', '$$', '$$$', '$$$$'].map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => onPriceFilter(priceFilter === p ? null : p)}
+                      className={cn(
+                        "flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border-2",
+                        priceFilter === p
+                          ? "border-primary bg-primary/5 text-primary"
+                          : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20",
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cuisine */}
+              <div>
+                <button onClick={() => setCuisineOpen(!cuisineOpen)} className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
+                    {cuisineFilter.length > 0 && (
+                      <span className="text-[10px] font-semibold text-primary truncate">{cuisineFilter.join(', ')}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {cuisineFilter.length > 0 && (
+                      <button onClick={(e) => { e.stopPropagation(); onCuisineFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>
+                    )}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cuisineOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence initial={false}>
+                  {cuisineOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="relative mb-2">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                        <input
+                          type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)}
+                          placeholder="Search cuisines..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filteredCuisines.map((c) => {
+                          const on = cuisineFilter.includes(c);
+                          return (
+                            <button
+                              key={c}
+                              onClick={() => onCuisineFilter(on ? cuisineFilter.filter((x) => x !== c) : [...cuisineFilter, c])}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                                on ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/55 hover:border-on-surface/20",
+                              )}
+                            >
+                              {c}
+                            </button>
+                          );
+                        })}
+                        {filteredCuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* City */}
+              <div>
+                <button onClick={() => setCityOpen(!cityOpen)} className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
+                    {cityFilter.length > 0 && (
+                      <span className="text-[10px] font-semibold text-primary truncate">{cityFilter.join(', ')}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {cityFilter.length > 0 && (
+                      <button onClick={(e) => { e.stopPropagation(); onCityFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>
+                    )}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cityOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence initial={false}>
+                  {cityOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="relative mb-2">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                        <input
+                          type="text" value={citySearch} onChange={(e) => setCitySearch(e.target.value)}
+                          placeholder="Search locations..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filteredCities.map((c) => {
+                          const on = cityFilter.includes(c);
+                          return (
+                            <button
+                              key={c}
+                              onClick={() => onCityFilter(on ? cityFilter.filter((x) => x !== c) : [...cityFilter, c])}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                                on ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/55 hover:border-on-surface/20",
+                              )}
+                            >
+                              {c}
+                            </button>
+                          );
+                        })}
+                        {filteredCities.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3 bg-surface">
+              <button
+                onClick={onReset}
+                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.03] transition-colors"
+              >
+                Reset
+              </button>
+              <button
+                onClick={onClose}
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25"
+              >
+                {activeCount > 0 ? `Show results` : 'Done'}
+              </button>
             </div>
           </motion.div>
         </>
