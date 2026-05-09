@@ -1750,96 +1750,167 @@ const ListDetailView: React.FC<{
 
   return (
     <div>
-      {/* ── Top utility bar — search + primary action ─────────────────
-          Search input is wide and centered-ish; the primary CTA on the
-          right matches the "Add to wishlist" pattern from the design. */}
-      <div className="flex items-center gap-3 mb-6">
-        <button
-          onClick={onBack}
-          aria-label="Back"
-          className="lg:hidden p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <div className="relative flex-1 max-w-2xl">
-          <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/35 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={isHomeCooking ? 'Search your recipes...' : `Search restaurants in ${list.name.toLowerCase()}...`}
-            className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06] focus:bg-on-surface/[0.06] rounded-full py-2.5 pl-11 pr-10 text-sm font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/35 hover:text-on-surface/70 transition-colors"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-        <div className="ml-auto flex items-center gap-2">
+      {/* ── Wishlist view: minimal chrome ─────────────────────────────
+          The wishlist already has its identity in the sidebar, so the
+          page itself drops the editorial header + Add CTA. All that
+          remains is a tiny search-icon button that toggles a full
+          search bar. Other lists keep the full top utility bar +
+          editorial header below. */}
+      {isWishlistView ? (
+        <div className="flex items-center justify-end mb-4">
           <button
-            onClick={isWishlistView ? () => navigate('/search/main') : handlePlusClick}
-            className="inline-flex items-center gap-2 bg-on-surface text-surface rounded-full px-4 py-2.5 text-[13px] font-semibold hover:bg-on-surface/90 active:scale-[0.99] transition-all flex-shrink-0"
+            onClick={onBack}
+            aria-label="Back"
+            className="lg:hidden p-2 -ml-2 mr-auto text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
           >
-            <Plus size={15} strokeWidth={2.5} />
-            <span className="hidden sm:inline">
-              {isHomeCooking ? 'Add recipe' : isHotelBreakfast ? 'Add hotel' : isWishlistView ? 'Add to wishlist' : 'Add restaurants'}
-            </span>
+            <ArrowLeft size={20} />
           </button>
-          {!isWishlistView && !isHomeCooking && (
+          <button
+            type="button"
+            onClick={() => setSearchOpen((o) => !o)}
+            aria-label={searchOpen ? 'Close search' : 'Search wishlist'}
+            title={searchOpen ? 'Close search' : 'Search wishlist'}
+            className={cn(
+              'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
+              searchOpen
+                ? 'bg-on-surface/[0.08] text-on-surface'
+                : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
+            )}
+          >
+            <Search size={17} />
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* ── Top utility bar — search + primary action ─────────────
+              Search input is wide and centered-ish; the primary CTA on
+              the right matches the design. */}
+          <div className="flex items-center gap-3 mb-6">
             <button
-              onClick={() => setConfirmDeleteList(true)}
-              aria-label="Delete list"
-              className="p-2 rounded-full text-on-surface/35 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+              onClick={onBack}
+              aria-label="Back"
+              className="lg:hidden p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
             >
-              <Trash2 size={16} />
+              <ArrowLeft size={20} />
             </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Editorial header: breadcrumb + icon tile + meta ─────────── */}
-      <nav className="flex items-center gap-2 text-[13px] text-on-surface/45 mb-4">
-        <button onClick={onBack} className="hover:text-on-surface transition-colors">Lists</button>
-        <span className="text-on-surface/25">/</span>
-        <span className="text-on-surface/75 font-medium truncate">{list.name}</span>
-      </nav>
-
-      <div className="flex items-start gap-5 mb-6">
-        <div className={cn(
-          'w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0',
-          headerVariant.chipBg,
-        )}>
-          {headerVariant.icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className={cn('text-[10px] font-bold uppercase tracking-[0.18em]', headerVariant.accent)}>
-            {headerVariant.eyebrow}
-          </p>
-          <h1 className="font-serif font-bold text-[34px] leading-[1.05] tracking-tight text-on-surface mt-0.5">
-            {list.name}
-          </h1>
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-on-surface/55">
-            <span><span className="font-bold text-on-surface">{totalCount}</span> {isHomeCooking ? `recipe${totalCount === 1 ? '' : 's'}` : `restaurant${totalCount === 1 ? '' : 's'}`}</span>
-            {!isHomeCooking && cityCount > 0 && (
-              <>
-                <span className="text-on-surface/25">·</span>
-                <span><span className="font-bold text-on-surface">{cityCount}</span> {cityCount === 1 ? 'city' : 'cities'}</span>
-              </>
-            )}
-            {lastUpdated && (
-              <>
-                <span className="text-on-surface/25">·</span>
-                <span>{lastUpdated}</span>
-              </>
-            )}
+            <div className="relative flex-1 max-w-2xl">
+              <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/35 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={isHomeCooking ? 'Search your recipes...' : `Search restaurants in ${list.name.toLowerCase()}...`}
+                className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06] focus:bg-on-surface/[0.06] rounded-full py-2.5 pl-11 pr-10 text-sm font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/35 hover:text-on-surface/70 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={handlePlusClick}
+                className="inline-flex items-center gap-2 bg-on-surface text-surface rounded-full px-4 py-2.5 text-[13px] font-semibold hover:bg-on-surface/90 active:scale-[0.99] transition-all flex-shrink-0"
+              >
+                <Plus size={15} strokeWidth={2.5} />
+                <span className="hidden sm:inline">
+                  {isHomeCooking ? 'Add recipe' : isHotelBreakfast ? 'Add hotel' : 'Add restaurants'}
+                </span>
+              </button>
+              {!isHomeCooking && (
+                <button
+                  onClick={() => setConfirmDeleteList(true)}
+                  aria-label="Delete list"
+                  className="p-2 rounded-full text-on-surface/35 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      </div>
+
+          {/* ── Editorial header: breadcrumb + icon tile + meta ─────── */}
+          <nav className="flex items-center gap-2 text-[13px] text-on-surface/45 mb-4">
+            <button onClick={onBack} className="hover:text-on-surface transition-colors">Lists</button>
+            <span className="text-on-surface/25">/</span>
+            <span className="text-on-surface/75 font-medium truncate">{list.name}</span>
+          </nav>
+
+          <div className="flex items-start gap-5 mb-6">
+            <div className={cn(
+              'w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0',
+              headerVariant.chipBg,
+            )}>
+              {headerVariant.icon}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className={cn('text-[10px] font-bold uppercase tracking-[0.18em]', headerVariant.accent)}>
+                {headerVariant.eyebrow}
+              </p>
+              <h1 className="font-serif font-bold text-[34px] leading-[1.05] tracking-tight text-on-surface mt-0.5">
+                {list.name}
+              </h1>
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-on-surface/55">
+                <span><span className="font-bold text-on-surface">{totalCount}</span> {isHomeCooking ? `recipe${totalCount === 1 ? '' : 's'}` : `restaurant${totalCount === 1 ? '' : 's'}`}</span>
+                {!isHomeCooking && cityCount > 0 && (
+                  <>
+                    <span className="text-on-surface/25">·</span>
+                    <span><span className="font-bold text-on-surface">{cityCount}</span> {cityCount === 1 ? 'city' : 'cities'}</span>
+                  </>
+                )}
+                {lastUpdated && (
+                  <>
+                    <span className="text-on-surface/25">·</span>
+                    <span>{lastUpdated}</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Wishlist's collapsible search input — toggled by the icon
+          button above. Animates open / closed with a height fade. */}
+      {isWishlistView && (
+        <AnimatePresence initial={false}>
+          {searchOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="overflow-hidden mb-4"
+            >
+              <div className="relative max-w-2xl">
+                <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/35 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search your wishlist..."
+                  autoFocus
+                  className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06] focus:bg-on-surface/[0.06] rounded-full py-2.5 pl-11 pr-10 text-sm font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear search"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/35 hover:text-on-surface/70 transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
 
       {/* Delete list confirmation */}
       <AnimatePresence>
