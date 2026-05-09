@@ -445,15 +445,16 @@ const DesktopSideActions: React.FC<DesktopSideActionsProps> = ({ reel, isMine, o
   );
 };
 
-/* ── Comments sheet ─────────────────────────────────────────────────── */
+/* ── Comments body (shared between mobile sheet and desktop panel) ──── */
 
-interface CommentsSheetProps {
-  reelId: string | null;
+interface CommentsBodyProps {
+  reelId: string;
   onClose: () => void;
-  containerless?: boolean; // when rendered inside the desktop phone column
+  variant: 'sheet' | 'panel';
 }
 
-const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose, containerless = false }) => {
+/** State + composer + list. The wrapper (sheet/panel) decides chrome. */
+const CommentsBody: React.FC<CommentsBodyProps> = ({ reelId, onClose, variant }) => {
   const { loadComments, addComment, deleteComment, currentUserId } = useReels();
   const { showToast } = useToast();
   const [comments, setComments] = useState<ReelComment[]>([]);
@@ -462,7 +463,6 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose, containe
   const [posting, setPosting] = useState(false);
 
   useEffect(() => {
-    if (!reelId) return;
     let cancelled = false;
     setLoading(true);
     loadComments(reelId).then((list) => {
@@ -474,7 +474,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose, containe
   }, [reelId, loadComments]);
 
   const onSubmit = async () => {
-    if (!reelId || !draft.trim() || posting) return;
+    if (!draft.trim() || posting) return;
     if (!currentUserId) {
       showToast('Sign in to comment');
       return;
@@ -490,21 +490,136 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose, containe
     }
   };
 
-  const onDelete = async (commentId: string) => {
-    if (!reelId) return;
+  const onDeleteOne = async (commentId: string) => {
     const ok = await deleteComment(reelId, commentId);
     if (ok) setComments((prev) => prev.filter((c) => c.id !== commentId));
   };
 
+  // Mobile sheet uses light-gray pill chrome; desktop panel uses on-surface
+  // tokens so it blends with the app's surface color (not a dark bg).
+  const headerCls = variant === 'sheet'
+    ? 'border-b border-stone-100'
+    : 'border-b border-on-surface/[0.07]';
+  const titleCls = variant === 'sheet'
+    ? 'font-serif font-bold text-stone-900 text-base'
+    : 'font-serif font-bold text-on-surface text-base';
+  const closeCls = variant === 'sheet'
+    ? 'w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-600'
+    : 'w-8 h-8 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.1] text-on-surface/65';
+  const composerInputCls = variant === 'sheet'
+    ? 'h-11 rounded-full bg-stone-100 px-4 text-sm placeholder:text-stone-400 focus:bg-stone-50 focus:ring-2 focus:ring-stone-900/10'
+    : 'h-11 rounded-full bg-on-surface/[0.05] px-4 text-sm placeholder:text-on-surface/40 focus:bg-on-surface/[0.08] focus:ring-2 focus:ring-on-surface/10';
+  const submitActiveCls = variant === 'sheet'
+    ? 'bg-stone-900 text-white hover:bg-stone-800'
+    : 'bg-on-surface text-surface hover:bg-on-surface/90';
+  const composerBorderCls = variant === 'sheet' ? 'border-stone-100' : 'border-on-surface/[0.07]';
+  const usernameCls = variant === 'sheet' ? 'text-stone-900' : 'text-on-surface';
+  const bodyTextCls = variant === 'sheet' ? 'text-stone-800' : 'text-on-surface/85';
+  const muteCls = variant === 'sheet' ? 'text-stone-400' : 'text-on-surface/40';
+
+  return (
+    <>
+      {/* Header */}
+      <div className={cn('px-5 pt-3 pb-3 flex items-center justify-between flex-shrink-0', headerCls)}>
+        <h3 className={titleCls}>
+          {comments.length === 0 ? 'Comments' : `${comments.length} comment${comments.length === 1 ? '' : 's'}`}
+        </h3>
+        <button
+          type="button"
+          onClick={onClose}
+          className={cn('flex items-center justify-center transition-colors', closeCls)}
+          aria-label="Close comments"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-4">
+        {loading ? (
+          <div className={cn('flex items-center justify-center py-8', muteCls)}>
+            <Loader2 size={20} className="animate-spin" />
+          </div>
+        ) : comments.length === 0 ? (
+          <div className="text-center py-8">
+            <p className={cn('text-sm', variant === 'sheet' ? 'text-stone-500' : 'text-on-surface/55')}>No comments yet.</p>
+            <p className={cn('text-xs mt-1', muteCls)}>Be the first to say something.</p>
+          </div>
+        ) : (
+          comments.map((c) => (
+            <div key={c.id} className="flex items-start gap-3">
+              <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0', c.author?.avatarColor || 'bg-stone-500')}>
+                {c.author?.initials || c.userId.slice(0, 2).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className={cn('text-[13px] font-bold truncate', usernameCls)}>@{c.author?.username || c.userId.slice(0, 8)}</span>
+                  {c.author?.isExpert && (
+                    <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-sm bg-amber-200 text-amber-900 text-[9px] font-bold">EXPERT</span>
+                  )}
+                  <span className={cn('text-[11px]', muteCls)}>{formatRelativeTime(c.createdAt)}</span>
+                </div>
+                <p className={cn('text-[14px] leading-snug whitespace-pre-wrap break-words', bodyTextCls)}>{c.body}</p>
+              </div>
+              {c.userId === currentUserId && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteOne(c.id)}
+                  className={cn('p-1 hover:text-rose-500', muteCls)}
+                  aria-label="Delete comment"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Composer */}
+      <div className={cn('border-t px-4 py-3 flex items-center gap-2 flex-shrink-0', composerBorderCls)}>
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
+          placeholder={currentUserId ? 'Add a comment…' : 'Sign in to comment'}
+          disabled={!currentUserId || posting}
+          maxLength={500}
+          className={cn('flex-1 focus:outline-none disabled:opacity-50', composerInputCls)}
+        />
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={!currentUserId || !draft.trim() || posting}
+          className={cn(
+            'w-11 h-11 rounded-full flex items-center justify-center transition-colors',
+            draft.trim() && !posting && currentUserId
+              ? submitActiveCls
+              : 'bg-on-surface/[0.08] text-on-surface/35 cursor-not-allowed',
+          )}
+          aria-label="Post comment"
+        >
+          {posting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+        </button>
+      </div>
+    </>
+  );
+};
+
+/* ── Mobile bottom sheet ─────────────────────────────────────────────── */
+
+interface CommentsSheetProps {
+  reelId: string | null;
+  onClose: () => void;
+}
+
+const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose }) => {
   return (
     <AnimatePresence>
       {reelId && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className={cn(
-            'absolute inset-0 z-40 bg-black/55 backdrop-blur-sm flex',
-            containerless ? 'items-end' : 'items-end',
-          )}
+          className="absolute inset-0 z-40 bg-black/55 backdrop-blur-sm flex items-end"
           onClick={onClose}
         >
           <motion.div
@@ -512,97 +627,43 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ reelId, onClose, containe
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
             onClick={(e) => e.stopPropagation()}
             className="bg-white w-full rounded-t-3xl flex flex-col"
-            style={{ height: containerless ? '70%' : '75%' }}
+            style={{ height: '75%' }}
           >
-            {/* Drag handle */}
             <div className="pt-2 pb-1 flex justify-center">
               <span className="w-10 h-1 rounded-full bg-stone-300" />
             </div>
-
-            {/* Header */}
-            <div className="px-5 pt-2 pb-3 flex items-center justify-between border-b border-stone-100">
-              <h3 className="font-serif font-bold text-stone-900 text-base">
-                {comments.length === 0 ? 'Comments' : `${comments.length} comment${comments.length === 1 ? '' : 's'}`}
-              </h3>
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 flex items-center justify-center text-stone-600"
-                aria-label="Close comments"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Comments list */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-4">
-              {loading ? (
-                <div className="flex items-center justify-center py-8 text-stone-400">
-                  <Loader2 size={20} className="animate-spin" />
-                </div>
-              ) : comments.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-sm text-stone-500">No comments yet.</p>
-                  <p className="text-xs text-stone-400 mt-1">Be the first to say something.</p>
-                </div>
-              ) : (
-                comments.map((c) => (
-                  <div key={c.id} className="flex items-start gap-3">
-                    <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0', c.author?.avatarColor || 'bg-stone-500')}>
-                      {c.author?.initials || c.userId.slice(0, 2).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline gap-2 flex-wrap">
-                        <span className="text-[13px] font-bold text-stone-900 truncate">@{c.author?.username || c.userId.slice(0, 8)}</span>
-                        {c.author?.isExpert && (
-                          <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-sm bg-amber-200 text-amber-900 text-[9px] font-bold">EXPERT</span>
-                        )}
-                        <span className="text-[11px] text-stone-400">{formatRelativeTime(c.createdAt)}</span>
-                      </div>
-                      <p className="text-[14px] text-stone-800 leading-snug whitespace-pre-wrap break-words">{c.body}</p>
-                    </div>
-                    {c.userId === currentUserId && (
-                      <button
-                        type="button"
-                        onClick={() => onDelete(c.id)}
-                        className="text-stone-400 hover:text-rose-500 p-1"
-                        aria-label="Delete comment"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Composer */}
-            <div className="border-t border-stone-100 px-4 py-3 flex items-center gap-2 flex-shrink-0">
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
-                placeholder={currentUserId ? 'Add a comment…' : 'Sign in to comment'}
-                disabled={!currentUserId || posting}
-                maxLength={500}
-                className="flex-1 h-11 rounded-full bg-stone-100 px-4 text-sm placeholder:text-stone-400 focus:outline-none focus:bg-stone-50 focus:ring-2 focus:ring-stone-900/10 disabled:opacity-50"
-              />
-              <button
-                type="button"
-                onClick={onSubmit}
-                disabled={!currentUserId || !draft.trim() || posting}
-                className={cn(
-                  'w-11 h-11 rounded-full flex items-center justify-center transition-colors',
-                  draft.trim() && !posting && currentUserId
-                    ? 'bg-stone-900 text-white hover:bg-stone-800'
-                    : 'bg-stone-200 text-stone-400 cursor-not-allowed',
-                )}
-                aria-label="Post comment"
-              >
-                {posting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-              </button>
-            </div>
+            <CommentsBody reelId={reelId} onClose={onClose} variant="sheet" />
           </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+/* ── Desktop side panel ──────────────────────────────────────────────── */
+// Inline column rendered to the right of the action buttons. Slides in/out
+// from the right; bg-surface so it blends with the page chrome.
+
+interface CommentsPanelProps {
+  reelId: string | null;
+  onClose: () => void;
+}
+
+const CommentsPanel: React.FC<CommentsPanelProps> = ({ reelId, onClose }) => {
+  return (
+    <AnimatePresence>
+      {reelId && (
+        <motion.div
+          key={reelId}
+          initial={{ opacity: 0, x: 20, width: 0 }}
+          animate={{ opacity: 1, x: 0, width: 360 }}
+          exit={{ opacity: 0, x: 20, width: 0 }}
+          transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+          className="h-full bg-surface border border-on-surface/[0.08] rounded-[24px] overflow-hidden flex flex-col flex-shrink-0"
+        >
+          <div className="w-[360px] h-full flex flex-col">
+            <CommentsBody reelId={reelId} onClose={onClose} variant="panel" />
+          </div>
         </motion.div>
       )}
     </AnimatePresence>
@@ -754,7 +815,7 @@ export const Reels: React.FC = () => {
     else showToast("Couldn't delete reel");
   };
 
-  const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean }) => (
+  const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean }) => (
     <div
       ref={containerRef}
       className="h-full w-full overflow-y-auto snap-y snap-mandatory bg-black scrollbar-hide"
@@ -812,8 +873,11 @@ export const Reels: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Comments sheet floats above the feed */}
-      <CommentsSheet reelId={openCommentsReelId} onClose={closeCommentsSheet} />
+      {/* Comments sheet floats above the feed (mobile only — on desktop
+          the panel is rendered next to the reel by the layout above). */}
+      {!opts.hideCommentsSheet && (
+        <CommentsSheet reelId={openCommentsReelId} onClose={closeCommentsSheet} />
+      )}
 
       {/* Delete confirmation */}
       <AnimatePresence>
@@ -873,7 +937,7 @@ export const Reels: React.FC = () => {
           style={{ aspectRatio: '9 / 19.5' }}
         >
           <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
-          {renderFeed({ hideActionRail: true, hideOwnerDelete: true })}
+          {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true })}
         </div>
 
         {/* Side actions — bottom-aligned with the reel, like Instagram. */}
@@ -896,6 +960,9 @@ export const Reels: React.FC = () => {
             />
           </div>
         )}
+
+        {/* Comments panel — slides in from the right of the action column. */}
+        <CommentsPanel reelId={openCommentsReelId} onClose={closeCommentsSheet} />
       </div>
     );
   }
