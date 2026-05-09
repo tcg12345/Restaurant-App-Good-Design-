@@ -721,9 +721,10 @@ const CommentsPanel: React.FC<CommentsPanelProps> = ({ targetId, onClose, loadCo
 
 /* ── Tabs + mute pill (top header) ──────────────────────────────────── */
 
-// The page-level "kind" extends ReelKind with a 'post' option, so the
-// feed can switch between restaurant reels, recipe reels, and posts.
-type FeedKind = ReelKind | 'post';
+// The page-level "kind" controls the unified feed:
+//   • explore: every reel + every post (mixed by createdAt)
+//   • recipe:  only recipe reels + posts that include a recipe item
+type FeedKind = 'explore' | 'recipe';
 
 interface TopBarProps {
   kind: FeedKind;
@@ -735,11 +736,10 @@ interface TopBarProps {
 const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
   return (
     <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-3">
-      <div className="relative flex-1 max-w-[340px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
+      <div className="relative flex-1 max-w-[280px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
         {([
-          { value: 'restaurant', label: 'Explore' },
+          { value: 'explore', label: 'Explore' },
           { value: 'recipe', label: 'Recipes' },
-          { value: 'post', label: 'Posts' },
         ] as const).map((opt) => {
           const active = kind === opt.value;
           return (
@@ -748,7 +748,7 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
               type="button"
               onClick={() => setKind(opt.value)}
               className={cn(
-                'flex-1 h-9 rounded-full text-[13px] font-bold transition-colors',
+                'flex-1 h-9 rounded-full text-[14px] font-bold transition-colors',
                 active ? 'bg-white text-stone-900 shadow' : 'text-white/85',
               )}
             >
@@ -775,7 +775,7 @@ export const Reels: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const {
-    restaurantReels, recipeReels, loading: reelsLoading,
+    reels: allReels, recipeReels, loading: reelsLoading,
     toggleLike, toggleSave, deleteReel, openAddReelModal,
     openCommentsSheet, closeCommentsSheet, openCommentsReelId,
     currentUserId,
@@ -792,47 +792,61 @@ export const Reels: React.FC = () => {
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
 
-  // Tab can be deep-linked via ?kind=recipe|restaurant|post.
+  // Tab can be deep-linked via ?kind=explore|recipe. Older deep links
+  // (?kind=restaurant or ?kind=post) collapse into Explore.
   const initialKind: FeedKind = (() => {
     const sp = new URLSearchParams(location.search);
     const k = sp.get('kind');
-    if (k === 'recipe') return 'recipe';
-    if (k === 'post') return 'post';
-    return 'restaurant';
+    return k === 'recipe' ? 'recipe' : 'explore';
   })();
   const [kind, setKind] = useState<FeedKind>(initialKind);
   const [muted, setMuted] = useState(true);
-  const [activeReelId, setActiveReelId] = useState<string | null>(null);
-  const [activePostId, setActivePostId] = useState<string | null>(null);
+  // Single "active feed item" key — `reel-<id>` or `post-<id>` — so the
+  // unified scroll-snap feed can track exactly one playing slide.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [sharePayload, setSharePayload] = useState<SharedReel | null>(null);
 
   const loading = reelsLoading || postsLoading;
-  const reelList: Reel[] = kind === 'restaurant' ? restaurantReels : kind === 'recipe' ? recipeReels : [];
-  // The Posts tab shows every post. Reel tabs show no posts.
-  const postList: Post[] = kind === 'post' ? allPosts : [];
-  const list = kind === 'post' ? postList : reelList;
 
-  useEffect(() => {
-    if (kind === 'post') {
-      setActivePostId(postList[0]?.id ?? null);
-      setActiveReelId(null);
-    } else {
-      setActiveReelId(reelList[0]?.id ?? null);
-      setActivePostId(null);
+  // ── Build the unified, sorted feed for the active tab ──
+  // Explore: every reel + every post.
+  // Recipes: recipe reels + posts that include at least one recipe item.
+  type FeedItem =
+    | { kind: 'reel'; key: string; createdAt: number; reel: Reel }
+    | { kind: 'post'; key: string; createdAt: number; post: Post };
+  const feedItems = useMemo<FeedItem[]>(() => {
+    const items: FeedItem[] = [];
+    const reelsForTab = kind === 'recipe' ? recipeReels : allReels;
+    for (const r of reelsForTab) {
+      items.push({ kind: 'reel', key: `reel-${r.id}`, createdAt: r.createdAt || 0, reel: r });
     }
+    const postsForTab = kind === 'recipe' ? allPosts.filter((p) => p.hasRecipe) : allPosts;
+    for (const p of postsForTab) {
+      const ts = p.createdAt ? Date.parse(p.createdAt) : 0;
+      items.push({ kind: 'post', key: `post-${p.id}`, createdAt: Number.isFinite(ts) ? ts : 0, post: p });
+    }
+    items.sort((a, b) => b.createdAt - a.createdAt);
+    return items;
+  }, [kind, allReels, recipeReels, allPosts]);
+
+  const activeReelId = activeKey?.startsWith('reel-') ? activeKey.slice(5) : null;
+  const activePostId = activeKey?.startsWith('post-') ? activeKey.slice(5) : null;
+
+  // Reset the active item to the first slide whenever the tab changes.
+  useEffect(() => {
+    setActiveKey(feedItems[0]?.key ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, reelList.length, postList.length]);
+  }, [kind, feedItems.length]);
 
   // IntersectionObserver picks the most-visible slide so exactly one video
-  // plays. Slides carry data-reel-id OR data-post-id depending on which
-  // tab is active; we update the corresponding setter on the way through.
+  // plays. Each slide carries data-feed-key="reel-<id>" | "post-<id>".
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
-    const slides = Array.from(root.querySelectorAll<HTMLDivElement>('[data-reel-id], [data-post-id]'));
+    const slides = Array.from(root.querySelectorAll<HTMLDivElement>('[data-feed-key]'));
     if (slides.length === 0) return;
 
     const observer = new IntersectionObserver(
@@ -845,16 +859,15 @@ export const Reels: React.FC = () => {
             bestEl = e.target as HTMLDivElement;
           }
         }
-        if (bestEl && bestRatio > 0.6) {
-          if (bestEl.dataset.postId) setActivePostId(bestEl.dataset.postId);
-          else if (bestEl.dataset.reelId) setActiveReelId(bestEl.dataset.reelId);
+        if (bestEl && bestRatio > 0.6 && bestEl.dataset.feedKey) {
+          setActiveKey(bestEl.dataset.feedKey);
         }
       },
       { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
     );
     slides.forEach((s) => observer.observe(s as Element));
     return () => observer.disconnect();
-  }, [list]);
+  }, [feedItems]);
 
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
@@ -943,14 +956,16 @@ export const Reels: React.FC = () => {
     }
   };
 
-  // The Reels comments use reel APIs; the Posts tab swaps in post APIs
-  // through the same CommentsBody/Sheet/Panel components.
-  const isPostsTab = kind === 'post';
-  const commentsTargetId = isPostsTab ? openPostCommentsId : openCommentsReelId;
-  const commentsClose = isPostsTab ? closePostCommentsSheet : closeCommentsSheet;
-  const commentsLoad = isPostsTab ? loadPostComments : reelLoadComments;
-  const commentsAdd = isPostsTab ? addPostComment : reelAddComment;
-  const commentsDelete = isPostsTab ? deletePostComment : reelDeleteComment;
+  // Comments adapter — only one of the two sheets can be open at a time
+  // (a tap on a reel comment button sets openCommentsReelId; a tap on a
+  // post comment button sets openPostCommentsId). We branch on whichever
+  // is non-null so the same CommentsBody/Sheet/Panel can serve both.
+  const commentsKind: 'reel' | 'post' | null = openPostCommentsId ? 'post' : openCommentsReelId ? 'reel' : null;
+  const commentsTargetId = commentsKind === 'post' ? openPostCommentsId : commentsKind === 'reel' ? openCommentsReelId : null;
+  const commentsClose = commentsKind === 'post' ? closePostCommentsSheet : closeCommentsSheet;
+  const commentsLoad = commentsKind === 'post' ? loadPostComments : reelLoadComments;
+  const commentsAdd = commentsKind === 'post' ? addPostComment : reelAddComment;
+  const commentsDelete = commentsKind === 'post' ? deletePostComment : reelDeleteComment;
 
   const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean }) => (
     <div
@@ -959,88 +974,87 @@ export const Reels: React.FC = () => {
       style={{ scrollbarWidth: 'none' }}
     >
       <AnimatePresence initial={false}>
-        {loading && list.length === 0 ? (
+        {loading && feedItems.length === 0 ? (
           <div className="h-full w-full flex items-center justify-center text-white/60">
             <Loader2 size={26} className="animate-spin" />
           </div>
-        ) : list.length === 0 ? (
+        ) : feedItems.length === 0 ? (
           <div className="h-full w-full flex flex-col items-center justify-center text-white/70 text-sm px-8 text-center gap-3">
             <p className="text-base text-white/85">
-              {kind === 'restaurant' ? 'No restaurant reels yet.'
-                : kind === 'recipe' ? 'No recipe reels yet.'
-                : 'No posts yet.'}
+              {kind === 'recipe' ? 'No recipe reels or posts yet.' : 'Nothing here yet.'}
             </p>
-            <button
-              type="button"
-              onClick={() => kind === 'post' ? openAddPostModal() : openAddReelModal(kind as ReelKind)}
-              className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-white text-stone-900 text-sm font-bold"
-            >
-              <Plus size={16} />
-              Post the first one
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => openAddPostModal()}
+                className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-white text-stone-900 text-sm font-bold"
+              >
+                <Plus size={16} />
+                New post
+              </button>
+              <button
+                type="button"
+                onClick={() => openAddReelModal(kind === 'recipe' ? 'recipe' : 'restaurant')}
+                className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-white/15 text-white text-sm font-bold border border-white/25"
+              >
+                <Plus size={16} />
+                New reel
+              </button>
+            </div>
           </div>
-        ) : kind === 'post' ? (
-          (list as Post[]).map((post) => (
-            <motion.div
-              key={post.id}
-              data-post-id={post.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="h-full w-full snap-start snap-always"
-            >
-              <PostSlide
-                post={post}
-                active={activePostId === post.id}
-                muted={muted}
-                isMine={!!currentUserId && post.userId === currentUserId}
-                hideActionRail={opts.hideActionRail}
-                hideOwnerDelete={opts.hideOwnerDelete}
-                onLike={() => {
-                  if (!currentUserId) { showToast('Sign in to like posts'); return; }
-                  togglePostLike(post.id);
-                }}
-                onSave={() => {
-                  if (!currentUserId) { showToast('Sign in to save posts'); return; }
-                  togglePostSave(post.id);
-                }}
-                onComment={() => openPostCommentsSheet(post.id)}
-                onShare={() => showToast('Sharing posts is coming soon')}
-                onItemAttachmentClick={handlePostItemClick}
-                onDelete={() => setConfirmDeletePostId(post.id)}
-              />
-            </motion.div>
-          ))
         ) : (
-          (list as Reel[]).map((reel) => (
+          feedItems.map((item) => (
             <motion.div
-              key={reel.id}
-              data-reel-id={reel.id}
+              key={item.key}
+              data-feed-key={item.key}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="h-full w-full snap-start snap-always"
             >
-              <ReelSlide
-                reel={reel}
-                active={activeReelId === reel.id}
-                muted={muted}
-                isMine={!!currentUserId && reel.authorId === currentUserId}
-                hideActionRail={opts.hideActionRail}
-                hideOwnerDelete={opts.hideOwnerDelete}
-                onLike={() => {
-                  if (!currentUserId) { showToast('Sign in to like reels'); return; }
-                  toggleLike(reel.id);
-                }}
-                onSave={() => {
-                  if (!currentUserId) { showToast('Sign in to save reels'); return; }
-                  toggleSave(reel.id);
-                }}
-                onComment={() => openCommentsSheet(reel.id)}
-                onShare={() => handleShare(reel)}
-                onCardClick={() => handleCardClick(reel)}
-                onDelete={() => setConfirmDeleteId(reel.id)}
-              />
+              {item.kind === 'reel' ? (
+                <ReelSlide
+                  reel={item.reel}
+                  active={activeKey === item.key}
+                  muted={muted}
+                  isMine={!!currentUserId && item.reel.authorId === currentUserId}
+                  hideActionRail={opts.hideActionRail}
+                  hideOwnerDelete={opts.hideOwnerDelete}
+                  onLike={() => {
+                    if (!currentUserId) { showToast('Sign in to like reels'); return; }
+                    toggleLike(item.reel.id);
+                  }}
+                  onSave={() => {
+                    if (!currentUserId) { showToast('Sign in to save reels'); return; }
+                    toggleSave(item.reel.id);
+                  }}
+                  onComment={() => openCommentsSheet(item.reel.id)}
+                  onShare={() => handleShare(item.reel)}
+                  onCardClick={() => handleCardClick(item.reel)}
+                  onDelete={() => setConfirmDeleteId(item.reel.id)}
+                />
+              ) : (
+                <PostSlide
+                  post={item.post}
+                  active={activeKey === item.key}
+                  muted={muted}
+                  isMine={!!currentUserId && item.post.userId === currentUserId}
+                  hideActionRail={opts.hideActionRail}
+                  hideOwnerDelete={opts.hideOwnerDelete}
+                  onLike={() => {
+                    if (!currentUserId) { showToast('Sign in to like posts'); return; }
+                    togglePostLike(item.post.id);
+                  }}
+                  onSave={() => {
+                    if (!currentUserId) { showToast('Sign in to save posts'); return; }
+                    togglePostSave(item.post.id);
+                  }}
+                  onComment={() => openPostCommentsSheet(item.post.id)}
+                  onShare={() => showToast('Sharing posts is coming soon')}
+                  onItemAttachmentClick={handlePostItemClick}
+                  onDelete={() => setConfirmDeletePostId(item.post.id)}
+                />
+              )}
             </motion.div>
           ))
         )}
@@ -1106,8 +1120,10 @@ export const Reels: React.FC = () => {
     </div>
   );
 
-  const activeReel = (kind === 'post' ? null : (reelList.find((r) => r.id === activeReelId) ?? reelList[0] ?? null));
-  const activePost = (kind !== 'post' ? null : (postList.find((p) => p.id === activePostId) ?? postList[0] ?? null));
+  // Resolve the actual Reel or Post the active key points at — at most
+  // one of these is non-null at a time (the activeKey prefix decides).
+  const activeReel = activeReelId ? allReels.find((r) => r.id === activeReelId) ?? null : null;
+  const activePost = activePostId ? allPosts.find((p) => p.id === activePostId) ?? null : null;
 
   /* ── Desktop layout ──
      Instagram-style: app surface background, no copy / side panels, no
