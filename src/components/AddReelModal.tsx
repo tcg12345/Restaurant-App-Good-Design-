@@ -60,6 +60,10 @@ export const AddReelModal: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
+  // Drag depth counter — dragenter / dragleave fire for child elements too,
+  // so we keep a counter to know when the cursor is *really* outside the zone.
+  const [dragDepth, setDragDepth] = useState(0);
+  const dragActive = dragDepth > 0;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Reset state whenever the modal is reopened.
@@ -79,6 +83,7 @@ export const AddReelModal: React.FC = () => {
     setProgress(0);
     setErrorMsg(null);
     setValidationMsg(null);
+    setDragDepth(0);
   }, [addReelModalOpen, addReelInitialKind]);
 
   // Revoke the preview URL when it's replaced or the modal closes.
@@ -173,6 +178,33 @@ export const AddReelModal: React.FC = () => {
     () => recipePickList.find((r) => r.id === pickedRecipeId) ?? null,
     [recipePickList, pickedRecipeId],
   );
+
+  // ── Drag-and-drop handlers ──
+  // Applied to the modal scroll container so the user can drop the video
+  // anywhere inside the dialog. We still highlight only the dedicated
+  // drop zone visually so the intent is unambiguous.
+  const onDragEnter: React.DragEventHandler = (e) => {
+    if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
+    e.preventDefault();
+    setDragDepth((d) => d + 1);
+  };
+  const onDragOver: React.DragEventHandler = (e) => {
+    if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const onDragLeave: React.DragEventHandler = (e) => {
+    if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
+    e.preventDefault();
+    setDragDepth((d) => Math.max(0, d - 1));
+  };
+  const onDrop: React.DragEventHandler = (e) => {
+    e.preventDefault();
+    setDragDepth(0);
+    if (submitting) return;
+    const file = e.dataTransfer?.files?.[0];
+    if (file) onPickFile(file);
+  };
 
   const onPickFile = async (file: File | null) => {
     if (!file) return;
@@ -304,7 +336,13 @@ export const AddReelModal: React.FC = () => {
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 pb-32 space-y-6">
+            <div
+              className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 pb-32 space-y-6 relative"
+              onDragEnter={onDragEnter}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+            >
               {/* Kind toggle */}
               <div className="flex p-1 rounded-full bg-on-surface/[0.06]">
                 {(['restaurant', 'recipe'] as const).map((k) => {
@@ -362,19 +400,35 @@ export const AddReelModal: React.FC = () => {
                     >
                       <Trash2 size={15} />
                     </button>
+                    {/* Drop overlay so a user dragging a new video over an
+                        already-picked one knows the drop will replace it. */}
+                    {dragActive && !submitting && (
+                      <div className="absolute inset-0 bg-primary/60 backdrop-blur-sm flex flex-col items-center justify-center gap-1 text-white pointer-events-none">
+                        <Film size={28} />
+                        <span className="text-sm font-bold">Drop to replace</span>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     className={cn(
-                      'w-full rounded-2xl border-2 border-dashed border-on-surface/15 hover:border-primary/50 hover:bg-primary/[0.03]',
-                      'flex flex-col items-center justify-center gap-2 py-12 text-on-surface/55 transition-colors',
+                      'w-full rounded-2xl border-2 border-dashed transition-colors',
+                      'flex flex-col items-center justify-center gap-2 py-12',
+                      dragActive
+                        ? 'border-primary bg-primary/[0.08] text-primary'
+                        : 'border-on-surface/15 text-on-surface/55 hover:border-primary/50 hover:bg-primary/[0.03]',
                     )}
                   >
-                    <Film size={28} className="text-on-surface/40" />
-                    <span className="text-sm font-semibold">Choose a video</span>
-                    <span className="text-[11px] text-on-surface/40">
+                    <Film
+                      size={28}
+                      className={cn(dragActive ? 'text-primary' : 'text-on-surface/40')}
+                    />
+                    <span className="text-sm font-semibold">
+                      {dragActive ? 'Drop your video' : 'Choose or drag a video'}
+                    </span>
+                    <span className={cn('text-[11px]', dragActive ? 'text-primary/80' : 'text-on-surface/40')}>
                       MP4, MOV — up to {REEL_MAX_DURATION_SECONDS}s · {formatBytes(REEL_MAX_BYTES)}
                     </span>
                   </button>

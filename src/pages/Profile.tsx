@@ -51,9 +51,29 @@ export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
   const listsCtx = useLists();
-  const { openAddReelModal } = useReels();
+  const { openAddReelModal, reels, deleteReel } = useReels();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
   const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
+
+  // Reels posted by the signed-in user. Authoritative source is the
+  // ReelsContext (which is loaded from Supabase on mount).
+  const myReels = useMemo(
+    () => reels.filter((r) => r.authorId === user?.id),
+    [reels, user?.id],
+  );
+  const [confirmDeleteReelId, setConfirmDeleteReelId] = useState<string | null>(null);
+  const [deletingReel, setDeletingReel] = useState(false);
+  const onConfirmDeleteReel = async () => {
+    if (!confirmDeleteReelId) return;
+    setDeletingReel(true);
+    const ok = await deleteReel(confirmDeleteReelId);
+    setDeletingReel(false);
+    setConfirmDeleteReelId(null);
+    if (!ok) {
+      // The grid will simply not remove the entry; surface a toast-ish msg.
+      alert("Couldn't delete that reel. Try again.");
+    }
+  };
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
@@ -422,6 +442,83 @@ export const Profile: React.FC = () => {
           </section>
         )}
 
+        {/* My Reels — 3-up grid of vertical thumbnails. Hover surfaces a
+            delete pill that calls into ReelsContext.deleteReel(), which
+            removes both the storage object and the DB row. */}
+        {myReels.length > 0 && (
+          <section>
+            <div className="flex items-baseline justify-between mb-3">
+              <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
+                My Reels
+                <span className="text-on-surface/30 font-medium ml-1.5">{myReels.length}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => navigate('/reels')}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
+              >
+                Open feed
+                <ChevronRight size={13} />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {myReels.map((r) => (
+                <div key={r.id} className="relative group">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/reels?kind=${r.kind}`)}
+                    className="block w-full aspect-[9/16] rounded-2xl overflow-hidden bg-on-surface/[0.05] relative"
+                    aria-label={r.caption || 'Open reel'}
+                  >
+                    {r.videoUrl ? (
+                      <video
+                        src={r.videoUrl}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-800 to-stone-900')} />
+                    )}
+                    {/* Bottom gradient + meta */}
+                    <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none" />
+                    <div className="absolute inset-x-0 bottom-0 p-2">
+                      <div className="flex items-center gap-1 text-white text-[10px] font-bold mb-1">
+                        <Film size={10} />
+                        <span className="uppercase tracking-wider">{r.kind === 'restaurant' ? 'Place' : 'Recipe'}</span>
+                      </div>
+                      <p className="text-white text-[12px] font-bold leading-tight line-clamp-2 drop-shadow-sm">
+                        {r.kind === 'restaurant' ? r.restaurant?.name : r.recipe?.title}
+                      </p>
+                    </div>
+                    {/* Top-right counts */}
+                    <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/45 backdrop-blur rounded-full px-2 h-6 text-white text-[10px] font-bold">
+                      <Heart size={10} className="fill-white" />
+                      <span className="tabular-nums">{r.likes}</span>
+                    </div>
+                  </button>
+                  {/* Delete pill — visible on hover (desktop) and always on touch.
+                      We can't reliably gate by hover on mobile so we keep it
+                      tappable but tucked into a small corner button. */}
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteReelId(r.id)}
+                    className={cn(
+                      'absolute top-2 right-2 w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white',
+                      'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity',
+                      'hover:bg-rose-600 hover:text-white',
+                    )}
+                    aria-label="Delete reel"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Recent — clean divided list, with a See all link routing to the Map's My Ratings mode */}
         {recentRatings.length > 0 && (
           <section>
@@ -505,6 +602,45 @@ export const Profile: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Delete-reel confirmation. Calls ReelsContext.deleteReel() which
+          removes both the DB row and the storage object. */}
+      <AnimatePresence>
+        {confirmDeleteReelId && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center px-6"
+            onClick={() => { if (!deletingReel) setConfirmDeleteReelId(null); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-surface rounded-3xl p-6 max-w-xs w-full text-center"
+            >
+              <h4 className="font-serif font-bold text-on-surface text-lg">Delete reel?</h4>
+              <p className="text-sm text-on-surface/55 mt-1">This permanently removes the video and all of its likes, saves, and comments. It can't be undone.</p>
+              <div className="flex gap-2 mt-5">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteReelId(null)}
+                  disabled={deletingReel}
+                  className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={onConfirmDeleteReel}
+                  disabled={deletingReel}
+                  className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60"
+                >
+                  {deletingReel ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Settings Sheet — unified: main, edit profile, account sub-pages */}
       <AnimatePresence>
