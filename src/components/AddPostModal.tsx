@@ -476,6 +476,43 @@ export const AddPostModal: React.FC = () => {
     showToast('Applied to all items');
   };
 
+  // ── Multi-apply mode ──
+  // Lets the user copy the active item's featured attachment onto a custom
+  // subset of the other items (not just one, not necessarily all). Toggling
+  // a thumbnail while in this mode adds/removes it from the target set.
+  const [multiApply, setMultiApply] = useState<{ sourceKey: string; targets: Set<string> } | null>(null);
+  const startMultiApply = (sourceKey: string) => setMultiApply({ sourceKey, targets: new Set() });
+  const cancelMultiApply = () => setMultiApply(null);
+  const toggleMultiApplyTarget = (key: string) => {
+    setMultiApply((prev) => {
+      if (!prev || key === prev.sourceKey) return prev;
+      const next = new Set(prev.targets);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...prev, targets: next };
+    });
+  };
+  const confirmMultiApply = () => {
+    if (!multiApply) return;
+    const source = items.find((it) => it.key === multiApply.sourceKey);
+    const targets = multiApply.targets;
+    if (!source || !source.attachedKind || targets.size === 0) { setMultiApply(null); return; }
+    setItems((prev) => prev.map((it) => targets.has(it.key)
+      ? { ...it, attachedKind: source.attachedKind, restaurant: source.restaurant, recipe: source.recipe }
+      : it
+    ));
+    showToast(`Applied to ${targets.size} ${targets.size === 1 ? 'item' : 'items'}`);
+    setMultiApply(null);
+  };
+
+  // Cancel multi-apply mode if the source item is removed/cleared from
+  // attachments mid-flow.
+  useEffect(() => {
+    if (!multiApply) return;
+    const source = items.find((it) => it.key === multiApply.sourceKey);
+    if (!source || !source.attachedKind) setMultiApply(null);
+  }, [items, multiApply]);
+
   /* ── Submit ── */
 
   const canSubmit = items.length > 0 && !!user?.id && !submitting;
@@ -618,16 +655,26 @@ export const AddPostModal: React.FC = () => {
                     {items.map((it, idx) => {
                       const isActive = it.key === activeKey;
                       const hasAttach = it.attachedKind !== null;
+                      const inMulti = !!multiApply;
+                      const isSource = inMulti && it.key === multiApply.sourceKey;
+                      const isTarget = inMulti && multiApply.targets.has(it.key);
                       return (
                         <button
                           key={it.key}
                           type="button"
-                          onClick={() => setActiveKey(it.key)}
+                          onClick={() => {
+                            // In multi-apply mode, tapping a thumbnail
+                            // toggles its inclusion (except the source).
+                            if (inMulti) toggleMultiApplyTarget(it.key);
+                            else setActiveKey(it.key);
+                          }}
                           className={cn(
                             'relative flex-shrink-0 w-20 aspect-[9/14] rounded-xl overflow-hidden snap-start transition-all',
-                            isActive
-                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface'
-                              : 'ring-1 ring-on-surface/[0.08]',
+                            !inMulti && isActive && 'ring-2 ring-primary ring-offset-2 ring-offset-surface',
+                            !inMulti && !isActive && 'ring-1 ring-on-surface/[0.08]',
+                            inMulti && isSource && 'ring-2 ring-emerald-500 ring-offset-2 ring-offset-surface',
+                            inMulti && isTarget && 'ring-2 ring-primary ring-offset-2 ring-offset-surface',
+                            inMulti && !isSource && !isTarget && 'ring-1 ring-on-surface/[0.08] opacity-70',
                           )}
                         >
                           {it.mediaType === 'photo' ? (
@@ -639,9 +686,24 @@ export const AddPostModal: React.FC = () => {
                             <span className="text-[10px] font-bold text-white/90 tabular-nums">#{idx + 1}</span>
                             {it.mediaType === 'video' && <VideoIcon size={10} className="text-white/85" />}
                           </div>
-                          {hasAttach && (
+                          {hasAttach && !inMulti && (
                             <span className="absolute top-1 left-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-white">
                               {it.attachedKind === 'restaurant' ? <MapPin size={10} /> : <ChefHat size={10} />}
+                            </span>
+                          )}
+                          {/* Multi-apply: source pill */}
+                          {isSource && (
+                            <span className="absolute top-1 left-1 px-1.5 h-4 inline-flex items-center rounded bg-emerald-600 text-white text-[8px] font-bold uppercase tracking-wider">
+                              Source
+                            </span>
+                          )}
+                          {/* Multi-apply: selection indicator overlay */}
+                          {inMulti && !isSource && (
+                            <span className={cn(
+                              'absolute top-1 right-1 inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors',
+                              isTarget ? 'bg-primary text-white' : 'bg-black/55 text-white border border-white/40',
+                            )}>
+                              {isTarget && <Check size={11} strokeWidth={3} />}
                             </span>
                           )}
                         </button>
@@ -669,8 +731,57 @@ export const AddPostModal: React.FC = () => {
                 </section>
               )}
 
-              {/* Active item editor */}
-              {activeItem && (
+              {/* Multi-apply banner — replaces the active-item editor while
+                  the user is selecting which thumbnails to copy the
+                  featured attachment onto. */}
+              {multiApply && (
+                <section className="rounded-2xl border border-primary/30 bg-primary/[0.04] p-4">
+                  <div className="flex items-start justify-between gap-3 mb-1">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-bold text-on-surface leading-tight">
+                        Apply this featured to specific items
+                      </p>
+                      <p className="text-[11px] text-on-surface/55 leading-snug mt-0.5">
+                        Tap thumbnails above to add or remove them. The green-ringed
+                        item is the source — it already has this featured.
+                      </p>
+                    </div>
+                    <Link2 size={16} className="text-primary flex-shrink-0 mt-0.5" />
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-3">
+                    <span className="text-[12px] font-semibold text-on-surface/65 tabular-nums">
+                      {multiApply.targets.size} {multiApply.targets.size === 1 ? 'item' : 'items'} selected
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={cancelMultiApply}
+                        className="px-3 h-9 rounded-full text-[12px] font-bold text-on-surface/70 hover:bg-on-surface/[0.05]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={confirmMultiApply}
+                        disabled={multiApply.targets.size === 0}
+                        className={cn(
+                          'inline-flex items-center gap-1 px-4 h-9 rounded-full text-[12px] font-bold transition-colors',
+                          multiApply.targets.size > 0
+                            ? 'bg-primary text-white hover:bg-primary/90'
+                            : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
+                        )}
+                      >
+                        <Check size={12} />
+                        Apply to {multiApply.targets.size}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* Active item editor — hidden while multi-applying so the
+                  user focuses on picking targets. */}
+              {activeItem && !multiApply && (
                 <section className="rounded-2xl border border-on-surface/[0.08] p-4 space-y-4 bg-on-surface/[0.02]">
                   {/* Reorder + remove */}
                   <div className="flex items-center justify-between">
@@ -779,17 +890,30 @@ export const AddPostModal: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Apply-to-all */}
-                    {activeItem.attachedKind && items.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => applyAttachmentToAll(activeItem.key)}
-                        disabled={submitting}
-                        className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:text-primary/80 transition-colors"
-                      >
-                        <Link2 size={12} />
-                        Apply to all {items.length} items
-                      </button>
+                    {/* Apply-to-all + Apply-to-specific. The latter
+                        enters multi-select mode where the user taps the
+                        thumbnails they want to copy this featured to. */}
+                    {activeItem.attachedKind && items.length > 1 && !multiApply && (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                        <button
+                          type="button"
+                          onClick={() => applyAttachmentToAll(activeItem.key)}
+                          disabled={submitting}
+                          className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:text-primary/80 transition-colors"
+                        >
+                          <Link2 size={12} />
+                          Apply to all {items.length} items
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startMultiApply(activeItem.key)}
+                          disabled={submitting}
+                          className="inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/65 hover:text-on-surface transition-colors"
+                        >
+                          <Link2 size={12} />
+                          Apply to specific items…
+                        </button>
+                      </div>
                     )}
                   </div>
                 </section>
