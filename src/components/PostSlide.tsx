@@ -133,27 +133,46 @@ const RecipeCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item
 
 /* ── Single media frame (image or muted-loop video) ────────────────── */
 
-const MediaFrame: React.FC<{ item: PostItemRow; active: boolean; muted: boolean }> = ({ item, active, muted }) => {
+interface MediaFrameProps {
+  item: PostItemRow;
+  /** True when the parent post is the active feed item. Drives which
+   *  carousel items get heavy media DOM versus a cheap gradient. */
+  postActive: boolean;
+  /** True when this is the currently-focused item in the carousel. */
+  itemActive: boolean;
+  /** Render real media when within this distance of the active item. */
+  shouldRenderMedia: boolean;
+  muted: boolean;
+}
+
+const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, shouldRenderMedia, muted }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
-    if (active && item.mediaType === 'video') {
+    if (postActive && itemActive && item.mediaType === 'video') {
       el.muted = muted;
       el.play().catch(() => {});
-    } else if (el) {
+    } else {
       el.pause();
     }
-  }, [active, muted, item.mediaType]);
+  }, [postActive, itemActive, muted, item.mediaType]);
 
-  if (item.mediaType === 'video') {
-    if (!item.mediaUrl) {
-      return (
-        <div className={cn('absolute inset-0 bg-gradient-to-b flex items-center justify-center', item.bgGradient || 'from-stone-800 to-stone-900')}>
+  // Default fallback — gradient placeholder. Used for any item far from
+  // the active one, or when the signed URL isn't ready yet.
+  const placeholder = (
+    <div className={cn('absolute inset-0 bg-gradient-to-b', item.bgGradient || 'from-stone-800 to-stone-900')}>
+      {item.mediaType === 'video' && !item.mediaUrl && (
+        <div className="absolute inset-0 flex items-center justify-center">
           <PlayCircle size={48} className="text-white/40" />
         </div>
-      );
-    }
+      )}
+    </div>
+  );
+
+  if (!shouldRenderMedia || !item.mediaUrl) return placeholder;
+
+  if (item.mediaType === 'video') {
     return (
       <video
         ref={videoRef}
@@ -166,11 +185,15 @@ const MediaFrame: React.FC<{ item: PostItemRow; active: boolean; muted: boolean 
       />
     );
   }
-  // photo
-  if (!item.mediaUrl) {
-    return <div className={cn('absolute inset-0 bg-gradient-to-b', item.bgGradient || 'from-stone-800 to-stone-900')} />;
-  }
-  return <img src={item.mediaUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />;
+  return (
+    <img
+      src={item.mediaUrl}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className="absolute inset-0 w-full h-full object-cover"
+    />
+  );
 };
 
 /* ── Slide ─────────────────────────────────────────────────────────── */
@@ -236,17 +259,36 @@ export const PostSlide: React.FC<PostSlideProps> = ({
 
   return (
     <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
-      {/* Horizontal carousel of items */}
+      {/* Horizontal carousel of items.
+          touch-action: pan-x makes the browser pass vertical swipes
+          through to the parent feed instead of capturing them here.
+          (overscroll-behavior was previously set to none on the y axis,
+          which silently swallowed vertical scroll attempts inside a
+          post — making the feed look stuck.) */}
       <div
         ref={stripRef}
-        className="absolute inset-0 flex overflow-x-auto snap-x snap-mandatory scrollbar-hide overscroll-y-none"
-        style={{ scrollbarWidth: 'none' }}
+        className="absolute inset-0 flex overflow-x-auto snap-x snap-mandatory scrollbar-hide"
+        style={{ scrollbarWidth: 'none', touchAction: 'pan-x' }}
       >
-        {post.items.map((it, idx) => (
-          <div key={it.id} className="relative flex-shrink-0 w-full h-full snap-start snap-always">
-            <MediaFrame item={it} active={active && idx === activeIdx} muted={muted} />
-          </div>
-        ))}
+        {post.items.map((it, idx) => {
+          const itemActive = active && idx === activeIdx;
+          // Only mount real media for the active item ± 1 of the active
+          // post. Everything else stays a cheap gradient until it's
+          // actually about to be shown — keeps the feed snappy when
+          // scrolling past lots of multi-item posts.
+          const shouldRenderMedia = active && Math.abs(idx - activeIdx) <= 1;
+          return (
+            <div key={it.id} className="relative flex-shrink-0 w-full h-full snap-start snap-always">
+              <MediaFrame
+                item={it}
+                postActive={active}
+                itemActive={itemActive}
+                shouldRenderMedia={shouldRenderMedia}
+                muted={muted}
+              />
+            </div>
+          );
+        })}
       </div>
 
       {/* Top + bottom gradient wash for legibility */}
