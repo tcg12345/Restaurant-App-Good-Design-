@@ -79,26 +79,65 @@ export const Sidebar: React.FC = () => {
     return location.pathname === path || location.pathname.startsWith(`${path}/`);
   };
 
+  // While collapsed, clicking any "blank" area of the sidebar (anything
+  // that isn't a button, link, or an explicit interactive control) is
+  // treated as an "expand me" gesture. The closest() check makes nav
+  // links and the +New Rating button keep their primary behavior.
+  const handleAsideClick = (e: React.MouseEvent<HTMLElement>) => {
+    if (!collapsed) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    if (target.closest('button, a, [role="button"]')) return;
+    setCollapsed(false);
+  };
+
+  // Reusable collapse / expand chevron — placed at both the top of the
+  // header row and inline with the footer so the user can toggle from
+  // either end of the rail.
+  const ToggleButton: React.FC<{ size?: number; className?: string }> = ({ size = 16, className }) => (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c); }}
+      aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      className={cn(
+        'rounded-lg flex items-center justify-center flex-shrink-0',
+        'text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors',
+        className,
+      )}
+    >
+      {collapsed ? <ChevronsRight size={size} /> : <ChevronsLeft size={size} />}
+    </button>
+  );
+
   return (
     <motion.aside
       animate={{ width }}
       transition={{ type: 'spring', damping: 28, stiffness: 280, mass: 0.9 }}
+      onClick={handleAsideClick}
       className={cn(
         'h-screen sticky top-0 flex-shrink-0 border-r border-on-surface/[0.07] bg-surface',
         'flex flex-col z-30',
+        collapsed && 'cursor-e-resize',
       )}
       aria-label="Primary"
     >
-      {/* ── Header: logo + brand ───────────────────────────────────────── */}
-      <div className={cn('flex items-center gap-3 px-5 pt-5 pb-4', collapsed && 'justify-center px-3')}>
-        <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-lg flex-shrink-0">
-          G
+      {/* ── Header: logo + brand + collapse toggle ─────────────────────── */}
+      <div className={cn(
+        'flex items-center pt-5 pb-4 gap-3',
+        collapsed ? 'flex-col gap-2 px-3' : 'px-5',
+      )}>
+        <div className={cn('flex items-center gap-3 min-w-0', !collapsed && 'flex-1')}>
+          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-lg flex-shrink-0">
+            G
+          </div>
+          {!collapsed && (
+            <h1 className="font-serif font-bold text-[17px] text-on-surface leading-tight truncate">
+              Gourmet Canvas
+            </h1>
+          )}
         </div>
-        {!collapsed && (
-          <h1 className="font-serif font-bold text-[17px] text-on-surface leading-tight truncate">
-            Gourmet Canvas
-          </h1>
-        )}
+        <ToggleButton size={16} className="w-8 h-8" />
       </div>
 
       <div className="border-t border-on-surface/[0.06] mx-3" />
@@ -186,9 +225,10 @@ export const Sidebar: React.FC = () => {
           className={cn(
             'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
             'text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors',
+            collapsed && 'hidden',
           )}
         >
-          {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+          <ChevronsLeft size={16} />
         </button>
       </div>
     </motion.aside>
