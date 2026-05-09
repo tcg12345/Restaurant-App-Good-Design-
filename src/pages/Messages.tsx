@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, Share2, ChefHat, Clock, Film, PlayCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
-import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe, type SharedReel } from '../contexts/ChatContext';
+import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe, type SharedReel, type SharedPost } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -220,6 +220,74 @@ const ReelShareCard: React.FC<{
         )}
         <div className={cn('flex items-center gap-1 mt-2 text-[10px] font-semibold', faintCls)}>
           <span>Open in Reels</span>
+          <ChevronRight size={10} />
+        </div>
+      </div>
+    </button>
+  );
+};
+
+/* ── Post Share Card (iMessage-style rich preview) ── */
+const PostShareCard: React.FC<{
+  post: SharedPost;
+  isMe: boolean;
+  hasTextAbove: boolean;
+  onClick?: () => void;
+}> = ({ post, isMe, hasTextAbove, onClick }) => {
+  const titleCls = isMe ? 'text-white' : 'text-on-surface';
+  const subCls = isMe ? 'text-white/75' : 'text-on-surface/55';
+  const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
+  const accentCls = isMe ? 'text-white' : 'text-on-surface';
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'block w-full max-w-[280px] overflow-hidden text-left active:scale-[0.985] transition-transform',
+        hasTextAbove ? 'rounded-b-2xl' : 'rounded-2xl',
+        isMe
+          ? cn('bg-primary', hasTextAbove ? '' : 'rounded-br-md')
+          : cn('bg-on-surface/[0.06]', hasTextAbove ? '' : 'rounded-bl-md'),
+      )}
+    >
+      <div className={cn('relative w-full aspect-[5/3] overflow-hidden bg-gradient-to-br', post.bgGradient || 'from-stone-800 to-stone-900')}>
+        {post.coverUrl && post.coverMediaType === 'video' && (
+          <video src={post.coverUrl} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
+        )}
+        {post.coverUrl && post.coverMediaType === 'photo' && (
+          <img src={post.coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/55 to-transparent pointer-events-none" />
+        <div className="absolute top-2 left-2 inline-flex items-center gap-1 px-2 h-6 rounded-full bg-black/55 text-white text-[10px] font-bold">
+          POST
+        </div>
+        {post.itemCount > 1 && (
+          <div className="absolute top-2 right-2 inline-flex items-center gap-1 px-2 h-6 rounded-full bg-black/55 text-white text-[10px] font-bold">
+            {post.itemCount} items
+          </div>
+        )}
+        <div className="absolute bottom-2 left-2 right-2 flex items-center gap-2">
+          <div className={cn('w-7 h-7 rounded-full ring-2 ring-white/40 flex items-center justify-center text-white text-[10px] font-bold', post.authorAvatarColor)}>
+            {post.authorInitials}
+          </div>
+          <span className="text-white text-[12px] font-bold truncate drop-shadow">@{post.authorUsername}</span>
+        </div>
+      </div>
+      <div className="px-3.5 py-2.5">
+        {post.locationLabel && (
+          <div className={cn('flex items-center gap-1 mb-0.5', accentCls)}>
+            <MapPin size={11} />
+            <span className="text-[11px] font-bold truncate">{post.locationLabel}</span>
+          </div>
+        )}
+        {post.caption && (
+          <p className={cn('text-[13px] leading-snug line-clamp-2 italic', titleCls)}>"{post.caption}"</p>
+        )}
+        {!post.caption && !post.locationLabel && (
+          <p className={cn('text-[12px]', subCls)}>{post.itemCount} {post.itemCount === 1 ? 'photo or video' : 'photos and videos'}</p>
+        )}
+        <div className={cn('flex items-center gap-1 mt-2 text-[10px] font-semibold', faintCls)}>
+          <span>Open in feed</span>
           <ChevronRight size={10} />
         </div>
       </div>
@@ -716,7 +784,7 @@ const ChatView: React.FC<{
           const showSender = conversation.isGroup && !isMe;
           const prevMsg = idx > 0 ? conversation.messages[idx - 1] : null;
           const showTimestamp = !prevMsg || (msg.timestamp - prevMsg.timestamp) > 300000; // 5 min gap
-          const hasShared = !!(msg.sharedRestaurant || msg.sharedRecipe || msg.sharedReel);
+          const hasShared = !!(msg.sharedRestaurant || msg.sharedRecipe || msg.sharedReel || msg.sharedPost);
           const hasText = !!msg.text;
           const isLastSent = idx === lastSentIndex;
 
@@ -769,6 +837,14 @@ const ChatView: React.FC<{
                           isMe={isMe}
                           hasTextAbove={false}
                           onClick={() => navigate(`/reels?kind=${msg.sharedReel!.kind}`)}
+                        />
+                      )}
+                      {msg.sharedPost && (
+                        <PostShareCard
+                          post={msg.sharedPost}
+                          isMe={isMe}
+                          hasTextAbove={false}
+                          onClick={() => navigate('/reels')}
                         />
                       )}
                     </div>
@@ -948,6 +1024,10 @@ export const Messages: React.FC = () => {
     if (last.sharedReel) {
       const prefix = last.senderId === user?.id ? 'You' : (profiles[last.senderId]?.display_name || 'Someone');
       return `${prefix} shared a reel${last.sharedReel.attachedTitle ? `: ${last.sharedReel.attachedTitle}` : ''}`;
+    }
+    if (last.sharedPost) {
+      const prefix = last.senderId === user?.id ? 'You' : (profiles[last.senderId]?.display_name || 'Someone');
+      return `${prefix} shared a post by @${last.sharedPost.authorUsername}`;
     }
     const prefix = last.senderId === user?.id ? 'You: ' : '';
     return prefix + last.text;

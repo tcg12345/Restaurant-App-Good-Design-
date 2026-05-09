@@ -54,6 +54,24 @@ export interface SharedReel {
   attachedRoute: string;       // /restaurant/:id  OR  /recipe/:id
 }
 
+export interface SharedPost {
+  postId: string;
+  authorId: string;
+  authorUsername: string;
+  authorDisplayName?: string;
+  authorAvatarColor: string;
+  authorInitials: string;
+  isExpert: boolean;
+  caption: string;
+  locationLabel: string;
+  /** First item's media URL — used as the rich preview cover. */
+  coverUrl?: string;
+  coverMediaType?: 'photo' | 'video';
+  bgGradient: string;
+  /** Total item count (drives the "8 items" / multi-item indicator). */
+  itemCount: number;
+}
+
 export interface ChatMessage {
   id: string;
   senderId: string;
@@ -61,6 +79,7 @@ export interface ChatMessage {
   sharedRestaurant?: SharedRestaurant;
   sharedRecipe?: SharedRecipe;
   sharedReel?: SharedReel;
+  sharedPost?: SharedPost;
   timestamp: number;
 }
 
@@ -74,10 +93,25 @@ export interface Conversation {
   isGroup: boolean;
 }
 
+/** Anything that can be sent inline as a rich card with a chat message. */
+export interface SharePayload {
+  text?: string;
+  sharedRestaurant?: SharedRestaurant;
+  sharedRecipe?: SharedRecipe;
+  sharedReel?: SharedReel;
+  sharedPost?: SharedPost;
+}
+
 interface ChatContextValue {
   conversations: Conversation[];
   createConversation: (participantIds: string[], name?: string) => Conversation;
-  sendMessage: (conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel) => void;
+  sendMessage: (conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost) => void;
+  /** Find an existing 1:1 chat with the friend, or create one and return it. */
+  getOrCreateDirectConversation: (friendId: string) => Conversation;
+  /** Convenience: resolve direct chats for the targets, then send the same
+   *  payload to each. Group conversations are sent as-is. Returns the list
+   *  of conversation ids that received the message. */
+  shareToTargets: (targets: { conversationId?: string; friendId?: string }[], payload: SharePayload) => string[];
   getConversation: (id: string) => Conversation | undefined;
   findDirectConversation: (friendId: string) => Conversation | undefined;
   deleteConversation: (id: string) => void;
@@ -186,7 +220,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return conv;
   }, [userId, syncToCloud, readTimestamps]);
 
-  const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel) => {
+  const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost) => {
     if (!userId) return;
     const msg: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -195,6 +229,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       sharedRestaurant,
       sharedRecipe,
       sharedReel,
+      sharedPost,
       timestamp: Date.now(),
     };
     setConversations((prev) => {
@@ -222,6 +257,52 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       c.participantIds.includes(friendId)
     );
   }, [conversations, userId]);
+
+  /** Resolve a 1:1 chat with the given friend, creating one if it doesn't
+   *  exist. Returns the conv synchronously so callers can immediately
+   *  sendMessage() against it. */
+  const getOrCreateDirectConversation = useCallback((friendId: string): Conversation => {
+    const existing = findDirectConversation(friendId);
+    if (existing) return existing;
+    return createConversation([friendId]);
+  }, [findDirectConversation, createConversation]);
+
+  /** Send the same payload to a list of targets (friend ids OR existing
+   *  conversation ids). New direct chats are auto-created for friend
+   *  ids without an existing 1:1 chat. */
+  const shareToTargets = useCallback((
+    targets: { conversationId?: string; friendId?: string }[],
+    payload: SharePayload,
+  ): string[] => {
+    if (!userId || targets.length === 0) return [];
+    const sentTo: string[] = [];
+    const cachedByFriend: Record<string, string> = {};
+    for (const t of targets) {
+      let convId: string | undefined;
+      if (t.conversationId) {
+        convId = t.conversationId;
+      } else if (t.friendId) {
+        if (cachedByFriend[t.friendId]) {
+          convId = cachedByFriend[t.friendId];
+        } else {
+          const conv = getOrCreateDirectConversation(t.friendId);
+          cachedByFriend[t.friendId] = conv.id;
+          convId = conv.id;
+        }
+      }
+      if (!convId) continue;
+      sendMessage(
+        convId,
+        payload.text || '',
+        payload.sharedRestaurant,
+        payload.sharedRecipe,
+        payload.sharedReel,
+        payload.sharedPost,
+      );
+      sentTo.push(convId);
+    }
+    return sentTo;
+  }, [userId, getOrCreateDirectConversation, sendMessage]);
 
   const deleteConversation = useCallback((id: string) => {
     setConversations((prev) => {
@@ -268,7 +349,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <ChatContext.Provider value={{
       conversations, createConversation, sendMessage, getConversation,
-      findDirectConversation, deleteConversation, renameConversation, markRead,
+      findDirectConversation, getOrCreateDirectConversation, shareToTargets,
+      deleteConversation, renameConversation, markRead,
       unreadCount, getUnreadForConversation,
     }}>
       {children}

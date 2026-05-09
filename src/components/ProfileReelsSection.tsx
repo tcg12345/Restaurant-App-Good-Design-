@@ -174,6 +174,7 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
   isOwn = false,
   onTileClick,
   onDelete,
+  onEdit,
   onToggleVisibility,
   title,
   trailing,

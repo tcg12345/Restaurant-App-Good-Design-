@@ -7,8 +7,8 @@ import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
-import { ShareReelDialog } from '../components/ShareReelDialog';
-import { type SharedReel } from '../contexts/ChatContext';
+import { ShareDialog } from '../components/ShareDialog';
+import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 
 /**
@@ -806,7 +806,7 @@ export const Reels: React.FC = () => {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
-  const [sharePayload, setSharePayload] = useState<SharedReel | null>(null);
+  const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
 
   const loading = reelsLoading || postsLoading;
 
@@ -931,7 +931,30 @@ export const Reels: React.FC = () => {
   };
 
   const handleShare = (reel: Reel) => {
-    setSharePayload(buildSharedReel(reel));
+    setSharePayload({ sharedReel: buildSharedReel(reel) });
+  };
+
+  // Build the snapshot we hand the share dialog for posts.
+  const buildSharedPost = (post: Post): SharedPost => {
+    const cover = post.items[0];
+    return {
+      postId: post.id,
+      authorId: post.userId,
+      authorUsername: post.author?.username || post.userId.slice(0, 8),
+      authorDisplayName: post.author?.displayName,
+      authorAvatarColor: post.author?.avatarColor || 'bg-stone-700',
+      authorInitials: post.author?.initials || post.userId.slice(0, 2).toUpperCase(),
+      isExpert: post.author?.isExpert ?? false,
+      caption: post.caption,
+      locationLabel: post.locationLabel,
+      coverUrl: cover?.mediaUrl,
+      coverMediaType: cover?.mediaType,
+      bgGradient: cover?.bgGradient || 'from-stone-800 to-stone-900',
+      itemCount: post.items.length,
+    };
+  };
+  const handleSharePost = (post: Post) => {
+    setSharePayload({ sharedPost: buildSharedPost(post) });
   };
 
   const handleConfirmDelete = async () => {
@@ -1057,7 +1080,7 @@ export const Reels: React.FC = () => {
                     togglePostSave(item.post.id);
                   }}
                   onComment={() => openPostCommentsSheet(item.post.id)}
-                  onShare={() => showToast('Sharing posts is coming soon')}
+                  onShare={() => handleSharePost(item.post)}
                   onItemAttachmentClick={(postItem) => handlePostItemClick(item.post.userId, postItem)}
                   onDelete={() => setConfirmDeletePostId(item.post.id)}
                 />
@@ -1188,7 +1211,7 @@ export const Reels: React.FC = () => {
                 togglePostSave(activePost.id);
               }}
               onComment={() => openPostCommentsSheet(activePost.id)}
-              onShare={() => showToast('Sharing posts is coming soon')}
+              onShare={() => handleSharePost(activePost)}
               onDelete={() => setConfirmDeletePostId(activePost.id)}
             />
           </div>
@@ -1205,9 +1228,9 @@ export const Reels: React.FC = () => {
         />
 
         {/* Share dialog — fixed-position, floats above the layout. */}
-        <ShareReelDialog
+        <ShareDialog
           open={!!sharePayload}
-          reel={sharePayload}
+          payload={sharePayload}
           onClose={() => setSharePayload(null)}
         />
       </div>
@@ -1219,9 +1242,9 @@ export const Reels: React.FC = () => {
     <div className="relative h-screen w-full bg-black overflow-hidden">
       <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
       {renderFeed({})}
-      <ShareReelDialog
+      <ShareDialog
         open={!!sharePayload}
-        reel={sharePayload}
+        payload={sharePayload}
         onClose={() => setSharePayload(null)}
       />
     </div>
