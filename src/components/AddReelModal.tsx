@@ -93,9 +93,25 @@ export const AddReelModal: React.FC = () => {
     };
   }, [videoUrl]);
 
+  // Strip base64 data: URLs from the picker — rendering 20+ of them in a
+  // dropdown decodes/rasterizes hundreds of megabytes simultaneously, which
+  // is what was making the modal lag and crash on lower-spec devices. The
+  // attached snapshot also keeps these out of the JSONB column we send to
+  // Supabase, which keeps reel rows small.
+  const safePickerImage = (url: string | undefined | null): string | undefined => {
+    if (!url || typeof url !== 'string') return undefined;
+    if (url.startsWith('data:')) return undefined;
+    return url;
+  };
+
+  const PICKER_LIMIT = 20;
+
   // ── Restaurant pick list (from user's data) ──
+  // Skip building until the modal is open so we don't waste CPU on every
+  // unrelated re-render of the app.
   const restaurantPickList = useMemo(() => {
     type Item = { id: string; name: string; cuisine: string; price: string; address: string; image?: string; score?: number };
+    if (!addReelModalOpen) return [] as Item[];
     const byId = new Map<string, Item>();
     for (const r of ratings) {
       byId.set(r.restaurantId, {
@@ -104,7 +120,7 @@ export const AddReelModal: React.FC = () => {
         cuisine: r.cuisine,
         price: r.price,
         address: r.address,
-        image: r.image,
+        image: safePickerImage(r.image),
         score: r.score,
       });
     }
@@ -116,7 +132,7 @@ export const AddReelModal: React.FC = () => {
         cuisine: w.cuisine,
         price: w.price,
         address: w.address,
-        image: w.image,
+        image: safePickerImage(w.image),
       });
     }
     for (const [id, m] of Object.entries(restaurantMeta || {})) {
@@ -129,18 +145,19 @@ export const AddReelModal: React.FC = () => {
         cuisine: meta.cuisine || '',
         price: meta.price || '',
         address: meta.address || '',
-        image: meta.image,
+        image: safePickerImage(meta.image),
       });
     }
     const items = Array.from(byId.values());
     const q = restaurantSearch.trim().toLowerCase();
-    if (!q) return items.slice(0, 50);
-    return items.filter((it) => `${it.name} ${it.cuisine} ${it.address}`.toLowerCase().includes(q)).slice(0, 50);
-  }, [ratings, wishlist, restaurantMeta, restaurantSearch]);
+    if (!q) return items.slice(0, PICKER_LIMIT);
+    return items.filter((it) => `${it.name} ${it.cuisine} ${it.address}`.toLowerCase().includes(q)).slice(0, PICKER_LIMIT);
+  }, [addReelModalOpen, ratings, wishlist, restaurantMeta, restaurantSearch]);
 
   // ── Recipe pick list ──
   const recipePickList = useMemo(() => {
     type Item = { id: string; title: string; prepTime: number; cookTime: number; servings: number; difficulty: 'Easy' | 'Medium' | 'Hard'; image?: string };
+    if (!addReelModalOpen) return [] as Item[];
     const items: Item[] = [];
     for (const r of myRecipes) {
       const diff = (r.difficulty || 'easy').toLowerCase();
@@ -151,7 +168,7 @@ export const AddReelModal: React.FC = () => {
         cookTime: r.cookTimeMinutes ?? 0,
         servings: r.servings ?? 0,
         difficulty: (diff === 'medium' ? 'Medium' : diff === 'hard' ? 'Hard' : 'Easy'),
-        image: r.photos?.[0],
+        image: safePickerImage(r.photos?.[0]),
       });
     }
     for (const m of homeMeals) {
@@ -162,13 +179,13 @@ export const AddReelModal: React.FC = () => {
         cookTime: m.cookTime ?? 0,
         servings: m.servings ?? 0,
         difficulty: m.difficulty ?? 'Easy',
-        image: m.coverPhoto || m.photos?.[0]?.url,
+        image: safePickerImage(m.coverPhoto || m.photos?.[0]?.url),
       });
     }
     const q = recipeSearch.trim().toLowerCase();
-    if (!q) return items.slice(0, 50);
-    return items.filter((it) => it.title.toLowerCase().includes(q)).slice(0, 50);
-  }, [myRecipes, homeMeals, recipeSearch]);
+    if (!q) return items.slice(0, PICKER_LIMIT);
+    return items.filter((it) => it.title.toLowerCase().includes(q)).slice(0, PICKER_LIMIT);
+  }, [addReelModalOpen, myRecipes, homeMeals, recipeSearch]);
 
   const pickedRestaurant = useMemo(
     () => restaurantPickList.find((r) => r.id === pickedRestaurantId) ?? null,
@@ -210,7 +227,13 @@ export const AddReelModal: React.FC = () => {
     if (!file) return;
     setValidationMsg(null);
     setErrorMsg(null);
-    if (!file.type.startsWith('video/')) {
+    // Some OS pickers (Finder, certain Linux desktops) hand us a File whose
+    // .type is empty even for clearly-video extensions. Accept anything
+    // that's either MIME-tagged video or has a known video extension —
+    // readVideoDuration() below is the real arbiter.
+    const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|mkv|avi|3gp|qt|hevc)$/i;
+    const looksLikeVideo = file.type.startsWith('video/') || VIDEO_EXT_RE.test(file.name);
+    if (!looksLikeVideo) {
       setValidationMsg('Please pick a video file.');
       return;
     }
@@ -219,13 +242,15 @@ export const AddReelModal: React.FC = () => {
       return;
     }
 
-    // Probe duration before accepting the file.
+    // Probe duration before accepting the file. If the browser can't decode
+    // it (rare HEVC/.mov containers, codec issues), we fail with a useful
+    // error so the user can re-encode.
     let duration: number;
     try {
       duration = await readVideoDuration(file);
     } catch (err) {
       console.warn('[AddReel] probe failed:', err);
-      setValidationMsg("Couldn't read this video — try a different file.");
+      setValidationMsg("Couldn't read this video — try exporting to MP4 (H.264) and uploading again.");
       return;
     }
     if (duration > REEL_MAX_DURATION_SECONDS + 0.5) {
@@ -376,10 +401,18 @@ export const AddReelModal: React.FC = () => {
                     </span>
                   )}
                 </div>
+                {/*
+                  Some OS file dialogs (especially macOS Finder) match files
+                  against `accept` *only* by MIME and gray out anything they
+                  can't classify — that's why .mov files from Photos can show
+                  up disabled. Listing common extensions explicitly lets the
+                  picker fall back to extension matching, then we still
+                  validate it's actually a video in onPickFile().
+                */}
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="video/*"
+                  accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.3gp,.qt,.hevc"
                   className="hidden"
                   onChange={(e) => onPickFile(e.target.files?.[0] ?? null)}
                 />
@@ -511,7 +544,14 @@ export const AddReelModal: React.FC = () => {
                               >
                                 <div className="w-10 h-10 rounded-xl bg-on-surface/[0.06] overflow-hidden flex-shrink-0 flex items-center justify-center">
                                   {r.image ? (
-                                    <img src={r.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    <img
+                                      src={r.image}
+                                      alt=""
+                                      loading="lazy"
+                                      decoding="async"
+                                      className="w-full h-full object-cover"
+                                      referrerPolicy="no-referrer"
+                                    />
                                   ) : (
                                     <MapPin size={14} className="text-on-surface/35" />
                                   )}
@@ -572,7 +612,13 @@ export const AddReelModal: React.FC = () => {
                               >
                                 <div className="w-10 h-10 rounded-xl bg-blue-50 overflow-hidden flex-shrink-0 flex items-center justify-center">
                                   {r.image ? (
-                                    <img src={r.image} alt="" className="w-full h-full object-cover" />
+                                    <img
+                                      src={r.image}
+                                      alt=""
+                                      loading="lazy"
+                                      decoding="async"
+                                      className="w-full h-full object-cover"
+                                    />
                                   ) : (
                                     <ChefHat size={16} className="text-blue-600" />
                                   )}
@@ -662,8 +708,15 @@ export const AddReelModal: React.FC = () => {
 const PickedPill: React.FC<{ name: string; meta: string; image?: string; onClear: () => void; disabled?: boolean }> = ({ name, meta, image, onClear, disabled }) => (
   <div className="flex items-center gap-3 rounded-2xl bg-primary/[0.06] border border-primary/15 px-3 py-2.5">
     <div className="w-10 h-10 rounded-xl overflow-hidden bg-on-surface/[0.06] flex-shrink-0 flex items-center justify-center">
-      {image ? (
-        <img src={image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+      {image && !image.startsWith('data:') ? (
+        <img
+          src={image}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+        />
       ) : (
         <Check size={14} className="text-primary" />
       )}
