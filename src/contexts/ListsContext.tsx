@@ -3,6 +3,7 @@ import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
+import { useToast } from './ToastContext';
 import { safeImage } from '../lib/utils';
 
 /* ── Types ── */
@@ -38,6 +39,21 @@ export interface RestaurantMeta {
   cuisine: string;
   price: string;
   address: string;
+  /** Geo coordinates — populated lazily when the user views the detail
+   *  page. Optional so older rows / synced data still validate. Used by
+   *  list cards to show distance from the user's anchor location. */
+  lat?: number;
+  lng?: number;
+  /** Google Places v1 address components — populated when the user views
+   *  the detail page. Used by formatLocationLabel() to render
+   *  Beli-style "Neighborhood, Borough" / "Neighborhood, City, ST"
+   *  display labels. Older rows fall back to parsing `address`. */
+  addressComponents?: Array<{ longText: string; shortText: string; types: string[] }>;
+  /** Mapbox-sourced neighborhood name (e.g. "West Village", "Mission",
+   *  "Williamsburg"). Backfilled by the location enricher because
+   *  Google's Places components don't include neighborhood data for
+   *  most cities. */
+  neighborhood?: string;
 }
 
 export interface RecipeIngredient {
@@ -192,7 +208,7 @@ interface ListsContextValue {
 
   // Restaurant metadata cache
   restaurantMeta: Record<string, RestaurantMeta>;
-  cacheRestaurantMeta: (meta: RestaurantMeta) => void;
+  cacheRestaurantMeta: (meta: Partial<RestaurantMeta> & { id: string }) => void;
   getRestaurantInfo: (restaurantId: string) => RestaurantMeta | undefined;
   /** Set an arbitrary key inside restaurantMeta and sync to cloud. Used by
    *  the review system to stash __my_meal_reviews__ through the context
@@ -203,6 +219,9 @@ interface ListsContextValue {
   wishlist: WishlistItem[];
   addToWishlist: (item: WishlistItem) => void;
   removeFromWishlist: (restaurantId: string) => void;
+  /** One-tap heart toggle. Adds the restaurant to the wishlist if it
+   *  isn't there yet, removes it if it is. No list-selection UI. */
+  toggleWishlist: (restaurant: RestaurantMeta) => void;
   isWishlisted: (restaurantId: string) => boolean;
   getWishlistItem: (restaurantId: string) => WishlistItem | undefined;
 
@@ -225,10 +244,6 @@ interface ListsContextValue {
   closeAddRestaurantModal: () => void;
 
   // Wishlist modal (heart button)
-  wishlistModalOpen: boolean;
-  wishlistModalMeta: RestaurantMeta | null;
-  openWishlistModal: (restaurant: RestaurantMeta) => void;
-  closeWishlistModal: () => void;
 
   // Recipes (home-cooking lists)
   addRecipe: (listId: string, recipe: Recipe) => void;
@@ -433,6 +448,7 @@ const ListsContext = createContext<ListsContextValue | null>(null);
 
 export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, profile: authProfile } = useAuth();
+  const { showToast } = useToast();
   const userId = user?.id ?? null;
 
   const [ratings, setRatings] = useState<RestaurantRating[]>(() => migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, [])));
@@ -624,15 +640,19 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setTrips(localTrips);
         setHomeMeals(localHomeMeals);
 
-        // Save local data to cloud so it persists
+        // Save local data to cloud so it persists.
+        // Re-read localStorage at save time so a toggle the user made while
+        // loadUserData was in flight (e.g. tapping a heart on the first
+        // visible card) is included in the upsert instead of being clobbered
+        // by the snapshot we captured at the top of this branch.
         await saveUserData(userId, {
-          ratings: localRatings,
-          lists: localLists,
-          wishlist: localWishlist,
-          restaurantMeta: localMeta,
+          ratings: migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, [])),
+          lists: migrateLists(loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS)),
+          wishlist: migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, [])),
+          restaurantMeta: migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {})),
           recentViews: [],
-          trips: localTrips,
-          homeMeals: localHomeMeals,
+          trips: loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []),
+          homeMeals: migrateHomeMeals(loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, [])),
           chats: [],
           chatsRead: {},
         });
@@ -927,18 +947,45 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addRestaurantModalOpen, setAddRestaurantModalOpen] = useState(false);
   const [addRestaurantModalMeta, setAddRestaurantModalMeta] = useState<RestaurantMeta | null>(null);
   const [addRestaurantModalInitialPage, setAddRestaurantModalInitialPage] = useState<string | null>(null);
-  const [wishlistModalOpen, setWishlistModalOpen] = useState(false);
-  const [wishlistModalMeta, setWishlistModalMeta] = useState<RestaurantMeta | null>(null);
   const [homeMealModalOpen, setHomeMealModalOpen] = useState(false);
   const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
 
   // Restaurant metadata cache
-  const cacheRestaurantMeta = useCallback((meta: RestaurantMeta) => {
+  const cacheRestaurantMeta = useCallback((meta: Partial<RestaurantMeta> & { id: string }) => {
     // Defensively strip any Google Places photo URL so we never persist a
     // URL whose render would trigger a billed Google API call.
-    const cleaned: RestaurantMeta = { ...meta, image: safeImage(meta.image) };
+    const cleaned: Partial<RestaurantMeta> & { id: string } = {
+      ...meta,
+      ...(meta.image !== undefined ? { image: safeImage(meta.image) } : {}),
+    };
     setRestaurantMeta((prev) => {
-      const next = { ...prev, [cleaned.id]: cleaned };
+      // Merge with existing entry so we don't drop coordinate or other
+      // fields the new caller didn't bother to provide. (e.g. the heart
+      // toggle has only id/name/image/cuisine/price/address — it would
+      // otherwise wipe lat/lng cached by useRestaurantDetail.)
+      const existing = prev[cleaned.id];
+      const merged: RestaurantMeta = existing
+        ? {
+            ...existing,
+            ...cleaned,
+            lat: cleaned.lat ?? existing.lat,
+            lng: cleaned.lng ?? existing.lng,
+            addressComponents: cleaned.addressComponents ?? existing.addressComponents,
+            neighborhood: cleaned.neighborhood ?? existing.neighborhood,
+          } as RestaurantMeta
+        : ({
+            id: cleaned.id,
+            name: cleaned.name ?? '',
+            image: cleaned.image ?? '',
+            cuisine: cleaned.cuisine ?? '',
+            price: cleaned.price ?? '',
+            address: cleaned.address ?? '',
+            lat: cleaned.lat,
+            lng: cleaned.lng,
+            addressComponents: cleaned.addressComponents,
+            neighborhood: cleaned.neighborhood,
+          } as RestaurantMeta);
+      const next = { ...prev, [cleaned.id]: merged };
       saveToStorage(STORAGE_KEY_META, next);
       syncMetaToCloud(next);
       return next;
@@ -965,6 +1012,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Ratings
   const rateRestaurant = useCallback((rating: RestaurantRating) => {
+    // Capture previous-state context for the toast: was this restaurant
+    // already rated? Read from the closure ratings (committed state) since
+    // the setRatings updater below runs during render — by then it's too
+    // late to know the prior value.
+    const wasRated = ratings.some((r) => r.restaurantId === rating.restaurantId);
     setRatings((prev) => {
       // Save old rating to visit history before overwriting. Writes to
       // BOTH localStorage (synchronous, always works) and Supabase
@@ -1043,7 +1095,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         });
       }
     }
-  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud]);
+    showToast(
+      wasRated ? 'Rating updated' : 'Added to rated restaurants',
+      {
+        subtitle: `${rating.name} · ${rating.score.toFixed(1)} / 10`,
+        variant: wasRated ? 'rating-updated' : 'rated',
+      },
+    );
+  }, [ratings, cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, showToast]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
@@ -1374,6 +1433,59 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const getWishlistItem = useCallback((restaurantId: string) => wishlist.find((w) => w.restaurantId === restaurantId), [wishlist]);
 
+  // One-tap toggle. Decides add-vs-remove from the currently committed
+  // wishlist (closure value) so the toast we fire below sees the right
+  // direction — the setWishlist updater runs during render, AFTER this
+  // function returns, so reading from inside it left `removed` always
+  // false and the toast always read "Added".
+  const toggleWishlist = useCallback((restaurant: RestaurantMeta) => {
+    cacheRestaurantMeta(restaurant);
+    const isOn = wishlist.some((w) => w.restaurantId === restaurant.id);
+    setWishlist((prev) => {
+      // Re-check inside the updater so two fast taps still produce the
+      // right end state — prev is the most up-to-date queue value.
+      const onNow = prev.some((w) => w.restaurantId === restaurant.id);
+      const next: WishlistItem[] = onNow
+        ? prev.filter((w) => w.restaurantId !== restaurant.id)
+        : [{
+            restaurantId: restaurant.id,
+            name: restaurant.name,
+            image: safeImage(restaurant.image),
+            cuisine: restaurant.cuisine,
+            price: restaurant.price,
+            address: restaurant.address,
+            notes: '',
+            listIds: [],
+            addedAt: Date.now(),
+          }, ...prev];
+      saveToStorage(STORAGE_KEY_WISHLIST, next);
+      syncWishlistToCloud(next);
+      return next;
+    });
+    // When removing, also strip the restaurant from any custom list that
+    // had it on its wishlistIds so the lists view doesn't show a ghost.
+    if (isOn) {
+      setLists((prev) => {
+        let changed = false;
+        const next = prev.map((l) => {
+          if (l.wishlistIds.includes(restaurant.id)) {
+            changed = true;
+            return { ...l, wishlistIds: l.wishlistIds.filter((r) => r !== restaurant.id) };
+          }
+          return l;
+        });
+        if (!changed) return prev;
+        saveToStorage(STORAGE_KEY_LISTS, next);
+        syncListsToCloud(next);
+        return next;
+      });
+    }
+    showToast(isOn ? 'Removed from wishlist' : 'Added to wishlist', {
+      subtitle: restaurant.name,
+      variant: isOn ? 'wishlist-remove' : 'wishlist-add',
+    });
+  }, [wishlist, cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, showToast]);
+
   // Modals
   const openRatingModal = useCallback((restaurant: RestaurantMeta) => {
     cacheRestaurantMeta(restaurant);
@@ -1397,13 +1509,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta]);
   const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
 
-  const openWishlistModal = useCallback((restaurant: RestaurantMeta) => {
-    cacheRestaurantMeta(restaurant);
-    setWishlistModalMeta(restaurant);
-    setWishlistModalOpen(true);
-  }, [cacheRestaurantMeta]);
-  const closeWishlistModal = useCallback(() => { setWishlistModalOpen(false); setWishlistModalMeta(null); }, []);
-
   const openHomeMealModal = useCallback((meal?: HomeMeal) => {
     setHomeMealModalData(meal || null);
     setHomeMealModalOpen(true);
@@ -1415,11 +1520,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       ratings, rateRestaurant, updateRating, removeRating, getRating, deleteVisit,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
       restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
-      wishlist, addToWishlist, removeFromWishlist, isWishlisted, getWishlistItem,
+      wishlist, addToWishlist, removeFromWishlist, toggleWishlist, isWishlisted, getWishlistItem,
       ratingModalOpen, ratingModalRestaurant, openRatingModal, closeRatingModal,
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
-      wishlistModalOpen, wishlistModalMeta, openWishlistModal, closeWishlistModal,
       addRecipe, updateRecipe, removeRecipe, getRecipes,
       addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, openAddRecipeModal, closeAddRecipeModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,

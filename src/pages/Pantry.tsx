@@ -11,12 +11,14 @@ import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { useSettings } from '../contexts/SettingsContext';
-import { Link, useNavigate } from 'react-router-dom';
-import { searchHotels, searchPlacesByText, type PlaceResult } from '../lib/places';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useAuth } from '../contexts/AuthContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
+import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { haversineDistanceMi, formatDistance } from '../lib/distance';
 
 /* ── Preset list suggestions ── */
 interface PresetList { name: string; emoji: string; category: string; type?: 'hotel-breakfast' | 'home-cooking'; }
@@ -384,6 +386,35 @@ const AddFromRatedSheet: React.FC<{
   );
 };
 
+// Backfill location data on saved restaurants so cards can render the
+// Beli-style "Neighborhood, Borough" / "Neighborhood, City, ST" label.
+// One Places call (deduped via inflight + cache) gives us the address
+// components; one Mapbox reverse-geocode gives us the neighborhood
+// (Google rarely returns neighborhood components). Once written to the
+// shared restaurantMeta, every card using that meta upgrades to the
+// richer label automatically.
+function useBackfillLocationComponents(restaurantId: string, hasFullData: boolean) {
+  const { cacheRestaurantMeta } = useLists();
+  useEffect(() => {
+    if (!restaurantId || hasFullData) return;
+    let cancelled = false;
+    fetchLocationDataForPlace(restaurantId).then(({ addressComponents, neighborhood, lat, lng }) => {
+      if (cancelled) return;
+      // Skip the meta write if both fields are empty so we don't
+      // pointlessly bump the cache.
+      if (!addressComponents?.length && !neighborhood && lat == null && lng == null) return;
+      cacheRestaurantMeta({
+        id: restaurantId,
+        ...(addressComponents?.length ? { addressComponents } : {}),
+        ...(neighborhood ? { neighborhood } : {}),
+        ...(lat != null ? { lat } : {}),
+        ...(lng != null ? { lng } : {}),
+      });
+    });
+    return () => { cancelled = true; };
+  }, [restaurantId, hasFullData, cacheRestaurantMeta]);
+}
+
 /* ── Restaurant row card ── */
 const RestaurantRow: React.FC<{
   restaurantId: string;
@@ -403,19 +434,32 @@ const RestaurantRow: React.FC<{
   removeLabel?: string;
 }> = ({ restaurantId, name, image, cuisine, price, address, score, tags, notes, visitDate, wouldReturn, listBadges, onEdit, onRemove, removeLabel }) => {
   const { phoneMode } = useSettings();
+  const { restaurantMeta } = useLists();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [swiped, setSwiped] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   const [isDragging, setIsDragging] = useState(false);
 
-  // Extract city, state from address
-  const location = (() => {
-    if (!address) return '';
-    const parts = address.split(',').map((s) => s.trim());
-    if (parts.length >= 2) return parts.slice(-2).join(', ').replace(/\d{5}.*/, '').trim().replace(/,\s*$/, '');
-    return parts[0] || '';
-  })();
+  // Resolve a "City, ST" / "City, Country" label from the address. Use the
+  // Beli-style hierarchical label — neighborhood + borough/city + state
+  // when address components are cached, falls back to formatted-address
+  // parsing for older saved restaurants.
+  const meta = restaurantMeta[restaurantId];
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined);
+  const location = address || meta?.address
+    ? formatLocationLabel(meta?.addressComponents, address || meta?.address || '', meta?.neighborhood)
+    : '';
+
+  // Distance from the user's anchor location to the cached coords for
+  // this place (populated by useRestaurantDetail). Renders inline next
+  // to the city when available; otherwise the city stands alone.
+  const distanceLabel = useMemo(() => {
+    const home = loadLastSelectedLocation();
+    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
+    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
+    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
+  }, [meta?.lat, meta?.lng]);
 
   const handleDelete = () => {
     if (onRemove) {
@@ -488,29 +532,27 @@ const RestaurantRow: React.FC<{
             }
           }}
         >
-          <div className="flex items-center gap-3 py-3 active:scale-[0.99] transition-transform">
-            <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
-              {image ? (
+          <div className="flex items-start gap-3 py-3 active:scale-[0.99] transition-transform">
+            {/* Image thumbnail — only when there's an actual photo. The
+                no-image monogram tile is intentionally gone so the row
+                stays clean and lets the location read as its own line. */}
+            {image && (
+              <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
                 <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-              ) : (
-                <span className="text-xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
-              )}
-            </div>
-            <div className={cn("flex-1 min-w-0 flex flex-col justify-center")}>
+              </div>
+            )}
+            <div className="flex-1 min-w-0 flex flex-col justify-center">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-serif font-bold text-sm leading-tight truncate">{name}</h3>
-                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <span className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider">
-                      {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
-                    </span>
-                    {location && (
-                      <>
-                        <span className="text-on-surface/20 text-[10px]">|</span>
-                        <span className="text-[10px] text-on-surface/35 truncate">{location}</span>
-                      </>
-                    )}
-                  </div>
+                  <h3 className="font-serif font-bold text-[15px] leading-tight truncate">{name}</h3>
+                  <p className="mt-0.5 text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider truncate">
+                    {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
+                  </p>
+                  {location && (
+                    <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
+                      {location}{distanceLabel ? ` · ${distanceLabel}` : ''}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {score !== undefined && (
@@ -537,7 +579,7 @@ const RestaurantRow: React.FC<{
                 </div>
               </div>
               {tags && tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1">
+                <div className="flex flex-wrap gap-1 mt-1.5">
                   {tags.slice(0, 3).map((tag) => (
                     <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{tag}</span>
                   ))}
@@ -582,18 +624,41 @@ const WishlistRow: React.FC<{
   image: string;
   cuisine: string;
   price: string;
+  /** Full address — derives the city + distance line under cuisine. */
+  address?: string;
   notes?: string;
   onRemove?: () => void;
-}> = ({ restaurantId, name, image, cuisine, price, notes, onRemove }) => {
+}> = ({ restaurantId, name, image, cuisine, price, address, notes, onRemove }) => {
+  const { restaurantMeta } = useLists();
+
+  // Beli-style label: neighborhood + borough/city + state, falling back
+  // to formatted-address parsing when no addressComponents are cached.
+  const wlMeta = restaurantMeta[restaurantId];
+  useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined);
+  const fullAddr = address || wlMeta?.address || '';
+  const location = fullAddr ? formatLocationLabel(wlMeta?.addressComponents, fullAddr, wlMeta?.neighborhood) : '';
+
+  // Distance from the user's anchor location.
+  const distanceLabel = useMemo(() => {
+    const home = loadLastSelectedLocation();
+    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
+    if (!wlMeta || !Number.isFinite(wlMeta.lat) || !Number.isFinite(wlMeta.lng)) return '';
+    return formatDistance(haversineDistanceMi(home.lat, home.lng, wlMeta.lat!, wlMeta.lng!));
+  }, [wlMeta?.lat, wlMeta?.lng]);
+
   return (
     <div className="flex items-start gap-3 py-3 group">
-      <Link to={`/restaurant/${restaurantId}`} className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block">
-        {image ? (
+      {/* Image thumbnail — only when an actual photo exists. The
+          monogram tile that used to render with no image is gone so the
+          row stays clean and the location can read as its own line. */}
+      {image && (
+        <Link
+          to={`/restaurant/${restaurantId}`}
+          className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block"
+        >
           <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-        ) : (
-          <span className="text-xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
-        )}
-      </Link>
+        </Link>
+      )}
       <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
         <div>
           <Link to={`/restaurant/${restaurantId}`}>
@@ -602,6 +667,11 @@ const WishlistRow: React.FC<{
           <p className="text-[11px] text-on-surface/50 font-semibold uppercase tracking-wider mt-0.5">
             {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
           </p>
+          {location && (
+            <p className="mt-1 text-[12.5px] text-on-surface/55 font-medium truncate">
+              {location}{distanceLabel ? ` · ${distanceLabel}` : ''}
+            </p>
+          )}
           {notes && (
             <p className="text-[11px] text-on-surface/45 mt-1 line-clamp-2 italic">&ldquo;{notes}&rdquo;</p>
           )}
@@ -621,6 +691,116 @@ const WishlistRow: React.FC<{
   );
 };
 
+/* ── Wishlist grid card (desktop) ────────────────────────────────────
+   Airy editorial tile: white surface, big serif name, filled-heart pip
+   in the top-right (also the remove control), CUISINE·PRICE under the
+   name, intentionally empty middle for breathing room, and a footer
+   line with the street address + distance. Hover lifts the card. ── */
+const WishlistGridCard: React.FC<{
+  restaurantId: string;
+  name: string;
+  image: string;
+  cuisine: string;
+  price: string;
+  address?: string;
+  notes?: string;
+  onRemove?: () => void;
+}> = ({ restaurantId, name, cuisine, price, address, onRemove }) => {
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const { restaurantMeta } = useLists();
+  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine;
+  const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
+
+  const meta = restaurantMeta[restaurantId];
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined);
+  const fullAddress = address || meta?.address || '';
+  // Beli-style hierarchical label using Google's address components plus
+  // Mapbox-derived neighborhood when available; falls back to
+  // formatted-address parsing for older saved restaurants. Renders as
+  // "West Village, Manhattan", "Mission, San Francisco, CA", "Stowe,
+  // VT", etc.
+  const streetCity = useMemo(
+    () => fullAddress ? formatLocationLabel(meta?.addressComponents, fullAddress, meta?.neighborhood) : '',
+    [fullAddress, meta?.addressComponents, meta?.neighborhood],
+  );
+  const distanceLabel = useMemo(() => {
+    const home = loadLastSelectedLocation();
+    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
+    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
+    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
+  }, [meta?.lat, meta?.lng]);
+
+  return (
+    <div className="group relative">
+      <Link
+        to={`/restaurant/${restaurantId}`}
+        className={cn(
+          'block rounded-2xl bg-white border border-on-surface/[0.07]',
+          'p-5 transition-all duration-200',
+          'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
+          'flex flex-col min-h-[230px]',
+        )}
+      >
+        {/* Top row: name + heart pip (also the remove control) */}
+        <div className="flex items-start justify-between gap-4">
+          <h3 className="font-serif font-bold text-[22px] leading-tight tracking-tight text-on-surface line-clamp-2 min-w-0">
+            {name}
+          </h3>
+          {onRemove ? (
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmRemove(true); }}
+              aria-label="Remove from wishlist"
+              title="Remove from wishlist"
+              className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center hover:bg-red-100 active:scale-95 transition-all"
+            >
+              <Heart size={15} className="fill-red-400" />
+            </button>
+          ) : (
+            <span className="flex-shrink-0 w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
+              <Heart size={15} className="fill-red-400" />
+            </span>
+          )}
+        </div>
+
+        {/* Cuisine · price */}
+        {(cuisineLabel || showPrice) && (
+          <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
+            {cuisineLabel}
+            {cuisineLabel && showPrice ? ' · ' : ''}
+            {showPrice && price}
+          </p>
+        )}
+
+        {/* Spacer pushes the footer to the bottom of the tile */}
+        <div className="flex-1" />
+
+        {/* Footer: pin + location (allowed to wrap to two lines so the
+            full "Neighborhood, City, ST" doesn't get cut off), then a
+            second muted line for the distance when we have one. */}
+        <div className="text-[12.5px] text-on-surface/55">
+          <div className="flex items-start gap-1.5 min-w-0">
+            <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
+            <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
+          </div>
+          {distanceLabel && (
+            <p className="mt-1 pl-[20px] tabular-nums text-on-surface/45">{distanceLabel}</p>
+          )}
+        </div>
+      </Link>
+
+      {confirmRemove && (
+        <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-3 p-4">
+          <p className="text-sm text-on-surface/70 font-medium text-center">Remove from wishlist?</p>
+          <div className="flex gap-2">
+            <button onClick={() => setConfirmRemove(false)} className="px-4 py-2 text-xs font-semibold text-on-surface/55 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10">Cancel</button>
+            <button onClick={() => { if (onRemove) onRemove(); }} className="px-4 py-2 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Remove</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── Grid card for desktop grid view ── */
 const RestaurantGridCard: React.FC<{
   restaurantId: string;
@@ -629,20 +809,188 @@ const RestaurantGridCard: React.FC<{
   cuisine: string;
   price: string;
   score?: number;
+  /** Full address — used to derive "City, State" for the footer. */
+  address?: string;
+  /** User's notes / quote for this rating — rendered as italic text. */
+  notes?: string;
   onEdit?: () => void;
   onRemove?: () => void;
-}> = ({ restaurantId, name, image, cuisine, price, score, onEdit, onRemove }) => {
+}> = ({ restaurantId, name, image, cuisine, price, score, address, notes, onEdit, onRemove }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement | null>(null);
+  const { restaurantMeta } = useLists();
+  const hasScore = score !== undefined && score > 0;
+  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine;
+  const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
+
+  // Resolve city/state for the footer line. Prefer the explicit address
+  // prop (from the rating record) and fall back to whatever's cached on
+  // the meta entry — that way we still show a location for restaurants
+  // re-hydrated from cloud where the rating may not include an address.
+  const meta = restaurantMeta[restaurantId];
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined);
+  const fullAddress = address || meta?.address || '';
+  // Hierarchical Beli-style label — neighborhood + borough/city + state
+  // when components are cached, falling back to the formatted address.
+  const locationLabel = fullAddress
+    ? formatLocationLabel(meta?.addressComponents, fullAddress, meta?.neighborhood)
+    : '';
+
+  // Distance in miles from the user's anchor location to the cached
+  // place coordinates. Only renders when we have both, otherwise the
+  // footer just shows the city.
+  const distanceLabel = useMemo(() => {
+    const home = loadLastSelectedLocation();
+    if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
+    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
+    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
+  }, [meta?.lat, meta?.lng]);
+
+  // Close the more menu on outside click
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [moreOpen]);
+
+  // ── No-image variant ──────────────────────────────────────────────
+  // Same airy editorial tile as the wishlist card, just with the
+  // numeric score in the top-right slot instead of a heart pip. Big
+  // serif name, CUISINE·PRICE, breathing-room middle, footer with the
+  // street address + distance. Edit / more controls fade in on hover.
+  if (!image) {
+    // Display label uses the same Beli-style helper as the rest of the
+    // app — "Neighborhood, Borough" / "Neighborhood, City, ST" /
+    // "City, ST" depending on what address components are cached.
+    const streetCity = locationLabel;
+
+    return (
+      <div className="group relative">
+        <Link
+          to={`/restaurant/${restaurantId}`}
+          className={cn(
+            'block rounded-2xl bg-white border border-on-surface/[0.07]',
+            'p-5 transition-all duration-200',
+            'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
+            'flex flex-col min-h-[230px]',
+          )}
+        >
+          {/* Top row: name + score */}
+          <div className="flex items-start justify-between gap-4">
+            <h3 className="font-serif font-bold text-[22px] leading-tight tracking-tight text-on-surface line-clamp-2 min-w-0">
+              {name}
+            </h3>
+            {hasScore && (
+              <span className={cn(
+                'font-serif font-bold tabular-nums leading-none text-[28px] flex-shrink-0',
+                scoreColor(score!),
+              )}>
+                {score!.toFixed(1)}
+              </span>
+            )}
+          </div>
+
+          {/* Cuisine · price */}
+          {(cuisineLabel || showPrice) && (
+            <p className="mt-1 text-[11px] text-on-surface/45 font-semibold uppercase tracking-[0.14em]">
+              {cuisineLabel}
+              {cuisineLabel && showPrice ? ' · ' : ''}
+              {showPrice && price}
+            </p>
+          )}
+
+          {/* Spacer pushes the footer to the bottom of the tile */}
+          <div className="flex-1" />
+
+          {/* Footer: pin + location (line-clamp 2 so the full Beli-style
+              label is never cut off), then a second line with the
+              distance label and the hover-revealed action icons. */}
+          <div className="text-[12.5px] text-on-surface/55">
+            <div className="flex items-start gap-1.5 min-w-0">
+              <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
+              <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
+            </div>
+            <div className="mt-1 pl-[20px] flex items-center justify-between gap-2 min-h-[28px]">
+              {distanceLabel ? (
+                <span className="tabular-nums text-on-surface/45">{distanceLabel}</span>
+              ) : <span />}
+              {(onEdit || onRemove) && (
+                <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                  {onEdit && (
+                    <button
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+                      aria-label="Edit"
+                      className="w-7 h-7 rounded-full text-on-surface/35 hover:text-primary hover:bg-primary/[0.06] flex items-center justify-center transition-colors"
+                    >
+                      <Edit3 size={13} />
+                    </button>
+                  )}
+                  {onRemove && (
+                    <div className="relative" ref={moreRef}>
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen((v) => !v); }}
+                        aria-label="More options"
+                        aria-haspopup="menu"
+                        aria-expanded={moreOpen}
+                        className={cn(
+                          'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
+                          moreOpen
+                            ? 'text-on-surface bg-on-surface/[0.06]'
+                            : 'text-on-surface/35 hover:text-on-surface hover:bg-on-surface/[0.05]',
+                        )}
+                      >
+                        <MoreHorizontal size={14} />
+                      </button>
+                      <AnimatePresence>
+                        {moreOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                            transition={{ duration: 0.12, ease: 'easeOut' }}
+                            role="menu"
+                            className="absolute right-0 bottom-full mb-1.5 z-30 min-w-[140px] rounded-xl bg-white border border-on-surface/[0.08] shadow-[0_12px_32px_-8px_rgba(0,0,0,0.2)] py-1 overflow-hidden"
+                          >
+                            <button
+                              role="menuitem"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMoreOpen(false); setConfirmDelete(true); }}
+                              className="w-full px-3 py-2 text-left text-[13px] font-semibold text-red-500 hover:bg-red-50 flex items-center gap-2"
+                            >
+                              <Trash2 size={13} /> Delete
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </Link>
+
+        {confirmDelete && (
+          <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-3 p-4">
+            <p className="text-sm text-on-surface/70 font-medium text-center">Delete this restaurant?</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDelete(false)} className="px-4 py-2 text-xs font-semibold text-on-surface/55 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10">Cancel</button>
+              <button onClick={() => { if (onRemove) onRemove(); }} className="px-4 py-2 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── With-image variant (existing layout) ──────────────────────────
   return (
     <div className="group relative">
       <Link to={`/restaurant/${restaurantId}`} className="block aspect-[4/3] overflow-hidden rounded-2xl bg-on-surface/[0.05]">
-        {image ? (
-          <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" referrerPolicy="no-referrer" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-on-surface/20 text-3xl font-serif font-bold">
-            {name.charAt(0)}
-          </div>
-        )}
+        <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" referrerPolicy="no-referrer" />
       </Link>
       <div className="pt-2.5 pb-1">
         <div className="flex items-start justify-between gap-2">
@@ -650,8 +998,8 @@ const RestaurantGridCard: React.FC<{
             <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
           </Link>
           <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5">
-            {score !== undefined && score > 0 && (
-              <span className={cn("text-base font-serif font-bold", scoreColor(score))}>{score.toFixed(1)}</span>
+            {hasScore && (
+              <span className={cn("text-base font-serif font-bold", scoreColor(score!))}>{score!.toFixed(1)}</span>
             )}
             {onEdit && (
               <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
@@ -664,7 +1012,7 @@ const RestaurantGridCard: React.FC<{
           </div>
         </div>
         <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-          {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
+          {cuisineLabel}{cuisineLabel && showPrice ? ' · ' : ''}{showPrice && price}
         </p>
       </div>
       {confirmDelete && (
@@ -1165,6 +1513,25 @@ const ListDetailView: React.FC<{
   const isHotelBreakfast = list.type === 'hotel-breakfast';
   const isHomeCooking = list.type === 'home-cooking';
 
+  // ── Wishlist-only filter state ─────────────────────────────────────
+  // Lives on ListView (not the global page) so the sheet's selections
+  // reset cleanly when the user closes the view.
+  const [wishlistFilterOpen, setWishlistFilterOpen] = useState(false);
+  const [wishlistSort, setWishlistSort] = useState<WishlistSort>('recent');
+  const [wishlistCuisineFilter, setWishlistCuisineFilter] = useState<string[]>([]);
+  const [wishlistCityFilter, setWishlistCityFilter] = useState<string[]>([]);
+  const [wishlistPriceFilter, setWishlistPriceFilter] = useState<string | null>(null);
+  const wishlistActiveFilterCount =
+    (wishlistCuisineFilter.length > 0 ? 1 : 0) +
+    (wishlistCityFilter.length > 0 ? 1 : 0) +
+    (wishlistPriceFilter ? 1 : 0);
+  const resetWishlistFilters = () => {
+    setWishlistCuisineFilter([]);
+    setWishlistCityFilter([]);
+    setWishlistPriceFilter(null);
+    setWishlistSort('recent');
+  };
+
   const recipes = getRecipes(list.id);
   const filteredRecipes = useMemo(() => {
     if (!searchQuery.trim()) return recipes;
@@ -1185,19 +1552,91 @@ const ListDetailView: React.FC<{
     return info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q);
   });
 
-  const wishlistedRestaurants = isHotelBreakfast
+  const wishlistedRestaurantsRaw = isHotelBreakfast
     ? wishlist.filter((w) => w.cuisine === 'Hotel Breakfast').map((w) => ({
         id: w.restaurantId,
         info: getRestaurantInfo(w.restaurantId) || { id: w.restaurantId, name: w.name, image: w.image, cuisine: w.cuisine, price: w.price, address: w.address },
         wishItem: w,
       }))
-    : (list.wishlistIds || []).map((id) => {
-        const info = getRestaurantInfo(id);
-        const wishItem = wishlist.find((w) => w.restaurantId === id);
-        return { id, info, wishItem };
-      }).filter(({ info }) => info);
+    : isWishlistView
+      // Drive the global wishlist view directly off the wishlist array so
+      // recently-toggled hearts show up immediately, in the order the user
+      // added them. The synthetic list only has wishlistIds, which loses
+      // the addedAt timestamp we need for sort.
+      ? wishlist.filter((w) => w.cuisine !== 'Hotel Breakfast').map((w) => ({
+          id: w.restaurantId,
+          info: getRestaurantInfo(w.restaurantId) || { id: w.restaurantId, name: w.name, image: w.image, cuisine: w.cuisine, price: w.price, address: w.address },
+          wishItem: w,
+        }))
+      : (list.wishlistIds || []).map((id) => {
+          const info = getRestaurantInfo(id);
+          const wishItem = wishlist.find((w) => w.restaurantId === id);
+          return { id, info, wishItem };
+        }).filter(({ info }) => info);
 
-  const totalCount = isHomeCooking ? recipes.length : list.restaurantIds.length + (list.wishlistIds?.length || 0);
+  // Filter + sort options pulled from the actual wishlist contents, so
+  // the sheet only ever offers cuisines / cities the user has saved.
+  const wishlistAllCuisines = useMemo(() => {
+    if (!isWishlistView) return [] as string[];
+    const set = new Set<string>();
+    wishlistedRestaurantsRaw.forEach(({ info }) => { if (info?.cuisine) set.add(info.cuisine); });
+    return Array.from(set).sort();
+  }, [isWishlistView, wishlistedRestaurantsRaw]);
+  const wishlistAllCities = useMemo(() => {
+    if (!isWishlistView) return [] as string[];
+    const set = new Set<string>();
+    wishlistedRestaurantsRaw.forEach(({ info }) => {
+      const c = extractCityState(info?.address || '', info?.address || '');
+      if (c) set.add(c);
+    });
+    return Array.from(set).sort();
+  }, [isWishlistView, wishlistedRestaurantsRaw]);
+
+  const wishlistedRestaurants = useMemo(() => {
+    if (!isWishlistView) return wishlistedRestaurantsRaw;
+    let out = wishlistedRestaurantsRaw;
+    if (wishlistCuisineFilter.length > 0) {
+      out = out.filter(({ info }) => info?.cuisine && wishlistCuisineFilter.includes(info.cuisine));
+    }
+    if (wishlistCityFilter.length > 0) {
+      out = out.filter(({ info }) => {
+        const c = extractCityState(info?.address || '', info?.address || '');
+        return c && wishlistCityFilter.includes(c);
+      });
+    }
+    if (wishlistPriceFilter) {
+      out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
+    }
+    const sorted = [...out];
+    sorted.sort((a, b) => {
+      switch (wishlistSort) {
+        case 'oldest': return (a.wishItem?.addedAt ?? 0) - (b.wishItem?.addedAt ?? 0);
+        case 'name-asc': return (a.info?.name || '').localeCompare(b.info?.name || '');
+        case 'name-desc': return (b.info?.name || '').localeCompare(a.info?.name || '');
+        case 'recent':
+        default: return (b.wishItem?.addedAt ?? 0) - (a.wishItem?.addedAt ?? 0);
+      }
+    });
+    return sorted;
+  }, [isWishlistView, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistSort]);
+
+  // Apply the search input on top of the filter pipeline (wishlist view
+  // only — the rated and hotel-breakfast paths already filter above).
+  const wishlistedRestaurantsFinal = useMemo(() => {
+    if (!isWishlistView || !searchQuery.trim()) return wishlistedRestaurants;
+    const q = searchQuery.toLowerCase();
+    return wishlistedRestaurants.filter(({ info }) =>
+      (info?.name || '').toLowerCase().includes(q) ||
+      (info?.cuisine || '').toLowerCase().includes(q) ||
+      (info?.address || '').toLowerCase().includes(q),
+    );
+  }, [isWishlistView, wishlistedRestaurants, searchQuery]);
+
+  const totalCount = isHomeCooking
+    ? recipes.length
+    : isWishlistView
+      ? wishlistedRestaurantsRaw.length
+      : list.restaurantIds.length + (list.wishlistIds?.length || 0);
 
   const handlePlusClick = () => {
     if (isHomeCooking) openAddRecipeModal(list.id);
@@ -1205,47 +1644,193 @@ const ListDetailView: React.FC<{
     else setAddSheetOpen(true);
   };
 
+  // ── Editorial header derivations ──────────────────────────────────
+  // The four list "kinds" each get their own accent color, eyebrow,
+  // and icon so the page title row reads as a cover for that list.
+  const headerVariant: {
+    eyebrow: string;
+    icon: React.ReactNode;
+    accent: string; // text class
+    chipBg: string; // bg class for the icon tile
+  } = isHomeCooking
+    ? { eyebrow: 'Your kitchen', icon: <ChefHat size={26} className="text-emerald-600" strokeWidth={1.7} />, accent: 'text-emerald-600', chipBg: 'bg-emerald-50' }
+    : isHotelBreakfast
+      ? { eyebrow: 'Hotel mornings', icon: <Building2 size={26} className="text-amber-600" strokeWidth={1.7} />, accent: 'text-amber-600', chipBg: 'bg-amber-50' }
+      : isWishlistView
+        ? { eyebrow: 'Your saved places', icon: <Heart size={24} className="text-red-400 fill-red-400" />, accent: 'text-red-400', chipBg: 'bg-red-50' }
+        : { eyebrow: 'Your collection', icon: <span className="text-2xl leading-none">{list.emoji}</span>, accent: 'text-primary', chipBg: 'bg-primary/8' };
+
+  // Distinct city count for the stats row.
+  const cityCount = useMemo(() => {
+    const set = new Set<string>();
+    const items = isWishlistView
+      ? wishlistedRestaurantsRaw.map(({ info }) => info?.address || '')
+      : ratedRestaurants.map(({ info }) => info?.address || '');
+    for (const a of items) {
+      const c = extractCityState(a, a);
+      if (c) set.add(c);
+    }
+    return set.size;
+  }, [isWishlistView, ratedRestaurants, wishlistedRestaurantsRaw]);
+
+  // "Updated X ago" — most recent addedAt (wishlist) or createdAt (ratings).
+  const lastUpdated = useMemo(() => {
+    let max = 0;
+    if (isWishlistView) {
+      for (const { wishItem } of wishlistedRestaurantsRaw) {
+        if (wishItem?.addedAt && wishItem.addedAt > max) max = wishItem.addedAt;
+      }
+    } else if (isHomeCooking) {
+      for (const r of recipes) if (r.createdAt > max) max = r.createdAt;
+    } else {
+      for (const { rating } of ratedRestaurants) {
+        if (rating?.createdAt && rating.createdAt > max) max = rating.createdAt;
+      }
+    }
+    if (max === 0) return '';
+    const days = Math.floor((Date.now() - max) / 86400000);
+    if (days < 1) return 'Updated today';
+    if (days === 1) return 'Updated yesterday';
+    if (days < 7) return `Updated ${days} days ago`;
+    if (days < 14) return 'Updated last week';
+    if (days < 60) return `Updated ${Math.floor(days / 7)} weeks ago`;
+    if (days < 365) return `Updated ${Math.floor(days / 30)} months ago`;
+    return `Updated ${Math.floor(days / 365)} year${days >= 730 ? 's' : ''} ago`;
+  }, [isWishlistView, isHomeCooking, ratedRestaurants, wishlistedRestaurantsRaw, recipes]);
+
+  // ── Quick-filter pills ────────────────────────────────────────────
+  // Wishlist view derives its pill row from the actual saved places,
+  // showing the top cities, prices, and cuisines so the user can narrow
+  // the grid in one click. Tapping a pill toggles it on the existing
+  // wishlist filter state. The "Filters" pill opens the full sheet.
+  const quickFilterPills = useMemo(() => {
+    if (!isWishlistView) return [] as Array<{ key: string; label: string; count: number; kind: 'city' | 'price' | 'cuisine'; active: boolean; onClick: () => void }>;
+    const items = wishlistedRestaurantsRaw;
+    const cityCounts = new Map<string, number>();
+    const priceCounts = new Map<string, number>();
+    const cuisineCounts = new Map<string, number>();
+    for (const { info } of items) {
+      const city = extractCityState(info?.address || '', info?.address || '');
+      if (city) cityCounts.set(city, (cityCounts.get(city) ?? 0) + 1);
+      if (info?.price) priceCounts.set(info.price, (priceCounts.get(info.price) ?? 0) + 1);
+      if (info?.cuisine) cuisineCounts.set(info.cuisine, (cuisineCounts.get(info.cuisine) ?? 0) + 1);
+    }
+    const pickTop = <T,>(m: Map<T, number>, n: number): Array<[T, number]> =>
+      Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, n);
+    const out: Array<{ key: string; label: string; count: number; kind: 'city' | 'price' | 'cuisine'; active: boolean; onClick: () => void }> = [];
+    for (const [city, count] of pickTop(cityCounts, 3)) {
+      out.push({
+        key: `city:${city}`,
+        label: String(city),
+        count,
+        kind: 'city',
+        active: wishlistCityFilter.includes(String(city)),
+        onClick: () => setWishlistCityFilter((prev) => prev.includes(String(city)) ? prev.filter((x) => x !== String(city)) : [...prev, String(city)]),
+      });
+    }
+    for (const [price, count] of pickTop(priceCounts, 2)) {
+      out.push({
+        key: `price:${price}`,
+        label: String(price),
+        count,
+        kind: 'price',
+        active: wishlistPriceFilter === String(price),
+        onClick: () => setWishlistPriceFilter((prev) => prev === String(price) ? null : String(price)),
+      });
+    }
+    for (const [cuisine, count] of pickTop(cuisineCounts, 3)) {
+      out.push({
+        key: `cuisine:${cuisine}`,
+        label: String(cuisine),
+        count,
+        kind: 'cuisine',
+        active: wishlistCuisineFilter.includes(String(cuisine)),
+        onClick: () => setWishlistCuisineFilter((prev) => prev.includes(String(cuisine)) ? prev.filter((x) => x !== String(cuisine)) : [...prev, String(cuisine)]),
+      });
+    }
+    return out;
+  }, [isWishlistView, wishlistedRestaurantsRaw, wishlistCityFilter, wishlistPriceFilter, wishlistCuisineFilter]);
+
   return (
     <div>
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+      {/* ── Minimal top bar (every list type) ─────────────────────────
+          The list's identity already lives in the sidebar's permanent
+          tray, so the page itself drops the editorial header + the
+          big Add CTA. All that remains is a back arrow on phone, a
+          search-icon toggle, and (for deletable lists) a trash icon.
+          Adding to a list is done via the dashed footer button at the
+          bottom of the grid — same path as before, just no longer
+          duplicated up top. */}
+      <div className="flex items-center justify-end mb-4">
+        <button
+          onClick={onBack}
+          aria-label="Back"
+          className="lg:hidden p-2 -ml-2 mr-auto text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
+        >
           <ArrowLeft size={20} />
         </button>
-        <span className="text-2xl">{list.emoji}</span>
-        <div className="flex-1 min-w-0">
-          <h2 className="font-serif font-bold text-xl">{list.name}</h2>
-          <p className="text-xs text-on-surface/40">
-            {isHomeCooking ? `${totalCount} recipe${totalCount !== 1 ? 's' : ''}` : `${totalCount} restaurant${totalCount !== 1 ? 's' : ''}`}
-          </p>
-        </div>
-        <button onClick={() => setSearchOpen(!searchOpen)}
-          className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
-          <Search size={18} />
+        <button
+          type="button"
+          onClick={() => setSearchOpen((o) => !o)}
+          aria-label={searchOpen ? 'Close search' : `Search ${list.name}`}
+          title={searchOpen ? 'Close search' : `Search ${list.name}`}
+          className={cn(
+            'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
+            searchOpen
+              ? 'bg-on-surface/[0.08] text-on-surface'
+              : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
+          )}
+        >
+          <Search size={17} />
         </button>
         {!isWishlistView && (
-          <button onClick={handlePlusClick}
-            className="p-2 text-primary hover:bg-primary/10 rounded-full transition-colors" title={isHomeCooking ? "Add recipe" : isHotelBreakfast ? "Add hotel" : "Add restaurants"}>
-            <Plus size={20} />
-          </button>
-        )}
-        {!isWishlistView && (
-          <button onClick={() => setConfirmDeleteList(true)}
-            className="p-2 text-red-400 hover:text-red-500 transition-colors">
+          <button
+            type="button"
+            onClick={() => setConfirmDeleteList(true)}
+            aria-label="Delete list"
+            title="Delete list"
+            className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface/40 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+          >
             <Trash2 size={16} />
           </button>
         )}
       </div>
 
-      {/* Search bar */}
-      <AnimatePresence>
+      {/* Collapsible search input — toggled by the icon button above.
+          Animates open / closed with a height fade. */}
+      <AnimatePresence initial={false}>
         {searchOpen && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search restaurants..."
-                autoFocus className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="overflow-hidden mb-4"
+          >
+            <div className="relative max-w-2xl">
+              <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/35 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={
+                  isHomeCooking
+                    ? 'Search your recipes...'
+                    : isWishlistView
+                      ? 'Search your wishlist...'
+                      : `Search ${list.name.toLowerCase()}...`
+                }
+                autoFocus
+                className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06] focus:bg-on-surface/[0.06] rounded-full py-2.5 pl-11 pr-10 text-sm font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
+              />
               {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30"><X size={14} /></button>
+                <button
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/35 hover:text-on-surface/70 transition-colors"
+                >
+                  <X size={14} />
+                </button>
               )}
             </div>
           </motion.div>
@@ -1267,10 +1852,71 @@ const ListDetailView: React.FC<{
         )}
       </AnimatePresence>
 
-      {/* View mode toggle for desktop */}
-      {totalCount > 0 && (
-        <div className="flex justify-end mb-3">
-          <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
+      {/* ── Filter pill row + view toggle ─────────────────────────────
+          Filters pill opens the full sheet. "All" clears every active
+          quick filter. Each subsequent pill toggles a city / price /
+          cuisine filter — counts come from the actual list. */}
+      {(isWishlistView ? wishlistedRestaurantsRaw.length > 0 : totalCount > 0) && (
+        <div className="flex items-center gap-2 mb-5 -mx-1 px-1 overflow-x-auto scrollbar-hide pb-1">
+          {isWishlistView && (
+            <>
+              <button
+                onClick={() => setWishlistFilterOpen(true)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold border transition-colors flex-shrink-0',
+                  wishlistActiveFilterCount > 0
+                    ? 'border-primary/30 bg-primary/[0.06] text-primary'
+                    : 'border-on-surface/[0.08] text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
+                )}
+              >
+                <SlidersHorizontal size={12} />
+                Filters
+                {wishlistActiveFilterCount > 0 && (
+                  <span className="ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold">{wishlistActiveFilterCount}</span>
+                )}
+              </button>
+
+              <span className="w-px h-4 bg-on-surface/[0.08] mx-1 flex-shrink-0" />
+
+              {/* "All" pill — solid when no quick filter is active */}
+              <button
+                onClick={resetWishlistFilters}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors flex-shrink-0',
+                  wishlistActiveFilterCount === 0
+                    ? 'bg-on-surface text-surface'
+                    : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
+                )}
+              >
+                All
+                <span className={cn('text-[11px] tabular-nums', wishlistActiveFilterCount === 0 ? 'text-surface/65' : 'text-on-surface/40')}>
+                  {wishlistedRestaurantsRaw.length}
+                </span>
+              </button>
+
+              {quickFilterPills.map((pill) => (
+                <button
+                  key={pill.key}
+                  onClick={pill.onClick}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors flex-shrink-0',
+                    pill.active
+                      ? 'bg-on-surface text-surface'
+                      : 'text-on-surface/65 hover:text-on-surface hover:bg-on-surface/[0.04]',
+                  )}
+                >
+                  {pill.label}
+                  <span className={cn('text-[11px] tabular-nums', pill.active ? 'text-surface/65' : 'text-on-surface/40')}>
+                    {pill.count}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
+
+          <div className="ml-auto flex-shrink-0 hidden lg:block">
+            <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
+          </div>
         </div>
       )}
 
@@ -1359,6 +2005,8 @@ const ListDetailView: React.FC<{
                     image={info?.image ?? ''}
                     cuisine={info?.cuisine ?? ''}
                     price={info?.price ?? ''}
+                    address={info?.address}
+                    notes={rating?.notes}
                     score={rating?.score}
                     onEdit={info ? () => openAddRestaurantModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
                     onRemove={() => removeFromList(list.id, id)}
@@ -1385,34 +2033,86 @@ const ListDetailView: React.FC<{
             </div>
           )}
 
+          {/* No-matches empty state — wishlist view only, when filters/search hide everything */}
+          {/* Truly empty wishlist — nothing saved at all. The minimalist
+              chrome above is otherwise the only thing on the page, which
+              reads as blank. Surface a friendly explainer so the user
+              knows the page isn't broken. */}
+          {isWishlistView && wishlistedRestaurantsRaw.length === 0 && (
+            <div className="text-center py-20">
+              <div className="w-14 h-14 rounded-full bg-red-50 text-red-400 flex items-center justify-center mx-auto mb-4">
+                <Heart size={20} />
+              </div>
+              <p className="text-base font-serif font-bold text-on-surface mb-1">Your wishlist is empty</p>
+              <p className="text-sm text-on-surface/50 max-w-xs mx-auto">Tap the heart on any restaurant card to save it here for later.</p>
+            </div>
+          )}
+          {isWishlistView && wishlistedRestaurantsRaw.length > 0 && wishlistedRestaurantsFinal.length === 0 && (
+            <div className="text-center py-12">
+              <SlidersHorizontal size={28} className="mx-auto text-on-surface/15 mb-3" />
+              <p className="text-sm font-medium text-on-surface/40">No matches</p>
+              <p className="text-xs text-on-surface/30 mt-1">Try adjusting your filters or search</p>
+              {wishlistActiveFilterCount > 0 && (
+                <button
+                  onClick={resetWishlistFilters}
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-primary bg-primary/10 rounded-full hover:bg-primary/15 transition-colors"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Wishlist section */}
-          {wishlistedRestaurants.length > 0 && (
+          {wishlistedRestaurantsFinal.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Heart size={14} className="text-red-400" />
-                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurants.length})</h3>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
-              <div className="divide-y divide-on-surface/[0.06]">
-                {wishlistedRestaurants.map(({ id, info, wishItem }) => (
-                  <WishlistRow
-                    key={id}
-                    restaurantId={id}
-                    name={info?.name ?? id}
-                    image={info?.image ?? ''}
-                    cuisine={info?.cuisine ?? ''}
-                    price={info?.price ?? ''}
-                    notes={wishItem?.notes}
-                    onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
-                  />
-                ))}
-              </div>
+              {viewMode === 'grid' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6">
+                  {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
+                    <WishlistGridCard
+                      key={id}
+                      restaurantId={id}
+                      name={info?.name ?? id}
+                      image={info?.image ?? ''}
+                      cuisine={info?.cuisine ?? ''}
+                      price={info?.price ?? ''}
+                      address={info?.address}
+                      notes={wishItem?.notes}
+                      onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="divide-y divide-on-surface/[0.06]">
+                  {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
+                    <WishlistRow
+                      key={id}
+                      restaurantId={id}
+                      name={info?.name ?? id}
+                      image={info?.image ?? ''}
+                      cuisine={info?.cuisine ?? ''}
+                      price={info?.price ?? ''}
+                      address={info?.address}
+                      notes={wishItem?.notes}
+                      onRemove={() => (isWishlistView || isHotelBreakfast) ? removeFromWishlist(id) : removeFromWishlistInList(list.id, id)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
-          {/* Add more button */}
-          <button onClick={handlePlusClick}
-            className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
-            <Plus size={16} /><span className="text-sm font-semibold">{isHotelBreakfast ? 'Add Hotel' : 'Add Restaurants'}</span>
-          </button>
+          {/* Add more button — hidden in the synthetic Wishlist view because
+              the heart icons across the app are how you add to the wishlist. */}
+          {!isWishlistView && (
+            <button onClick={handlePlusClick}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
+              <Plus size={16} /><span className="text-sm font-semibold">{isHotelBreakfast ? 'Add Hotel' : 'Add Restaurants'}</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1424,6 +2124,24 @@ const ListDetailView: React.FC<{
         }}
       />
       <AddHotelBreakfastModal open={hotelModalOpen} onClose={() => setHotelModalOpen(false)} listId={list.id} />
+      {isWishlistView && (
+        <WishlistFilterSheet
+          open={wishlistFilterOpen}
+          onClose={() => setWishlistFilterOpen(false)}
+          sortBy={wishlistSort}
+          onSortBy={setWishlistSort}
+          cuisineFilter={wishlistCuisineFilter}
+          onCuisineFilter={setWishlistCuisineFilter}
+          cityFilter={wishlistCityFilter}
+          onCityFilter={setWishlistCityFilter}
+          priceFilter={wishlistPriceFilter}
+          onPriceFilter={setWishlistPriceFilter}
+          allCuisines={wishlistAllCuisines}
+          allCities={wishlistAllCities}
+          onReset={resetWishlistFilters}
+          activeCount={wishlistActiveFilterCount}
+        />
+      )}
     </div>
   );
 };
@@ -1616,6 +2334,274 @@ const FilterSheet: React.FC<{
   );
 };
 
+/* ── Wishlist filter sheet ──────────────────────────────────────────────
+   Drag-to-dismiss bottom sheet tailored to the wishlist view: sort by
+   recency / name, filter by cuisine, price, and city. Cuisine + city are
+   collapsible and searchable so the sheet stays compact even with long
+   collections. Backdrop fades in, panel springs up. Same animation feel
+   as FilterSheet above so the two share muscle memory. ──────────────── */
+export type WishlistSort = 'recent' | 'oldest' | 'name-asc' | 'name-desc';
+
+const WishlistFilterSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  sortBy: WishlistSort;
+  onSortBy: (v: WishlistSort) => void;
+  cuisineFilter: string[];
+  onCuisineFilter: (v: string[]) => void;
+  cityFilter: string[];
+  onCityFilter: (v: string[]) => void;
+  priceFilter: string | null;
+  onPriceFilter: (v: string | null) => void;
+  allCuisines: string[];
+  allCities: string[];
+  onReset: () => void;
+  activeCount: number;
+}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, cityFilter, onCityFilter, priceFilter, onPriceFilter, allCuisines, allCities, onReset, activeCount }) => {
+  const { phoneMode } = useSettings();
+  const [cuisineOpen, setCuisineOpen] = useState(false);
+  const [cityOpen, setCityOpen] = useState(false);
+  const [cuisineSearch, setCuisineSearch] = useState('');
+  const [citySearch, setCitySearch] = useState('');
+
+  const filteredCuisines = cuisineSearch.trim()
+    ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase()))
+    : allCuisines;
+  const filteredCities = citySearch.trim()
+    ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase()))
+    : allCities;
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="fixed inset-0 bg-black/45 backdrop-blur-md z-[120]"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 320, mass: 0.9 }}
+            drag={phoneMode ? 'y' : false}
+            dragConstraints={{ top: 0 }}
+            dragElastic={{ top: 0, bottom: 0.4 }}
+            onDragEnd={(_: any, info: any) => { if (info.offset.y > 90 || info.velocity.y > 350) onClose(); }}
+            className={cn(
+              "fixed bottom-0 left-0 right-0 z-[120] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
+              "shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]",
+              phoneMode ? "h-[88vh]" : "max-h-[78vh] sm:max-w-md sm:left-1/2 sm:-translate-x-1/2 sm:rounded-3xl sm:bottom-6"
+            )}
+          >
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
+              <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-on-surface/[0.06] flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
+                  <SlidersHorizontal size={15} />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-lg leading-tight">Filter wishlist</h3>
+                  {activeCount > 0 && (
+                    <p className="text-[11px] text-on-surface/45 font-medium">
+                      {activeCount} active filter{activeCount === 1 ? '' : 's'}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+              >
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              {/* Sort */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    ['recent', 'Recently Added'],
+                    ['oldest', 'Oldest First'],
+                    ['name-asc', 'Name A–Z'],
+                    ['name-desc', 'Name Z–A'],
+                  ] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => onSortBy(key)}
+                      className={cn(
+                        "px-3.5 py-2 rounded-full text-xs font-semibold transition-all",
+                        sortBy === key
+                          ? "bg-primary text-white shadow-sm shadow-primary/20"
+                          : "bg-on-surface/5 text-on-surface/55 hover:bg-on-surface/10",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Price */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Price</p>
+                <div className="flex gap-2">
+                  {['$', '$$', '$$$', '$$$$'].map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => onPriceFilter(priceFilter === p ? null : p)}
+                      className={cn(
+                        "flex-1 py-2.5 rounded-xl text-xs font-bold transition-all border-2",
+                        priceFilter === p
+                          ? "border-primary bg-primary/5 text-primary"
+                          : "border-on-surface/10 text-on-surface/50 hover:border-on-surface/20",
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cuisine */}
+              <div>
+                <button onClick={() => setCuisineOpen(!cuisineOpen)} className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
+                    {cuisineFilter.length > 0 && (
+                      <span className="text-[10px] font-semibold text-primary truncate">{cuisineFilter.join(', ')}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {cuisineFilter.length > 0 && (
+                      <button onClick={(e) => { e.stopPropagation(); onCuisineFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>
+                    )}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cuisineOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence initial={false}>
+                  {cuisineOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="relative mb-2">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                        <input
+                          type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)}
+                          placeholder="Search cuisines..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filteredCuisines.map((c) => {
+                          const on = cuisineFilter.includes(c);
+                          return (
+                            <button
+                              key={c}
+                              onClick={() => onCuisineFilter(on ? cuisineFilter.filter((x) => x !== c) : [...cuisineFilter, c])}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                                on ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/55 hover:border-on-surface/20",
+                              )}
+                            >
+                              {c}
+                            </button>
+                          );
+                        })}
+                        {filteredCuisines.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* City */}
+              <div>
+                <button onClick={() => setCityOpen(!cityOpen)} className="flex items-center justify-between w-full mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">City / Location</p>
+                    {cityFilter.length > 0 && (
+                      <span className="text-[10px] font-semibold text-primary truncate">{cityFilter.join(', ')}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {cityFilter.length > 0 && (
+                      <button onClick={(e) => { e.stopPropagation(); onCityFilter([]); }} className="text-[10px] text-primary font-semibold">Clear</button>
+                    )}
+                    <ChevronDown size={14} className={cn("text-on-surface/30 transition-transform", cityOpen && "rotate-180")} />
+                  </div>
+                </button>
+                <AnimatePresence initial={false}>
+                  {cityOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="relative mb-2">
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                        <input
+                          type="text" value={citySearch} onChange={(e) => setCitySearch(e.target.value)}
+                          placeholder="Search locations..."
+                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
+                        {filteredCities.map((c) => {
+                          const on = cityFilter.includes(c);
+                          return (
+                            <button
+                              key={c}
+                              onClick={() => onCityFilter(on ? cityFilter.filter((x) => x !== c) : [...cityFilter, c])}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border",
+                                on ? "border-primary bg-primary/10 text-primary" : "border-on-surface/10 text-on-surface/55 hover:border-on-surface/20",
+                              )}
+                            >
+                              {c}
+                            </button>
+                          );
+                        })}
+                        {filteredCities.length === 0 && <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3 bg-surface">
+              <button
+                onClick={onReset}
+                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.03] transition-colors"
+              >
+                Reset
+              </button>
+              <button
+                onClick={onClose}
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25"
+              >
+                {activeCount > 0 ? `Show results` : 'Done'}
+              </button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
 /* ── Main Page ── */
 type PantryTab = 'lists' | 'trips' | 'wishlist';
 
@@ -1731,12 +2717,12 @@ const AddToNightSheet: React.FC<{
     const cuisine = getCuisineLabel(place.types);
     const meta: RestaurantMeta = {
       id: place.id, name: place.name, image: place.photoUrl || '',
-      cuisine, price: '', address: place.address,
+      cuisine, price: '', address: place.fullAddress || place.address,
     };
     // Add to trip immediately
     addRestaurantToTrip(tripId, {
       restaurantId: place.id,
-      name: place.name, image: place.photoUrl || '', cuisine, price: '', address: place.address,
+      name: place.name, image: place.photoUrl || '', cuisine, price: '', address: place.fullAddress || place.address,
       night: nightIndex, mealType, status: 'planned',
       reservationTime: reservationTime || undefined,
     });
@@ -2684,7 +3670,7 @@ const CreateTripSheet: React.FC<{
     setHotels((prev) => [...prev, {
       id: crypto.randomUUID(),
       name: place.name,
-      address: place.address,
+      address: place.fullAddress || place.address,
       checkIn: startDate,
       checkOut: endDate,
       image: place.photoUrl || undefined,
@@ -3765,6 +4751,7 @@ export const Pantry: React.FC = () => {
   const [showAllRated, setShowAllRated] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { phoneMode, setHideBottomNav } = useSettings();
 
   // On phone, always use list view
@@ -3864,6 +4851,70 @@ export const Pantry: React.FC = () => {
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
   } = useLists();
+
+  /**
+   * URL-driven view selection. The desktop sidebar navigates between
+   * lists by setting query params:
+   *   ?list=__wishlist__   → synthetic Wishlist view
+   *   ?list=<custom-id>    → user-created list
+   *   ?view=home-cooking   → Home Cooking grid
+   *   ?view=trips          → Trips planner
+   *   ?new-list=1          → opens the create-list sheet, then strips
+   *                          the param so a refresh doesn't re-open it
+   * Plain `/pantry` resets back to the main lists overview.
+   */
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const listId = sp.get('list');
+    const view = sp.get('view');
+    const newList = sp.get('new-list');
+
+    // Open the create-list sheet from the sidebar's "+ New List" entry.
+    // Strip the param right away so the sheet doesn't re-open if the
+    // user closes it without leaving the page.
+    if (newList === '1') {
+      setCreateSheetOpen(true);
+      sp.delete('new-list');
+      navigate({ pathname: location.pathname, search: sp.toString() ? `?${sp.toString()}` : '' }, { replace: true });
+      return;
+    }
+
+    if (view === 'home-cooking') {
+      setShowHomeCooking(true);
+      setShowTrips(false);
+      setSelectedList(null);
+      return;
+    }
+    if (view === 'trips') {
+      setShowTrips(true);
+      setShowHomeCooking(false);
+      setSelectedList(null);
+      return;
+    }
+
+    if (listId) {
+      setShowTrips(false);
+      setShowHomeCooking(false);
+      if (listId === '__wishlist__') {
+        // Synthetic list — Pantry rebuilds wishlistIds from the regular
+        // wishlist below, so any object with this id flows through the
+        // same code path the pill row used.
+        setSelectedList({
+          id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+          restaurantIds: [], wishlistIds: [], createdAt: 0,
+        } as CustomList);
+      } else {
+        const found = lists.find((l) => l.id === listId);
+        if (found) setSelectedList(found);
+      }
+      return;
+    }
+
+    // Plain /pantry — clear any sub-view state.
+    setSelectedList(null);
+    setShowHomeCooking(false);
+    setShowTrips(false);
+  }, [location.pathname, location.search, lists, navigate]);
 
   const listScrollRef = useRef<HTMLDivElement>(null);
 
@@ -4023,7 +5074,7 @@ export const Pantry: React.FC = () => {
 
       <main className="px-3">
         {currentList ? (
-          <ListDetailView list={currentList} viewMode={effectiveViewMode} onViewModeChange={setViewMode} onBack={() => setSelectedList(null)} />
+          <ListDetailView list={currentList} viewMode={effectiveViewMode} onViewModeChange={setViewMode} onBack={() => navigate('/pantry')} />
         ) : showHomeCooking ? (
           <HomeCookingTab
             meals={homeMeals}
@@ -4031,7 +5082,7 @@ export const Pantry: React.FC = () => {
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
-            onBack={() => { setShowHomeCooking(false); setHomeCookingSelectedMealId(null); }}
+            onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
             selectedMealId={homeCookingSelectedMealId}
             onSelectMeal={setHomeCookingSelectedMealId}
           />
@@ -4051,7 +5102,7 @@ export const Pantry: React.FC = () => {
             openAddRestaurantModal={openAddRestaurantModal}
             cacheRestaurantMeta={cacheRestaurantMeta}
             ratings={ratings}
-            onBack={() => setShowTrips(false)}
+            onBack={() => navigate("/pantry")}
             autoCreate={createTripFromList}
             onAutoCreateHandled={() => setCreateTripFromList(false)}
           />
@@ -4062,7 +5113,7 @@ export const Pantry: React.FC = () => {
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
-            onBack={() => { setShowHomeCooking(false); setHomeCookingSelectedMealId(null); }}
+            onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
             selectedMealId={homeCookingSelectedMealId}
             onSelectMeal={setHomeCookingSelectedMealId}
           />
@@ -4131,76 +5182,10 @@ export const Pantry: React.FC = () => {
               </div>
             </div>
 
-            {/* ── Horizontal list row — flat transparent pills.
-                Background fills, shadows and borders removed for a
-                lighter content-first feel; the icons keep their brand
-                tint so Wishlist/Trips/Home Cooking stay recognizable
-                in a scan. The pill row itself has no outer border. */}
-            <div className="mb-4">
-              <div
-                ref={listScrollRef}
-                className="flex gap-1 overflow-x-auto scrollbar-hide pb-1 -mx-3 px-3"
-                style={{ WebkitOverflowScrolling: 'touch' }}
-              >
-                {/* Wishlist pill — always first, not deletable */}
-                <button
-                  onClick={() => setSelectedList({ id: '__wishlist__', name: 'Wishlist', emoji: '❤️', restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId), createdAt: 0 } as CustomList)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
-                >
-                  <Heart size={14} className="text-red-400 fill-red-400" />
-                  <span className="text-sm font-semibold whitespace-nowrap">Wishlist</span>
-                  <span className="text-xs text-on-surface/35 font-medium">{regularWishlist.length}</span>
-                </button>
-
-                {/* Trips pill — only shown when trips exist */}
-                {trips.length > 0 && (
-                  <button
-                    onClick={() => setShowTrips(true)}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
-                  >
-                    <Plane size={14} className="text-primary" />
-                    <span className="text-sm font-semibold whitespace-nowrap">Trips</span>
-                    <span className="text-xs text-on-surface/35 font-medium">{trips.length}</span>
-                  </button>
-                )}
-
-                {/* Home Cooking pill */}
-                <button
-                  onClick={() => setShowHomeCooking(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
-                >
-                  <ChefHat size={14} className="text-emerald-600" />
-                  <span className="text-sm font-semibold whitespace-nowrap">Home Cooking</span>
-                  {homeMeals.length > 0 && (
-                    <span className="text-xs text-on-surface/35 font-medium">{homeMeals.length}</span>
-                  )}
-                </button>
-
-                {lists.map((list) => {
-                  const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
-                  return (
-                    <button
-                      key={list.id}
-                      onClick={() => setSelectedList(list)}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
-                    >
-                      <span className="text-sm">{list.emoji}</span>
-                      <span className="text-sm font-semibold whitespace-nowrap">{list.name}</span>
-                      <span className="text-xs text-on-surface/35 font-medium">{total}</span>
-                    </button>
-                  );
-                })}
-
-                {/* Create new list pill */}
-                <button
-                  onClick={() => setCreateSheetOpen(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-transparent text-on-surface/40 hover:text-primary transition-colors flex-shrink-0"
-                >
-                  <Plus size={14} />
-                  <span className="text-sm font-semibold whitespace-nowrap">New List</span>
-                </button>
-              </div>
-            </div>
+            {/* The horizontal list-pill row that used to live here is gone.
+                Desktop list navigation moved into the sidebar's "My Lists"
+                tray; phone mode never showed this row anyway because the
+                PhonePantryHome card grid is the entry point. */}
 
             {/* ── Filter bar ── */}
             <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -4317,6 +5302,8 @@ export const Pantry: React.FC = () => {
                           image={r.image}
                           cuisine={r.cuisine}
                           price={r.price}
+                          address={r.address}
+                          notes={r.notes}
                           score={r.score}
                           onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
                           onRemove={() => removeRating(r.restaurantId)}

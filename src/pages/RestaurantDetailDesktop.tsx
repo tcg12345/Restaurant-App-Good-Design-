@@ -100,7 +100,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   // locally so the shared hook can keep its collapsed default elsewhere.
   const [hoursOpen, setHoursOpen] = useState(false);
 
-  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal, removeFromWishlist } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal } = useLists();
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
   // Ref on the "My Rating Details" section so the Your Rating summary
@@ -239,16 +239,12 @@ export const RestaurantDetailDesktop: React.FC = () => {
           <button
             onClick={() => {
               if (!place) return;
-              if (isWishlisted(place.id)) {
-                removeFromWishlist(place.id);
-              } else {
-                openWishlistModal({
-                  id: place.id, name: place.name,
-                  image: place.photoUrl || '',
-                  cuisine, price: priceStr,
-                  address: place.address,
-                });
-              }
+              toggleWishlist({
+                id: place.id, name: place.name,
+                image: place.photoUrl || '',
+                cuisine, price: priceStr,
+                address: place.fullAddress || place.address,
+              });
             }}
             aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
             className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/40 transition-colors"
@@ -393,7 +389,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 id: place.id, name: place.name,
                 image: place.photoUrl || '',
                 cuisine, price: priceStr,
-                address: place.address,
+                address: place.fullAddress || place.address,
               });
             }
           }}
@@ -860,7 +856,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             a subtle "Add …" prompt rather than disappearing, so users
             can fill in any field without leaving this section. */}
         {myRating && place && (() => {
-          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.address };
+          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.fullAddress || place.address };
           type RatingPage = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
           const openAt = (pg: RatingPage) => openAddRestaurantModal(meta, pg);
           const hasNotes = !!myRating.notes;
@@ -1419,7 +1415,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                       name: place.name,
                       lat: place.lat,
                       lng: place.lng,
-                      address: place.address,
+                      address: place.fullAddress || place.address,
                       fullAddress: place.fullAddress || place.address,
                       photoUrl: place.photoUrl,
                       priceLevel: place.priceLevel,
@@ -1551,7 +1547,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                             image: place.photoUrl || '',
                             cuisine,
                             price: priceStr,
-                            address: place.address,
+                            address: place.fullAddress || place.address,
                             ...(myRating ? {
                               score: myRating.score,
                               notes: myRating.notes,

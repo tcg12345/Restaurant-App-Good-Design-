@@ -12,7 +12,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
-import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
   buildTasteProfile,
   buildCandidateQueries,
@@ -237,7 +237,7 @@ function placeToCardProps(place: PlaceResult) {
     rating: place.rating,
     price: priceLevelToString(place.priceLevel),
     cuisine: extractCityState(place.fullAddress, place.address),
-    address: place.address,
+    address: place.fullAddress || place.address,
     friendReviews: 0,
     expertReviews: 0,
   };
@@ -266,7 +266,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHideBottomNav, phoneMode } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
+  // Wide viewport (>= lg): the global DesktopHeader provides the
+  // search input + actions, so Discover's own TopBar / inline search
+  // bar are redundant and would stack on top of it.
+  const [isWideViewport, setIsWideViewport] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsWideViewport(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  const usingDesktopHeader = isWideViewport && !phoneMode;
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
   const {
     friendRecipes: friendPublishedRecipes,
     expertRecipes: expertPublishedRecipes,
@@ -1287,8 +1300,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   navigateRef.current = navigate;
   const openAddRestaurantModalRef = useRef(openAddRestaurantModal);
   openAddRestaurantModalRef.current = openAddRestaurantModal;
-  const openWishlistModalRef = useRef(openWishlistModal);
-  openWishlistModalRef.current = openWishlistModal;
+  const toggleWishlistRef = useRef(toggleWishlist);
+  toggleWishlistRef.current = toggleWishlist;
 
   const showPopup = useCallback((place: PlaceResult, _map: mapboxgl.Map) => {
     if (popupRef.current) popupRef.current.remove();
@@ -3061,7 +3074,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     {/* Bottom row: location, counter, action buttons */}
                     <div className="flex items-end justify-between mt-1">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <p className="text-[10px] text-on-surface/35 truncate">{extractCityState(selectedPlace.fullAddress, selectedPlace.address)}</p>
+                        <p className="text-[10px] text-on-surface/35 truncate">{formatLocationLabel(selectedPlace.addressComponents, selectedPlace.fullAddress || selectedPlace.address)}</p>
                         {currentIndex >= 0 && orderedPlaces.length > 1 && (
                           <span className="text-[10px] text-on-surface/30 flex-shrink-0">{currentIndex + 1}/{orderedPlaces.length}</span>
                         )}
@@ -3078,7 +3091,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors">
                           <Plus size={14} />
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); openWishlistModal(restData); }}
+                        <button onClick={(e) => { e.stopPropagation(); toggleWishlist(restData); }}
                           className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", isWishlisted(selectedPlace.id) ? "text-red-400" : "text-on-surface/40 hover:text-red-400")}>
                           <Heart size={13} className={isWishlisted(selectedPlace.id) ? "fill-red-400" : ""} />
                         </button>
@@ -3212,21 +3225,25 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         {/* ══════ FULL STATE — full-screen discover page (Home) ══════ */}
         {sheetState === 'full' && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            <TopBar title="Home" />
-            {/* Compact search bar — tapping jumps straight into the Search page */}
-            <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
-              <button
-                type="button"
-                onClick={() => navigate('/search/main')}
-                className="flex-1 relative"
-                aria-label="Open search"
-              >
-                <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-                <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium text-on-surface/40 text-left">
-                  Search restaurants, cuisines...
-                </div>
-              </button>
-            </div>
+            {/* TopBar + the inline search button are only rendered on
+                phone-frame / narrow viewports. On desktop the global
+                DesktopHeader (sidebar layout) owns both. */}
+            {!usingDesktopHeader && <TopBar title="Home" />}
+            {!usingDesktopHeader && (
+              <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
+                <button
+                  type="button"
+                  onClick={() => navigate('/search/main')}
+                  className="flex-1 relative"
+                  aria-label="Open search"
+                >
+                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
+                  <div className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-10 text-sm font-medium text-on-surface/40 text-left">
+                    Search restaurants, cuisines...
+                  </div>
+                </button>
+              </div>
+            )}
 
             {/* Full discover content — scrollable */}
             <div className={cn("flex-1 overflow-y-auto pb-32", phoneMode ? "px-3" : "px-6")}>
@@ -3304,11 +3321,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                               isWishlisted={isWishlisted(place.id)}
                               onAdd={() => openAddRestaurantModal({
                                 id: place.id, name: place.name, image: props.image,
-                                cuisine: props.cuisine, price: props.price, address: place.address,
+                                cuisine: props.cuisine, price: props.price, address: place.fullAddress || place.address,
                               })}
-                              onHeart={() => openWishlistModal({
+                              onHeart={() => toggleWishlist({
                                 id: place.id, name: place.name, image: props.image,
-                                cuisine: props.cuisine, price: props.price, address: place.address,
+                                cuisine: props.cuisine, price: props.price, address: place.fullAddress || place.address,
                               })}
                             />
                           );
@@ -3409,7 +3426,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             )}
                             <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                               <button
-                                onClick={(e) => { e.stopPropagation(); openWishlistModal(recMeta); }}
+                                onClick={(e) => { e.stopPropagation(); toggleWishlist(recMeta); }}
                                 className={cn(
                                   "w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95",
                                   wishlisted ? "text-primary" : "text-on-surface/70 hover:text-primary"
@@ -3946,7 +3963,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           ) : (
             <div className="divide-y divide-on-surface/[0.06]">
               {filteredHotelPlaces.map((place) => {
-                const cityState = extractCityState(place.fullAddress, place.address);
+                const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
                 return (
                   <div
                     key={place.id}
@@ -4082,7 +4099,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         </div>
                         <div className="divide-y divide-on-surface/[0.06]">
                           {places.map((place) => {
-                            const cityState = extractCityState(place.fullAddress, place.address);
+                            const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
                             const cuisine = getCuisineLabel(place.types);
                             const wishlisted = isWishlisted(place.id);
                             return (
@@ -4097,8 +4114,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{cityState}</p>
                                 </div>
                                 <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             );
@@ -4162,7 +4179,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 )}
                                 <div className="absolute top-2 right-2 flex items-center gap-1">
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); openWishlistModal(recMeta); }}
+                                    onClick={(e) => { e.stopPropagation(); toggleWishlist(recMeta); }}
                                     className={cn(
                                       "w-8 h-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95",
                                       wishlisted ? "text-primary" : "text-on-surface/70 hover:text-primary"
@@ -4238,8 +4255,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   </div>
                                 )}
                                 <div className="flex items-center gap-1.5 mt-2">
-                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.fullAddress || place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             </div>

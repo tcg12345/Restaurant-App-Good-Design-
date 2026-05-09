@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft, Plus, Heart } from 'lucide-react';
-import { searchPlacesByText, priceLevelToString, extractCityState, type PlaceResult } from '../lib/places';
+import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { cn } from '../lib/utils';
 import { LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
@@ -105,7 +105,7 @@ function placeToRecent(place: PlaceResult): RecentSearch {
     cuisine: extractCityState(place.fullAddress || '', place.address || ''),
     price: priceLevelToString(place.priceLevel),
     image: place.photoUrl || '',
-    address: place.address || '',
+    address: place.fullAddress || place.address || '',
     rating: place.rating,
     timestamp: Date.now(),
   };
@@ -113,7 +113,7 @@ function placeToRecent(place: PlaceResult): RecentSearch {
 
 export const SearchMain: React.FC = () => {
   const navigate = useNavigate();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted } = useLists();
   const { phoneMode } = useSettings();
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>(() => readRecentSearches());
@@ -308,7 +308,7 @@ export const SearchMain: React.FC = () => {
             ) : (
               <ul className="divide-y divide-on-surface/[0.06]">
                 {results.map((place) => {
-                  const location = extractCityState(place.fullAddress || '', place.address || '');
+                  const location = formatLocationLabel(place.addressComponents, place.fullAddress || place.address || '');
                   const price = priceLevelToString(place.priceLevel);
                   const distance = locationKnown
                     ? formatDistance(haversineDistanceMi(userLat, userLng, place.lat, place.lng))
@@ -320,7 +320,7 @@ export const SearchMain: React.FC = () => {
                     image: place.photoUrl || '',
                     cuisine: location || 'Restaurant',
                     price,
-                    address: place.address || '',
+                    address: place.fullAddress || place.address || '',
                   };
                   return (
                     <li key={place.id}>
@@ -362,7 +362,7 @@ export const SearchMain: React.FC = () => {
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openWishlistModal(meta);
+                              toggleWishlist(meta);
                             }}
                             className={cn(
                               'w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
@@ -411,7 +411,7 @@ export const SearchMain: React.FC = () => {
             <div className={cn(phoneMode ? "divide-y divide-on-surface/[0.06] border-y border-on-surface/[0.06] bg-white" : "space-y-2")}>
               {recentSearches.map((r) => {
                 const wishlisted = isWishlisted(r.id);
-                const location = extractCityState(r.address, r.address);
+                const location = formatLocationLabel(undefined, r.address);
                 return (
                   <div
                     key={r.id}
@@ -452,7 +452,7 @@ export const SearchMain: React.FC = () => {
                         <Plus size={14} />
                       </button>
                       <button
-                        onClick={() => openWishlistModal({ id: r.id, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                        onClick={() => toggleWishlist({ id: r.id, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
                         className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/40 hover:text-red-400")}
                         aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
                       >

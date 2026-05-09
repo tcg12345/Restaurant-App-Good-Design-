@@ -85,7 +85,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     visitHistory, visitCount,
   } = useRestaurantDetail();
 
-  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal, removeFromWishlist, deleteVisit } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit } = useLists();
 
   // Resolve the user's anchored origin once per mount. The distance suffix
   // and Mapbox Directions hook below both gate on isExactAddress, so a
@@ -194,16 +194,12 @@ export const RestaurantDetailMobile: React.FC = () => {
             <button
               onClick={() => {
                 if (!place) return;
-                if (isWishlisted(place.id)) {
-                  removeFromWishlist(place.id);
-                } else {
-                  openWishlistModal({
-                    id: place.id, name: place.name,
-                    image: place.photoUrl || '',
-                    cuisine, price: priceStr,
-                    address: place.address,
-                  });
-                }
+                toggleWishlist({
+                  id: place.id, name: place.name,
+                  image: place.photoUrl || '',
+                  cuisine, price: priceStr,
+                  address: place.fullAddress || place.address,
+                });
               }}
               aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
               className="p-2 bg-black/30 backdrop-blur-md rounded-full text-white/90 shadow-sm"
@@ -423,7 +419,7 @@ export const RestaurantDetailMobile: React.FC = () => {
               id: place.id, name: place.name,
               image: place.photoUrl || '',
               cuisine, price: priceStr,
-              address: place.address,
+              address: place.fullAddress || place.address,
             });
           }}
           className="w-full mb-5 rounded-[14px] bg-ink text-cream p-4 flex items-center gap-3.5 text-left active:scale-[0.99] transition-transform"
@@ -872,7 +868,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             price, companions). Each sub-row deep-links into the rating
             modal at the matching sub-page. ── */}
         {myRating && place && (() => {
-          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.address };
+          const meta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: isHotel ? 'Hotel Breakfast' : cuisine, price: isHotel ? '' : priceStr, address: place.fullAddress || place.address };
           type RatingPage = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
           const openAt = (pg: RatingPage) => openAddRestaurantModal(meta, pg);
           const hasNotes = !!myRating.notes;
@@ -1612,7 +1608,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 name: place.name,
                 lat: place.lat,
                 lng: place.lng,
-                address: place.address,
+                address: place.fullAddress || place.address,
                 fullAddress: place.fullAddress || place.address,
                 photoUrl: place.photoUrl,
                 priceLevel: place.priceLevel,
@@ -1743,7 +1739,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                             image: place.photoUrl || '',
                             cuisine,
                             price: priceStr,
-                            address: place.address,
+                            address: place.fullAddress || place.address,
                             ...(myRating ? {
                               score: myRating.score,
                               notes: myRating.notes,

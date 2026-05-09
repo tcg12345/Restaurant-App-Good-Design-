@@ -66,7 +66,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const userId = user?.id ?? null;
   const navigate = useNavigate();
   const { phoneMode } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted } = useLists();
 
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
@@ -662,7 +662,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 <Plus size={14} /> Rate
               </button>
               <button
-                onClick={(e) => { e.stopPropagation(); openWishlistModal(meta); }}
+                onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
                 className={cn(
                   "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full transition-colors",
                   wishlisted
