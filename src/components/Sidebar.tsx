@@ -207,130 +207,19 @@ export const Sidebar: React.FC = () => {
             </NavLink>
           </li>
 
-          {/* Pantry — expandable. Body-click navigates AND toggles the
-              sub-tray; chevron click toggles only. The whole header row
-              still gets the active highlight when on any /pantry path. */}
+          {/* Pantry — plain link. The user's lists live in their own
+              "Lists" tray below the main nav now; Pantry routes back to
+              the multi-list landing view. */}
           <li>
-            <button
-              type="button"
-              onClick={() => {
-                navigate('/pantry');
-                if (!collapsed) setPantryOpen(true);
-              }}
-              className={cn(navRowClass(isPantryActive), 'w-full text-left')}
+            <NavLink
+              to="/pantry"
+              end
+              className={({ isActive }) => navRowClass(isActive || isPantryActive)}
               title={collapsed ? 'Pantry' : undefined}
             >
               <Bookmark size={20} strokeWidth={isPantryActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isPantryActive ? 'text-on-surface' : 'text-on-surface/65')} />
-              {!collapsed && (
-                <>
-                  <span className="truncate flex-1">Pantry</span>
-                  <span
-                    role="button"
-                    aria-label={pantryOpen ? 'Collapse my lists' : 'Expand my lists'}
-                    onClick={(e) => { e.stopPropagation(); setPantryOpen((o) => !o); }}
-                    className="p-1 -mr-1 rounded-md text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors"
-                  >
-                    <ChevronDown
-                      size={15}
-                      className={cn('transition-transform', pantryOpen ? 'rotate-0' : '-rotate-90')}
-                    />
-                  </span>
-                </>
-              )}
-            </button>
-
-            <AnimatePresence initial={false}>
-              {!collapsed && pantryOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.18, ease: 'easeOut' }}
-                  className="overflow-hidden"
-                >
-                  <div className="pl-3 pr-0 pt-2 pb-1">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-on-surface/35 px-3 pb-1.5">
-                      My Lists
-                    </p>
-                    <ul className="space-y-0.5">
-                      {/* Wishlist */}
-                      <li>
-                        <button
-                          type="button"
-                          onClick={() => navigate('/pantry?list=__wishlist__')}
-                          className={cn(subRowClass(pantryParams.list === '__wishlist__'), 'w-full text-left')}
-                        >
-                          <Heart size={13} className="text-red-400 fill-red-400 flex-shrink-0" />
-                          <span className="flex-1 truncate">Wishlist</span>
-                          <span className="text-[11px] text-on-surface/40 tabular-nums">{wishlistCount}</span>
-                        </button>
-                      </li>
-                      {/* Home Cooking */}
-                      <li>
-                        <button
-                          type="button"
-                          onClick={() => navigate('/pantry?view=home-cooking')}
-                          className={cn(subRowClass(pantryParams.view === 'home-cooking'), 'w-full text-left')}
-                        >
-                          <ChefHat size={13} className="text-emerald-600 flex-shrink-0" />
-                          <span className="flex-1 truncate">Home Cooking</span>
-                          {homeCookingCount > 0 && (
-                            <span className="text-[11px] text-on-surface/40 tabular-nums">{homeCookingCount}</span>
-                          )}
-                        </button>
-                      </li>
-                      {/* Trips — only if any exist */}
-                      {tripsCount > 0 && (
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => navigate('/pantry?view=trips')}
-                            className={cn(subRowClass(pantryParams.view === 'trips'), 'w-full text-left')}
-                          >
-                            <Plane size={13} className="text-primary flex-shrink-0" />
-                            <span className="flex-1 truncate">Trips</span>
-                            <span className="text-[11px] text-on-surface/40 tabular-nums">{tripsCount}</span>
-                          </button>
-                        </li>
-                      )}
-                      {/* User-created lists */}
-                      {lists.map((list) => {
-                        const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
-                        const active = pantryParams.list === list.id;
-                        return (
-                          <li key={list.id}>
-                            <button
-                              type="button"
-                              onClick={() => navigate(`/pantry?list=${encodeURIComponent(list.id)}`)}
-                              className={cn(subRowClass(active), 'w-full text-left')}
-                            >
-                              <span className="text-[14px] leading-none flex-shrink-0 w-[15px] text-center">{list.emoji}</span>
-                              <span className="flex-1 truncate">{list.name}</span>
-                              <span className="text-[11px] text-on-surface/40 tabular-nums">{total}</span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                      {/* New List */}
-                      <li>
-                        <button
-                          type="button"
-                          onClick={() => navigate('/pantry?new-list=1')}
-                          className={cn(
-                            'w-full flex items-center gap-2.5 pl-3 pr-2 min-h-[36px] rounded-xl',
-                            'text-[13px] font-semibold text-primary',
-                            'hover:bg-primary/[0.06] transition-colors',
-                          )}
-                        >
-                          <Plus size={13} className="flex-shrink-0" />
-                          <span>New List</span>
-                        </button>
-                      </li>
-                    </ul>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+              {!collapsed && <span className="truncate">Pantry</span>}
+            </NavLink>
           </li>
 
           {/* Circle */}
@@ -349,6 +238,124 @@ export const Sidebar: React.FC = () => {
             </NavLink>
           </li>
         </ul>
+
+        {/* ── Permanent "Lists" section ────────────────────────────────
+             Always visible (independent from the Pantry route) but
+             collapsable via its own chevron. Auto-opens when the user
+             lands on /pantry so the active list is highlighted; stays
+             accessible elsewhere so a user can deep-link into a list
+             from any page. Hidden entirely while the rail is collapsed
+             — the icons-only column is too narrow to render the row. */}
+        {!collapsed && (
+          <div className="mt-5">
+            <button
+              type="button"
+              onClick={() => setPantryOpen((o) => !o)}
+              className={cn(
+                'w-full flex items-center justify-between gap-2 px-3 mb-1.5',
+                'text-[10px] font-bold uppercase tracking-[0.16em]',
+                'text-on-surface/40 hover:text-on-surface/70 transition-colors',
+              )}
+              aria-label={pantryOpen ? 'Collapse lists' : 'Expand lists'}
+              aria-expanded={pantryOpen}
+            >
+              <span>Lists</span>
+              <ChevronDown
+                size={13}
+                className={cn(
+                  'transition-transform',
+                  pantryOpen ? 'rotate-0' : '-rotate-90',
+                )}
+              />
+            </button>
+
+            <AnimatePresence initial={false}>
+              {pantryOpen && (
+                <motion.ul
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className="overflow-hidden space-y-0.5"
+                >
+                  {/* Wishlist */}
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/pantry?list=__wishlist__')}
+                      className={cn(subRowClass(isPantryActive && pantryParams.list === '__wishlist__'), 'w-full text-left')}
+                    >
+                      <Heart size={13} className="text-red-400 fill-red-400 flex-shrink-0" />
+                      <span className="flex-1 truncate">Wishlist</span>
+                      <span className="text-[11px] text-on-surface/40 tabular-nums">{wishlistCount}</span>
+                    </button>
+                  </li>
+                  {/* Home Cooking */}
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/pantry?view=home-cooking')}
+                      className={cn(subRowClass(isPantryActive && pantryParams.view === 'home-cooking'), 'w-full text-left')}
+                    >
+                      <ChefHat size={13} className="text-emerald-600 flex-shrink-0" />
+                      <span className="flex-1 truncate">Home Cooking</span>
+                      {homeCookingCount > 0 && (
+                        <span className="text-[11px] text-on-surface/40 tabular-nums">{homeCookingCount}</span>
+                      )}
+                    </button>
+                  </li>
+                  {/* Trips — only if any exist */}
+                  {tripsCount > 0 && (
+                    <li>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/pantry?view=trips')}
+                        className={cn(subRowClass(isPantryActive && pantryParams.view === 'trips'), 'w-full text-left')}
+                      >
+                        <Plane size={13} className="text-primary flex-shrink-0" />
+                        <span className="flex-1 truncate">Trips</span>
+                        <span className="text-[11px] text-on-surface/40 tabular-nums">{tripsCount}</span>
+                      </button>
+                    </li>
+                  )}
+                  {/* User-created lists */}
+                  {lists.map((list) => {
+                    const total = list.restaurantIds.length + (list.wishlistIds?.length || 0);
+                    const active = isPantryActive && pantryParams.list === list.id;
+                    return (
+                      <li key={list.id}>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/pantry?list=${encodeURIComponent(list.id)}`)}
+                          className={cn(subRowClass(active), 'w-full text-left')}
+                        >
+                          <span className="text-[14px] leading-none flex-shrink-0 w-[15px] text-center">{list.emoji}</span>
+                          <span className="flex-1 truncate">{list.name}</span>
+                          <span className="text-[11px] text-on-surface/40 tabular-nums">{total}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {/* New List */}
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/pantry?new-list=1')}
+                      className={cn(
+                        'w-full flex items-center gap-2.5 pl-3 pr-2 min-h-[36px] rounded-xl',
+                        'text-[13px] font-semibold text-primary',
+                        'hover:bg-primary/[0.06] transition-colors',
+                      )}
+                    >
+                      <Plus size={13} className="flex-shrink-0" />
+                      <span>New List</span>
+                    </button>
+                  </li>
+                </motion.ul>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
       </nav>
 
       {/* ── Footer: profile snapshot + collapse toggle ─────────────────── */}
