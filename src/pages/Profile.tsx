@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus,
+  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -91,6 +91,21 @@ export const Profile: React.FC = () => {
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
+  // Create menu — single button under the action row that opens a small
+  // popover offering Post or Reel. Mirrors the desktop sidebar's pattern.
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const createWrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!createMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (createWrapRef.current && !createWrapRef.current.contains(e.target as Node)) {
+        setCreateMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [createMenuOpen]);
 
   const [editName, setEditName] = useState('');
   const [editUsername, setEditUsername] = useState('');
@@ -359,25 +374,66 @@ export const Profile: React.FC = () => {
             </button>
           </div>
 
-          {/* Mobile create CTAs — Post (multi-media) + Reel. The desktop
-              sidebar has the same options under its single "Create" button. */}
-          <div className="mt-2 flex gap-2">
+          {/* Single Create button — opens a popover with Post and Reel
+              choices (same pattern as the desktop sidebar). */}
+          <div ref={createWrapRef} className="relative mt-2">
             <button
               type="button"
-              onClick={() => openAddPostModal()}
-              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors"
+              onClick={() => setCreateMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={createMenuOpen}
+              className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors"
             >
-              <Plus size={14} strokeWidth={2.5} />
-              New post
+              <Plus
+                size={14}
+                strokeWidth={2.5}
+                className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')}
+              />
+              Create
             </button>
-            <button
-              type="button"
-              onClick={() => openAddReelModal()}
-              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-on-surface/[0.06] text-on-surface/80 text-xs font-bold border border-on-surface/[0.08] hover:bg-on-surface/[0.1] transition-colors"
-            >
-              <Film size={14} />
-              New reel
-            </button>
+
+            <AnimatePresence>
+              {createMenuOpen && (
+                <motion.div
+                  role="menu"
+                  initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  transition={{ duration: 0.14, ease: 'easeOut' }}
+                  className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                  >
+                    <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                      <ImageIcon size={16} strokeWidth={2.2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[14px] font-bold leading-tight">Post</span>
+                      <span className="block text-[12px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
+                    </span>
+                  </button>
+                  <div className="border-t border-on-surface/[0.06]" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                  >
+                    <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
+                      <Film size={16} strokeWidth={2.2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[14px] font-bold leading-tight">Reel</span>
+                      <span className="block text-[12px] text-on-surface/50 leading-tight">Single short video</span>
+                    </span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Badges */}
