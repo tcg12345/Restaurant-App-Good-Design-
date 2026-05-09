@@ -4284,12 +4284,6 @@ export const Pantry: React.FC = () => {
                     Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span>/10
                   </p>
                 )}
-                {regularWishlist.length > 0 && (
-                  <p className="text-xs text-on-surface/40">
-                    <Heart size={10} className="inline text-red-400 fill-red-400 mr-0.5" />
-                    <span className="font-bold text-on-surface">{regularWishlist.length}</span> wishlisted
-                  </p>
-                )}
                 <div className="ml-auto flex items-center gap-2">
                   <ViewModeToggle mode={effectiveViewMode} onChange={setViewMode} />
                 </div>
@@ -4297,7 +4291,7 @@ export const Pantry: React.FC = () => {
             )}
 
             {/* ── Restaurant list ── */}
-            {regularRatingsCount === 0 && regularWishlist.length === 0 ? (
+            {regularRatingsCount === 0 ? (
               <div className="text-center py-16">
                 <Star size={32} className="mx-auto text-on-surface/15 mb-3" />
                 <p className="text-sm font-medium text-on-surface/40">No restaurants yet</p>
@@ -4384,29 +4378,6 @@ export const Pantry: React.FC = () => {
                     <p className="text-xs text-on-surface/30 mt-1">Try adjusting your filters</p>
                   </div>
                 ) : null}
-
-                {/* Wishlist section (global) */}
-                {regularWishlist.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-3 mt-2">
-                      <Heart size={14} className="text-red-400 fill-red-400" />
-                      <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({regularWishlist.length})</h3>
-                    </div>
-                    <div className="divide-y divide-on-surface/[0.06]">
-                      {regularWishlist.map((w) => (
-                        <WishlistRow
-                          key={w.restaurantId}
-                          restaurantId={w.restaurantId}
-                          name={w.name}
-                          image={w.image}
-                          cuisine={w.cuisine}
-                          price={w.price}
-                          notes={w.notes}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </>
