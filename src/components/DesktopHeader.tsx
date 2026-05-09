@@ -1,117 +1,133 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, X, Plus, Heart, MessageCircle, MapPin, Star, Bookmark, Users } from 'lucide-react';
+import { Search, X, Plus, Heart, MessageCircle, Users, Clock, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
-import { scoreColor } from '../lib/score';
-import { formatLocationLabel } from '../lib/places';
+import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
+import { getCuisineLabel } from '../pages/useRestaurantDetail';
 
 /**
  * Sticky page header used across every signed-in main page on desktop
- * (rendered by App.tsx inside the sidebar layout). Replaces the older
- * per-page TopBar on Discover.
+ * (rendered by App.tsx inside the sidebar layout).
  *
  *  ┌─────────────────────────────────────────────┐
- *  │  🔍 Search by name, cuisine, location  + Add Rating  ❤  ✉ │
+ *  │  🔍 Search by name, cuisine, location  [+ Add Rating]  ❤  ✉ │
  *  └─────────────────────────────────────────────┘
  *
- * The search input opens a dropdown that filters the user's local
- * data — rated restaurants, wishlist, and lists — instead of routing
- * to a separate /search page. Click any result to deep-link to it.
+ * The search input opens a dropdown that does a live Google Places
+ * search — same data path as the standalone /search/main page —
+ * surfaced inline so the user never leaves the current page. With an
+ * empty query the dropdown shows the user's recent restaurant
+ * searches.
+ *
+ * Each result row has a + button (kicks off Add Rating with that
+ * restaurant prefilled) and a heart toggle (wishlist). Tapping the
+ * row body navigates to the detail page.
  */
 
-type SearchResult =
-  | { kind: 'restaurant'; id: string; name: string; cuisine?: string; address?: string; score?: number; wishlisted: boolean; locationLabel?: string }
-  | { kind: 'list'; id: string; name: string; emoji: string; total: number; type?: string };
+interface RecentSearch {
+  id: string;
+  name: string;
+  address: string;
+  fullAddress?: string;
+  cuisine: string;
+  price: string;
+  image: string;
+  types?: string[];
+  addressComponents?: PlaceResult['addressComponents'];
+  timestamp: number;
+}
 
-const MAX_RESTAURANTS = 6;
-const MAX_LISTS = 4;
+const RECENT_KEY = 'gourmet-canvas-recent-searches-v2';
+const MAX_RECENT = 8;
+const SEARCH_DEBOUNCE_MS = 280;
+// The text-search endpoint takes a lat/lng bias. Default to NYC if we
+// don't have a better anchor — this just nudges relevance, it does not
+// restrict results.
+const DEFAULT_LAT = 40.735;
+const DEFAULT_LNG = -73.99;
+
+function readRecents(): RecentSearch[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((x): x is RecentSearch => !!x && typeof x?.id === 'string' && typeof x?.name === 'string')
+      .slice(0, MAX_RECENT);
+  } catch { return []; }
+}
+function writeRecents(list: RecentSearch[]) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, MAX_RECENT))); } catch {}
+}
+function placeToRecent(place: PlaceResult): RecentSearch {
+  return {
+    id: place.id,
+    name: place.name,
+    address: place.address || '',
+    fullAddress: place.fullAddress || place.address || '',
+    cuisine: getCuisineLabel(place.types || []),
+    price: priceLevelToString(place.priceLevel),
+    image: place.photoUrl || '',
+    types: place.types,
+    addressComponents: place.addressComponents,
+    timestamp: Date.now(),
+  };
+}
 
 export const DesktopHeader: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { ratings, wishlist, lists, getRestaurantInfo } = useLists();
+  const { toggleWishlist, isWishlisted, openAddRestaurantModal } = useLists();
   const { unreadCount } = useChat();
   const { pendingRequestCount } = useAuth();
 
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const [results, setResults] = useState<PlaceResult[]>([]);
+  const [searching, setSearching] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [recents, setRecents] = useState<RecentSearch[]>(() => readRecents());
+
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
 
-  // ── Search index ─────────────────────────────────────────────────
-  // Pull every restaurant the user knows about (rated + wishlisted)
-  // and every list, then filter against the query. Local data only —
-  // no Google Places call from the header search.
-  const restaurantIndex = useMemo(() => {
-    const map = new Map<string, SearchResult & { kind: 'restaurant' }>();
-    for (const r of ratings) {
-      const info = getRestaurantInfo(r.restaurantId);
-      const address = info?.address || r.address;
-      map.set(r.restaurantId, {
-        kind: 'restaurant',
-        id: r.restaurantId,
-        name: info?.name || r.name,
-        cuisine: info?.cuisine || r.cuisine,
-        address,
-        score: r.score,
-        wishlisted: false,
-        locationLabel: formatLocationLabel(info?.addressComponents, address || ''),
-      });
+  const trimmed = query.trim();
+  const showResults = trimmed.length > 0;
+
+  // ── Debounced live Places search ──────────────────────────────────
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!trimmed) {
+      setResults([]);
+      setSearching(false);
+      return;
     }
-    for (const w of wishlist) {
-      const existing = map.get(w.restaurantId);
-      if (existing) {
-        existing.wishlisted = true;
-        continue;
+    setSearching(true);
+    const reqId = ++requestIdRef.current;
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const found = await searchPlacesByText(trimmed, DEFAULT_LAT, DEFAULT_LNG);
+        // Drop stale responses if the user kept typing.
+        if (reqId !== requestIdRef.current) return;
+        setResults(found);
+      } catch {
+        if (reqId === requestIdRef.current) setResults([]);
+      } finally {
+        if (reqId === requestIdRef.current) setSearching(false);
       }
-      const info = getRestaurantInfo(w.restaurantId);
-      const address = info?.address || w.address;
-      map.set(w.restaurantId, {
-        kind: 'restaurant',
-        id: w.restaurantId,
-        name: info?.name || w.name,
-        cuisine: info?.cuisine || w.cuisine,
-        address,
-        wishlisted: true,
-        locationLabel: formatLocationLabel(info?.addressComponents, address || ''),
-      });
-    }
-    return Array.from(map.values());
-  }, [ratings, wishlist, getRestaurantInfo]);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [trimmed]);
 
-  const results = useMemo<SearchResult[]>(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    const restaurantHits = restaurantIndex
-      .filter((r) =>
-        r.name.toLowerCase().includes(q) ||
-        (r.cuisine || '').toLowerCase().includes(q) ||
-        (r.address || '').toLowerCase().includes(q),
-      )
-      .slice(0, MAX_RESTAURANTS);
-    const listHits: SearchResult[] = lists
-      .filter((l) => l.name.toLowerCase().includes(q))
-      .slice(0, MAX_LISTS)
-      .map((l) => ({
-        kind: 'list' as const,
-        id: l.id,
-        name: l.name,
-        emoji: l.emoji,
-        total: l.restaurantIds.length + (l.wishlistIds?.length || 0),
-        type: l.type,
-      }));
-    return [...restaurantHits, ...listHits];
-  }, [query, restaurantIndex, lists]);
+  useEffect(() => { setActiveIndex(0); }, [results, recents, showResults]);
 
-  // Reset highlighted row whenever the result set changes.
-  useEffect(() => { setActiveIndex(0); }, [results]);
-
-  // Close on outside click / Escape.
+  // Outside click + Escape close.
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
@@ -126,54 +142,82 @@ export const DesktopHeader: React.FC = () => {
     };
   }, [open]);
 
-  // Close the dropdown whenever the route changes — clicking a result
-  // navigates, but other navigation (sidebar clicks etc) shouldn't
-  // leave a stale dropdown sitting on top of the new page.
+  // Reset whenever the route changes — if a result triggered the nav,
+  // we don't want a stale dropdown over the new page.
   useEffect(() => {
     setOpen(false);
     setQuery('');
   }, [location.pathname, location.search]);
 
-  const navigateToResult = (r: SearchResult) => {
-    if (r.kind === 'restaurant') navigate(`/restaurant/${r.id}`);
-    else navigate(`/pantry?list=${encodeURIComponent(r.id)}`);
+  const persistRecent = (place: PlaceResult) => {
+    setRecents((prev) => {
+      const entry = placeToRecent(place);
+      const next = [entry, ...prev.filter((r) => r.id !== entry.id)].slice(0, MAX_RECENT);
+      writeRecents(next);
+      return next;
+    });
+  };
+
+  const goToPlace = (place: PlaceResult) => {
+    persistRecent(place);
+    navigate(`/restaurant/${place.id}`);
     setOpen(false);
     setQuery('');
   };
+  const goToRecent = (r: RecentSearch) => {
+    setRecents((prev) => {
+      const next = [{ ...r, timestamp: Date.now() }, ...prev.filter((x) => x.id !== r.id)].slice(0, MAX_RECENT);
+      writeRecents(next);
+      return next;
+    });
+    navigate(`/restaurant/${r.id}`);
+    setOpen(false);
+    setQuery('');
+  };
+  const removeRecent = (id: string) => {
+    setRecents((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      writeRecents(next);
+      return next;
+    });
+  };
 
+  const placeMeta = (p: PlaceResult) => ({
+    id: p.id,
+    name: p.name,
+    image: p.photoUrl || '',
+    cuisine: getCuisineLabel(p.types || []),
+    price: priceLevelToString(p.priceLevel),
+    address: p.fullAddress || p.address || '',
+  });
+  const recentMeta = (r: RecentSearch) => ({
+    id: r.id,
+    name: r.name,
+    image: r.image || '',
+    cuisine: r.cuisine,
+    price: r.price,
+    address: r.fullAddress || r.address,
+  });
+
+  // Active row navigation via keyboard.
+  const navigableLength = showResults ? results.length : recents.length;
   const handleKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
-    if (!open || results.length === 0) {
-      if (e.key === 'Enter' && query.trim()) {
-        // Fallback when no local hits — let users still kick off a
-        // proper places search from the header.
-        navigate('/search/main');
-        setOpen(false);
-      }
-      return;
-    }
-    if (e.key === 'ArrowDown') {
+    if (!open || navigableLength === 0) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => (i + 1) % navigableLength); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => (i - 1 + navigableLength) % navigableLength); }
+    else if (e.key === 'Enter') {
       e.preventDefault();
-      setActiveIndex((i) => (i + 1) % results.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setActiveIndex((i) => (i - 1 + results.length) % results.length);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      navigateToResult(results[activeIndex]);
+      if (showResults) goToPlace(results[activeIndex]);
+      else goToRecent(recents[activeIndex]);
     }
   };
 
-  const showDropdown = open && (query.trim().length > 0);
-  const hasHits = results.length > 0;
-
-  // Group rendering — restaurants first, then lists.
-  const restaurantResults = results.filter((r) => r.kind === 'restaurant') as Array<SearchResult & { kind: 'restaurant' }>;
-  const listResults = results.filter((r) => r.kind === 'list') as Array<SearchResult & { kind: 'list' }>;
+  const isHomeRoute = location.pathname === '/' || location.pathname === '/index.html';
 
   return (
     <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]">
       <div className="px-6 py-3 flex items-center gap-3">
-        {/* Search + dropdown */}
+        {/* ── Search input + dropdown ─────────────────────────────── */}
         <div ref={wrapperRef} className="relative flex-1 max-w-2xl">
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none" />
           <input
@@ -191,9 +235,9 @@ export const DesktopHeader: React.FC = () => {
               'focus:outline-none focus:bg-on-surface/[0.06] focus:ring-2 focus:ring-primary/20',
               'transition-colors',
             )}
-            aria-label="Search"
+            aria-label="Search restaurants"
             aria-haspopup="listbox"
-            aria-expanded={showDropdown}
+            aria-expanded={open}
           />
           {query && (
             <button
@@ -207,7 +251,7 @@ export const DesktopHeader: React.FC = () => {
           )}
 
           <AnimatePresence>
-            {showDropdown && (
+            {open && (
               <motion.div
                 initial={{ opacity: 0, y: -4, scale: 0.99 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -221,120 +265,111 @@ export const DesktopHeader: React.FC = () => {
                 )}
                 role="listbox"
               >
-                {!hasHits ? (
-                  <div className="px-4 py-6 text-center">
-                    <p className="text-sm font-medium text-on-surface/60">No matches yet</p>
-                    <p className="text-[12px] text-on-surface/40 mt-1">Try a different name, cuisine, or city</p>
-                    <button
-                      type="button"
-                      onClick={() => { navigate('/search/main'); setOpen(false); }}
-                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-[12px] font-semibold hover:bg-primary/15 transition-colors"
-                    >
-                      <Search size={12} /> Search the web for "{query.trim()}"
-                    </button>
-                  </div>
+                {/* ── Search results state ── */}
+                {showResults ? (
+                  searching && results.length === 0 ? (
+                    <div className="px-4 py-6 flex items-center justify-center gap-2 text-on-surface/55">
+                      <Loader2 size={14} className="animate-spin" />
+                      <span className="text-[13px] font-medium">Searching restaurants…</span>
+                    </div>
+                  ) : results.length === 0 ? (
+                    <div className="px-4 py-6 text-center">
+                      <p className="text-sm font-medium text-on-surface/60">No matches found</p>
+                      <p className="text-[12px] text-on-surface/40 mt-1">Try a different name, cuisine, or city</p>
+                    </div>
+                  ) : (
+                    <ul className="max-h-[480px] overflow-y-auto py-1">
+                      {results.map((p, idx) => (
+                        <SearchRow
+                          key={p.id}
+                          name={p.name}
+                          location={formatLocationLabel(p.addressComponents, p.fullAddress || p.address)}
+                          cuisine={getCuisineLabel(p.types || [])}
+                          price={priceLevelToString(p.priceLevel)}
+                          active={idx === activeIndex}
+                          wishlisted={isWishlisted(p.id)}
+                          onMouseEnter={() => setActiveIndex(idx)}
+                          onClick={() => goToPlace(p)}
+                          onAdd={(e) => {
+                            e.stopPropagation();
+                            persistRecent(p);
+                            openAddRestaurantModal(placeMeta(p));
+                            setOpen(false);
+                            setQuery('');
+                          }}
+                          onWishlist={(e) => {
+                            e.stopPropagation();
+                            persistRecent(p);
+                            toggleWishlist(placeMeta(p));
+                          }}
+                        />
+                      ))}
+                    </ul>
+                  )
                 ) : (
-                  <div className="max-h-[440px] overflow-y-auto py-1">
-                    {restaurantResults.length > 0 && (
-                      <div>
-                        <p className="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-on-surface/40">
-                          Restaurants
-                        </p>
-                        <ul>
-                          {restaurantResults.map((r, idx) => {
-                            const globalIdx = idx; // restaurants come first
-                            const active = activeIndex === globalIdx;
-                            return (
-                              <li key={`r-${r.id}`}>
-                                <button
-                                  type="button"
-                                  onMouseEnter={() => setActiveIndex(globalIdx)}
-                                  onClick={() => navigateToResult(r)}
-                                  className={cn(
-                                    'w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors',
-                                    active ? 'bg-on-surface/[0.05]' : 'hover:bg-on-surface/[0.03]',
-                                  )}
-                                >
-                                  <div className="w-8 h-8 rounded-lg bg-on-surface/[0.05] flex items-center justify-center flex-shrink-0">
-                                    {r.score !== undefined && r.score > 0 ? (
-                                      <span className={cn('text-[11px] font-serif font-bold tabular-nums', scoreColor(r.score))}>{r.score.toFixed(1)}</span>
-                                    ) : r.wishlisted ? (
-                                      <Heart size={13} className="text-red-400 fill-red-400" />
-                                    ) : (
-                                      <Star size={13} className="text-on-surface/35" />
-                                    )}
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-serif font-bold text-[14px] text-on-surface leading-tight truncate">{r.name}</p>
-                                    <p className="text-[11px] text-on-surface/45 leading-tight truncate mt-0.5">
-                                      {r.cuisine || 'Restaurant'}
-                                      {r.locationLabel ? <span className="text-on-surface/30"> · {r.locationLabel}</span> : null}
-                                    </p>
-                                  </div>
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    )}
-                    {listResults.length > 0 && (
-                      <div className={restaurantResults.length > 0 ? 'border-t border-on-surface/[0.06] mt-1 pt-1' : ''}>
-                        <p className="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-on-surface/40">
-                          Lists
-                        </p>
-                        <ul>
-                          {listResults.map((l, idx) => {
-                            const globalIdx = restaurantResults.length + idx;
-                            const active = activeIndex === globalIdx;
-                            return (
-                              <li key={`l-${l.id}`}>
-                                <button
-                                  type="button"
-                                  onMouseEnter={() => setActiveIndex(globalIdx)}
-                                  onClick={() => navigateToResult(l)}
-                                  className={cn(
-                                    'w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors',
-                                    active ? 'bg-on-surface/[0.05]' : 'hover:bg-on-surface/[0.03]',
-                                  )}
-                                >
-                                  <div className="w-8 h-8 rounded-lg bg-on-surface/[0.05] flex items-center justify-center flex-shrink-0 text-base">
-                                    {l.emoji}
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-serif font-bold text-[14px] text-on-surface leading-tight truncate">{l.name}</p>
-                                    <p className="text-[11px] text-on-surface/45 leading-tight truncate mt-0.5 flex items-center gap-1">
-                                      <Bookmark size={10} className="text-on-surface/30" /> {l.total} restaurant{l.total === 1 ? '' : 's'}
-                                    </p>
-                                  </div>
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
+                  /* ── Empty query: history ── */
+                  recents.length === 0 ? (
+                    <div className="px-4 py-6 text-center">
+                      <p className="text-sm font-medium text-on-surface/60">Start typing to search</p>
+                      <p className="text-[12px] text-on-surface/40 mt-1">Find a restaurant by name, cuisine, or city</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-[480px] overflow-y-auto py-1">
+                      <p className="px-4 pt-3 pb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-on-surface/40 flex items-center gap-1.5">
+                        <Clock size={11} /> Recent searches
+                      </p>
+                      <ul>
+                        {recents.map((r, idx) => (
+                          <SearchRow
+                            key={r.id}
+                            name={r.name}
+                            location={formatLocationLabel(r.addressComponents, r.fullAddress || r.address)}
+                            cuisine={r.cuisine}
+                            price={r.price}
+                            active={idx === activeIndex}
+                            wishlisted={isWishlisted(r.id)}
+                            onMouseEnter={() => setActiveIndex(idx)}
+                            onClick={() => goToRecent(r)}
+                            onAdd={(e) => {
+                              e.stopPropagation();
+                              openAddRestaurantModal(recentMeta(r));
+                              setOpen(false);
+                            }}
+                            onWishlist={(e) => {
+                              e.stopPropagation();
+                              toggleWishlist(recentMeta(r));
+                            }}
+                            onRemove={(e) => { e.stopPropagation(); removeRecent(r.id); }}
+                          />
+                        ))}
+                      </ul>
+                    </div>
+                  )
                 )}
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* Right side actions */}
+        {/* ── Right side actions ─────────────────────────────────── */}
         <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate('/search/main')}
-            className={cn(
-              'inline-flex items-center gap-2 px-4 py-2.5 rounded-full',
-              'bg-primary text-white text-[13px] font-semibold',
-              'hover:bg-primary/90 active:scale-[0.99] transition-all shadow-sm',
-            )}
-          >
-            <Plus size={15} strokeWidth={2.5} />
-            <span>Add Rating</span>
-          </button>
+          {/* Add Rating CTA — hidden on Discover (the home grid already
+              has + buttons on every card and the search dropdown
+              now exposes one per result). */}
+          {!isHomeRoute && (
+            <button
+              type="button"
+              onClick={() => navigate('/search/main')}
+              className={cn(
+                'inline-flex items-center gap-2 px-4 py-2.5 rounded-full',
+                'bg-primary text-white text-[13px] font-semibold',
+                'hover:bg-primary/90 active:scale-[0.99] transition-all shadow-sm',
+              )}
+            >
+              <Plus size={15} strokeWidth={2.5} />
+              <span>Add Rating</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -368,3 +403,78 @@ export const DesktopHeader: React.FC = () => {
     </header>
   );
 };
+
+/* ── Reusable row used for both live results and recent searches ── */
+const SearchRow: React.FC<{
+  name: string;
+  location: string;
+  cuisine: string;
+  price: string;
+  active: boolean;
+  wishlisted: boolean;
+  onClick: () => void;
+  onMouseEnter: () => void;
+  onAdd: (e: React.MouseEvent) => void;
+  onWishlist: (e: React.MouseEvent) => void;
+  onRemove?: (e: React.MouseEvent) => void;
+}> = ({ name, location, cuisine, price, active, wishlisted, onClick, onMouseEnter, onAdd, onWishlist, onRemove }) => (
+  <li>
+    <button
+      type="button"
+      onMouseEnter={onMouseEnter}
+      onClick={onClick}
+      className={cn(
+        'w-full px-4 py-2.5 flex items-center gap-3 text-left transition-colors',
+        active ? 'bg-on-surface/[0.05]' : 'hover:bg-on-surface/[0.03]',
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="font-serif font-bold text-[14px] text-on-surface leading-tight truncate">{name}</p>
+        <p className="text-[11px] text-on-surface/50 leading-tight truncate mt-0.5">
+          {(cuisine || 'Restaurant')}
+          {price ? <span className="text-on-surface/30"> · {price}</span> : null}
+          {location ? <span className="text-on-surface/30"> · {location}</span> : null}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <span
+          role="button"
+          tabIndex={-1}
+          onClick={onWishlist}
+          aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+          title={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+          className={cn(
+            'w-8 h-8 rounded-full flex items-center justify-center transition-colors',
+            wishlisted
+              ? 'bg-red-50 text-red-400 hover:bg-red-100'
+              : 'text-on-surface/45 hover:text-red-400 hover:bg-red-50',
+          )}
+        >
+          <Heart size={14} className={wishlisted ? 'fill-red-400' : ''} />
+        </span>
+        <span
+          role="button"
+          tabIndex={-1}
+          onClick={onAdd}
+          aria-label="Add rating"
+          title="Add rating"
+          className="w-8 h-8 rounded-full text-on-surface/55 hover:text-primary hover:bg-primary/[0.06] flex items-center justify-center transition-colors"
+        >
+          <Plus size={15} strokeWidth={2.4} />
+        </span>
+        {onRemove && (
+          <span
+            role="button"
+            tabIndex={-1}
+            onClick={onRemove}
+            aria-label="Remove from history"
+            title="Remove from history"
+            className="w-7 h-7 rounded-full text-on-surface/30 hover:text-on-surface/60 hover:bg-on-surface/[0.05] flex items-center justify-center transition-colors"
+          >
+            <X size={12} />
+          </span>
+        )}
+      </div>
+    </button>
+  </li>
+);
