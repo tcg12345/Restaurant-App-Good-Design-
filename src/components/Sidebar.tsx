@@ -72,6 +72,17 @@ export const Sidebar: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
+  // Auto-collapse the sidebar when the user lands on /reels — the desktop
+  // reels layout wants the full canvas. We don't auto-expand on leaving
+  // because re-expanding the rail under the user's cursor is jarring;
+  // they can click the chevron to bring it back.
+  useEffect(() => {
+    if (location.pathname === '/reels' && !collapsed) {
+      setCollapsed(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
   const width = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH;
 
   const initial = (profile?.display_name || profile?.username || 'U').charAt(0).toUpperCase();

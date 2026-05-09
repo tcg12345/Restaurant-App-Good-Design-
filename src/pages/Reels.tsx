@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind, type ReelComment } from '../contexts/ReelsContext';
@@ -185,6 +185,10 @@ interface ReelSlideProps {
   active: boolean;
   muted: boolean;
   isMine: boolean;
+  /** When true, skip the right-edge action rail (desktop renders one beside the reel). */
+  hideActionRail?: boolean;
+  /** When true, skip the in-reel delete button (desktop puts delete in the side rail's "more" menu). */
+  hideOwnerDelete?: boolean;
   onLike: () => void;
   onSave: () => void;
   onComment: () => void;
@@ -193,7 +197,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -247,7 +251,7 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, onLi
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/75 via-black/30 to-transparent z-10" />
 
       {/* Owner-only delete button (top-right area, below the mute pill) */}
-      {isMine && (
+      {isMine && !hideOwnerDelete && (
         <button
           type="button"
           onClick={onDelete}
@@ -258,8 +262,10 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, onLi
         </button>
       )}
 
-      {/* Action rail */}
-      <ActionRail reel={reel} onLike={onLike} onSave={onSave} onComment={onComment} onShare={onShare} />
+      {/* In-reel action rail — hidden on desktop where actions live beside the reel */}
+      {!hideActionRail && (
+        <ActionRail reel={reel} onLike={onLike} onSave={onSave} onComment={onComment} onShare={onShare} />
+      )}
 
       {/* Bottom info: author, caption, attached card */}
       <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-5 pt-10">
@@ -293,6 +299,147 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, onLi
         {reel.kind === 'recipe' && reel.recipe && (
           <RecipeCard reel={reel} onClick={onCardClick} />
         )}
+      </div>
+    </div>
+  );
+};
+
+/* ── Side action rail (desktop) ─────────────────────────────────────── */
+// Renders a vertical column of icon buttons beside the reel, styled for the
+// app's light surface (not a dark video). Mirrors Instagram's desktop reels.
+
+interface DesktopSideActionsProps {
+  reel: Reel;
+  isMine: boolean;
+  onLike: () => void;
+  onSave: () => void;
+  onComment: () => void;
+  onShare: () => void;
+  onDelete: () => void;
+}
+
+const DesktopSideActions: React.FC<DesktopSideActionsProps> = ({ reel, isMine, onLike, onSave, onComment, onShare, onDelete }) => {
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [moreOpen]);
+
+  const Btn: React.FC<{
+    onClick: () => void;
+    label: string;
+    count?: number;
+    active?: boolean;
+    activeColor?: string;
+    children: React.ReactNode;
+  }> = ({ onClick, label, count, active = false, activeColor, children }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="flex flex-col items-center gap-1 group"
+    >
+      <motion.span
+        whileTap={{ scale: 0.85 }}
+        className={cn(
+          'w-12 h-12 rounded-full flex items-center justify-center transition-colors',
+          'bg-on-surface/[0.06] group-hover:bg-on-surface/10',
+          active ? activeColor : 'text-on-surface',
+        )}
+      >
+        {children}
+      </motion.span>
+      {count != null && (
+        <span className="text-[12px] font-semibold tabular-nums text-on-surface/70">
+          {formatCount(count)}
+        </span>
+      )}
+    </button>
+  );
+
+  return (
+    <div className="flex flex-col items-center gap-4 select-none">
+      <Btn
+        onClick={onLike}
+        label="Like"
+        count={reel.likes}
+        active={reel.liked}
+        activeColor="text-rose-500 bg-rose-50 group-hover:bg-rose-100"
+      >
+        <Heart size={26} strokeWidth={2.2} className={cn(reel.liked && 'fill-rose-500')} />
+      </Btn>
+
+      <Btn onClick={onComment} label="Comments" count={reel.comments}>
+        <MessageCircle size={24} strokeWidth={2.2} />
+      </Btn>
+
+      <Btn
+        onClick={onSave}
+        label="Save"
+        count={reel.saves}
+        active={reel.saved}
+        activeColor="text-amber-600 bg-amber-50 group-hover:bg-amber-100"
+      >
+        <Bookmark size={24} strokeWidth={2.2} className={cn(reel.saved && 'fill-amber-500')} />
+      </Btn>
+
+      <Btn onClick={onShare} label="Share">
+        <Share2 size={22} strokeWidth={2.2} />
+      </Btn>
+
+      {/* More menu (copy link + owner delete) */}
+      <div ref={moreRef} className="relative">
+        <button
+          type="button"
+          onClick={() => setMoreOpen((o) => !o)}
+          aria-label="More"
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          className="w-12 h-12 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/10 flex items-center justify-center text-on-surface transition-colors"
+        >
+          <MoreHorizontal size={22} />
+        </button>
+
+        <AnimatePresence>
+          {moreOpen && (
+            <motion.div
+              role="menu"
+              initial={{ opacity: 0, scale: 0.96, x: 4 }}
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.96, x: 4 }}
+              transition={{ duration: 0.12 }}
+              className="absolute right-full top-0 mr-2 min-w-[180px] bg-surface border border-on-surface/[0.08] rounded-2xl shadow-xl overflow-hidden z-30"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { setMoreOpen(false); onShare(); }}
+                className="w-full text-left px-3 py-2.5 text-sm font-semibold text-on-surface hover:bg-on-surface/[0.05]"
+              >
+                Copy link
+              </button>
+              {isMine && (
+                <>
+                  <div className="border-t border-on-surface/[0.06]" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setMoreOpen(false); onDelete(); }}
+                    className="w-full text-left px-3 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                  >
+                    Delete reel
+                  </button>
+                </>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -607,7 +754,7 @@ export const Reels: React.FC = () => {
     else showToast("Couldn't delete reel");
   };
 
-  const feed = (
+  const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean }) => (
     <div
       ref={containerRef}
       className="h-full w-full overflow-y-auto snap-y snap-mandatory bg-black scrollbar-hide"
@@ -645,6 +792,8 @@ export const Reels: React.FC = () => {
                 active={activeReelId === reel.id}
                 muted={muted}
                 isMine={!!currentUserId && reel.authorId === currentUserId}
+                hideActionRail={opts.hideActionRail}
+                hideOwnerDelete={opts.hideOwnerDelete}
                 onLike={() => {
                   if (!currentUserId) { showToast('Sign in to like reels'); return; }
                   toggleLike(reel.id);
@@ -704,53 +853,46 @@ export const Reels: React.FC = () => {
     </div>
   );
 
-  /* ── Desktop layout ── */
+  const activeReel = list.find((r) => r.id === activeReelId) ?? list[0] ?? null;
+
+  /* ── Desktop layout ──
+     Instagram-style: app surface background, no copy / side panels, no
+     "Post a reel" CTA (the sidebar's Create button handles posting). The
+     reel sits centered as a tall phone-shaped column; like / comment /
+     save / share / more buttons live in a column right next to it. */
   if (showDesktopFrame) {
     return (
-      <div className="relative h-[calc(100vh-64px)] w-full bg-stone-950 overflow-hidden flex">
-        <div className="hidden xl:flex w-[280px] flex-shrink-0 flex-col justify-between p-8 text-white/90">
-          <div>
-            <h1 className="text-3xl font-serif font-bold leading-tight">Reels</h1>
-            <p className="text-sm text-white/55 mt-2 max-w-[220px]">
-              Short videos from your circle and experts you trust. Tap a card to
-              open the restaurant or recipe.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => openAddReelModal(kind)}
-            className="inline-flex items-center gap-2 self-start h-11 px-5 rounded-full bg-white text-stone-900 text-sm font-bold hover:bg-white/90 transition-colors"
-          >
-            <Plus size={18} strokeWidth={2.5} />
-            Post a reel
-          </button>
-        </div>
-
-        <div className="flex-1 flex items-center justify-center p-4">
+      <div className="relative h-[calc(100vh-64px)] w-full bg-surface overflow-hidden flex items-center justify-center px-6">
+        <div className="flex items-end gap-4 h-full max-h-[calc(100vh-96px)] py-4">
+          {/* Reel column */}
           <div
-            className="relative bg-black rounded-[40px] overflow-hidden shadow-2xl border border-white/10"
-            style={{ aspectRatio: '9 / 19.5', height: 'min(100%, calc(100vh - 96px))' }}
+            className="relative h-full bg-black rounded-[36px] overflow-hidden shadow-xl border border-on-surface/[0.08]"
+            style={{ aspectRatio: '9 / 19.5' }}
           >
             <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
-            {feed}
+            {renderFeed({ hideActionRail: true, hideOwnerDelete: true })}
           </div>
-        </div>
 
-        <div className="hidden xl:flex w-[280px] flex-shrink-0 flex-col gap-4 p-8 text-white/80">
-          <div className="rounded-2xl bg-white/5 p-4">
-            <p className="text-xs uppercase tracking-widest text-white/40 font-bold mb-2">Now playing</p>
-            <p className="text-sm text-white/90 leading-snug">
-              Scroll to see the next reel. Use the mute toggle in the top right
-              to turn audio on. Likes, saves, and comments persist across sessions.
-            </p>
-          </div>
-          <div className="rounded-2xl bg-white/5 p-4">
-            <p className="text-xs uppercase tracking-widest text-white/40 font-bold mb-2">Tip</p>
-            <p className="text-sm text-white/90 leading-snug">
-              Posting? Attach a {kind === 'restaurant' ? 'restaurant' : 'recipe'} so viewers can
-              tap straight through to the details.
-            </p>
-          </div>
+          {/* Side actions — operate on the active reel */}
+          {activeReel && (
+            <div className="pb-4">
+              <DesktopSideActions
+                reel={activeReel}
+                isMine={!!currentUserId && activeReel.authorId === currentUserId}
+                onLike={() => {
+                  if (!currentUserId) { showToast('Sign in to like reels'); return; }
+                  toggleLike(activeReel.id);
+                }}
+                onSave={() => {
+                  if (!currentUserId) { showToast('Sign in to save reels'); return; }
+                  toggleSave(activeReel.id);
+                }}
+                onComment={() => openCommentsSheet(activeReel.id)}
+                onShare={() => handleShare(activeReel)}
+                onDelete={() => setConfirmDeleteId(activeReel.id)}
+              />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -760,7 +902,7 @@ export const Reels: React.FC = () => {
   return (
     <div className="relative h-screen w-full bg-black overflow-hidden">
       <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
-      {feed}
+      {renderFeed({})}
     </div>
   );
 };
