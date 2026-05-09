@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useReels } from '../contexts/ReelsContext';
+import { ProfileReelsSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../lib/supabase-community';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -442,16 +443,14 @@ export const Profile: React.FC = () => {
           </section>
         )}
 
-        {/* My Reels — 3-up grid of vertical thumbnails. Hover surfaces a
-            delete pill that calls into ReelsContext.deleteReel(), which
-            removes both the storage object and the DB row. */}
-        {myReels.length > 0 && (
-          <section>
-            <div className="flex items-baseline justify-between mb-3">
-              <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
-                My Reels
-                <span className="text-on-surface/30 font-medium ml-1.5">{myReels.length}</span>
-              </h3>
+        {/* My Reels — compact 3-up grid (max 6 visible, see-all to expand). */}
+        <ProfileReelsSection
+          reels={myReels}
+          isOwn
+          onDelete={(id) => setConfirmDeleteReelId(id)}
+          onToggleVisibility={(id, next) => setReelVisibility(id, next)}
+          trailing={
+            myReels.length > 0 ? (
               <button
                 type="button"
                 onClick={() => navigate('/reels')}
@@ -460,88 +459,9 @@ export const Profile: React.FC = () => {
                 Open feed
                 <ChevronRight size={13} />
               </button>
-            </div>
-            <div className="grid grid-cols-3 gap-1.5">
-              {myReels.map((r) => (
-                <div key={r.id} className="relative group">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/reels?kind=${r.kind}`)}
-                    className="block w-full aspect-[9/16] rounded-2xl overflow-hidden bg-on-surface/[0.05] relative"
-                    aria-label={r.caption || 'Open reel'}
-                  >
-                    {r.videoUrl ? (
-                      <video
-                        src={r.videoUrl}
-                        muted
-                        playsInline
-                        preload="metadata"
-                        className="absolute inset-0 w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-800 to-stone-900')} />
-                    )}
-                    {/* Bottom gradient + meta */}
-                    <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none" />
-                    <div className="absolute inset-x-0 bottom-0 p-2">
-                      <div className="flex items-center gap-1 text-white text-[10px] font-bold mb-1">
-                        <Film size={10} />
-                        <span className="uppercase tracking-wider">{r.kind === 'restaurant' ? 'Place' : 'Recipe'}</span>
-                      </div>
-                      <p className="text-white text-[12px] font-bold leading-tight line-clamp-2 drop-shadow-sm">
-                        {r.kind === 'restaurant' ? r.restaurant?.name : r.recipe?.title}
-                      </p>
-                    </div>
-                    {/* Top-left likes count */}
-                    <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/45 backdrop-blur rounded-full px-2 h-6 text-white text-[10px] font-bold">
-                      <Heart size={10} className="fill-white" />
-                      <span className="tabular-nums">{r.likes}</span>
-                    </div>
-                    {/* Privacy badge — only visible for private reels so the
-                        public state stays uncluttered. Sits at the bottom-
-                        left so it doesn't collide with the Delete pill. */}
-                    {!r.isPublic && (
-                      <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/55 backdrop-blur rounded-full px-2 h-6 text-white text-[10px] font-bold">
-                        <Lock size={10} />
-                        <span className="uppercase tracking-wider">Private</span>
-                      </div>
-                    )}
-                  </button>
-                  {/* Top-right action stack — visibility toggle + delete.
-                      Always visible on touch; hover-revealed on desktop so
-                      the grid stays clean. */}
-                  <div
-                    className={cn(
-                      'absolute top-2 right-2 flex items-center gap-1.5',
-                      'opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setReelVisibility(r.id, !r.isPublic)}
-                      className={cn(
-                        'w-7 h-7 rounded-full backdrop-blur flex items-center justify-center text-white',
-                        'bg-black/55 hover:bg-black/70 transition-colors',
-                      )}
-                      aria-label={r.isPublic ? 'Make private' : 'Make public'}
-                      title={r.isPublic ? 'Public — tap to make followers-only' : 'Followers only — tap to make public'}
-                    >
-                      {r.isPublic ? <Globe size={13} /> : <Lock size={13} />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteReelId(r.id)}
-                      className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
-                      aria-label="Delete reel"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+            ) : null
+          }
+        />
 
         {/* Recent — clean divided list, with a See all link routing to the Map's My Ratings mode */}
         {recentRatings.length > 0 && (

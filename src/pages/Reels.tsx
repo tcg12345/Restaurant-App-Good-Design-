@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -272,21 +272,29 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       {/* Bottom info: author, caption, attached card */}
       <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-5 pt-10">
         <div className="flex items-center gap-3 mb-2">
-          <div className={cn('w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-white/30', reel.authorAvatarColor)}>
-            {reel.authorInitials}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-white font-bold text-[15px] truncate">@{reel.authorUsername}</span>
-              {reel.isExpert && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold">
-                  <Star size={9} className="fill-stone-900" />
-                  EXPERT
-                </span>
-              )}
+          {/* Tap the avatar + handle (and EXPERT chip) to open the author's
+              profile. Audio label sits outside the link area so it isn't
+              part of the clickable region. */}
+          <Link
+            to={`/user/${encodeURIComponent(reel.authorUsername)}`}
+            className="flex items-center gap-3 min-w-0 flex-1 group"
+          >
+            <div className={cn('w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-white/30 transition-transform group-hover:scale-[1.04] group-active:scale-[0.96]', reel.authorAvatarColor)}>
+              {reel.authorInitials}
             </div>
-            <p className="text-white/85 text-[12px] truncate font-mono">♪ {reel.audioLabel}</p>
-          </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
+                {reel.isExpert && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold">
+                    <Star size={9} className="fill-stone-900" />
+                    EXPERT
+                  </span>
+                )}
+              </div>
+              <p className="text-white/85 text-[12px] truncate font-mono">♪ {reel.audioLabel}</p>
+            </div>
+          </Link>
         </div>
 
         {reel.caption && (

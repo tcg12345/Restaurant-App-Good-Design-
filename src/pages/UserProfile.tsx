@@ -6,6 +6,8 @@ import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useReels } from '../contexts/ReelsContext';
+import { ProfileReelsSection } from '../components/ProfileReelsSection';
 import {
   getProfileByUsername, getFollowCounts, canViewProfile, getFriends,
   sendFriendRequest, followPublicAccount, getUserRatings, getUserPhotos, getUserLists,
@@ -33,6 +35,7 @@ export const UserProfile: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { ratings: myRatings } = useLists();
+  const { reels } = useReels();
   const userId = user?.id ?? null;
 
   const [profile, setProfile] = useState<UserProfileType | null>(null);
@@ -165,6 +168,13 @@ export const UserProfile: React.FC = () => {
   }, [username, userId]);
 
   // Shared restaurants
+  // Reels by this profile owner. RLS already filters out followers-only
+  // reels the viewer can't see, so we just match by authorId.
+  const profileReels = useMemo(
+    () => (profile?.user_id ? reels.filter((r) => r.authorId === profile.user_id) : []),
+    [reels, profile?.user_id],
+  );
+
   const sharedRestaurants = useMemo(() => {
     if (!canView || !userId || !profile) return [];
     const theyTaggedMe = userRatings.filter((r) => (r.friend_ids || []).includes(userId));
@@ -491,6 +501,14 @@ export const UserProfile: React.FC = () => {
                   })}
                 </div>
               </section>
+            )}
+
+            {/* Reels by this user — read-only grid; followers-only reels are
+                already filtered out by RLS for non-followers. */}
+            {profileReels.length > 0 && (
+              <div className="mb-5">
+                <ProfileReelsSection reels={profileReels} />
+              </div>
             )}
 
             {/* Search bar + filters button */}
