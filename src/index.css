@@ -1,27 +1,35 @@
 @import "tailwindcss";
 
+/* Manual class-based dark mode. The .dark class is toggled on the <html>
+   element by SettingsContext. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-serif: "Noto Serif", serif;
   --font-sans: "Manrope", sans-serif;
   --font-display: "Fraunces", "Noto Serif", serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  --color-surface: #fff8f6;
+  /* Surface palette — neutral warm-gray instead of the previous
+     pink-leaning #fff8f6. Just enough warmth to keep editorial
+     typography readable, without the rosy cast that bled across the
+     whole app. */
+  --color-surface: #f6f5f2;
   --color-on-surface: #1e1b1a;
   --color-primary: #9f3012;
   --color-secondary: #5c6144;
   --color-accent: #d4a373;
-  --color-muted: #e5e1e0;
+  --color-muted: #e7e6e2;
 
   /* Editorial tokens used by the restaurant detail redesign.
-     `cream` is the warm page bg, `paper` is the card fill, `ink-*`
-     are the text tones, and `olive`/`clay`/`persimmon` map the
-     score-coded accent colors referenced by the design. */
-  --color-cream: #f7f2ea;
-  --color-cream-2: #ebe4d6;
-  --color-paper: #fdfaf4;
-  --color-line: #e5dfd2;
-  --color-line-2: #d8d0bd;
+     `cream` is the page bg, `paper` is the card fill, `ink-*`
+     are text tones, and `olive`/`clay`/`persimmon` map the
+     score-coded accents. Same neutral shift applied here. */
+  --color-cream: #f4f2ec;
+  --color-cream-2: #e6e3d9;
+  --color-paper: #fbfaf6;
+  --color-line: #e2dfd5;
+  --color-line-2: #d2cec0;
   --color-ink: #1e1b1a;
   --color-ink-2: #3d3835;
   --color-ink-3: #6b6359;
@@ -30,6 +38,59 @@
   --color-clay: #9f3012;
   --color-persimmon: #e85a2c;
 }
+
+/* ── Dark mode overrides ──────────────────────────────────────────────
+   Override the same custom properties so every `bg-surface`,
+   `text-on-surface`, `border-on-surface`, etc. in the app picks up the
+   dark-mode value automatically. Hardcoded white / black classes that
+   the codebase still uses (bg-white, bg-on-surface/[0.05], …) are
+   swept into the new palette below. */
+.dark {
+  --color-surface: #0e0e0f;
+  --color-on-surface: #ededed;
+  --color-muted: #1f1f20;
+  --color-cream: #131314;
+  --color-cream-2: #1c1c1e;
+  --color-paper: #18181a;
+  --color-line: #2a2a2c;
+  --color-line-2: #353537;
+  --color-ink: #ededed;
+  --color-ink-2: #c2c2c2;
+  --color-ink-3: #8a8a8a;
+  --color-ink-4: #5d5d5d;
+}
+
+.dark {
+  color-scheme: dark;
+}
+/* Hardcoded white card surfaces from the editorial card layouts get
+   re-tinted in dark mode so they don't punch through the dark page. */
+.dark .bg-white,
+.dark .bg-white\/95,
+.dark .bg-white\/90,
+.dark .bg-white\/85,
+.dark .bg-white\/80,
+.dark .bg-white\/70 {
+  background-color: var(--color-paper) !important;
+}
+/* Glass / pill backgrounds defined as `bg-on-surface/X` already adapt
+   because `on-surface` is light in dark mode. We only need to dial back
+   the heavy black overlays used by image hero gradients. */
+.dark .bg-black\/60 { background-color: rgba(0, 0, 0, 0.78) !important; }
+.dark .bg-black\/55 { background-color: rgba(0, 0, 0, 0.74) !important; }
+.dark .bg-black\/50 { background-color: rgba(0, 0, 0, 0.7) !important; }
+.dark .bg-black\/45 { background-color: rgba(0, 0, 0, 0.68) !important; }
+.dark .bg-black\/40 { background-color: rgba(0, 0, 0, 0.62) !important; }
+
+/* Tiny gray accents that read as "almost transparent on cream" lose
+   contrast on a dark page; bump them so the rounded delete confirmation
+   buttons / muted chips remain visible. */
+.dark .bg-on-surface\/\[0\.03\],
+.dark .bg-on-surface\/\[0\.04\] { background-color: rgba(255, 255, 255, 0.04); }
+.dark .bg-on-surface\/\[0\.05\],
+.dark .bg-on-surface\/\[0\.06\] { background-color: rgba(255, 255, 255, 0.06); }
+.dark .bg-on-surface\/\[0\.08\],
+.dark .bg-on-surface\/\[0\.07\] { background-color: rgba(255, 255, 255, 0.08); }
 
 @layer components {
   /* Shared section header pattern used across the Restaurant Detail

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone,
+  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -52,7 +52,7 @@ export const Profile: React.FC = () => {
   const listsCtx = useLists();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
   const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
-  const { phoneMode, togglePhoneMode } = useSettings();
+  const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
 
@@ -589,6 +589,26 @@ export const Profile: React.FC = () => {
                           <motion.div
                             className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md"
                             animate={{ left: !profile?.is_public ? '1.125rem' : '0.125rem' }}
+                            transition={{ type: 'spring', damping: 20, stiffness: 350 }}
+                          />
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleDarkMode}
+                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
+                      >
+                        <Moon size={18} className="text-on-surface/40" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">Dark Mode</p>
+                          <p className="text-[11px] text-on-surface/35">{darkMode ? 'On — dark surface across the app' : 'Off — light cream surface'}</p>
+                        </div>
+                        <div
+                          className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${darkMode ? 'bg-primary' : 'bg-on-surface/15'}`}
+                        >
+                          <motion.div
+                            className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md"
+                            animate={{ left: darkMode ? '1.125rem' : '0.125rem' }}
                             transition={{ type: 'spring', damping: 20, stiffness: 350 }}
                           />
                         </div>
