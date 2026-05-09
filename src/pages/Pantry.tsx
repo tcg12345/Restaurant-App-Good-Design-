@@ -489,11 +489,33 @@ const RestaurantRow: React.FC<{
           }}
         >
           <div className="flex items-center gap-3 py-3 active:scale-[0.99] transition-transform">
-            <div className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center">
+            <div
+              className={cn(
+                'w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center',
+                image
+                  ? 'bg-on-surface/[0.05]'
+                  // Soft score-tinted monogram tile when no image so the row
+                  // doesn't read as "missing thumbnail".
+                  : score !== undefined && score >= 8
+                    ? 'bg-gradient-to-br from-green-100/70 to-green-50/30 border border-green-200/40'
+                    : score !== undefined && score >= 5
+                      ? 'bg-gradient-to-br from-amber-100/70 to-amber-50/30 border border-amber-200/40'
+                      : score !== undefined && score > 0
+                        ? 'bg-gradient-to-br from-red-100/70 to-red-50/30 border border-red-200/40'
+                        : 'bg-gradient-to-br from-on-surface/[0.06] to-on-surface/[0.02] border border-on-surface/[0.06]',
+              )}
+            >
               {image ? (
                 <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
               ) : (
-                <span className="text-xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
+                <span className={cn(
+                  'font-serif font-bold leading-none',
+                  score !== undefined && score > 0
+                    ? cn('text-lg', scoreColor(score))
+                    : 'text-xl text-on-surface/35',
+                )}>
+                  {name.charAt(0).toUpperCase()}
+                </span>
               )}
             </div>
             <div className={cn("flex-1 min-w-0 flex flex-col justify-center")}>
@@ -587,11 +609,22 @@ const WishlistRow: React.FC<{
 }> = ({ restaurantId, name, image, cuisine, price, notes, onRemove }) => {
   return (
     <div className="flex items-start gap-3 py-3 group">
-      <Link to={`/restaurant/${restaurantId}`} className="w-14 h-14 rounded-lg overflow-hidden bg-on-surface/[0.05] flex-shrink-0 flex items-center justify-center block">
+      <Link
+        to={`/restaurant/${restaurantId}`}
+        className={cn(
+          'w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center block relative',
+          image ? 'bg-on-surface/[0.05]' : 'bg-gradient-to-br from-red-100/70 to-red-50/30 border border-red-200/40',
+        )}
+      >
         {image ? (
           <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
         ) : (
-          <span className="text-xl font-serif font-bold text-on-surface/15">{name.charAt(0)}</span>
+          <>
+            <span className="font-serif font-bold text-lg leading-none text-red-400/85">
+              {name.charAt(0).toUpperCase()}
+            </span>
+            <Heart size={9} className="absolute bottom-1 right-1 text-red-400 fill-red-400/80" />
+          </>
         )}
       </Link>
       <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch">
@@ -633,16 +666,122 @@ const RestaurantGridCard: React.FC<{
   onRemove?: () => void;
 }> = ({ restaurantId, name, image, cuisine, price, score, onEdit, onRemove }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const hasScore = score !== undefined && score > 0;
+  const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine;
+  const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
+
+  // ── No-image variant ──────────────────────────────────────────────
+  // The whole card renders inside a single aspect-square tile so it lines
+  // up with image cards (image-aspect-4/3 + text section ≈ square) in a
+  // mixed grid. A soft score-tinted gradient gives the tile color without
+  // a stand-in image; the score takes the top corner, name + cuisine pill
+  // anchor the bottom. Edit / delete reveal on hover.
+  if (!image) {
+    const scoreTint = hasScore && score! >= 8
+      ? 'from-green-50 via-surface to-surface'
+      : hasScore && score! >= 5
+        ? 'from-amber-50 via-surface to-surface'
+        : hasScore
+          ? 'from-red-50 via-surface to-surface'
+          : 'from-on-surface/[0.04] via-surface to-surface';
+    return (
+      <div className="group relative">
+        <Link
+          to={`/restaurant/${restaurantId}`}
+          className={cn(
+            'relative block aspect-square rounded-2xl overflow-hidden',
+            'bg-gradient-to-br border border-on-surface/[0.06]',
+            'transition-all duration-300 hover:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.18)] hover:-translate-y-0.5',
+            scoreTint,
+          )}
+        >
+          {/* Subtle decorative quote-mark watermark (just a serif glyph, very low contrast) */}
+          <span
+            aria-hidden="true"
+            className="absolute -top-2 -right-1 font-serif italic text-on-surface/[0.06] leading-none select-none pointer-events-none"
+            style={{ fontSize: '7rem' }}
+          >
+            &ldquo;
+          </span>
+
+          <div className="relative h-full p-4 flex flex-col justify-between">
+            {/* Top: score */}
+            <div className="flex items-start justify-between gap-2">
+              {hasScore ? (
+                <div className="flex items-baseline gap-1">
+                  <span className={cn(
+                    'font-serif font-bold tabular-nums leading-none text-[2rem]',
+                    scoreColor(score!),
+                  )}>
+                    {score!.toFixed(1)}
+                  </span>
+                  <span className="text-[10px] font-semibold text-on-surface/30 tabular-nums">/ 10</span>
+                </div>
+              ) : (
+                <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-on-surface/30">
+                  Rated
+                </span>
+              )}
+            </div>
+
+            {/* Bottom: name + cuisine/price */}
+            <div className="min-w-0">
+              <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 text-on-surface">
+                {name}
+              </h3>
+              {(cuisineLabel || showPrice) && (
+                <p className="mt-1.5 text-[10px] text-on-surface/50 font-bold uppercase tracking-[0.12em] truncate">
+                  {cuisineLabel}
+                  {cuisineLabel && showPrice ? ' · ' : ''}
+                  {showPrice && price}
+                </p>
+              )}
+            </div>
+          </div>
+        </Link>
+
+        {/* Hover-reveal action buttons, floating top-right of the tile */}
+        {(onEdit || onRemove) && (
+          <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            {onEdit && (
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
+                aria-label="Edit"
+                className="w-7 h-7 rounded-full bg-white/85 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-primary flex items-center justify-center transition-colors"
+              >
+                <Edit3 size={12} />
+              </button>
+            )}
+            {onRemove && (
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(true); }}
+                aria-label="Delete"
+                className="w-7 h-7 rounded-full bg-white/85 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-red-500 flex items-center justify-center transition-colors"
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
+          </div>
+        )}
+
+        {confirmDelete && (
+          <div className="absolute inset-0 z-20 bg-surface/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-2 p-3">
+            <p className="text-xs text-on-surface/60 font-medium text-center">Delete this restaurant?</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 bg-on-surface/[0.06] rounded-lg hover:bg-on-surface/10">Cancel</button>
+              <button onClick={() => { if (onRemove) onRemove(); }} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── With-image variant (existing layout) ──────────────────────────
   return (
     <div className="group relative">
       <Link to={`/restaurant/${restaurantId}`} className="block aspect-[4/3] overflow-hidden rounded-2xl bg-on-surface/[0.05]">
-        {image ? (
-          <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" referrerPolicy="no-referrer" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-on-surface/20 text-3xl font-serif font-bold">
-            {name.charAt(0)}
-          </div>
-        )}
+        <img src={image} alt={name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" referrerPolicy="no-referrer" />
       </Link>
       <div className="pt-2.5 pb-1">
         <div className="flex items-start justify-between gap-2">
@@ -650,8 +789,8 @@ const RestaurantGridCard: React.FC<{
             <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
           </Link>
           <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5">
-            {score !== undefined && score > 0 && (
-              <span className={cn("text-base font-serif font-bold", scoreColor(score))}>{score.toFixed(1)}</span>
+            {hasScore && (
+              <span className={cn("text-base font-serif font-bold", scoreColor(score!))}>{score!.toFixed(1)}</span>
             )}
             {onEdit && (
               <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
@@ -664,7 +803,7 @@ const RestaurantGridCard: React.FC<{
           </div>
         </div>
         <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-          {cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine}{cuisine !== 'Hotel Breakfast' && price ? ` · ${price}` : ''}
+          {cuisineLabel}{cuisineLabel && showPrice ? ' · ' : ''}{showPrice && price}
         </p>
       </div>
       {confirmDelete && (
