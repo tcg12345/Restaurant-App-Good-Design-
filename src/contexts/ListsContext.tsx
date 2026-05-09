@@ -203,6 +203,9 @@ interface ListsContextValue {
   wishlist: WishlistItem[];
   addToWishlist: (item: WishlistItem) => void;
   removeFromWishlist: (restaurantId: string) => void;
+  /** One-tap heart toggle. Adds the restaurant to the wishlist if it
+   *  isn't there yet, removes it if it is. No list-selection UI. */
+  toggleWishlist: (restaurant: RestaurantMeta) => void;
   isWishlisted: (restaurantId: string) => boolean;
   getWishlistItem: (restaurantId: string) => WishlistItem | undefined;
 
@@ -225,10 +228,6 @@ interface ListsContextValue {
   closeAddRestaurantModal: () => void;
 
   // Wishlist modal (heart button)
-  wishlistModalOpen: boolean;
-  wishlistModalMeta: RestaurantMeta | null;
-  openWishlistModal: (restaurant: RestaurantMeta) => void;
-  closeWishlistModal: () => void;
 
   // Recipes (home-cooking lists)
   addRecipe: (listId: string, recipe: Recipe) => void;
@@ -624,15 +623,19 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setTrips(localTrips);
         setHomeMeals(localHomeMeals);
 
-        // Save local data to cloud so it persists
+        // Save local data to cloud so it persists.
+        // Re-read localStorage at save time so a toggle the user made while
+        // loadUserData was in flight (e.g. tapping a heart on the first
+        // visible card) is included in the upsert instead of being clobbered
+        // by the snapshot we captured at the top of this branch.
         await saveUserData(userId, {
-          ratings: localRatings,
-          lists: localLists,
-          wishlist: localWishlist,
-          restaurantMeta: localMeta,
+          ratings: migrateRatings(loadFromStorage<RestaurantRating[]>(STORAGE_KEY_RATINGS, [])),
+          lists: migrateLists(loadFromStorage<RestaurantList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS)),
+          wishlist: migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, [])),
+          restaurantMeta: migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {})),
           recentViews: [],
-          trips: localTrips,
-          homeMeals: localHomeMeals,
+          trips: loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []),
+          homeMeals: migrateHomeMeals(loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, [])),
           chats: [],
           chatsRead: {},
         });
@@ -927,8 +930,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addRestaurantModalOpen, setAddRestaurantModalOpen] = useState(false);
   const [addRestaurantModalMeta, setAddRestaurantModalMeta] = useState<RestaurantMeta | null>(null);
   const [addRestaurantModalInitialPage, setAddRestaurantModalInitialPage] = useState<string | null>(null);
-  const [wishlistModalOpen, setWishlistModalOpen] = useState(false);
-  const [wishlistModalMeta, setWishlistModalMeta] = useState<RestaurantMeta | null>(null);
   const [homeMealModalOpen, setHomeMealModalOpen] = useState(false);
   const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
 
@@ -1374,6 +1375,53 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const getWishlistItem = useCallback((restaurantId: string) => wishlist.find((w) => w.restaurantId === restaurantId), [wishlist]);
 
+  // One-tap toggle. Reads latest wishlist via the setter callback so two
+  // fast taps (or a stale-closure caller) can't end up double-adding.
+  // Persists to localStorage and Supabase synchronously with the state
+  // update so a refresh / new device sees the change.
+  const toggleWishlist = useCallback((restaurant: RestaurantMeta) => {
+    cacheRestaurantMeta(restaurant);
+    let removed = false;
+    setWishlist((prev) => {
+      const isOn = prev.some((w) => w.restaurantId === restaurant.id);
+      removed = isOn;
+      const next: WishlistItem[] = isOn
+        ? prev.filter((w) => w.restaurantId !== restaurant.id)
+        : [{
+            restaurantId: restaurant.id,
+            name: restaurant.name,
+            image: safeImage(restaurant.image),
+            cuisine: restaurant.cuisine,
+            price: restaurant.price,
+            address: restaurant.address,
+            notes: '',
+            listIds: [],
+            addedAt: Date.now(),
+          }, ...prev];
+      saveToStorage(STORAGE_KEY_WISHLIST, next);
+      syncWishlistToCloud(next);
+      return next;
+    });
+    // When removing, also strip the restaurant from any custom list that
+    // had it on its wishlistIds so the lists view doesn't show a ghost.
+    if (removed) {
+      setLists((prev) => {
+        let changed = false;
+        const next = prev.map((l) => {
+          if (l.wishlistIds.includes(restaurant.id)) {
+            changed = true;
+            return { ...l, wishlistIds: l.wishlistIds.filter((r) => r !== restaurant.id) };
+          }
+          return l;
+        });
+        if (!changed) return prev;
+        saveToStorage(STORAGE_KEY_LISTS, next);
+        syncListsToCloud(next);
+        return next;
+      });
+    }
+  }, [cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud]);
+
   // Modals
   const openRatingModal = useCallback((restaurant: RestaurantMeta) => {
     cacheRestaurantMeta(restaurant);
@@ -1397,13 +1445,6 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta]);
   const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
 
-  const openWishlistModal = useCallback((restaurant: RestaurantMeta) => {
-    cacheRestaurantMeta(restaurant);
-    setWishlistModalMeta(restaurant);
-    setWishlistModalOpen(true);
-  }, [cacheRestaurantMeta]);
-  const closeWishlistModal = useCallback(() => { setWishlistModalOpen(false); setWishlistModalMeta(null); }, []);
-
   const openHomeMealModal = useCallback((meal?: HomeMeal) => {
     setHomeMealModalData(meal || null);
     setHomeMealModalOpen(true);
@@ -1415,11 +1456,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       ratings, rateRestaurant, updateRating, removeRating, getRating, deleteVisit,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
       restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
-      wishlist, addToWishlist, removeFromWishlist, isWishlisted, getWishlistItem,
+      wishlist, addToWishlist, removeFromWishlist, toggleWishlist, isWishlisted, getWishlistItem,
       ratingModalOpen, ratingModalRestaurant, openRatingModal, closeRatingModal,
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
       addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
-      wishlistModalOpen, wishlistModalMeta, openWishlistModal, closeWishlistModal,
       addRecipe, updateRecipe, removeRecipe, getRecipes,
       addRecipeModalOpen, addRecipeModalListId, addRecipeModalRecipe, openAddRecipeModal, closeAddRecipeModal,
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip, addHotelToTrip, updateHotel, removeHotelFromTrip,

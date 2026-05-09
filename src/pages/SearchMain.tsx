@@ -113,7 +113,7 @@ function placeToRecent(place: PlaceResult): RecentSearch {
 
 export const SearchMain: React.FC = () => {
   const navigate = useNavigate();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted } = useLists();
   const { phoneMode } = useSettings();
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>(() => readRecentSearches());
@@ -362,7 +362,7 @@ export const SearchMain: React.FC = () => {
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              openWishlistModal(meta);
+                              toggleWishlist(meta);
                             }}
                             className={cn(
                               'w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
@@ -452,7 +452,7 @@ export const SearchMain: React.FC = () => {
                         <Plus size={14} />
                       </button>
                       <button
-                        onClick={() => openWishlistModal({ id: r.id, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                        onClick={() => toggleWishlist({ id: r.id, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
                         className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/40 hover:text-red-400")}
                         aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
                       >

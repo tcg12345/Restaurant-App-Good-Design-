@@ -23,7 +23,6 @@ import { RecipesProvider } from './contexts/RecipesContext';
 import { RatingModal } from './components/RatingModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
-import { WishlistModal } from './components/WishlistModal';
 import { AddRecipeModal } from './components/AddRecipeModal';
 import { AddHomeMealModal } from './components/AddHomeMealModal';
 import { RecipeModal } from './components/RecipeModal';
@@ -173,7 +172,6 @@ const AppContent: React.FC = () => {
         <RatingModal />
         <AddToListModal />
         <AddRestaurantModal />
-        <WishlistModal />
         <AddRecipeModal />
         <AddHomeMealModal />
         <RecipeModal />

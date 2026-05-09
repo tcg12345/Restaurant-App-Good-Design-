@@ -76,7 +76,7 @@ type RoleFilter = 'all' | 'friends' | 'experts';
 export const FollowingFeed: React.FC = () => {
   const { user } = useAuth();
   const { setHideBottomNav } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted } = useLists();
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted } = useLists();
   const navigate = useNavigate();
 
   const [ratings, setRatings] = useState<CommunityRating[]>(() =>
@@ -470,7 +470,7 @@ export const FollowingFeed: React.FC = () => {
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          openWishlistModal(meta);
+                          toggleWishlist(meta);
                         }}
                         className={cn(
                           'w-8 h-8 flex items-center justify-center rounded-full transition-colors',

@@ -266,7 +266,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHideBottomNav, phoneMode } = useSettings();
-  const { openAddRestaurantModal, openWishlistModal, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
+  const { openAddRestaurantModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
   const {
     friendRecipes: friendPublishedRecipes,
     expertRecipes: expertPublishedRecipes,
@@ -1287,8 +1287,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   navigateRef.current = navigate;
   const openAddRestaurantModalRef = useRef(openAddRestaurantModal);
   openAddRestaurantModalRef.current = openAddRestaurantModal;
-  const openWishlistModalRef = useRef(openWishlistModal);
-  openWishlistModalRef.current = openWishlistModal;
+  const toggleWishlistRef = useRef(toggleWishlist);
+  toggleWishlistRef.current = toggleWishlist;
 
   const showPopup = useCallback((place: PlaceResult, _map: mapboxgl.Map) => {
     if (popupRef.current) popupRef.current.remove();
@@ -3078,7 +3078,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors">
                           <Plus size={14} />
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); openWishlistModal(restData); }}
+                        <button onClick={(e) => { e.stopPropagation(); toggleWishlist(restData); }}
                           className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", isWishlisted(selectedPlace.id) ? "text-red-400" : "text-on-surface/40 hover:text-red-400")}>
                           <Heart size={13} className={isWishlisted(selectedPlace.id) ? "fill-red-400" : ""} />
                         </button>
@@ -3306,7 +3306,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 id: place.id, name: place.name, image: props.image,
                                 cuisine: props.cuisine, price: props.price, address: place.address,
                               })}
-                              onHeart={() => openWishlistModal({
+                              onHeart={() => toggleWishlist({
                                 id: place.id, name: place.name, image: props.image,
                                 cuisine: props.cuisine, price: props.price, address: place.address,
                               })}
@@ -3409,7 +3409,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             )}
                             <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                               <button
-                                onClick={(e) => { e.stopPropagation(); openWishlistModal(recMeta); }}
+                                onClick={(e) => { e.stopPropagation(); toggleWishlist(recMeta); }}
                                 className={cn(
                                   "w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95",
                                   wishlisted ? "text-primary" : "text-on-surface/70 hover:text-primary"
@@ -4098,7 +4098,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 </div>
                                 <div className="flex flex-col items-center justify-center gap-1.5 flex-shrink-0">
                                   <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-on-surface/40 hover:text-primary hover:bg-primary/10 transition-colors"><Plus size={15} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/5 text-on-surface/40 hover:text-red-400 hover:bg-red-50")}><Heart size={14} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             );
@@ -4162,7 +4162,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 )}
                                 <div className="absolute top-2 right-2 flex items-center gap-1">
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); openWishlistModal(recMeta); }}
+                                    onClick={(e) => { e.stopPropagation(); toggleWishlist(recMeta); }}
                                     className={cn(
                                       "w-8 h-8 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95",
                                       wishlisted ? "text-primary" : "text-on-surface/70 hover:text-primary"
@@ -4239,7 +4239,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 )}
                                 <div className="flex items-center gap-1.5 mt-2">
                                   <button onClick={(e) => { e.stopPropagation(); openAddRestaurantModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className="w-7 h-7 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/50 hover:text-primary transition-colors"><Plus size={13} /></button>
-                                  <button onClick={(e) => { e.stopPropagation(); openWishlistModal({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleWishlist({ id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price: priceLevelToString(place.priceLevel), address: place.address }); }} className={cn("w-7 h-7 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/50 hover:text-red-400")}><Heart size={12} className={wishlisted ? "fill-red-400" : ""} /></button>
                                 </div>
                               </div>
                             </div>

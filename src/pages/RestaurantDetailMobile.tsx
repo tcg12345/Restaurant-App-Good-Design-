@@ -85,7 +85,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     visitHistory, visitCount,
   } = useRestaurantDetail();
 
-  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal, removeFromWishlist, deleteVisit } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit } = useLists();
 
   // Resolve the user's anchored origin once per mount. The distance suffix
   // and Mapbox Directions hook below both gate on isExactAddress, so a
@@ -194,16 +194,12 @@ export const RestaurantDetailMobile: React.FC = () => {
             <button
               onClick={() => {
                 if (!place) return;
-                if (isWishlisted(place.id)) {
-                  removeFromWishlist(place.id);
-                } else {
-                  openWishlistModal({
-                    id: place.id, name: place.name,
-                    image: place.photoUrl || '',
-                    cuisine, price: priceStr,
-                    address: place.address,
-                  });
-                }
+                toggleWishlist({
+                  id: place.id, name: place.name,
+                  image: place.photoUrl || '',
+                  cuisine, price: priceStr,
+                  address: place.address,
+                });
               }}
               aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
               className="p-2 bg-black/30 backdrop-blur-md rounded-full text-white/90 shadow-sm"

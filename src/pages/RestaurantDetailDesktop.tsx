@@ -100,7 +100,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   // locally so the shared hook can keep its collapsed default elsewhere.
   const [hoursOpen, setHoursOpen] = useState(false);
 
-  const { openWishlistModal, isWishlisted, getRating, openAddRestaurantModal, removeFromWishlist } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal } = useLists();
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
   // Ref on the "My Rating Details" section so the Your Rating summary
@@ -239,16 +239,12 @@ export const RestaurantDetailDesktop: React.FC = () => {
           <button
             onClick={() => {
               if (!place) return;
-              if (isWishlisted(place.id)) {
-                removeFromWishlist(place.id);
-              } else {
-                openWishlistModal({
-                  id: place.id, name: place.name,
-                  image: place.photoUrl || '',
-                  cuisine, price: priceStr,
-                  address: place.address,
-                });
-              }
+              toggleWishlist({
+                id: place.id, name: place.name,
+                image: place.photoUrl || '',
+                cuisine, price: priceStr,
+                address: place.address,
+              });
             }}
             aria-label={place && isWishlisted(place.id) ? 'Remove from wishlist' : 'Save to wishlist'}
             className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 hover:bg-black/40 transition-colors"
