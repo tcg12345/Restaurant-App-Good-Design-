@@ -862,38 +862,40 @@ export const Reels: React.FC = () => {
      save / share / more buttons live in a column right next to it. */
   if (showDesktopFrame) {
     return (
-      <div className="relative h-[calc(100vh-64px)] w-full bg-surface overflow-hidden flex items-center justify-center px-6">
-        <div className="flex items-end gap-4 h-full max-h-[calc(100vh-96px)] py-4">
-          {/* Reel column */}
-          <div
-            className="relative h-full bg-black rounded-[36px] overflow-hidden shadow-xl border border-on-surface/[0.08]"
-            style={{ aspectRatio: '9 / 19.5' }}
-          >
-            <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
-            {renderFeed({ hideActionRail: true, hideOwnerDelete: true })}
-          </div>
-
-          {/* Side actions — operate on the active reel */}
-          {activeReel && (
-            <div className="pb-4">
-              <DesktopSideActions
-                reel={activeReel}
-                isMine={!!currentUserId && activeReel.authorId === currentUserId}
-                onLike={() => {
-                  if (!currentUserId) { showToast('Sign in to like reels'); return; }
-                  toggleLike(activeReel.id);
-                }}
-                onSave={() => {
-                  if (!currentUserId) { showToast('Sign in to save reels'); return; }
-                  toggleSave(activeReel.id);
-                }}
-                onComment={() => openCommentsSheet(activeReel.id)}
-                onShare={() => handleShare(activeReel)}
-                onDelete={() => setConfirmDeleteId(activeReel.id)}
-              />
-            </div>
-          )}
+      // h-screen because /reels hides the desktop header (no top offset
+      // to subtract). py-3 keeps a hair of breathing room without eating
+      // into the reel — the reel is height-driven, so the smaller the
+      // vertical padding, the bigger the reel ends up.
+      <div className="relative h-screen w-full bg-surface overflow-hidden flex items-center justify-center gap-4 px-6 py-3">
+        {/* Reel column — full available height; aspect ratio drives width. */}
+        <div
+          className="relative h-full bg-black rounded-[36px] overflow-hidden shadow-xl border border-on-surface/[0.08]"
+          style={{ aspectRatio: '9 / 19.5' }}
+        >
+          <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
+          {renderFeed({ hideActionRail: true, hideOwnerDelete: true })}
         </div>
+
+        {/* Side actions — bottom-aligned with the reel, like Instagram. */}
+        {activeReel && (
+          <div className="self-end pb-2">
+            <DesktopSideActions
+              reel={activeReel}
+              isMine={!!currentUserId && activeReel.authorId === currentUserId}
+              onLike={() => {
+                if (!currentUserId) { showToast('Sign in to like reels'); return; }
+                toggleLike(activeReel.id);
+              }}
+              onSave={() => {
+                if (!currentUserId) { showToast('Sign in to save reels'); return; }
+                toggleSave(activeReel.id);
+              }}
+              onComment={() => openCommentsSheet(activeReel.id)}
+              onShare={() => handleShare(activeReel)}
+              onDelete={() => setConfirmDeleteId(activeReel.id)}
+            />
+          </div>
+        )}
       </div>
     );
   }
