@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Heart, Search, Edit3, ChevronDown } from 'lucide-react';
+import { X, Plus, Check, Heart, Search, Edit3 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -42,7 +42,6 @@ export const WishlistModal: React.FC = () => {
 
   const [notes, setNotes] = useState('');
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
-  const [saved, setSaved] = useState(false);
 
   // New list sheet
   const [newListSheetOpen, setNewListSheetOpen] = useState(false);
@@ -55,7 +54,6 @@ export const WishlistModal: React.FC = () => {
     if (wishlistModalOpen && restaurant) {
       setNotes(existingItem?.notes ?? '');
       setSelectedListIds(existingItem?.listIds ?? []);
-      setSaved(false);
       setNewListSheetOpen(false);
       setNewListMode('browse');
       setNewListSearch('');
@@ -102,8 +100,7 @@ export const WishlistModal: React.FC = () => {
       listIds: selectedListIds,
       addedAt: Date.now(),
     });
-    setSaved(true);
-    setTimeout(() => closeWishlistModal(), 700);
+    closeWishlistModal();
   };
 
   const handleRemove = () => {
@@ -137,96 +134,84 @@ export const WishlistModal: React.FC = () => {
                 : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
-            {/* Saved state */}
-            {saved ? (
-              <div className="text-center py-12">
-                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 12 }}>
-                  <Heart size={40} className="mx-auto text-red-400 fill-red-400 mb-3" />
-                </motion.div>
-                <p className="text-sm font-medium text-on-surface/60">Added to wishlist!</p>
+            {/* Header */}
+            <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
+              <div className="min-w-0">
+                <h2 className="font-serif font-bold text-lg truncate">
+                  {alreadyWishlisted ? 'Edit Wishlist' : 'Add to Wishlist'}
+                </h2>
+                <p className="text-xs text-on-surface/40 truncate">{restaurant.name}</p>
               </div>
-            ) : (
-              <>
-                {/* Header */}
-                <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
-                  <div className="min-w-0">
-                    <h2 className="font-serif font-bold text-lg truncate">
-                      {alreadyWishlisted ? 'Edit Wishlist' : 'Add to Wishlist'}
-                    </h2>
-                    <p className="text-xs text-on-surface/40 truncate">{restaurant.name}</p>
-                  </div>
-                  <button onClick={closeWishlistModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors">
-                    <X size={20} />
-                  </button>
-                </div>
+              <button onClick={closeWishlistModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors">
+                <X size={20} />
+              </button>
+            </div>
 
-                <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-4 space-y-4">
-                  {/* Lists */}
-                  <div>
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2 block">Add to Lists</label>
-                    <p className="text-[11px] text-on-surface/30 mb-2">Optional — select lists or save to All Restaurants only</p>
-                    <div className="space-y-1.5">
-                      {lists.map((list) => {
-                        const selected = selectedListIds.includes(list.id);
-                        return (
-                          <button
-                            key={list.id}
-                            onClick={() => toggleList(list.id)}
-                            className={cn(
-                              "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all text-left",
-                              selected ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8"
-                            )}
-                          >
-                            <span className="text-base">{list.emoji}</span>
-                            <span className="flex-1 text-xs font-semibold truncate">{list.name}</span>
-                            <div className={cn(
-                              "w-5 h-5 rounded-full flex items-center justify-center border-2 transition-all",
-                              selected ? "bg-primary border-primary text-white" : "border-on-surface/15"
-                            )}>
-                              {selected && <Check size={11} strokeWidth={3} />}
-                            </div>
-                          </button>
-                        );
-                      })}
-
-                      <button onClick={() => setNewListSheetOpen(true)}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border border-dashed border-on-surface/15 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
-                        <Plus size={14} />
-                        <span className="text-xs font-semibold">New List</span>
+            <div className="flex-1 overflow-y-auto overscroll-contain px-5 pb-4 space-y-4">
+              {/* Lists */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2 block">Add to Lists</label>
+                <p className="text-[11px] text-on-surface/30 mb-2">Optional — select lists or save to All Restaurants only</p>
+                <div className="space-y-1.5">
+                  {lists.map((list) => {
+                    const selected = selectedListIds.includes(list.id);
+                    return (
+                      <button
+                        key={list.id}
+                        onClick={() => toggleList(list.id)}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all text-left",
+                          selected ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8"
+                        )}
+                      >
+                        <span className="text-base">{list.emoji}</span>
+                        <span className="flex-1 text-xs font-semibold truncate">{list.name}</span>
+                        <div className={cn(
+                          "w-5 h-5 rounded-full flex items-center justify-center border-2 transition-all",
+                          selected ? "bg-primary border-primary text-white" : "border-on-surface/15"
+                        )}>
+                          {selected && <Check size={11} strokeWidth={3} />}
+                        </div>
                       </button>
-                    </div>
-                  </div>
+                    );
+                  })}
 
-                  {/* Notes */}
-                  <div>
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5 block">Notes</label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Why do you want to try this place?"
-                      rows={2}
-                      className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Sticky footer */}
-                <div className="flex-shrink-0 border-t border-on-surface/8 px-5 py-4 space-y-2">
-                  <button onClick={handleSave}
-                    className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform flex items-center justify-center gap-2">
-                    <Heart size={16} />
-                    {alreadyWishlisted ? 'Update Wishlist' : 'Save to Wishlist'}
+                  <button onClick={() => setNewListSheetOpen(true)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border border-dashed border-on-surface/15 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
+                    <Plus size={14} />
+                    <span className="text-xs font-semibold">New List</span>
                   </button>
-
-                  {alreadyWishlisted && (
-                    <button onClick={handleRemove}
-                      className="w-full py-2.5 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors">
-                      Remove from Wishlist
-                    </button>
-                  )}
                 </div>
-              </>
-            )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-1.5 block">Notes</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Why do you want to try this place?"
+                  rows={2}
+                  className="w-full bg-white border border-on-surface/10 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                />
+              </div>
+            </div>
+
+            {/* Sticky footer */}
+            <div className="flex-shrink-0 border-t border-on-surface/8 px-5 py-4 space-y-2">
+              <button onClick={handleSave}
+                className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform flex items-center justify-center gap-2">
+                <Heart size={16} />
+                {alreadyWishlisted ? 'Update Wishlist' : 'Save to Wishlist'}
+              </button>
+
+              {alreadyWishlisted && (
+                <button onClick={handleRemove}
+                  className="w-full py-2.5 text-red-400 text-xs font-semibold hover:text-red-500 transition-colors">
+                  Remove from Wishlist
+                </button>
+              )}
+            </div>
           </motion.div>
         </motion.div>
       )}
