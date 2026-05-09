@@ -3,6 +3,7 @@ import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
 import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
+import { useToast } from './ToastContext';
 import { safeImage } from '../lib/utils';
 
 /* ── Types ── */
@@ -432,6 +433,7 @@ const ListsContext = createContext<ListsContextValue | null>(null);
 
 export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, profile: authProfile } = useAuth();
+  const { showToast } = useToast();
   const userId = user?.id ?? null;
 
   const [ratings, setRatings] = useState<RestaurantRating[]>(() => migrateRatings(loadFromStorage(STORAGE_KEY_RATINGS, [])));
@@ -1420,7 +1422,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return next;
       });
     }
-  }, [cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud]);
+    showToast(removed ? 'Removed from wishlist' : 'Added to wishlist', {
+      subtitle: restaurant.name,
+      variant: removed ? 'wishlist-remove' : 'wishlist-add',
+    });
+  }, [cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, showToast]);
 
   // Modals
   const openRatingModal = useCallback((restaurant: RestaurantMeta) => {
