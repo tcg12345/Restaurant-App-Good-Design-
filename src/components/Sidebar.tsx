@@ -176,12 +176,14 @@ export const Sidebar: React.FC = () => {
 
       <div className="border-t border-on-surface/[0.06] mx-3" />
 
-      {/* ── New Rating + Post Reel CTAs ─────────────────────────────── */}
-      <div className={cn('px-3 pt-4 pb-3 space-y-2', collapsed && 'px-2')}>
+      {/* ── Create CTA — single red button that opens the Post Reel modal.
+              Replaces the previous two-button stack. */}
+      <div className={cn('px-3 pt-4 pb-3', collapsed && 'px-2')}>
         <button
           type="button"
-          onClick={() => navigate('/search/main')}
-          aria-label="New rating"
+          onClick={() => openAddReelModal()}
+          aria-label="Create — post a reel"
+          title={collapsed ? 'Create' : undefined}
           className={cn(
             'w-full bg-primary text-white rounded-full font-semibold text-sm',
             'flex items-center justify-center gap-2',
@@ -190,23 +192,7 @@ export const Sidebar: React.FC = () => {
           )}
         >
           <Plus size={18} strokeWidth={2.5} />
-          {!collapsed && <span>New Rating</span>}
-        </button>
-        <button
-          type="button"
-          onClick={() => openAddReelModal()}
-          aria-label="Post a reel"
-          title={collapsed ? 'Post a reel' : undefined}
-          className={cn(
-            'w-full rounded-full font-semibold text-sm',
-            'flex items-center justify-center gap-2',
-            'border border-on-surface/10 text-on-surface/80 bg-on-surface/[0.03]',
-            'hover:bg-on-surface/[0.07] active:scale-[0.99] transition-all',
-            collapsed ? 'h-11 px-0' : 'h-11 px-4',
-          )}
-        >
-          <Film size={16} strokeWidth={2.2} />
-          {!collapsed && <span>Post Reel</span>}
+          {!collapsed && <span>Create</span>}
         </button>
       </div>
 
