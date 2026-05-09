@@ -44,6 +44,11 @@ export interface RestaurantMeta {
    *  list cards to show distance from the user's anchor location. */
   lat?: number;
   lng?: number;
+  /** Google Places v1 address components — populated when the user views
+   *  the detail page. Used by formatLocationLabel() to render
+   *  Beli-style "Neighborhood, Borough" / "Neighborhood, City, ST"
+   *  display labels. Older rows fall back to parsing `address`. */
+  addressComponents?: Array<{ longText: string; shortText: string; types: string[] }>;
 }
 
 export interface RecipeIngredient {
@@ -957,6 +962,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             ...cleaned,
             lat: cleaned.lat ?? existing.lat,
             lng: cleaned.lng ?? existing.lng,
+            addressComponents: cleaned.addressComponents ?? existing.addressComponents,
           }
         : cleaned;
       const next = { ...prev, [cleaned.id]: merged };

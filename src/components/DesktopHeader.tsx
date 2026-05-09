@@ -7,6 +7,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { scoreColor } from '../lib/score';
+import { formatLocationLabel } from '../lib/places';
 
 /**
  * Sticky page header used across every signed-in main page on desktop
@@ -23,7 +24,7 @@ import { scoreColor } from '../lib/score';
  */
 
 type SearchResult =
-  | { kind: 'restaurant'; id: string; name: string; cuisine?: string; address?: string; score?: number; wishlisted: boolean }
+  | { kind: 'restaurant'; id: string; name: string; cuisine?: string; address?: string; score?: number; wishlisted: boolean; locationLabel?: string }
   | { kind: 'list'; id: string; name: string; emoji: string; total: number; type?: string };
 
 const MAX_RESTAURANTS = 6;
@@ -49,15 +50,17 @@ export const DesktopHeader: React.FC = () => {
   const restaurantIndex = useMemo(() => {
     const map = new Map<string, SearchResult & { kind: 'restaurant' }>();
     for (const r of ratings) {
-      const info = getRestaurantInfo(r.restaurantId) ?? r;
+      const info = getRestaurantInfo(r.restaurantId);
+      const address = info?.address || r.address;
       map.set(r.restaurantId, {
         kind: 'restaurant',
         id: r.restaurantId,
-        name: info.name || r.name,
-        cuisine: info.cuisine || r.cuisine,
-        address: info.address || r.address,
+        name: info?.name || r.name,
+        cuisine: info?.cuisine || r.cuisine,
+        address,
         score: r.score,
         wishlisted: false,
+        locationLabel: formatLocationLabel(info?.addressComponents, address || ''),
       });
     }
     for (const w of wishlist) {
@@ -67,13 +70,15 @@ export const DesktopHeader: React.FC = () => {
         continue;
       }
       const info = getRestaurantInfo(w.restaurantId);
+      const address = info?.address || w.address;
       map.set(w.restaurantId, {
         kind: 'restaurant',
         id: w.restaurantId,
         name: info?.name || w.name,
         cuisine: info?.cuisine || w.cuisine,
-        address: info?.address || w.address,
+        address,
         wishlisted: true,
+        locationLabel: formatLocationLabel(info?.addressComponents, address || ''),
       });
     }
     return Array.from(map.values());
@@ -263,7 +268,7 @@ export const DesktopHeader: React.FC = () => {
                                     <p className="font-serif font-bold text-[14px] text-on-surface leading-tight truncate">{r.name}</p>
                                     <p className="text-[11px] text-on-surface/45 leading-tight truncate mt-0.5">
                                       {r.cuisine || 'Restaurant'}
-                                      {r.address ? <span className="text-on-surface/30"> · {r.address.split(',').slice(-2)[0]?.trim() || ''}</span> : null}
+                                      {r.locationLabel ? <span className="text-on-surface/30"> · {r.locationLabel}</span> : null}
                                     </p>
                                   </div>
                                 </button>

@@ -4,6 +4,12 @@ const GOOGLE_PLACES_KEY = import.meta.env.VITE_GOOGLE_PLACES_KEY || _gk.join('')
 
 const BASE_URL = 'https://places.googleapis.com/v1';
 
+export interface AddressComponent {
+  longText: string;
+  shortText: string;
+  types: string[];
+}
+
 export interface PlaceResult {
   id: string;
   name: string;
@@ -16,6 +22,12 @@ export interface PlaceResult {
   photoUrl: string | null;
   types: string[];
   userRatingCount: number;
+  /** Optional — Google v1 returns these when requested in the FieldMask.
+   *  Used by formatLocationLabel() to build "Neighborhood, Borough" /
+   *  "Neighborhood, City, ST" style display labels. Older saved
+   *  restaurants may not have it; the formatter falls back to the
+   *  formatted address in that case. */
+  addressComponents?: AddressComponent[];
 }
 
 export interface PlaceDetails extends PlaceResult {
@@ -78,6 +90,7 @@ interface GooglePlace {
   priceLevel?: string | number;
   shortFormattedAddress?: string;
   formattedAddress?: string;
+  addressComponents?: AddressComponent[];
   types?: string[];
   userRatingCount?: number;
 }
@@ -92,6 +105,7 @@ function mapPlaces(places: GooglePlace[]): PlaceResult[] {
     priceLevel: parsePriceLevel(p.priceLevel),
     address: p.shortFormattedAddress || p.formattedAddress || '',
     fullAddress: p.formattedAddress || p.shortFormattedAddress || '',
+    addressComponents: p.addressComponents,
     // See block comment above: Places Photos media is never requested.
     photoUrl: null,
     types: p.types || [],
@@ -111,7 +125,7 @@ function deduplicatePlaces(places: PlaceResult[]): PlaceResult[] {
 // NOTE: places.photos is intentionally omitted — rendering any photoUrl
 // generated from it triggers a separate (billed) Places Photos media call
 // per image. The app now surfaces user-uploaded photos only.
-const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.types,places.userRatingCount';
+const FIELDS = 'places.id,places.displayName,places.location,places.rating,places.priceLevel,places.shortFormattedAddress,places.formattedAddress,places.addressComponents,places.types,places.userRatingCount';
 
 // Google's `places:searchText` endpoint only accepts `locationRestriction`
 // with a `rectangle`; passing a `circle` there returns a 400. (The
@@ -573,7 +587,7 @@ export async function searchHotels(
 // endpoint is separately billed and every rendered image is its own call.
 // The detail page now surfaces user-uploaded photos only; if none exist it
 // shows a "No photos added yet" placeholder.
-const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,types,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
+const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedAddress,formattedAddress,addressComponents,types,userRatingCount,nationalPhoneNumber,websiteUri,currentOpeningHours,regularOpeningHours';
 
 // In-memory cache for place details (5 min TTL)
 const placeDetailsCache = new Map<string, { data: PlaceDetails; ts: number }>();
@@ -620,6 +634,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
     priceLevel: parsePriceLevel(p.priceLevel),
     address: p.shortFormattedAddress || p.formattedAddress || '',
     fullAddress: p.formattedAddress || p.shortFormattedAddress || '',
+    addressComponents: (p as GooglePlace).addressComponents,
     photoUrl: null,
     photoUrls: [],
     types: p.types || [],
@@ -843,4 +858,136 @@ function parseAddressForCity(address: string): string {
     if (cleaned) return cleaned;
   }
   return '';
+}
+
+// ── Beli-style hierarchical location label ─────────────────────────
+// formatLocationLabel produces compact, human-readable display strings
+// for restaurant cards / detail pages. It prefers Google's
+// addressComponents (precise: neighborhood + sublocality + locality +
+// region) and gracefully degrades to formatted-address parsing for old
+// rows saved before we started requesting components.
+//
+// Output examples:
+//   West Village, Manhattan         (NYC, neighborhood + borough, no state)
+//   Williamsburg, Brooklyn          (NYC, neighborhood + borough)
+//   Northwest Portland, Portland, OR
+//   Mission, San Francisco, CA
+//   Stowe, VT                       (small town, no neighborhood)
+//   Paris, France                   (international fallback)
+
+const NYC_BOROUGHS = new Set(['Manhattan', 'Brooklyn', 'Queens', 'Bronx', 'Staten Island']);
+
+function pickComponent(
+  components: AddressComponent[] | undefined,
+  type: string,
+): AddressComponent | undefined {
+  if (!components) return undefined;
+  return components.find((c) => c.types.includes(type));
+}
+
+function pickAnyComponent(
+  components: AddressComponent[] | undefined,
+  types: string[],
+): AddressComponent | undefined {
+  if (!components) return undefined;
+  for (const t of types) {
+    const hit = components.find((c) => c.types.includes(t));
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+export function formatLocationLabel(
+  components: AddressComponent[] | undefined,
+  fullAddress: string = '',
+): string {
+  // ── Component-driven path (preferred) ──────────────────────────
+  if (components && components.length > 0) {
+    const country = pickComponent(components, 'country');
+    const state = pickComponent(components, 'administrative_area_level_1');
+    // Locality preferred; postal_town picks up UK addresses where Google
+    // doesn't tag a `locality` (e.g. "London", "Edinburgh").
+    const locality = pickComponent(components, 'locality') || pickComponent(components, 'postal_town');
+    // sublocality_level_1 is the borough for NYC ("Manhattan", "Brooklyn")
+    // and a smaller subdivision for some other cities. We treat it as
+    // borough-when-NYC and as a neighborhood candidate elsewhere.
+    const sub1 = pickComponent(components, 'sublocality_level_1')
+      || pickComponent(components, 'sublocality');
+    const sub2 = pickComponent(components, 'sublocality_level_2');
+    const neighborhoodComp = pickComponent(components, 'neighborhood');
+
+    const isUS = country?.shortText === 'US' || /^(US|USA)$/i.test(country?.shortText || country?.longText || '');
+    const stateCode = state?.shortText || '';
+
+    // Decide what to use as the city/borough display tier.
+    // For NYC the locality is often "New York" but the borough (sub1)
+    // is far more useful — collapse to the borough name in that case.
+    const sub1Name = sub1?.longText || '';
+    const localityName = locality?.longText || '';
+    let cityTier = localityName;
+    let isNycBorough = false;
+    if (isUS && stateCode === 'NY' && NYC_BOROUGHS.has(sub1Name)) {
+      cityTier = sub1Name;
+      isNycBorough = true;
+    } else if (!cityTier && sub1Name) {
+      // Some addresses lack locality entirely; fall back to sub1.
+      cityTier = sub1Name;
+    }
+
+    // Pick a neighborhood. NYC: prefer `neighborhood` then `sub2` (the
+    // sub1 is the borough, already used as cityTier). Other cities:
+    // prefer `neighborhood`, then sub2, then sub1 (which IS a
+    // neighborhood-equivalent outside NYC).
+    let neighborhood = '';
+    if (isNycBorough) {
+      neighborhood = neighborhoodComp?.longText || sub2?.longText || '';
+    } else {
+      neighborhood = neighborhoodComp?.longText
+        || sub2?.longText
+        || (sub1Name && sub1Name !== cityTier ? sub1Name : '')
+        || '';
+    }
+
+    // Don't display a tier that duplicates the next one.
+    if (neighborhood && cityTier && neighborhood === cityTier) neighborhood = '';
+
+    // Build the label.
+    const tiers: string[] = [];
+    if (neighborhood) tiers.push(neighborhood);
+    if (cityTier) tiers.push(cityTier);
+
+    if (isUS) {
+      // NYC borough rule: skip the state.
+      if (!isNycBorough && stateCode) tiers.push(stateCode);
+      return joinTiers(tiers) || stateCode || '';
+    }
+    // International — append country longText if present and we don't
+    // already have a country-shaped tier.
+    if (country?.longText) tiers.push(country.longText);
+    return joinTiers(tiers) || country?.longText || '';
+  }
+
+  // ── Fallback: parse the formatted address ──────────────────────
+  // Old saved data didn't request addressComponents. We still want
+  // something usable. extractCityState already handles the bulk of
+  // the parsing (US state recognition, international country
+  // detection); we layer a NYC-borough check on top so addresses
+  // like "201 Bedford Ave, Brooklyn, NY 11211, USA" surface as
+  // "Brooklyn" rather than "Brooklyn, NY" (matching the borough
+  // rule for component-driven output).
+  const cityState = extractCityState(fullAddress, fullAddress);
+  if (!cityState) return '';
+  // cityState is "City, ST" / "City, Country" / just "City". Detect
+  // the NYC-borough pair and drop the state.
+  const m = cityState.match(/^(Manhattan|Brooklyn|Queens|Bronx|Staten Island),\s*NY$/);
+  if (m) return m[1];
+  return cityState;
+}
+
+function joinTiers(tiers: string[]): string {
+  return tiers
+    .map((t) => (t || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .filter((t, i, arr) => arr.indexOf(t) === i) // dedupe consecutive
+    .join(', ');
 }

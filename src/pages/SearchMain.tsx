@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search as SearchIcon, X, Clock, Star, ArrowUpLeft, Plus, Heart } from 'lucide-react';
-import { searchPlacesByText, priceLevelToString, extractCityState, type PlaceResult } from '../lib/places';
+import { searchPlacesByText, priceLevelToString, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { cn } from '../lib/utils';
 import { LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { EmptyState } from '../components/EmptyState';
@@ -308,7 +308,7 @@ export const SearchMain: React.FC = () => {
             ) : (
               <ul className="divide-y divide-on-surface/[0.06]">
                 {results.map((place) => {
-                  const location = extractCityState(place.fullAddress || '', place.address || '');
+                  const location = formatLocationLabel(place.addressComponents, place.fullAddress || place.address || '');
                   const price = priceLevelToString(place.priceLevel);
                   const distance = locationKnown
                     ? formatDistance(haversineDistanceMi(userLat, userLng, place.lat, place.lng))
@@ -411,7 +411,7 @@ export const SearchMain: React.FC = () => {
             <div className={cn(phoneMode ? "divide-y divide-on-surface/[0.06] border-y border-on-surface/[0.06] bg-white" : "space-y-2")}>
               {recentSearches.map((r) => {
                 const wishlisted = isWishlisted(r.id);
-                const location = extractCityState(r.address, r.address);
+                const location = formatLocationLabel(undefined, r.address);
                 return (
                   <div
                     key={r.id}

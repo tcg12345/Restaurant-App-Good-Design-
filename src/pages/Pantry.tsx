@@ -12,7 +12,7 @@ import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaura
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { useSettings } from '../contexts/SettingsContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { searchHotels, searchPlacesByText, extractCityState, type PlaceResult } from '../lib/places';
+import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { useAuth } from '../contexts/AuthContext';
 import { getHotelDining, type HotelDining } from '../lib/supabase-community';
@@ -413,15 +413,17 @@ const RestaurantRow: React.FC<{
   const [isDragging, setIsDragging] = useState(false);
 
   // Resolve a "City, ST" / "City, Country" label from the address. Use the
-  // shared extractor (which understands street suffixes, postcodes, and
-  // US state names) so the row matches what the editorial card shows and
-  // doesn't fall into the old "Street, City" trap.
-  const location = address ? extractCityState(address, address) : '';
+  // Beli-style hierarchical label — neighborhood + borough/city + state
+  // when address components are cached, falls back to formatted-address
+  // parsing for older saved restaurants.
+  const meta = restaurantMeta[restaurantId];
+  const location = address || meta?.address
+    ? formatLocationLabel(meta?.addressComponents, address || meta?.address || '')
+    : '';
 
   // Distance from the user's anchor location to the cached coords for
   // this place (populated by useRestaurantDetail). Renders inline next
   // to the city when available; otherwise the city stands alone.
-  const meta = restaurantMeta[restaurantId];
   const distanceLabel = useMemo(() => {
     const home = loadLastSelectedLocation();
     if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
@@ -599,19 +601,19 @@ const WishlistRow: React.FC<{
 }> = ({ restaurantId, name, image, cuisine, price, address, notes, onRemove }) => {
   const { restaurantMeta } = useLists();
 
-  // City label via the shared extractor — handles street prefixes, US
-  // state codes, and international postcodes.
-  const fullAddr = address || restaurantMeta[restaurantId]?.address || '';
-  const location = fullAddr ? extractCityState(fullAddr, fullAddr) : '';
+  // Beli-style label: neighborhood + borough/city + state, falling back
+  // to formatted-address parsing when no addressComponents are cached.
+  const wlMeta = restaurantMeta[restaurantId];
+  const fullAddr = address || wlMeta?.address || '';
+  const location = fullAddr ? formatLocationLabel(wlMeta?.addressComponents, fullAddr) : '';
 
   // Distance from the user's anchor location.
-  const meta = restaurantMeta[restaurantId];
   const distanceLabel = useMemo(() => {
     const home = loadLastSelectedLocation();
     if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
-    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
-    return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
-  }, [meta?.lat, meta?.lng]);
+    if (!wlMeta || !Number.isFinite(wlMeta.lat) || !Number.isFinite(wlMeta.lng)) return '';
+    return formatDistance(haversineDistanceMi(home.lat, home.lng, wlMeta.lat!, wlMeta.lng!));
+  }, [wlMeta?.lat, wlMeta?.lng]);
 
   return (
     <div className="flex items-start gap-3 py-3 group">
@@ -680,16 +682,14 @@ const WishlistGridCard: React.FC<{
 
   const meta = restaurantMeta[restaurantId];
   const fullAddress = address || meta?.address || '';
-  const streetCity = useMemo(() => {
-    if (!fullAddress) return '';
-    // Take the first two comma segments — gives "104 E 30th St, New York"
-    // for full Google addresses and gracefully degrades to whatever's
-    // there for shorter ones.
-    const parts = fullAddress.split(',').map((s) => s.trim()).filter(Boolean);
-    if (parts.length === 0) return '';
-    if (parts.length === 1) return parts[0];
-    return parts.slice(0, 2).join(', ');
-  }, [fullAddress]);
+  // Beli-style hierarchical label using Google's address components when
+  // available; falls back to formatted-address parsing for older saved
+  // restaurants. Renders as "West Village, Manhattan", "Mission, San
+  // Francisco, CA", "Stowe, VT", etc.
+  const streetCity = useMemo(
+    () => fullAddress ? formatLocationLabel(meta?.addressComponents, fullAddress) : '',
+    [fullAddress, meta?.addressComponents],
+  );
   const distanceLabel = useMemo(() => {
     const home = loadLastSelectedLocation();
     if (!home || !Number.isFinite(home.lat) || !Number.isFinite(home.lng)) return '';
@@ -795,7 +795,11 @@ const RestaurantGridCard: React.FC<{
   // re-hydrated from cloud where the rating may not include an address.
   const meta = restaurantMeta[restaurantId];
   const fullAddress = address || meta?.address || '';
-  const locationLabel = fullAddress ? extractCityState(fullAddress, fullAddress) : '';
+  // Hierarchical Beli-style label — neighborhood + borough/city + state
+  // when components are cached, falling back to the formatted address.
+  const locationLabel = fullAddress
+    ? formatLocationLabel(meta?.addressComponents, fullAddress)
+    : '';
 
   // Distance in miles from the user's anchor location to the cached
   // place coordinates. Only renders when we have both, otherwise the
@@ -823,17 +827,10 @@ const RestaurantGridCard: React.FC<{
   // serif name, CUISINE·PRICE, breathing-room middle, footer with the
   // street address + distance. Edit / more controls fade in on hover.
   if (!image) {
-    // Street + city derived from the first two comma segments of the
-    // stored address — gives "104 E 30th St, New York" for full Google
-    // addresses and degrades gracefully for short ones.
-    const streetCity = (() => {
-      const a = address || meta?.address || '';
-      if (!a) return '';
-      const parts = a.split(',').map((s) => s.trim()).filter(Boolean);
-      if (parts.length === 0) return '';
-      if (parts.length === 1) return parts[0];
-      return parts.slice(0, 2).join(', ');
-    })();
+    // Display label uses the same Beli-style helper as the rest of the
+    // app — "Neighborhood, Borough" / "Neighborhood, City, ST" /
+    // "City, ST" depending on what address components are cached.
+    const streetCity = locationLabel;
 
     return (
       <div className="group relative">

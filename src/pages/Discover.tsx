@@ -12,7 +12,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
-import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
   buildTasteProfile,
   buildCandidateQueries,
@@ -3074,7 +3074,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     {/* Bottom row: location, counter, action buttons */}
                     <div className="flex items-end justify-between mt-1">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <p className="text-[10px] text-on-surface/35 truncate">{extractCityState(selectedPlace.fullAddress, selectedPlace.address)}</p>
+                        <p className="text-[10px] text-on-surface/35 truncate">{formatLocationLabel(selectedPlace.addressComponents, selectedPlace.fullAddress || selectedPlace.address)}</p>
                         {currentIndex >= 0 && orderedPlaces.length > 1 && (
                           <span className="text-[10px] text-on-surface/30 flex-shrink-0">{currentIndex + 1}/{orderedPlaces.length}</span>
                         )}
@@ -3963,7 +3963,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           ) : (
             <div className="divide-y divide-on-surface/[0.06]">
               {filteredHotelPlaces.map((place) => {
-                const cityState = extractCityState(place.fullAddress, place.address);
+                const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
                 return (
                   <div
                     key={place.id}
@@ -4099,7 +4099,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         </div>
                         <div className="divide-y divide-on-surface/[0.06]">
                           {places.map((place) => {
-                            const cityState = extractCityState(place.fullAddress, place.address);
+                            const cityState = formatLocationLabel(place.addressComponents, place.fullAddress || place.address);
                             const cuisine = getCuisineLabel(place.types);
                             const wishlisted = isWishlisted(place.id);
                             return (

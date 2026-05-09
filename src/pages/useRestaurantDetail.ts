@@ -201,8 +201,9 @@ export function useRestaurantDetail() {
       address: place.fullAddress || place.address,
       lat: place.lat,
       lng: place.lng,
+      addressComponents: place.addressComponents,
     });
-  }, [place?.id, place?.lat, place?.lng, cacheRestaurantMeta]);
+  }, [place?.id, place?.lat, place?.lng, place?.addressComponents, cacheRestaurantMeta]);
   const myRatingForPlace = place ? ratings.find((r) => r.restaurantId === place.id) : null;
   // A simple fingerprint that changes whenever the rating for this
   // place is updated. Used as an effect dep below.
