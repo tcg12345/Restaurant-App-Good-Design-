@@ -259,6 +259,10 @@ export async function listReels(opts: {
   if (!supabaseConfigured) return [];
   const { kind, limit = 50, viewerId } = opts;
 
+  // Public feed — every reel regardless of author or follow state. Do not
+  // add a `user_id` / friends filter here: the product is "discover what
+  // anyone is posting", not a follow-only timeline. RLS policy
+  // ("Anyone can read reels" USING (true)) already permits this.
   let query = supabase.from('reels')
     .select('*, reel_likes(count), reel_saves(count), reel_comments(count)')
     .order('created_at', { ascending: false })
