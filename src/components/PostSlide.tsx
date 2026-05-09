@@ -12,12 +12,12 @@
  * (one set of like / comment / save / share counts) — those live in the
  * page-level Reels component, not here, and toggle via the prop callbacks.
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Heart, MessageCircle, Bookmark, Share2, ChefHat, ChevronRight, Star, Trash2, MapPin, PlayCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
-import type { Post, PostItemRow } from '../contexts/PostsContext';
+import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
 
 function formatCount(n: number): string {
   if (n >= 1000) {
@@ -221,8 +221,37 @@ export const PostSlide: React.FC<PostSlideProps> = ({
   post, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false,
   onActiveItemChange, onLike, onSave, onComment, onShare, onItemAttachmentClick, onDelete,
 }) => {
-  const [activeIdx, setActiveIdx] = useState(0);
+  const { getPostItemIndex, setPostItemIndex } = usePosts();
+  const [activeIdx, setActiveIdx] = useState(() => getPostItemIndex(post.id));
   const stripRef = useRef<HTMLDivElement>(null);
+
+  // On mount, snap the carousel to the saved item index. This is what
+  // restores the user's position after they tap a featured card on slide
+  // N, navigate to the detail page, then click back. useLayoutEffect so
+  // the scroll happens before paint and there's no flash of slide 0.
+  useLayoutEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const savedIdx = getPostItemIndex(post.id);
+    if (savedIdx <= 0) return;
+    // clientWidth can be 0 right after mount on some browsers; defer one
+    // animation frame in that case.
+    if (el.clientWidth > 0) {
+      el.scrollLeft = el.clientWidth * savedIdx;
+    } else {
+      requestAnimationFrame(() => {
+        if (stripRef.current && stripRef.current.clientWidth > 0) {
+          stripRef.current.scrollLeft = stripRef.current.clientWidth * savedIdx;
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [post.id]);
+
+  // Persist activeIdx so the next mount can restore it.
+  useEffect(() => {
+    setPostItemIndex(post.id, activeIdx);
+  }, [post.id, activeIdx, setPostItemIndex]);
 
   // Track which item is most-visible in the horizontal carousel via scroll
   // position. Cheap math instead of an IntersectionObserver per item.

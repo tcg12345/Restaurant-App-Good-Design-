@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -788,6 +788,7 @@ export const Reels: React.FC = () => {
     openAddPostModal,
     openPostCommentsSheet, closePostCommentsSheet, openPostCommentsId,
     loadPostComments, addPostComment, deletePostComment,
+    lastActivePostId, setLastActivePostId,
   } = usePosts();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
@@ -834,11 +835,44 @@ export const Reels: React.FC = () => {
   const activeReelId = activeKey?.startsWith('reel-') ? activeKey.slice(5) : null;
   const activePostId = activeKey?.startsWith('post-') ? activeKey.slice(5) : null;
 
-  // Reset the active item to the first slide whenever the tab changes.
+  // Reset the active item when the tab changes. If the user was last on
+  // a post (and that post still appears in this tab), prefer it over the
+  // first slide — that's what restores their position after navigating
+  // to a featured-attachment detail page and clicking back.
   useEffect(() => {
+    if (lastActivePostId) {
+      const match = feedItems.find((f) => f.kind === 'post' && f.post.id === lastActivePostId);
+      if (match) {
+        setActiveKey(match.key);
+        return;
+      }
+    }
     setActiveKey(feedItems[0]?.key ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, feedItems.length]);
+
+  // Mirror the activeKey into PostsContext so the next mount can restore
+  // the same post. When the active item is a reel we leave the saved
+  // value untouched — it's specifically a "last post" pointer.
+  useEffect(() => {
+    if (activePostId) setLastActivePostId(activePostId);
+  }, [activePostId, setLastActivePostId]);
+
+  // After the feed renders for the first time with a saved active post,
+  // scroll the snap container so that post is the visible slide. We use
+  // a layout effect so the scroll happens before the user sees slide 0.
+  const restoredKeyRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!activeKey || !activeKey.startsWith('post-')) return;
+    if (restoredKeyRef.current === activeKey) return;
+    const root = containerRef.current;
+    if (!root) return;
+    const target = root.querySelector(`[data-feed-key="${activeKey}"]`) as HTMLElement | null;
+    if (!target) return;
+    target.scrollIntoView({ block: 'start' });
+    restoredKeyRef.current = activeKey;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, feedItems.length]);
 
   // IntersectionObserver picks the most-visible slide so exactly one video
   // plays. Each slide carries data-feed-key="reel-<id>" | "post-<id>".

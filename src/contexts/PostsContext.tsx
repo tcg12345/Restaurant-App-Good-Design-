@@ -97,6 +97,20 @@ interface PostsContextValue {
   openPostCommentsSheet: (postId: string) => void;
   closePostCommentsSheet: () => void;
 
+  // ── Scroll restoration ──
+  // Persists the most recently active post in the feed and the active
+  // sub-item index *within* each post, so navigating away (e.g. tapping
+  // a featured card → back) returns the user to the exact slide they
+  // were on. Lives at the provider level so it survives the Reels
+  // page's unmount/remount across React Router transitions.
+  /** Last post id the viewer was on in the feed; null when the active
+   *  feed item was a reel (or before any scrolling). */
+  lastActivePostId: string | null;
+  setLastActivePostId: (postId: string | null) => void;
+  /** Read / write the active sub-item index for a post id. */
+  getPostItemIndex: (postId: string) => number;
+  setPostItemIndex: (postId: string, idx: number) => void;
+
   currentUserId: string | null;
 }
 
@@ -113,6 +127,17 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addPostModalOpen, setAddPostModalOpen] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [openPostCommentsId, setOpenPostCommentsId] = useState<string | null>(null);
+
+  // Scroll-restoration state — kept in a ref since it's read on mount of
+  // <PostSlide> via useLayoutEffect; we don't need state-driven re-renders.
+  const [lastActivePostId, setLastActivePostId] = useState<string | null>(null);
+  const postItemIdxRef = useRef<Record<string, number>>({});
+  const getPostItemIndex = useCallback((postId: string): number => {
+    return postItemIdxRef.current[postId] ?? 0;
+  }, []);
+  const setPostItemIndex = useCallback((postId: string, idx: number) => {
+    postItemIdxRef.current[postId] = idx;
+  }, []);
 
   const refreshPosts = useCallback(async () => {
     if (!supabaseConfigured) return;
@@ -295,6 +320,10 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     openPostCommentsId,
     openPostCommentsSheet,
     closePostCommentsSheet,
+    lastActivePostId,
+    setLastActivePostId,
+    getPostItemIndex,
+    setPostItemIndex,
     currentUserId: userId,
   };
 
