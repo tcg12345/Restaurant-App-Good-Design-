@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Heart, HeartOff, Check } from 'lucide-react';
+import { Heart, HeartOff, Check, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSettings } from './SettingsContext';
 
-export type ToastVariant = 'wishlist-add' | 'wishlist-remove' | 'success';
+export type ToastVariant = 'wishlist-add' | 'wishlist-remove' | 'rated' | 'rating-updated' | 'success';
 
 interface Toast {
   id: number;
@@ -60,6 +60,7 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const Icon = toast?.variant === 'wishlist-remove' ? HeartOff
     : toast?.variant === 'wishlist-add' ? Heart
+    : toast?.variant === 'rated' || toast?.variant === 'rating-updated' ? Star
     : Check;
 
   return (
@@ -97,10 +98,21 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                   'flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0',
                   toast.variant === 'wishlist-add' ? 'bg-red-500/95 text-white'
                     : toast.variant === 'wishlist-remove' ? 'bg-white/10 text-white/80'
+                    : toast.variant === 'rated' ? 'bg-amber-400/95 text-white'
+                    : toast.variant === 'rating-updated' ? 'bg-amber-400/20 text-amber-300'
                     : 'bg-emerald-500/95 text-white',
                 )}
               >
-                <Icon size={14} className={toast.variant === 'wishlist-add' ? 'fill-white' : ''} strokeWidth={2.4} />
+                <Icon
+                  size={14}
+                  className={
+                    toast.variant === 'wishlist-add' ? 'fill-white'
+                      : toast.variant === 'rated' ? 'fill-white'
+                      : toast.variant === 'rating-updated' ? 'fill-amber-300'
+                      : ''
+                  }
+                  strokeWidth={2.4}
+                />
               </motion.span>
               <div className="min-w-0">
                 <p className="text-[13px] font-semibold text-surface leading-tight whitespace-nowrap">

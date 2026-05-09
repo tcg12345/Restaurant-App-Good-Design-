@@ -968,6 +968,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Ratings
   const rateRestaurant = useCallback((rating: RestaurantRating) => {
+    // Capture previous-state context for the toast: was this restaurant
+    // already rated? Read from the closure ratings (committed state) since
+    // the setRatings updater below runs during render — by then it's too
+    // late to know the prior value.
+    const wasRated = ratings.some((r) => r.restaurantId === rating.restaurantId);
     setRatings((prev) => {
       // Save old rating to visit history before overwriting. Writes to
       // BOTH localStorage (synchronous, always works) and Supabase
@@ -1046,7 +1051,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         });
       }
     }
-  }, [cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud]);
+    showToast(
+      wasRated ? 'Rating updated' : 'Added to rated restaurants',
+      {
+        subtitle: `${rating.name} · ${rating.score.toFixed(1)} / 10`,
+        variant: wasRated ? 'rating-updated' : 'rated',
+      },
+    );
+  }, [ratings, cacheRestaurantMeta, syncRatingsToCloud, syncListsToCloud, showToast]);
 
   const updateRating = useCallback((restaurantId: string, partial: Partial<RestaurantRating>) => {
     setRatings((prev) => {
@@ -1377,17 +1389,19 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const getWishlistItem = useCallback((restaurantId: string) => wishlist.find((w) => w.restaurantId === restaurantId), [wishlist]);
 
-  // One-tap toggle. Reads latest wishlist via the setter callback so two
-  // fast taps (or a stale-closure caller) can't end up double-adding.
-  // Persists to localStorage and Supabase synchronously with the state
-  // update so a refresh / new device sees the change.
+  // One-tap toggle. Decides add-vs-remove from the currently committed
+  // wishlist (closure value) so the toast we fire below sees the right
+  // direction — the setWishlist updater runs during render, AFTER this
+  // function returns, so reading from inside it left `removed` always
+  // false and the toast always read "Added".
   const toggleWishlist = useCallback((restaurant: RestaurantMeta) => {
     cacheRestaurantMeta(restaurant);
-    let removed = false;
+    const isOn = wishlist.some((w) => w.restaurantId === restaurant.id);
     setWishlist((prev) => {
-      const isOn = prev.some((w) => w.restaurantId === restaurant.id);
-      removed = isOn;
-      const next: WishlistItem[] = isOn
+      // Re-check inside the updater so two fast taps still produce the
+      // right end state — prev is the most up-to-date queue value.
+      const onNow = prev.some((w) => w.restaurantId === restaurant.id);
+      const next: WishlistItem[] = onNow
         ? prev.filter((w) => w.restaurantId !== restaurant.id)
         : [{
             restaurantId: restaurant.id,
@@ -1406,7 +1420,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     });
     // When removing, also strip the restaurant from any custom list that
     // had it on its wishlistIds so the lists view doesn't show a ghost.
-    if (removed) {
+    if (isOn) {
       setLists((prev) => {
         let changed = false;
         const next = prev.map((l) => {
@@ -1422,11 +1436,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return next;
       });
     }
-    showToast(removed ? 'Removed from wishlist' : 'Added to wishlist', {
+    showToast(isOn ? 'Removed from wishlist' : 'Added to wishlist', {
       subtitle: restaurant.name,
-      variant: removed ? 'wishlist-remove' : 'wishlist-add',
+      variant: isOn ? 'wishlist-remove' : 'wishlist-add',
     });
-  }, [cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, showToast]);
+  }, [wishlist, cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, showToast]);
 
   // Modals
   const openRatingModal = useCallback((restaurant: RestaurantMeta) => {
