@@ -35,12 +35,11 @@ function loadPhoneMode(): boolean {
 
 function loadDarkMode(): boolean {
   try {
-    const v = localStorage.getItem(DARK_MODE_KEY);
-    if (v === '1') return true;
-    if (v === '0') return false;
-    // No preference saved — fall back to OS preference so first run
-    // matches what the user set on their device.
-    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true;
+    // Default to light mode unless the user explicitly opted into dark
+    // via the Settings toggle. We deliberately ignore the OS-level
+    // prefers-color-scheme so the app's first run is always the light
+    // editorial palette.
+    return localStorage.getItem(DARK_MODE_KEY) === '1';
   } catch { return false; }
 }
 
