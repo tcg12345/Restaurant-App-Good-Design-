@@ -355,10 +355,11 @@ const RestaurantPanelBody: React.FC<{
     mapboxgl.accessToken = MAPBOX_TOKEN;
     const map = new mapboxgl.Map({
       container: el,
-      // Dark style gives the white title good contrast without depending on
-      // a heavy legibility gradient. interactive: false keeps it a
-      // decorative locator map.
-      style: 'mapbox://styles/mapbox/dark-v11',
+      // Light style — clean gray cartography that the dark title sits on
+      // top of comfortably. A CSS filter on the container (see JSX) takes
+      // a touch of saturation out so it reads as warm gray rather than
+      // bright. interactive: false keeps it a decorative locator map.
+      style: 'mapbox://styles/mapbox/light-v11',
       center: [lng, lat],
       // Zoomed out a notch so the surrounding streets are visible, not just
       // the building footprint. ~12.5 shows ~1 mile across.
@@ -367,8 +368,7 @@ const RestaurantPanelBody: React.FC<{
       attributionControl: false,
     });
     mapInstanceRef.current = map;
-    // Use a bright accent for the marker so it pops against the dark style.
-    new mapboxgl.Marker({ color: '#e85a2c' }).setLngLat([lng, lat]).addTo(map);
+    new mapboxgl.Marker({ color: '#9f3012' }).setLngLat([lng, lat]).addTo(map);
 
     const ro = new ResizeObserver(() => { try { map.resize(); } catch { /* noop */ } });
     ro.observe(el);
@@ -443,8 +443,10 @@ const RestaurantPanelBody: React.FC<{
             // The map is decorative in this context (non-interactive, used
             // as a locator), so the attribution moves to the full detail
             // page where the interactive map lives.
+            // The saturate filter quiets the cartography slightly so it
+            // reads as warm gray rather than bright pastel.
             className="absolute inset-0 [&_.mapboxgl-ctrl-bottom-left]:hidden [&_.mapboxgl-ctrl-bottom-right]:hidden"
-            style={{ width: '100%', height: '100%', opacity: mediaOpacity }}
+            style={{ width: '100%', height: '100%', opacity: mediaOpacity, filter: 'saturate(0.55)' }}
           />
         ) : snapshot.image ? (
           <motion.img
@@ -462,24 +464,27 @@ const RestaurantPanelBody: React.FC<{
             <ImageOff size={28} />
           </motion.div>
         )}
-        {/* Bottom legibility wash — separate layer so it doesn't constrain
-            the map container's size. Fades together with the media. */}
+        {/* Bottom legibility wash — fades the cream surface up into the
+            map so dark title text stays legible against map labels.
+            Separate layer so it doesn't constrain the map container's
+            size, and fades together with the media. */}
         <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/65 via-black/20 to-transparent"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-cream-2 via-cream-2/55 to-transparent"
           style={{ opacity: mediaOpacity }}
         />
 
         {/* Expanded title — large serif name + cuisine/price/distance,
             pinned to the bottom of the expanded hero. Fades + slides up
-            as the hero collapses. */}
+            as the hero collapses. Dark text sits over the cream-to-map
+            gradient for crisp legibility. */}
         <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-3.5 text-white"
+          className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-3.5 text-on-surface"
           style={{ opacity: expandedOpacity, y: expandedY }}
         >
           <h2 className="font-serif font-bold text-[21px] leading-[1.1] tracking-tight line-clamp-2">
             {snapshot.name}
           </h2>
-          <p className="text-[12px] text-white/80 mt-0.5 truncate">
+          <p className="text-[12px] text-on-surface/70 mt-0.5 truncate">
             {[snapshot.cuisine, snapshot.price, distance].filter(Boolean).join(' · ')}
           </p>
         </motion.div>
