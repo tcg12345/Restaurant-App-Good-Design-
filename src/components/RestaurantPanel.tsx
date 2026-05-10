@@ -14,9 +14,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { X, MapPin, Star, Heart, Plus, Bookmark, ChevronRight, Pencil, Users, Award, Loader2, ImageOff } from 'lucide-react';
+import { X, MapPin, Star, Heart, Plus, Bookmark, ArrowUpRight, Pencil, Users, Award, Loader2, ImageOff } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { scoreColor, scoreBadgeBg } from '../lib/score';
+import { scoreColor } from '../lib/score';
 import { useLists } from '../contexts/ListsContext';
 import {
   getCommunityStats,
@@ -28,6 +28,7 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 import type { ReelRestaurantSnapshot } from '../lib/supabase-reels';
+import { RestaurantFeaturedReels } from './RestaurantFeaturedReels';
 
 /* ── Snapshot the panel accepts ───────────────────────────────────────────
    We accept any object that quacks like a ReelRestaurantSnapshot so reels
@@ -64,24 +65,24 @@ const ScorePill: React.FC<{
   const has = count > 0;
   return (
     <div className={cn(
-      'flex flex-col gap-1.5 rounded-2xl border px-3 py-3 transition-colors',
-      has ? scoreBadgeBg(score) : 'bg-on-surface/[0.03] border-on-surface/[0.07]',
+      'flex flex-col gap-2 rounded-2xl px-3 py-3.5 transition-colors',
+      has ? 'bg-paper ring-1 ring-on-surface/[0.07]' : 'bg-on-surface/[0.03]',
     )}>
-      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-on-surface/55">
-        <span className="opacity-80">{icon}</span>
+      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/55">
+        <span className="opacity-70">{icon}</span>
         {label}
       </div>
       {has ? (
-        <div className="flex items-baseline gap-1.5">
-          <span className={cn('text-[22px] font-bold tabular-nums leading-none', scoreColor(score))}>
+        <div className="flex items-baseline gap-1">
+          <span className={cn('text-[24px] font-bold tabular-nums leading-none tracking-tight', scoreColor(score))}>
             {score.toFixed(1)}
           </span>
-          <span className="text-[11px] text-on-surface/55 tabular-nums">
+          <span className="text-[11px] text-on-surface/45 tabular-nums">
             · {count}
           </span>
         </div>
       ) : (
-        <span className="text-[13px] text-on-surface/40 leading-none mt-1">No ratings</span>
+        <span className="text-[12px] text-on-surface/40 leading-none mt-0.5">No ratings</span>
       )}
     </div>
   );
@@ -212,9 +213,9 @@ const RestaurantPanelBody: React.FC<{
 
   return (
     <>
-      {/* Header — hero image, name overlay, close pill */}
+      {/* Header — hero image, name overlay, close + wishlist pills */}
       <div className="relative flex-shrink-0">
-        <div className="relative h-[148px] w-full bg-on-surface/5 overflow-hidden">
+        <div className="relative h-[180px] w-full bg-on-surface/5 overflow-hidden">
           {snapshot.image ? (
             <img
               src={snapshot.image}
@@ -224,17 +225,17 @@ const RestaurantPanelBody: React.FC<{
             />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-clay/30 to-olive/20 flex items-center justify-center text-on-surface/30">
-              <ImageOff size={28} />
+              <ImageOff size={32} />
             </div>
           )}
-          <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/65 via-black/25 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/45 backdrop-blur text-white hover:bg-black/65 flex items-center justify-center transition-colors"
+            className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/45 backdrop-blur text-white hover:bg-black/65 flex items-center justify-center transition-colors"
           >
-            <X size={16} />
+            <X size={17} />
           </button>
           <button
             type="button"
@@ -242,31 +243,32 @@ const RestaurantPanelBody: React.FC<{
             aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
             aria-pressed={wishlisted}
             className={cn(
-              'absolute top-3 left-3 w-8 h-8 rounded-full backdrop-blur flex items-center justify-center transition-colors',
+              'absolute top-3 left-3 w-9 h-9 rounded-full backdrop-blur flex items-center justify-center transition-colors',
               wishlisted
-                ? 'bg-rose-500/95 text-white hover:bg-rose-600'
+                ? 'bg-rose-500 text-white hover:bg-rose-600 shadow-md shadow-rose-900/20'
                 : 'bg-black/45 text-white hover:bg-black/65',
             )}
           >
-            <Heart size={16} className={cn(wishlisted && 'fill-white')} />
+            <Heart size={17} className={cn(wishlisted && 'fill-white')} />
           </button>
-          <div className="absolute inset-x-0 bottom-0 px-4 pb-3 text-white">
-            <h2 className="font-serif font-bold text-[20px] leading-tight tracking-tight line-clamp-2 drop-shadow-sm">
+          <div className="absolute inset-x-0 bottom-0 px-5 pb-4 text-white">
+            <h2 className="font-serif font-bold text-[22px] leading-[1.1] tracking-tight line-clamp-2">
               {snapshot.name}
             </h2>
-            <p className="text-[12px] text-white/85 mt-0.5 truncate">
+            <p className="text-[12px] text-white/80 mt-1 truncate">
               {[snapshot.cuisine, snapshot.price, distance].filter(Boolean).join(' · ')}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 pb-5 space-y-5">
+      {/* Scrollable body — generous vertical rhythm so each section can
+          breathe instead of crowding. */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6">
         {/* Address row */}
         {snapshot.address && (
-          <div className="flex items-start gap-2 text-on-surface/70">
-            <MapPin size={14} className="mt-0.5 flex-shrink-0 text-on-surface/55" />
+          <div className="flex items-start gap-2.5 text-on-surface/75">
+            <MapPin size={14} className="mt-0.5 flex-shrink-0 text-on-surface/50" />
             <p className="text-[13px] leading-snug">{snapshot.address}</p>
           </div>
         )}
@@ -299,20 +301,20 @@ const RestaurantPanelBody: React.FC<{
 
         {/* Your rating (if any) — or the rate / add-to-list call to action */}
         {myRating ? (
-          <div className="rounded-2xl border border-on-surface/[0.08] bg-paper p-4">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface/55">Your rating</span>
+          <div className="rounded-3xl bg-paper ring-1 ring-on-surface/[0.07] p-4">
+            <div className="flex items-center justify-between gap-2 mb-2.5">
+              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/55">Your rating</span>
               <button
                 type="button"
                 onClick={onRate}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/70 hover:text-on-surface transition-colors"
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/65 hover:text-on-surface transition-colors"
               >
                 <Pencil size={12} />
                 Edit
               </button>
             </div>
             <div className="flex items-baseline gap-2">
-              <span className={cn('text-[28px] font-bold tabular-nums leading-none', scoreColor(myRating.score))}>
+              <span className={cn('text-[30px] font-bold tabular-nums leading-none tracking-tight', scoreColor(myRating.score))}>
                 {myRating.score.toFixed(1)}
               </span>
               <span className="text-[11px] text-on-surface/45">
@@ -320,7 +322,7 @@ const RestaurantPanelBody: React.FC<{
               </span>
             </div>
             {myRating.notes && (
-              <p className="text-[13px] text-on-surface/75 leading-snug mt-2 line-clamp-3 whitespace-pre-wrap">
+              <p className="text-[13px] text-on-surface/75 leading-snug mt-2.5 line-clamp-3 whitespace-pre-wrap">
                 {myRating.notes}
               </p>
             )}
@@ -336,7 +338,7 @@ const RestaurantPanelBody: React.FC<{
             <button
               type="button"
               onClick={onAddToList}
-              className="mt-3 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-full border border-on-surface/[0.12] text-on-surface text-[13px] font-semibold hover:bg-on-surface/[0.04] transition-colors"
+              className="mt-3.5 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-full bg-on-surface/[0.05] text-on-surface text-[13px] font-semibold hover:bg-on-surface/[0.09] transition-colors"
             >
               <Bookmark size={14} />
               {myLists.length > 0
@@ -349,7 +351,7 @@ const RestaurantPanelBody: React.FC<{
             <button
               type="button"
               onClick={onRate}
-              className="w-full inline-flex items-center justify-center gap-1.5 h-11 rounded-full bg-on-surface text-surface text-[14px] font-bold hover:bg-on-surface/90 transition-colors"
+              className="w-full inline-flex items-center justify-center gap-1.5 h-12 rounded-full bg-on-surface text-surface text-[14px] font-bold hover:bg-on-surface/90 transition-colors shadow-sm"
             >
               <Star size={15} className="fill-current" />
               Rate this restaurant
@@ -357,7 +359,7 @@ const RestaurantPanelBody: React.FC<{
             <button
               type="button"
               onClick={onAddToList}
-              className="w-full inline-flex items-center justify-center gap-1.5 h-11 rounded-full border border-on-surface/[0.12] text-on-surface text-[13px] font-semibold hover:bg-on-surface/[0.04] transition-colors"
+              className="w-full inline-flex items-center justify-center gap-1.5 h-11 rounded-full bg-on-surface/[0.05] text-on-surface text-[13px] font-semibold hover:bg-on-surface/[0.09] transition-colors"
             >
               <Plus size={14} />
               {myLists.length > 0
@@ -367,7 +369,16 @@ const RestaurantPanelBody: React.FC<{
           </div>
         )}
 
-        {/* Friends section */}
+        {/* Featured-in: filler reels/posts strip — adapts titles to the
+            restaurant name. The horizontal scroll keeps the panel column
+            tidy even though cards are 9:16. */}
+        <RestaurantFeaturedReels
+          restaurantId={snapshot.id}
+          restaurantName={snapshot.name}
+          size="sm"
+        />
+
+        {/* Friends + experts review section */}
         {loading ? (
           <div className="flex items-center justify-center py-6 text-on-surface/45">
             <Loader2 size={18} className="animate-spin" />
@@ -376,13 +387,13 @@ const RestaurantPanelBody: React.FC<{
           <>
             {topFriendReviews.length > 0 && (
               <section>
-                <div className="flex items-baseline justify-between mb-1">
-                  <h3 className="font-serif font-bold text-on-surface text-[14px]">From people you follow</h3>
+                <div className="flex items-baseline justify-between mb-1.5">
+                  <h3 className="font-serif font-bold text-on-surface text-[15px]">From people you follow</h3>
                   {friends && friends.count > topFriendReviews.length && (
                     <span className="text-[11px] text-on-surface/45">{friends.count} total</span>
                   )}
                 </div>
-                <div className="divide-y divide-on-surface/[0.07]">
+                <div className="divide-y divide-on-surface/[0.06] -mt-1">
                   {topFriendReviews.map((r) => {
                     const p = profiles[r.user_id];
                     const name = p?.display_name || p?.username || 'Friend';
@@ -406,8 +417,8 @@ const RestaurantPanelBody: React.FC<{
 
             {experts.length > 0 && (
               <section>
-                <h3 className="font-serif font-bold text-on-surface text-[14px] mb-1">Expert picks</h3>
-                <div className="divide-y divide-on-surface/[0.07]">
+                <h3 className="font-serif font-bold text-on-surface text-[15px] mb-1.5">Expert picks</h3>
+                <div className="divide-y divide-on-surface/[0.06] -mt-1">
                   {experts.slice(0, 3).map((e) => (
                     <ReviewRow
                       key={e.id}
@@ -424,11 +435,11 @@ const RestaurantPanelBody: React.FC<{
               </section>
             )}
 
-            {/* Empty state — no friends, no experts, no community: just nudge
-                the user to be the first. */}
+            {/* Empty state — only show when there's nothing in any review
+                bucket and the viewer hasn't rated either. */}
             {(friends?.count ?? 0) === 0 && experts.length === 0 && (community?.count ?? 0) === 0 && !myRating && (
-              <div className="rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] px-4 py-5 text-center">
-                <p className="text-[13px] text-on-surface/65">
+              <div className="rounded-2xl bg-on-surface/[0.04] px-4 py-5 text-center">
+                <p className="text-[13px] text-on-surface/65 leading-snug">
                   No reviews yet. Be the first to share what you thought.
                 </p>
               </div>
@@ -436,14 +447,15 @@ const RestaurantPanelBody: React.FC<{
           </>
         )}
 
-        {/* Full details link */}
+        {/* Prominent View page button — primary route to the full detail
+            page for users who want hours, map, the whole thing. */}
         <Link
           to={`/restaurant/${encodeURIComponent(snapshot.id)}`}
           onClick={onClose}
-          className="flex items-center justify-between gap-2 px-4 py-3 rounded-2xl border border-on-surface/[0.08] hover:bg-on-surface/[0.04] transition-colors"
+          className="group flex items-center justify-center gap-1.5 w-full h-12 rounded-full bg-primary text-white text-[14px] font-bold hover:bg-primary/90 transition-colors shadow-sm"
         >
-          <span className="text-[13px] font-semibold text-on-surface">See full details</span>
-          <ChevronRight size={16} className="text-on-surface/45" />
+          View full restaurant page
+          <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
         </Link>
       </div>
     </>
