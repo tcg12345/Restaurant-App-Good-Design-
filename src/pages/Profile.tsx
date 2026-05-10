@@ -40,23 +40,10 @@ function cityFromAddress(address: string): string | null {
   return parts[parts.length - 1];
 }
 
-/** Stable-per-restaurant warm gradient — used behind cards with no photo so
- *  they read as distinct tiles instead of a wall of identical placeholders. */
-const TOP_RATED_GRADIENTS = [
-  'from-amber-700 via-amber-600/40 to-stone-800',
-  'from-rose-700 via-rose-500/40 to-stone-800',
-  'from-emerald-800 via-emerald-600/40 to-stone-800',
-  'from-violet-800 via-violet-600/40 to-stone-800',
-  'from-sky-800 via-sky-600/40 to-stone-800',
-  'from-orange-700 via-orange-500/40 to-stone-800',
-  'from-teal-800 via-teal-600/40 to-stone-800',
-  'from-fuchsia-800 via-fuchsia-600/40 to-stone-800',
-];
-function topRatedGradient(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
-  return TOP_RATED_GRADIENTS[Math.abs(h) % TOP_RATED_GRADIENTS.length];
-}
+/** Single neutral gradient behind cards with no photo. Kept identical
+ *  across every card so the section reads as a calm row rather than a
+ *  bag of colored tiles. */
+const TOP_RATED_GRADIENT = 'from-stone-500 via-stone-700 to-stone-900';
 
 /** ISO string for sorting by recency; never throws (missing/invalid → empty). */
 function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string {
@@ -504,17 +491,16 @@ export const Profile: React.FC = () => {
       </div>
 
       <main className="px-5 space-y-10">
-        {/* Top Rated — compact horizontal-scroll cards. Photo (or a hashed
-            warm gradient when there isn't one) up top with a color-coded
-            score chip; serif name + cuisine · price + city stacked tight
-            below over the legibility wash. No giant placeholder letter —
-            the gradient varies per-restaurant so cards stay distinct. */}
+        {/* Top Rated — compact horizontal-scroll cards. Photo (or a single
+            neutral gradient when there isn't one) with a prominent
+            color-coded score chip. The legibility wash extends well up
+            the card so the meta block carries real visual weight and
+            cards don't read as half-empty saturated tiles. */}
         {topRated.length > 0 && (
           <section className="-mx-5">
             <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-3 px-5">Top Rated</h3>
             <div className="flex gap-3 overflow-x-auto pb-2 px-5 scrollbar-hide snap-x snap-mandatory">
               {topRated.slice(0, 8).map((r) => {
-                const gradient = topRatedGradient(r.restaurantId);
                 const city = cityFromAddress(r.address);
                 const score = r.score;
                 const scoreCls = score >= 8
@@ -529,9 +515,9 @@ export const Profile: React.FC = () => {
                     className="flex-shrink-0 snap-start group"
                   >
                     <div className={cn(
-                      'relative w-40 aspect-[4/5] rounded-2xl overflow-hidden shadow-sm ring-1 ring-on-surface/[0.06] group-hover:shadow-md transition-shadow',
+                      'relative w-44 aspect-[5/6] rounded-2xl overflow-hidden shadow-sm ring-1 ring-on-surface/[0.06] group-hover:shadow-md transition-shadow',
                       'bg-gradient-to-br',
-                      gradient,
+                      TOP_RATED_GRADIENT,
                     )}>
                       {r.image && (
                         <img
@@ -541,24 +527,28 @@ export const Profile: React.FC = () => {
                           referrerPolicy="no-referrer"
                         />
                       )}
-                      {/* Score chip top-right */}
+                      {/* Score chip top-right — the user's own rating, sized
+                          to read at a glance. */}
                       <span className={cn(
-                        'absolute top-2 right-2 inline-flex items-center justify-center min-w-[34px] h-7 px-1.5 rounded-lg text-[12px] font-bold tabular-nums shadow-sm',
+                        'absolute top-2.5 right-2.5 inline-flex items-center justify-center min-w-[42px] h-8 px-2 rounded-lg text-[14px] font-bold tabular-nums shadow-sm',
                         scoreCls,
                       )}>
                         {formatScore(r.score)}
                       </span>
-                      {/* Bottom legibility wash */}
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
-                      {/* Stacked meta */}
-                      <div className="absolute inset-x-0 bottom-0 p-2.5">
-                        <p className="font-serif font-bold text-white text-[13.5px] leading-[1.15] drop-shadow line-clamp-2">{r.name}</p>
-                        <p className="text-white/85 text-[10.5px] mt-1 truncate">
+                      {/* Bottom legibility wash — takes ~70% of the card so
+                          the meta block fills the lower half and there's no
+                          empty colored void above the text. */}
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black/90 via-black/55 to-transparent" />
+                      {/* Stacked meta — slightly larger type so each line
+                          carries weight without the card needing to grow. */}
+                      <div className="absolute inset-x-0 bottom-0 p-3">
+                        <p className="font-serif font-bold text-white text-[15px] leading-[1.15] drop-shadow line-clamp-2">{r.name}</p>
+                        <p className="text-white/90 text-[12px] mt-1 truncate">
                           {[r.cuisine, r.price].filter(Boolean).join(' · ')}
                         </p>
                         {city && (
-                          <div className="flex items-center gap-1 mt-0.5 text-white/70 text-[10px]">
-                            <MapPin size={9} className="flex-shrink-0" />
+                          <div className="flex items-center gap-1 mt-1 text-white/70 text-[11px]">
+                            <MapPin size={10} className="flex-shrink-0" />
                             <span className="truncate">{city}</span>
                           </div>
                         )}
