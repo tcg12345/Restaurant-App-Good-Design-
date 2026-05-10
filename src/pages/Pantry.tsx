@@ -4776,6 +4776,31 @@ const HomeCookingTab: React.FC<{
   );
 };
 
+/* ── Desktop list switcher row ── */
+const SwitcherRow: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}> = ({ icon, label, count, active, onClick }) => (
+  <button
+    type="button"
+    role="menuitem"
+    onClick={onClick}
+    className={cn(
+      'w-full flex items-center gap-2.5 px-4 py-2 text-[13px] transition-colors text-left',
+      active
+        ? 'bg-on-surface/[0.06] text-on-surface font-bold'
+        : 'text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.04] font-medium',
+    )}
+  >
+    <span className="flex-shrink-0 w-5 inline-flex justify-center items-center">{icon}</span>
+    <span className="flex-1 truncate">{label}</span>
+    <span className="text-[11px] tabular-nums text-on-surface/40">{count}</span>
+  </button>
+);
+
 export const Pantry: React.FC = () => {
   const [selectedList, setSelectedList] = useState<CustomList | null>(null);
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
@@ -4822,6 +4847,13 @@ export const Pantry: React.FC = () => {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
+  // Desktop list switcher — replaces the sidebar's old Pantry tray. The
+  // button shows the current view ("All Rated", "All Recipes", "Wishlist"),
+  // and a popover lists every other list grouped by Restaurants / Recipes
+  // so the user can jump between them without leaving the page.
+  const [listSwitcherOpen, setListSwitcherOpen] = useState(false);
+  const listSwitcherRef = useRef<HTMLDivElement>(null);
+
   // Close more menu on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -4830,6 +4862,17 @@ export const Pantry: React.FC = () => {
     if (moreMenuOpen) document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [moreMenuOpen]);
+
+  useEffect(() => {
+    if (!listSwitcherOpen) return;
+    const handle = (e: MouseEvent) => {
+      if (listSwitcherRef.current && !listSwitcherRef.current.contains(e.target as Node)) {
+        setListSwitcherOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [listSwitcherOpen]);
 
   const handleExport = (format: 'csv' | 'json') => {
     const items = filteredRatings.map((r) => ({
@@ -5060,19 +5103,197 @@ export const Pantry: React.FC = () => {
       : lists.find((l) => l.id === selectedList.id) ?? null
     : null;
 
-  // The new tabbed landing is shown on both phone and desktop whenever
-  // there's no list / sub-view selected. Hide the top More menu on that
-  // landing — the import/export/reorder actions live on the rated list
-  // (showAllRated) where they make sense.
-  const onCardHome =
-    !currentList && !showHomeCooking && !showTrips && !showAllRated;
+  // The card-grid landing is phone-only — desktop lands on the rated list
+  // directly and uses the on-page list switcher to jump between lists.
+  // Hide the top More menu on that phone landing — the import/export/
+  // reorder actions live on the rated list where they make sense.
+  const onPhoneCardHome =
+    phoneMode && !currentList && !showHomeCooking && !showTrips && !showAllRated;
   const hideTopBar =
-    (showHomeCooking && homeCookingSelectedMealId !== null) || onCardHome;
+    (showHomeCooking && homeCookingSelectedMealId !== null) || onPhoneCardHome;
+
+  // Identity of the currently visible top-level view, used to label the
+  // list switcher button. (currentList views render inside ListDetailView,
+  // which has its own header — the switcher doesn't appear there.)
+  const currentViewLabel = showHomeCooking
+    ? { emoji: '🍳', name: 'All Recipes', count: homeMeals.length }
+    : showTrips
+      ? { emoji: '✈️', name: 'Trips', count: trips.length }
+      : { emoji: '⭐', name: 'All Rated', count: regularRatingsCount };
+
+  // Restaurant + recipe lists split for the popover sections.
+  const restaurantListsForSwitcher = useMemo(
+    () => lists.filter((l) => l.type !== 'home-cooking'),
+    [lists],
+  );
+  const recipeListsForSwitcher = useMemo(
+    () => lists.filter((l) => l.type === 'home-cooking'),
+    [lists],
+  );
+
+  // Helpers to drive the switcher's destinations through the existing
+  // showHomeCooking / showTrips / selectedList state machine.
+  const switchToRated = () => {
+    setListSwitcherOpen(false);
+    setShowHomeCooking(false); setShowTrips(false);
+    setSelectedList(null); setShowAllRated(false);
+    if (location.pathname !== '/pantry' || location.search) navigate('/pantry');
+  };
+  const switchToWishlist = () => {
+    setListSwitcherOpen(false);
+    setShowHomeCooking(false); setShowTrips(false);
+    setShowAllRated(false);
+    setSelectedList({
+      id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+      restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId),
+      createdAt: 0,
+    } as CustomList);
+  };
+  const switchToList = (list: CustomList) => {
+    setListSwitcherOpen(false);
+    setShowHomeCooking(false); setShowTrips(false); setShowAllRated(false);
+    setSelectedList(list);
+  };
+  const switchToAllRecipes = () => {
+    setListSwitcherOpen(false);
+    setSelectedList(null); setShowTrips(false); setShowAllRated(false);
+    setShowHomeCooking(true);
+  };
+  const switchToTrips = () => {
+    setListSwitcherOpen(false);
+    setSelectedList(null); setShowHomeCooking(false); setShowAllRated(false);
+    setShowTrips(true);
+  };
 
   return (
     <div className="pb-32">
       {!hideTopBar && !currentList && (
-        <div className="flex items-center justify-end px-4 pt-4 pb-1">
+        <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-1">
+          {/* List switcher — desktop only. On phone, the card landing
+              is the navigation surface; here, a popover button is the
+              equivalent for the always-on rated view. */}
+          {!phoneMode ? (
+            <div className="relative" ref={listSwitcherRef}>
+              <button
+                type="button"
+                onClick={() => setListSwitcherOpen((o) => !o)}
+                aria-haspopup="menu"
+                aria-expanded={listSwitcherOpen}
+                className={cn(
+                  'inline-flex items-center gap-2 px-3 py-2 rounded-full',
+                  'bg-on-surface/[0.05] hover:bg-on-surface/[0.08] transition-colors',
+                  'text-sm font-semibold text-on-surface',
+                )}
+              >
+                <span className="text-base leading-none">{currentViewLabel.emoji}</span>
+                <span>{currentViewLabel.name}</span>
+                <span className="text-[11px] tabular-nums text-on-surface/45">{currentViewLabel.count}</span>
+                <ChevronDown
+                  size={14}
+                  className={cn('text-on-surface/45 transition-transform', listSwitcherOpen && 'rotate-180')}
+                />
+              </button>
+
+              <AnimatePresence>
+                {listSwitcherOpen && (
+                  <motion.div
+                    role="menu"
+                    initial={{ opacity: 0, scale: 0.97, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.97, y: -4 }}
+                    transition={{ duration: 0.14, ease: 'easeOut' }}
+                    className="absolute left-0 top-full mt-2 w-72 max-h-[70vh] overflow-y-auto bg-surface rounded-2xl shadow-xl border border-on-surface/[0.08] z-50 py-2"
+                  >
+                    {/* Restaurants section */}
+                    <p className="px-4 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
+                      Restaurants
+                    </p>
+                    <SwitcherRow
+                      icon={<span className="text-base leading-none">⭐</span>}
+                      label="All Rated"
+                      count={regularRatingsCount}
+                      active={!showHomeCooking && !showTrips && !selectedList}
+                      onClick={switchToRated}
+                    />
+                    <SwitcherRow
+                      icon={<Heart size={14} className="text-red-400 fill-red-400" />}
+                      label="Wishlist"
+                      count={regularWishlist.length}
+                      active={selectedList?.id === '__wishlist__'}
+                      onClick={switchToWishlist}
+                    />
+                    {restaurantListsForSwitcher.map((l) => (
+                      <SwitcherRow
+                        key={l.id}
+                        icon={<span className="text-base leading-none">{l.emoji}</span>}
+                        label={l.name}
+                        count={l.restaurantIds.length + (l.wishlistIds?.length || 0)}
+                        active={selectedList?.id === l.id}
+                        onClick={() => switchToList(l)}
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => { setListSwitcherOpen(false); setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
+                    >
+                      <Plus size={14} />
+                      <span>New restaurant list</span>
+                    </button>
+
+                    {/* Recipes section */}
+                    <div className="my-2 mx-4 border-t border-on-surface/[0.06]" />
+                    <p className="px-4 pt-1 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
+                      Recipes
+                    </p>
+                    <SwitcherRow
+                      icon={<ChefHat size={14} className="text-emerald-600" />}
+                      label="All Recipes"
+                      count={homeMeals.length}
+                      active={showHomeCooking}
+                      onClick={switchToAllRecipes}
+                    />
+                    {recipeListsForSwitcher.map((l) => (
+                      <SwitcherRow
+                        key={l.id}
+                        icon={<span className="text-base leading-none">{l.emoji}</span>}
+                        label={l.name}
+                        count={l.recipes?.length || 0}
+                        active={selectedList?.id === l.id}
+                        onClick={() => switchToList(l)}
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => { setListSwitcherOpen(false); setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
+                    >
+                      <Plus size={14} />
+                      <span>New recipe list</span>
+                    </button>
+
+                    {/* Trips section — only when there's at least one. */}
+                    {trips.length > 0 && (
+                      <>
+                        <div className="my-2 mx-4 border-t border-on-surface/[0.06]" />
+                        <p className="px-4 pt-1 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
+                          Trips
+                        </p>
+                        <SwitcherRow
+                          icon={<Plane size={14} className="text-primary" />}
+                          label="All Trips"
+                          count={trips.length}
+                          active={showTrips}
+                          onClick={switchToTrips}
+                        />
+                      </>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ) : <div />}
+
           <div className="relative" ref={moreMenuRef}>
             <button onClick={() => setMoreMenuOpen(!moreMenuOpen)}
               className="p-2 hover:bg-muted rounded-full transition-colors">
@@ -5148,12 +5369,13 @@ export const Pantry: React.FC = () => {
             autoCreate={createTripFromList}
             onAutoCreateHandled={() => setCreateTripFromList(false)}
           />
-        ) : !showAllRated ? (
-          // Tabbed landing — shown on both phone and desktop. Tapping
-          // Wishlist, "Your canvas", or "All Recipes" routes back into the
-          // existing list / rated / cookbook views. The "+ New" cards on
-          // each tab open the create-list sheet seeded with the right
-          // kind so a custom list lands on the correct tab.
+        ) : phoneMode && !showAllRated ? (
+          // Phone-only card landing. Tapping Wishlist, "Your canvas", or
+          // "All Recipes" routes back into the existing list / rated /
+          // cookbook views. The "+ New" cards on each tab open the
+          // create-list sheet seeded with the right kind so a custom
+          // list lands on the correct tab. Desktop skips this and goes
+          // straight to the rated-list view (with on-page list switcher).
           <PhonePantryHome
             lists={lists}
             ratedCount={regularRatingsCount}
