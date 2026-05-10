@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -968,11 +968,32 @@ export const Reels: React.FC = () => {
   }, []);
   const showDesktopFrame = isDesktop && !phoneMode;
 
+  // ── Mutual exclusion between the restaurant panel and the comments
+  // sheet/panel: only one side panel can be visible at a time. Wrap the
+  // open calls so opening one always closes the other. The raw close
+  // callbacks (closeCommentsSheet / closePostCommentsSheet) are still
+  // passed unmodified — the user can dismiss either pane independently.
+  const openRestaurantPanel = useCallback((snap: RestaurantPanelSnapshot) => {
+    closeCommentsSheet();
+    closePostCommentsSheet();
+    setRestaurantPanelSnapshot(snap);
+  }, [closeCommentsSheet, closePostCommentsSheet]);
+
+  const openReelComments = useCallback((reelId: string) => {
+    setRestaurantPanelSnapshot(null);
+    openCommentsSheet(reelId);
+  }, [openCommentsSheet]);
+
+  const openPostComments = useCallback((postId: string) => {
+    setRestaurantPanelSnapshot(null);
+    openPostCommentsSheet(postId);
+  }, [openPostCommentsSheet]);
+
   const handleCardClick = (reel: Reel) => {
     if (reel.kind === 'restaurant' && reel.restaurant) {
       // Open the in-feed restaurant panel instead of navigating away —
       // keeps the user inside the reels feed.
-      setRestaurantPanelSnapshot(reel.restaurant);
+      openRestaurantPanel(reel.restaurant);
       return;
     }
     if (reel.kind === 'recipe' && reel.recipe) {
@@ -1071,7 +1092,7 @@ export const Reels: React.FC = () => {
   // by the post's author).
   const handlePostItemClick = (postUserId: string, item: PostItemRow) => {
     if (item.attachedKind === 'restaurant' && item.restaurant) {
-      setRestaurantPanelSnapshot(item.restaurant);
+      openRestaurantPanel(item.restaurant);
     } else if (item.attachedKind === 'recipe' && item.recipe) {
       navigate(`/meal/${encodeURIComponent(postUserId)}/${encodeURIComponent(item.recipe.id)}`);
     }
@@ -1149,7 +1170,7 @@ export const Reels: React.FC = () => {
                     if (!currentUserId) { showToast('Sign in to save reels'); return; }
                     toggleSave(item.reel.id);
                   }}
-                  onComment={() => openCommentsSheet(item.reel.id)}
+                  onComment={() => openReelComments(item.reel.id)}
                   onShare={() => handleShare(item.reel)}
                   onCardClick={() => handleCardClick(item.reel)}
                   onDelete={() => setConfirmDeleteId(item.reel.id)}
@@ -1170,7 +1191,7 @@ export const Reels: React.FC = () => {
                     if (!currentUserId) { showToast('Sign in to save posts'); return; }
                     togglePostSave(item.post.id);
                   }}
-                  onComment={() => openPostCommentsSheet(item.post.id)}
+                  onComment={() => openPostComments(item.post.id)}
                   onShare={() => handleSharePost(item.post)}
                   onItemAttachmentClick={(postItem) => handlePostItemClick(item.post.userId, postItem)}
                   onDelete={() => setConfirmDeletePostId(item.post.id)}
@@ -1285,7 +1306,7 @@ export const Reels: React.FC = () => {
                 if (!currentUserId) { showToast('Sign in to save reels'); return; }
                 toggleSave(activeReel.id);
               }}
-              onComment={() => openCommentsSheet(activeReel.id)}
+              onComment={() => openReelComments(activeReel.id)}
               onShare={() => handleShare(activeReel)}
               onDelete={() => setConfirmDeleteId(activeReel.id)}
             />
@@ -1304,7 +1325,7 @@ export const Reels: React.FC = () => {
                 if (!currentUserId) { showToast('Sign in to save posts'); return; }
                 togglePostSave(activePost.id);
               }}
-              onComment={() => openPostCommentsSheet(activePost.id)}
+              onComment={() => openPostComments(activePost.id)}
               onShare={() => handleSharePost(activePost)}
               onDelete={() => setConfirmDeletePostId(activePost.id)}
             />
