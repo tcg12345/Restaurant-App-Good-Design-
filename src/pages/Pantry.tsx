@@ -4868,6 +4868,45 @@ const HomeCookingTab: React.FC<{
   );
 };
 
+/* ── Combined Restaurants/Recipes tab + list-selector ──
+   The active tab carries the current list info (emoji + name + count
+   + chevron) and toggles a dropdown when clicked. The inactive tab
+   just shows its category label and switches sections on click. */
+const CombinedTabButton: React.FC<{
+  isActive: boolean;
+  inactiveLabel: string;
+  activeEmoji: string;
+  activeName: string;
+  activeCount: number;
+  dropdownOpen: boolean;
+  onClick: () => void;
+}> = ({ isActive, inactiveLabel, activeEmoji, activeName, activeCount, dropdownOpen, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-haspopup={isActive ? 'menu' : undefined}
+    aria-expanded={isActive ? dropdownOpen : undefined}
+    className={cn(
+      'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
+      isActive
+        ? 'bg-white text-on-surface shadow-sm'
+        : 'text-on-surface/45 hover:text-on-surface/65',
+    )}
+  >
+    {isActive ? (
+      <>
+        <span className="text-base leading-none">{activeEmoji}</span>
+        <span>{activeName}</span>
+        <span className="text-[11px] tabular-nums text-on-surface/40">{activeCount}</span>
+        <ChevronDown
+          size={13}
+          className={cn('text-on-surface/45 transition-transform', dropdownOpen && 'rotate-180')}
+        />
+      </>
+    ) : inactiveLabel}
+  </button>
+);
+
 /* ── Reusable filter chip used in the rated-view toolbar ──
    One consistent chip token: rounded-full, neutral by default, primary
    tint when active, optional badge / icon / clear-X. Putting this in
@@ -5363,67 +5402,53 @@ export const Pantry: React.FC = () => {
 
   return (
     <div className="pb-32">
-      {/* Desktop tabs — Restaurants vs Recipes. Hidden on phone (the
-          card-grid landing already exposes both tabs), in trips view
-          (its own UI), and inside ListDetailView (its own header).
-          Aligned at px-3 so the chrome lines up with <main>. */}
-      {!phoneMode && !currentList && !showTrips && (
-        <div className="px-3 pt-4 pb-1">
-          <div className="inline-flex w-full sm:w-auto bg-on-surface/[0.06] rounded-full p-1">
-            <button
-              type="button"
-              onClick={goToRestaurantsTab}
-              className={cn(
-                'flex-1 sm:flex-initial sm:px-6 px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
-                activeDesktopTab === 'restaurants'
-                  ? 'bg-white text-on-surface shadow-sm'
-                  : 'text-on-surface/45 hover:text-on-surface/65',
-              )}
-            >
-              Restaurants
-            </button>
-            <button
-              type="button"
-              onClick={goToRecipesTab}
-              className={cn(
-                'flex-1 sm:flex-initial sm:px-6 px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
-                activeDesktopTab === 'recipes'
-                  ? 'bg-white text-on-surface shadow-sm'
-                  : 'text-on-surface/45 hover:text-on-surface/65',
-              )}
-            >
-              Recipes
-            </button>
-          </div>
-        </div>
-      )}
-
+      {/* Combined tabs + list selector — desktop only.
+          The tab pill IS the list selector: each tab shows the active
+          list within its section (emoji + name + count + chevron).
+          Click the active tab → dropdown of that section's lists.
+          Click the inactive tab → switch to it. The dropdown adapts
+          to whichever tab is active so Restaurants only sees
+          restaurant lists, and Recipes only sees recipe lists.
+          Hidden on phone (card landing handles it), in trips, and
+          inside ListDetailView. */}
       {!hideTopBar && !currentList && (
-        <div className="flex items-center justify-between gap-3 px-3 pt-3 pb-1">
-          {/* List switcher — desktop only. On phone, the card landing
-              is the navigation surface; here, a popover button is the
-              equivalent for the always-on rated view. */}
-          {!phoneMode ? (
+        <div className="flex items-center justify-between gap-3 px-3 pt-4 pb-1">
+          {!phoneMode && !showTrips ? (
             <div className="relative" ref={listSwitcherRef}>
-              <button
-                type="button"
-                onClick={() => setListSwitcherOpen((o) => !o)}
-                aria-haspopup="menu"
-                aria-expanded={listSwitcherOpen}
-                className={cn(
-                  'inline-flex items-center gap-2 px-3 py-2 rounded-full',
-                  'bg-on-surface/[0.05] hover:bg-on-surface/[0.08] transition-colors',
-                  'text-sm font-semibold text-on-surface',
-                )}
-              >
-                <span className="text-base leading-none">{currentViewLabel.emoji}</span>
-                <span>{currentViewLabel.name}</span>
-                <span className="text-[11px] tabular-nums text-on-surface/45">{currentViewLabel.count}</span>
-                <ChevronDown
-                  size={14}
-                  className={cn('text-on-surface/45 transition-transform', listSwitcherOpen && 'rotate-180')}
+              <div className="inline-flex bg-on-surface/[0.06] rounded-full p-1">
+                <CombinedTabButton
+                  isActive={activeDesktopTab === 'restaurants'}
+                  inactiveLabel="Restaurants"
+                  activeEmoji={currentViewLabel.emoji}
+                  activeName={currentViewLabel.name}
+                  activeCount={currentViewLabel.count}
+                  dropdownOpen={listSwitcherOpen}
+                  onClick={() => {
+                    if (activeDesktopTab === 'restaurants') {
+                      setListSwitcherOpen((o) => !o);
+                    } else {
+                      goToRestaurantsTab();
+                      setListSwitcherOpen(false);
+                    }
+                  }}
                 />
-              </button>
+                <CombinedTabButton
+                  isActive={activeDesktopTab === 'recipes'}
+                  inactiveLabel="Recipes"
+                  activeEmoji={currentViewLabel.emoji}
+                  activeName={currentViewLabel.name}
+                  activeCount={currentViewLabel.count}
+                  dropdownOpen={listSwitcherOpen}
+                  onClick={() => {
+                    if (activeDesktopTab === 'recipes') {
+                      setListSwitcherOpen((o) => !o);
+                    } else {
+                      goToRecipesTab();
+                      setListSwitcherOpen(false);
+                    }
+                  }}
+                />
+              </div>
 
               <AnimatePresence>
                 {listSwitcherOpen && (
@@ -5435,88 +5460,68 @@ export const Pantry: React.FC = () => {
                     transition={{ duration: 0.14, ease: 'easeOut' }}
                     className="absolute left-0 top-full mt-2 w-72 max-h-[70vh] overflow-y-auto bg-surface rounded-2xl shadow-xl border border-on-surface/[0.08] z-50 py-2"
                   >
-                    {/* Restaurants section */}
-                    <p className="px-4 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
-                      Restaurants
-                    </p>
-                    <SwitcherRow
-                      icon={<span className="text-base leading-none">⭐</span>}
-                      label="All Rated"
-                      count={regularRatingsCount}
-                      active={!showHomeCooking && !showTrips && !selectedList}
-                      onClick={switchToRated}
-                    />
-                    <SwitcherRow
-                      icon={<Heart size={14} className="text-red-400 fill-red-400" />}
-                      label="Wishlist"
-                      count={regularWishlist.length}
-                      active={selectedList?.id === '__wishlist__'}
-                      onClick={switchToWishlist}
-                    />
-                    {restaurantListsForSwitcher.map((l) => (
-                      <SwitcherRow
-                        key={l.id}
-                        icon={<span className="text-base leading-none">{l.emoji}</span>}
-                        label={l.name}
-                        count={l.restaurantIds.length + (l.wishlistIds?.length || 0)}
-                        active={selectedList?.id === l.id}
-                        onClick={() => switchToList(l)}
-                      />
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => { setListSwitcherOpen(false); setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
-                      className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
-                    >
-                      <Plus size={14} />
-                      <span>New restaurant list</span>
-                    </button>
-
-                    {/* Recipes section */}
-                    <div className="my-2 mx-4 border-t border-on-surface/[0.06]" />
-                    <p className="px-4 pt-1 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
-                      Recipes
-                    </p>
-                    <SwitcherRow
-                      icon={<ChefHat size={14} className="text-emerald-600" />}
-                      label="All Recipes"
-                      count={homeMeals.length}
-                      active={showHomeCooking}
-                      onClick={switchToAllRecipes}
-                    />
-                    {recipeListsForSwitcher.map((l) => (
-                      <SwitcherRow
-                        key={l.id}
-                        icon={<span className="text-base leading-none">{l.emoji}</span>}
-                        label={l.name}
-                        count={l.recipes?.length || 0}
-                        active={selectedList?.id === l.id}
-                        onClick={() => switchToList(l)}
-                      />
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => { setListSwitcherOpen(false); setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
-                      className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
-                    >
-                      <Plus size={14} />
-                      <span>New recipe list</span>
-                    </button>
-
-                    {/* Trips section — only when there's at least one. */}
-                    {trips.length > 0 && (
+                    {activeDesktopTab === 'restaurants' ? (
                       <>
-                        <div className="my-2 mx-4 border-t border-on-surface/[0.06]" />
-                        <p className="px-4 pt-1 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
-                          Trips
-                        </p>
                         <SwitcherRow
-                          icon={<Plane size={14} className="text-primary" />}
-                          label="All Trips"
-                          count={trips.length}
-                          active={showTrips}
-                          onClick={switchToTrips}
+                          icon={<span className="text-base leading-none">⭐</span>}
+                          label="All Rated"
+                          count={regularRatingsCount}
+                          active={!showHomeCooking && !showTrips && !selectedList}
+                          onClick={switchToRated}
                         />
+                        <SwitcherRow
+                          icon={<Heart size={14} className="text-red-400 fill-red-400" />}
+                          label="Wishlist"
+                          count={regularWishlist.length}
+                          active={selectedList?.id === '__wishlist__'}
+                          onClick={switchToWishlist}
+                        />
+                        {restaurantListsForSwitcher.map((l) => (
+                          <SwitcherRow
+                            key={l.id}
+                            icon={<span className="text-base leading-none">{l.emoji}</span>}
+                            label={l.name}
+                            count={l.restaurantIds.length + (l.wishlistIds?.length || 0)}
+                            active={selectedList?.id === l.id}
+                            onClick={() => switchToList(l)}
+                          />
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setListSwitcherOpen(false); setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
+                        >
+                          <Plus size={14} />
+                          <span>New restaurant list</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <SwitcherRow
+                          icon={<ChefHat size={14} className="text-emerald-600" />}
+                          label="All Recipes"
+                          count={homeMeals.length}
+                          active={showHomeCooking}
+                          onClick={switchToAllRecipes}
+                        />
+                        {recipeListsForSwitcher.map((l) => (
+                          <SwitcherRow
+                            key={l.id}
+                            icon={<span className="text-base leading-none">{l.emoji}</span>}
+                            label={l.name}
+                            count={l.recipes?.length || 0}
+                            active={selectedList?.id === l.id}
+                            onClick={() => switchToList(l)}
+                          />
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setListSwitcherOpen(false); setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
+                        >
+                          <Plus size={14} />
+                          <span>New recipe list</span>
+                        </button>
                       </>
                     )}
                   </motion.div>
