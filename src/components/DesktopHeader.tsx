@@ -8,6 +8,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { usePageSearch } from '../contexts/PageSearchContext';
+import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
 
@@ -87,6 +88,7 @@ export const DesktopHeader: React.FC = () => {
   const { unreadCount } = useChat();
   const { pendingRequestCount } = useAuth();
   const { scopedSearch, setScopedSearch, focusBump } = usePageSearch();
+  const { override: addActionOverride } = usePageAddAction();
   // True while a page (Pantry) has hijacked this input as a list filter.
   const isScoped = scopedSearch !== null;
 
@@ -444,13 +446,20 @@ export const DesktopHeader: React.FC = () => {
 
         {/* ── Right side actions ─────────────────────────────────── */}
         <div className="ml-auto flex items-center gap-2">
-          {/* Add Rating CTA — hidden on Discover (the home grid already
-              has + buttons on every card and the search dropdown
-              now exposes one per result). */}
-          {!isHomeRoute && (
+          {/* Add CTA — hidden on Discover (the home grid already has +
+              buttons on every card and the search dropdown now exposes
+              one per result). Pages can override the label + click via
+              PageAddActionContext (e.g. Pantry swaps it to "Add Recipe"
+              on recipe views and opens a SearchPopup on restaurant
+              views). When no override is set, it routes to /search/main
+              like before. */}
+          {!isHomeRoute && !(addActionOverride?.hidden) && (
             <button
               type="button"
-              onClick={() => navigate('/search/main')}
+              onClick={() => {
+                if (addActionOverride) addActionOverride.onClick();
+                else navigate('/search/main');
+              }}
               className={cn(
                 'inline-flex items-center gap-2 px-4 py-2.5 rounded-full',
                 'bg-primary text-white text-[13px] font-semibold',
@@ -458,7 +467,7 @@ export const DesktopHeader: React.FC = () => {
               )}
             >
               <Plus size={15} strokeWidth={2.5} />
-              <span>Add Rating</span>
+              <span>{addActionOverride?.label ?? 'Add Rating'}</span>
             </button>
           )}
 

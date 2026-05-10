@@ -50,6 +50,7 @@ import { ChatProvider } from './contexts/ChatContext';
 import { ReelsProvider } from './contexts/ReelsContext';
 import { PostsProvider } from './contexts/PostsContext';
 import { PageSearchProvider } from './contexts/PageSearchContext';
+import { PageAddActionProvider } from './contexts/PageAddActionContext';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
@@ -255,7 +256,9 @@ export default function App() {
                   <ReelsProvider>
                     <PostsProvider>
                       <PageSearchProvider>
-                        <AppContent />
+                        <PageAddActionProvider>
+                          <AppContent />
+                        </PageAddActionProvider>
                       </PageSearchProvider>
                     </PostsProvider>
                   </ReelsProvider>

@@ -10,8 +10,10 @@ import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../li
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
+import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
 import { usePageSearch } from '../contexts/PageSearchContext';
+import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
@@ -1823,59 +1825,50 @@ const ListDetailView: React.FC<{
     return out;
   }, [isWishlistView, wishlistedRestaurantsRaw, wishlistCityFilter, wishlistPriceFilter, wishlistCuisineFilter]);
 
+  // Result count + avg score for the desktop toolbar's right-side stats.
+  // These are best-effort numbers — they show what's currently visible
+  // vs the list's true total, so users still see "5 / 14 · Avg 8.0"
+  // when filters narrow things down. Avg uses each item's score (rated
+  // or list-rating override; recipes use meal score).
+  const listStats = (() => {
+    if (isHomeCooking) {
+      const total = recipes.length;
+      const visible = filteredRecipes.length;
+      const scored = filteredRecipes.filter((r) => r.score > 0);
+      const avg = scored.length > 0
+        ? scored.reduce((s, r) => s + r.score, 0) / scored.length
+        : null;
+      return { total, visible, avg };
+    }
+    if (isWishlistView) {
+      return { total: wishlistedRestaurantsRaw.length, visible: wishlistedRestaurantsFinal.length, avg: null };
+    }
+    // Custom restaurant or hotel-breakfast list — combine rated and wishlist sections.
+    const total = ratedRestaurants.length + wishlistedRestaurantsRaw.length;
+    const visible = total; // no per-list filter UI yet beyond search
+    const scored = ratedRestaurants
+      .map((r) => r.rating?.score)
+      .filter((s): s is number => typeof s === 'number' && s > 0);
+    const avg = scored.length > 0 ? scored.reduce((s, n) => s + n, 0) / scored.length : null;
+    return { total, visible, avg };
+  })();
+
   return (
     <div>
-      {/* ── Minimal top bar (every list type) ─────────────────────────
-          The list's identity already lives in the sidebar's permanent
-          tray, so the page itself drops the editorial header + the
-          big Add CTA. All that remains is a back arrow on phone, a
-          search-icon toggle, and (for deletable lists) a trash icon.
-          Adding to a list is done via the dashed footer button at the
-          bottom of the grid — same path as before, just no longer
-          duplicated up top. */}
-      <div className="flex items-center justify-end gap-2 mb-4">
-        <button
-          onClick={onBack}
-          aria-label="Back"
-          className="lg:hidden p-2 -ml-2 mr-auto text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
-        >
-          <ArrowLeft size={20} />
-        </button>
-        {/* Desktop: prominent "Search this list" pill that pipes typing
-            into the header search input. Phone: small icon that toggles
-            the inline search input below. */}
-        {!phoneMode ? (
+      {/* ── Phone-only top bar ─────────────────────────────────────────
+          Back arrow, search-icon toggle, and (for deletable lists) a
+          trash icon. Desktop drops this entire row — Pantry's tab pill
+          handles navigation, the toolbar below handles search, and
+          delete moves to the More menu (⋯). */}
+      {phoneMode && (
+        <div className="flex items-center justify-end gap-2 mb-4">
           <button
-            type="button"
-            onClick={activateListScope}
-            aria-label={`Search ${list.name}`}
-            className={cn(
-              'mr-auto inline-flex items-center gap-2 px-4 py-2 rounded-full transition-colors',
-              'text-sm font-semibold',
-              searchQuery
-                ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
-                : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
-            )}
+            onClick={onBack}
+            aria-label="Back"
+            className="p-2 -ml-2 mr-auto text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
           >
-            <Search size={14} />
-            <span>Search this list</span>
-            {searchQuery && (
-              <span className="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold tabular-nums">
-                <span className="truncate max-w-[120px]">"{searchQuery}"</span>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); } }}
-                  aria-label="Clear list search"
-                  className="text-primary/70 hover:text-primary"
-                >
-                  <X size={11} />
-                </span>
-              </span>
-            )}
+            <ArrowLeft size={20} />
           </button>
-        ) : (
           <button
             type="button"
             onClick={() => setSearchOpen((o) => !o)}
@@ -1890,19 +1883,114 @@ const ListDetailView: React.FC<{
           >
             <Search size={17} />
           </button>
-        )}
-        {!isWishlistView && (
-          <button
-            type="button"
-            onClick={() => setConfirmDeleteList(true)}
-            aria-label="Delete list"
-            title="Delete list"
-            className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface/40 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
-          >
-            <Trash2 size={16} />
-          </button>
-        )}
-      </div>
+          {!isWishlistView && (
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteList(true)}
+              aria-label="Delete list"
+              title="Delete list"
+              className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface/40 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Desktop toolbar ───────────────────────────────────────────
+          Same shape as the rated view: Search this list pill on the
+          left, list-appropriate filter pills next to it, result count
+          + avg + view toggle on the right, thin border separates the
+          chrome from the content below. */}
+      {!phoneMode && (
+        <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+            {/* Search this list */}
+            <button
+              type="button"
+              onClick={activateListScope}
+              aria-label={`Search ${list.name}`}
+              className={cn(
+                'inline-flex items-center gap-2 h-8 px-3.5 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0',
+                searchQuery
+                  ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+                  : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
+              )}
+            >
+              <Search size={13} />
+              <span>Search this list</span>
+              {searchQuery && (
+                <span className="inline-flex items-center gap-1 ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold">
+                  <span className="truncate max-w-[100px]">"{searchQuery}"</span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); } }}
+                    aria-label="Clear list search"
+                    className="text-primary/70 hover:text-primary"
+                  >
+                    <X size={11} />
+                  </span>
+                </span>
+              )}
+            </button>
+
+            {/* Wishlist filter pills — surface the existing wishlist
+                filter sheet for the wishlist view. Other list types
+                get a simpler toolbar (filters can be added later). */}
+            {isWishlistView && (
+              <>
+                <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
+                <FilterPill
+                  onClick={() => setWishlistFilterOpen(true)}
+                  icon={<SlidersHorizontal size={12} />}
+                  label="Filters"
+                  active={wishlistActiveFilterCount > 0}
+                  badge={wishlistActiveFilterCount > 0 ? wishlistActiveFilterCount : undefined}
+                />
+                {quickFilterPills.map((pill) => (
+                  <FilterPill
+                    key={pill.key}
+                    onClick={pill.onClick}
+                    label={pill.label}
+                    active={pill.active}
+                  />
+                ))}
+                {wishlistActiveFilterCount > 0 && (
+                  <button
+                    onClick={resetWishlistFilters}
+                    className="inline-flex items-center gap-1 h-8 px-3 rounded-full text-[12px] font-semibold text-red-500/80 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                  >
+                    <X size={11} /><span>Clear all</span>
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* Right side: stats + view toggle */}
+            <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+              {listStats.total > 0 && (
+                <p className="text-[12px] text-on-surface/50 whitespace-nowrap tabular-nums">
+                  <span className="font-bold text-on-surface">{listStats.visible}</span>
+                  {listStats.visible !== listStats.total && (
+                    <span className="text-on-surface/35"> / {listStats.total}</span>
+                  )}
+                  {listStats.avg !== null && (
+                    <>
+                      <span className="text-on-surface/25 mx-1.5">·</span>
+                      <span>Avg <span className="font-bold text-on-surface">{listStats.avg.toFixed(1)}</span></span>
+                    </>
+                  )}
+                </p>
+              )}
+              {!isHomeCooking && (
+                <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Collapsible search input — phone only. Desktop uses the
           header-scoped search button above instead. */}
@@ -2078,11 +2166,14 @@ const ListDetailView: React.FC<{
                 </button>
               );
             })}
-            {/* Add more button */}
-            <button onClick={() => openAddRecipeModal(list.id)}
-              className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
-              <Plus size={16} /><span className="text-sm font-semibold">Add Recipe</span>
-            </button>
+            {/* Add more button — phone only. On desktop the header's
+                "Add Recipe" CTA replaces this footer. */}
+            {phoneMode && (
+              <button onClick={() => openAddRecipeModal(list.id)}
+                className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
+                <Plus size={16} /><span className="text-sm font-semibold">Add Recipe</span>
+              </button>
+            )}
           </div>
         )
       ) : totalCount === 0 ? (
@@ -2213,9 +2304,12 @@ const ListDetailView: React.FC<{
               )}
             </div>
           )}
-          {/* Add more button — hidden in the synthetic Wishlist view because
-              the heart icons across the app are how you add to the wishlist. */}
-          {!isWishlistView && (
+          {/* Add more button — hidden in the synthetic Wishlist view
+              (the heart icons across the app are how you add to the
+              wishlist). On desktop the dashed footer is also dropped:
+              the desktop header's "Add Rating" CTA opens a SearchPopup
+              that adds straight into the current list. */}
+          {!isWishlistView && phoneMode && (
             <button onClick={handlePlusClick}
               className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
               <Plus size={16} /><span className="text-sm font-semibold">{isHotelBreakfast ? 'Add Hotel' : 'Add Restaurants'}</span>
@@ -4069,9 +4163,37 @@ const HomeCookingTab: React.FC<{
 }> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
   const { phoneMode } = useSettings();
   const { user } = useAuth();
+  const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [sortBy, setSortBy] = useState<'recent' | 'highest'>('recent');
+  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'quickest'>('recent');
+
+  // Desktop: clicking "Search this list" hijacks the desktop header
+  // search input as a recipe filter, just like the rated view does.
+  const activateRecipesScope = useCallback(() => {
+    setScopedSearch({
+      scopeName: 'All Recipes',
+      placeholder: 'Search this list…',
+      query: searchQuery,
+      setQuery: setSearchQuery,
+      onDismiss: () => setSearchQuery(''),
+    });
+    bumpFocus();
+  }, [searchQuery, setScopedSearch, bumpFocus]);
+
+  useEffect(() => {
+    if (scopedSearch && scopedSearch.scopeName === 'All Recipes' && scopedSearch.query !== searchQuery) {
+      setScopedSearch({ ...scopedSearch, query: searchQuery });
+    }
+  }, [searchQuery, scopedSearch, setScopedSearch]);
+
+  // Drop the scope when the cookbook unmounts so it doesn't bleed into
+  // the next page. Other components manage their own scope on mount, so
+  // an unconditional clear here is safe.
+  useEffect(() => {
+    return () => { setScopedSearch(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [lightboxPhotoIdx, setLightboxPhotoIdx] = useState<number | null>(null);
   // Transient recipe-page UI state (not persisted — pure display aids).
@@ -4142,8 +4264,15 @@ const HomeCookingTab: React.FC<{
 
     if (sortBy === 'recent') {
       result.sort((a, b) => b.createdAt - a.createdAt);
-    } else {
+    } else if (sortBy === 'highest') {
       result.sort((a, b) => b.score - a.score);
+    } else if (sortBy === 'lowest') {
+      result.sort((a, b) => a.score - b.score);
+    } else if (sortBy === 'quickest') {
+      // Total time = prep + cook. Treat undefined as 0 so meals without
+      // times sink to the top of the list (they're "instant" by default).
+      const total = (m: HomeMeal) => (m.prepTime || 0) + (m.cookTime || 0);
+      result.sort((a, b) => total(a) - total(b));
     }
 
     return result;
@@ -4710,76 +4839,144 @@ const HomeCookingTab: React.FC<{
   }
 
   // ── Meal list view ──
+  // Stats for the desktop toolbar's right side: visible / total + avg.
+  const visibleScored = filteredMeals.filter((m) => m.score > 0);
+  const visibleAvg = visibleScored.length > 0
+    ? visibleScored.reduce((s, m) => s + m.score, 0) / visibleScored.length
+    : null;
+
   return (
     <div>
       {hideHeader ? (
-        // Compact action row when desktop tabs own the page chrome —
-        // keep the search-toggle and "log a meal" controls but drop
-        // the back arrow, icon, and big title.
-        <div className="flex items-center justify-end gap-2 mb-4">
-          <button onClick={() => setSearchOpen(!searchOpen)}
-            className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
-            <Search size={18} />
-          </button>
-          <button onClick={() => onOpenModal()}
-            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Log a meal">
-            <Plus size={20} />
-          </button>
+        // Desktop toolbar — same shape as the rated view + ListDetailView.
+        // Search this list pill on the left, recipe sort pills next to
+        // it, count + avg + view toggle on the right, thin border.
+        <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+            <button
+              type="button"
+              onClick={activateRecipesScope}
+              aria-label="Search this list"
+              className={cn(
+                'inline-flex items-center gap-2 h-8 px-3.5 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0',
+                searchQuery
+                  ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+                  : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
+              )}
+            >
+              <Search size={13} />
+              <span>Search this list</span>
+              {searchQuery && (
+                <span className="inline-flex items-center gap-1 ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold">
+                  <span className="truncate max-w-[100px]">"{searchQuery}"</span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); } }}
+                    aria-label="Clear list search"
+                    className="text-primary/70 hover:text-primary"
+                  >
+                    <X size={11} />
+                  </span>
+                </span>
+              )}
+            </button>
+
+            <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
+
+            {/* Recipe sort pills — inline rather than a modal sheet, so
+                the user can switch sort without an extra click. */}
+            {(['recent', 'highest', 'lowest', 'quickest'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSortBy(s)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
+                  sortBy === s
+                    ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+                    : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface',
+                )}
+              >
+                {s === 'recent' ? 'Recent' : s === 'highest' ? 'Highest' : s === 'lowest' ? 'Lowest' : 'Quickest'}
+              </button>
+            ))}
+
+            <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+              {meals.length > 0 && (
+                <p className="text-[12px] text-on-surface/50 whitespace-nowrap tabular-nums">
+                  <span className="font-bold text-on-surface">{filteredMeals.length}</span>
+                  {filteredMeals.length !== meals.length && (
+                    <span className="text-on-surface/35"> / {meals.length}</span>
+                  )}
+                  {visibleAvg !== null && (
+                    <>
+                      <span className="text-on-surface/25 mx-1.5">·</span>
+                      <span>Avg <span className="font-bold text-on-surface">{visibleAvg.toFixed(1)}</span></span>
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       ) : (
-        <div className="flex items-center gap-3 mb-6">
-          <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-            <ArrowLeft size={20} />
-          </button>
-          <ChefHat size={22} className="text-emerald-600" />
-          <div className="flex-1 min-w-0">
-            <h2 className="font-serif font-bold text-xl">Home Cooking</h2>
-            <p className="text-xs text-on-surface/40">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
-          </div>
-          <button onClick={() => setSearchOpen(!searchOpen)}
-            className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
-            <Search size={18} />
-          </button>
-          <button onClick={() => onOpenModal()}
-            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Log a meal">
-            <Plus size={20} />
-          </button>
-        </div>
-      )}
-
-      {/* Search bar */}
-      <AnimatePresence>
-        {searchOpen && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden mb-3">
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
-              <input
-                type="text"
-                placeholder="Search meals or dishes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                autoFocus
-                className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 transition-all"
-              />
+        <>
+          <div className="flex items-center gap-3 mb-6">
+            <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+              <ArrowLeft size={20} />
+            </button>
+            <ChefHat size={22} className="text-emerald-600" />
+            <div className="flex-1 min-w-0">
+              <h2 className="font-serif font-bold text-xl">Home Cooking</h2>
+              <p className="text-xs text-on-surface/40">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <button onClick={() => setSearchOpen(!searchOpen)}
+              className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
+              <Search size={18} />
+            </button>
+            <button onClick={() => onOpenModal()}
+              className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Log a meal">
+              <Plus size={20} />
+            </button>
+          </div>
 
-      {/* Sort bar */}
-      <div className="flex gap-2 mb-4">
-        {(['recent', 'highest'] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setSortBy(s)}
-            className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-              sortBy === s ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-          >
-            {s === 'recent' ? 'Recent' : 'Highest Rated'}
-          </button>
-        ))}
-      </div>
+          {/* Phone-only inline search toggle */}
+          <AnimatePresence>
+            {searchOpen && (
+              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden mb-3">
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
+                  <input
+                    type="text"
+                    placeholder="Search meals or dishes..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    autoFocus
+                    className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 transition-all"
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Phone-only sort pills */}
+          <div className="flex gap-2 mb-4">
+            {(['recent', 'highest'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setSortBy(s)}
+                className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
+                  sortBy === s ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
+              >
+                {s === 'recent' ? 'Recent' : 'Highest Rated'}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Meal cards */}
       {filteredMeals.length === 0 ? (
@@ -4998,6 +5195,20 @@ export const Pantry: React.FC = () => {
   const location = useLocation();
   const { phoneMode, setHideBottomNav } = useSettings();
   const { setScopedSearch, bumpFocus, scopedSearch } = usePageSearch();
+  const { setOverride: setPageAddAction } = usePageAddAction();
+
+  // Spotlight-style search popup — opened by the desktop header's
+  // "Add Rating" button. Mode determines what the popup shows:
+  //   - 'rate-new'        Main rated page. Search-only, picking a place
+  //                       opens the Add Rating modal so the user can rate
+  //                       it on the spot.
+  //   - 'add-to-list'     Custom restaurant list / Wishlist. Shows your
+  //                       rated restaurants up top (one-tap to add to
+  //                       the list, no rating modal — already rated)
+  //                       plus search results below (pick → adds to list
+  //                       AND opens the Add Rating modal).
+  const [searchPopupOpen, setSearchPopupOpen] = useState(false);
+  const [searchPopupMode, setSearchPopupMode] = useState<'rate-new' | 'add-to-list'>('rate-new');
 
   // On phone, always use list view
   const effectiveViewMode = phoneMode ? 'list' : viewMode;
@@ -5147,6 +5358,7 @@ export const Pantry: React.FC = () => {
     rateRestaurant, cacheRestaurantMeta, addToList,
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
+    openAddRecipeModal,
   } = useLists();
 
   /**
@@ -5325,6 +5537,64 @@ export const Pantry: React.FC = () => {
   const hideTopBar =
     (showHomeCooking && homeCookingSelectedMealId !== null) || onPhoneCardHome;
 
+  // ── Override the desktop header's Add CTA per view ──
+  // Phone keeps the default behavior. On desktop, the button label and
+  // click handler swap based on which list is open:
+  //   • Recipe view (All Recipes or a custom recipe list) → "Add Recipe",
+  //     opens the right recipe modal directly (HomeMeal modal for All
+  //     Recipes; AddRecipeModal scoped to the list otherwise).
+  //   • Custom restaurant list / Wishlist → "Add Rating", opens the
+  //     SearchPopup in 'add-to-list' mode (rated section + search).
+  //   • Rated list → "Add Rating", opens the SearchPopup in 'rate-new'
+  //     mode (search-only — your rated places are already on the page).
+  //   • Trips / phone card landing → fall through to the default
+  //     /search/main route.
+  useEffect(() => {
+    if (phoneMode || onPhoneCardHome) {
+      setPageAddAction(null);
+      return;
+    }
+    if (showTrips) {
+      setPageAddAction(null);
+      return;
+    }
+    if (showHomeCooking) {
+      setPageAddAction({
+        label: 'Add Recipe',
+        onClick: () => openHomeMealModal(),
+      });
+      return;
+    }
+    if (selectedList && selectedList.type === 'home-cooking') {
+      setPageAddAction({
+        label: 'Add Recipe',
+        onClick: () => openAddRecipeModal(selectedList.id),
+      });
+      return;
+    }
+    if (selectedList) {
+      // Wishlist or custom restaurant list → SearchPopup with rated
+      // section so the user can one-tap their already-rated places into
+      // the list.
+      setPageAddAction({
+        label: 'Add Rating',
+        onClick: () => { setSearchPopupMode('add-to-list'); setSearchPopupOpen(true); },
+      });
+      return;
+    }
+    // Default rated view (with or without showAllRated): search-only popup.
+    setPageAddAction({
+      label: 'Add Rating',
+      onClick: () => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); },
+    });
+  }, [phoneMode, onPhoneCardHome, showTrips, showHomeCooking, selectedList, openHomeMealModal, openAddRecipeModal, setPageAddAction]);
+
+  // Reset the override when Pantry unmounts so other pages start clean.
+  useEffect(() => {
+    return () => { setPageAddAction(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Which top-level desktop tab is the user currently on? Derived so any
   // path into a recipe-y view (cookbook, recipe sub-list) lights up the
   // Recipes tab; everything else (rated, wishlist, restaurant sub-list)
@@ -5348,13 +5618,25 @@ export const Pantry: React.FC = () => {
   };
 
   // Identity of the currently visible top-level view, used to label the
-  // list switcher button. (currentList views render inside ListDetailView,
-  // which has its own header — the switcher doesn't appear there.)
-  const currentViewLabel = showHomeCooking
-    ? { emoji: '🍳', name: 'All Recipes', count: homeMeals.length }
-    : showTrips
-      ? { emoji: '✈️', name: 'Trips', count: trips.length }
-      : { emoji: '⭐', name: 'All Rated', count: regularRatingsCount };
+  // list switcher button. Now that the tab pill also persists when a
+  // sub-list is open, derive from selectedList first so opening
+  // Wishlist or "Best Pizza" updates the active tab's label/count
+  // instead of stranding "All Rated" up there.
+  const currentViewLabel = (() => {
+    if (selectedList) {
+      if (selectedList.id === '__wishlist__') {
+        return { emoji: '❤️', name: 'Wishlist', count: regularWishlist.length };
+      }
+      const isRecipeList = selectedList.type === 'home-cooking';
+      const count = isRecipeList
+        ? (selectedList.recipes?.length || 0)
+        : selectedList.restaurantIds.length + (selectedList.wishlistIds?.length || 0);
+      return { emoji: selectedList.emoji, name: selectedList.name, count };
+    }
+    if (showHomeCooking) return { emoji: '🍳', name: 'All Recipes', count: homeMeals.length };
+    if (showTrips) return { emoji: '✈️', name: 'Trips', count: trips.length };
+    return { emoji: '⭐', name: 'All Rated', count: regularRatingsCount };
+  })();
 
   // Restaurant + recipe lists split for the popover sections.
   const restaurantListsForSwitcher = useMemo(
@@ -5409,9 +5691,11 @@ export const Pantry: React.FC = () => {
           Click the inactive tab → switch to it. The dropdown adapts
           to whichever tab is active so Restaurants only sees
           restaurant lists, and Recipes only sees recipe lists.
-          Hidden on phone (card landing handles it), in trips, and
-          inside ListDetailView. */}
-      {!hideTopBar && !currentList && (
+          Now shows even when a sub-list is selected so navigation
+          stays consistent — opening Wishlist or a custom list keeps
+          the same chrome and just swaps the list content below.
+          Hidden on phone (card landing handles it) and in trips. */}
+      {!hideTopBar && (
         <div className="flex items-center justify-between gap-3 px-3 pt-4 pb-1">
           {!phoneMode && !showTrips ? (
             <div className="relative" ref={listSwitcherRef}>
@@ -5938,6 +6222,61 @@ export const Pantry: React.FC = () => {
         allCities={allCities}
         allCuisines={allCuisines}
         onReset={handleResetFilters}
+      />
+
+      {/* Spotlight-style search popup — opened by the desktop header's
+          Add Rating button (PageAddAction override above). */}
+      <SearchPopup
+        open={searchPopupOpen}
+        onClose={() => setSearchPopupOpen(false)}
+        title={searchPopupMode === 'add-to-list' && currentList
+          ? (currentList.id === '__wishlist__' ? 'Add to Wishlist' : `Add to ${currentList.name}`)
+          : undefined}
+        placeholder={searchPopupMode === 'add-to-list'
+          ? 'Pick a rated place or search for a new one…'
+          : 'Search for a restaurant…'}
+        ratedRestaurants={searchPopupMode === 'add-to-list'
+          ? ratings.filter((r) => r.cuisine !== 'Hotel Breakfast')
+          : undefined}
+        excludeIds={searchPopupMode === 'add-to-list' && currentList
+          ? new Set([
+              ...currentList.restaurantIds,
+              ...(currentList.wishlistIds || []),
+            ])
+          : undefined}
+        onPickRated={(rating) => {
+          if (!currentList) return;
+          if (currentList.id === '__wishlist__') {
+            // Wishlist add path — shouldn't really hit since wishlist is
+            // toggled via the heart elsewhere, but covers the edge case.
+            setSearchPopupOpen(false);
+            return;
+          }
+          addToList(currentList.id, rating.restaurantId);
+          // Cache meta so the row renders without an extra fetch.
+          cacheRestaurantMeta({
+            id: rating.restaurantId, name: rating.name, image: rating.image,
+            cuisine: rating.cuisine, price: rating.price, address: rating.address,
+          });
+          setSearchPopupOpen(false);
+        }}
+        onPickPlace={(place) => {
+          const meta: RestaurantMeta = {
+            id: place.id, name: place.name, image: place.photoUrl || '',
+            cuisine: getCuisineLabel(place.types || []),
+            price: '',
+            address: place.fullAddress || place.address,
+          };
+          setSearchPopupOpen(false);
+          if (searchPopupMode === 'add-to-list' && currentList && currentList.id !== '__wishlist__') {
+            // Add to the list immediately and open the rating modal so
+            // the user can score it. The cache write makes the row show
+            // up without waiting for the rating to be saved.
+            cacheRestaurantMeta(meta);
+            addToList(currentList.id, place.id);
+          }
+          openAddRestaurantModal(meta);
+        }}
       />
 
       {/* Create list bottom sheet */}
