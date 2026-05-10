@@ -1,14 +1,19 @@
-import React, { useMemo, useState } from 'react';
-import { Bookmark, ChefHat, Clock, Flame, Plus } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Bookmark, ChefHat, Clock, Flame, Plus, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
-import type { CustomList, RestaurantRating, WishlistItem, HomeMeal } from '../contexts/ListsContext';
+import type { CustomList, HomeMeal } from '../contexts/ListsContext';
 
 /**
- * Phone-only redesign of the Pantry home — replaces the search bar +
- * horizontal pill row with a card-based layout. Wishlist + rated
- * restaurants surface as the two prominent tiles at the top, custom lists
- * appear as a grid below, and a Recipes tab swaps the same grid for the
- * user's logged Home Cooking meals.
+ * Pantry landing — used on phone and desktop. Two top-level tabs:
+ *
+ *   • Restaurants (default) — Wishlist + "Your canvas" (rated) essentials,
+ *     plus a card grid of user-created restaurant lists. The "+ New list"
+ *     card opens the create-list sheet seeded for restaurant lists.
+ *   • Recipes — "All Recipes" essential (the cookbook of every home meal
+ *     the user has logged), plus a card grid of user-created recipe lists
+ *     (CustomList where type === 'home-cooking'). "+ New recipe list"
+ *     opens the create-list sheet seeded for recipe lists, so any recipe
+ *     added to a sub-list also lands in All Recipes.
  *
  * Pure presentational: every navigation handler is hoisted as a callback so
  * the parent (Pantry.tsx) stays in charge of routing into the existing
@@ -16,19 +21,27 @@ import type { CustomList, RestaurantRating, WishlistItem, HomeMeal } from '../co
  */
 
 interface Props {
-  lists: CustomList[];
+  // Restaurant essentials
   ratedCount: number;
   ratedTopScores: number[]; // up to 3 highest scores, already sorted desc
   wishlistCount: number;
+  // Both tabs share the same lists array — it's split by `type` here.
+  lists: CustomList[];
   homeMeals: HomeMeal[];
+  // Active tab (controlled by parent so it can be persisted in URL).
+  tab: PantryTab;
+  onTabChange: (tab: PantryTab) => void;
+  // Restaurant tab handlers
   onOpenList: (list: CustomList) => void;
   onOpenWishlist: () => void;
   onOpenRated: () => void;
-  onCreateList: () => void;
-  onOpenMeal: (meal: HomeMeal) => void;
+  onCreateRestaurantList: () => void;
+  // Recipe tab handlers
+  onOpenAllRecipes: () => void;
+  onCreateRecipeList: () => void;
 }
 
-type Tab = 'lists' | 'recipes';
+export type PantryTab = 'restaurants' | 'recipes';
 
 // Deterministic color palette so a list's tile color is stable across
 // renders without storing one on the model. Hash the id, mod into the
@@ -51,23 +64,28 @@ function colorForId(id: string) {
 }
 
 export const PhonePantryHome: React.FC<Props> = ({
-  lists,
   ratedCount,
   ratedTopScores,
   wishlistCount,
+  lists,
   homeMeals,
+  tab,
+  onTabChange,
   onOpenList,
   onOpenWishlist,
   onOpenRated,
-  onCreateList,
-  onOpenMeal,
+  onCreateRestaurantList,
+  onOpenAllRecipes,
+  onCreateRecipeList,
 }) => {
-  const [tab, setTab] = useState<Tab>('lists');
-
-  // Sort meals by recency for the recipes grid.
-  const sortedMeals = useMemo(
-    () => [...homeMeals].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
-    [homeMeals],
+  // Split lists by their kind so each tab only shows the relevant ones.
+  const restaurantLists = useMemo(
+    () => lists.filter((l) => l.type !== 'home-cooking'),
+    [lists],
+  );
+  const recipeLists = useMemo(
+    () => lists.filter((l) => l.type === 'home-cooking'),
+    [lists],
   );
 
   return (
@@ -77,15 +95,15 @@ export const PhonePantryHome: React.FC<Props> = ({
         Your Collection
       </p>
       <h1 className="font-serif text-[44px] leading-[1.05] mt-1 text-on-surface">
-        The <span className="italic">{tab === 'lists' ? 'Pantry' : 'Cookbook'}</span>
+        The <span className="italic">{tab === 'restaurants' ? 'Pantry' : 'Cookbook'}</span>
       </h1>
 
       {/* ── Tab pill ── */}
       <div className="mt-6 inline-flex w-full bg-on-surface/[0.06] rounded-full p-1">
-        {(['lists', 'recipes'] as Tab[]).map((t) => (
+        {(['restaurants', 'recipes'] as PantryTab[]).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => onTabChange(t)}
             className={cn(
               'flex-1 py-2 rounded-full text-sm font-semibold transition-all',
               tab === t
@@ -93,32 +111,38 @@ export const PhonePantryHome: React.FC<Props> = ({
                 : 'text-on-surface/45',
             )}
           >
-            {t === 'lists' ? 'Lists' : 'Recipes'}
+            {t === 'restaurants' ? 'Restaurants' : 'Recipes'}
           </button>
         ))}
       </div>
 
-      {tab === 'lists' ? (
-        <ListsTab
-          lists={lists}
+      {tab === 'restaurants' ? (
+        <RestaurantsTab
+          lists={restaurantLists}
           ratedCount={ratedCount}
           ratedTopScores={ratedTopScores}
           wishlistCount={wishlistCount}
           onOpenList={onOpenList}
           onOpenWishlist={onOpenWishlist}
           onOpenRated={onOpenRated}
-          onCreateList={onCreateList}
+          onCreateRestaurantList={onCreateRestaurantList}
         />
       ) : (
-        <RecipesTab meals={sortedMeals} onOpenMeal={onOpenMeal} />
+        <RecipesTab
+          lists={recipeLists}
+          homeMeals={homeMeals}
+          onOpenAllRecipes={onOpenAllRecipes}
+          onOpenList={onOpenList}
+          onCreateRecipeList={onCreateRecipeList}
+        />
       )}
     </div>
   );
 };
 
-/* ─────────────── Lists tab ─────────────── */
+/* ─────────────── Restaurants tab ─────────────── */
 
-const ListsTab: React.FC<{
+const RestaurantsTab: React.FC<{
   lists: CustomList[];
   ratedCount: number;
   ratedTopScores: number[];
@@ -126,11 +150,11 @@ const ListsTab: React.FC<{
   onOpenList: (l: CustomList) => void;
   onOpenWishlist: () => void;
   onOpenRated: () => void;
-  onCreateList: () => void;
-}> = ({ lists, ratedCount, ratedTopScores, wishlistCount, onOpenList, onOpenWishlist, onOpenRated, onCreateList }) => {
+  onCreateRestaurantList: () => void;
+}> = ({ lists, ratedCount, ratedTopScores, wishlistCount, onOpenList, onOpenWishlist, onOpenRated, onCreateRestaurantList }) => {
   return (
     <>
-      {/* ── Section: Yours ── */}
+      {/* ── Section: Essentials ── */}
       <div className="mt-6">
         <SectionLabel>Essentials</SectionLabel>
         <div className="grid grid-cols-2 gap-3 mt-3">
@@ -143,7 +167,7 @@ const ListsTab: React.FC<{
       <div className="mt-7">
         <SectionLabel>Collections</SectionLabel>
         <div className="grid grid-cols-2 gap-3 mt-3">
-          <NewListCard onClick={onCreateList} />
+          <NewListCard label="New list" onClick={onCreateRestaurantList} />
           {lists.map((list) => (
             <CustomListCard key={list.id} list={list} onClick={() => onOpenList(list)} />
           ))}
@@ -155,28 +179,41 @@ const ListsTab: React.FC<{
 
 /* ─────────────── Recipes tab ─────────────── */
 
-const RecipesTab: React.FC<{ meals: HomeMeal[]; onOpenMeal: (m: HomeMeal) => void }> = ({ meals, onOpenMeal }) => {
-  if (meals.length === 0) {
-    return (
-      <div className="mt-8 flex flex-col items-center text-center py-14 border-2 border-dashed border-on-surface/12 rounded-3xl">
-        <ChefHat size={36} className="text-on-surface/20 mb-3" />
-        <p className="text-sm font-semibold text-on-surface/50">No recipes yet</p>
-        <p className="text-xs text-on-surface/35 mt-1 max-w-[220px]">
-          Log a home meal or import a CSV to start filling your cookbook.
-        </p>
-      </div>
-    );
-  }
+const RecipesTab: React.FC<{
+  lists: CustomList[];
+  homeMeals: HomeMeal[];
+  onOpenAllRecipes: () => void;
+  onOpenList: (l: CustomList) => void;
+  onCreateRecipeList: () => void;
+}> = ({ lists, homeMeals, onOpenAllRecipes, onOpenList, onCreateRecipeList }) => {
+  const sortedMeals = useMemo(
+    () => [...homeMeals].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
+    [homeMeals],
+  );
 
   return (
-    <div className="mt-6">
-      <SectionLabel>{`${meals.length} ${meals.length === 1 ? 'recipe' : 'recipes'}`}</SectionLabel>
-      <div className="grid grid-cols-2 gap-3 mt-3">
-        {meals.map((meal) => (
-          <RecipeCard key={meal.id} meal={meal} onClick={() => onOpenMeal(meal)} />
-        ))}
+    <>
+      {/* ── Section: Essentials ── */}
+      <div className="mt-6">
+        <SectionLabel>Essentials</SectionLabel>
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <AllRecipesCard count={homeMeals.length} topMeal={sortedMeals[0]} onClick={onOpenAllRecipes} />
+          <NewListCard label="New recipe list" onClick={onCreateRecipeList} />
+        </div>
       </div>
-    </div>
+
+      {/* ── Section: Recipe lists ── */}
+      {lists.length > 0 && (
+        <div className="mt-7">
+          <SectionLabel>Recipe lists</SectionLabel>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            {lists.map((list) => (
+              <RecipeListCard key={list.id} list={list} onClick={() => onOpenList(list)} />
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -248,14 +285,52 @@ const WishlistCard: React.FC<{ count: number; onClick: () => void }> = ({ count,
   </button>
 );
 
-const NewListCard: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+// "All Recipes" essential card on the Recipes tab. Contains every meal the
+// user has logged, regardless of which recipe list they live in. Optionally
+// shows a small preview of the most recent meal's cover image.
+const AllRecipesCard: React.FC<{ count: number; topMeal?: HomeMeal; onClick: () => void }> = ({ count, topMeal, onClick }) => {
+  const cover = topMeal?.coverPhoto || topMeal?.photos?.[0]?.url || '';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between bg-gradient-to-br from-[#2F4A39] to-[#15281D] active:scale-[0.98] transition-transform"
+    >
+      {cover && (
+        <>
+          <img
+            src={cover}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover opacity-50"
+            referrerPolicy="no-referrer"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#15281D]/95 via-[#15281D]/55 to-[#15281D]/30" />
+        </>
+      )}
+      <div className="relative flex items-start justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/75 bg-white/10 px-2 py-0.5 rounded-full">
+          All Recipes
+        </span>
+        <ChefHat size={20} className="text-white/85" />
+      </div>
+      <div className="relative">
+        <p className="text-white font-serif font-bold text-[20px] leading-tight">Cookbook</p>
+        <p className="text-white/65 text-xs mt-0.5">
+          {count > 0 ? `${count} recipe${count === 1 ? '' : 's'}` : 'No recipes yet'}
+        </p>
+      </div>
+    </button>
+  );
+};
+
+const NewListCard: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
   <button
     type="button"
     onClick={onClick}
     className="aspect-square rounded-3xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center text-on-surface/45 hover:border-on-surface/25 hover:text-on-surface/65 active:scale-[0.98] transition-all"
   >
     <Plus size={26} strokeWidth={1.6} className="mb-1.5" />
-    <span className="text-xs font-semibold">New list</span>
+    <span className="text-xs font-semibold">{label}</span>
   </button>
 );
 
@@ -280,7 +355,35 @@ const CustomListCard: React.FC<{ list: CustomList; onClick: () => void }> = ({ l
   );
 };
 
-const RecipeCard: React.FC<{ meal: HomeMeal; onClick: () => void }> = ({ meal, onClick }) => {
+const RecipeListCard: React.FC<{ list: CustomList; onClick: () => void }> = ({ list, onClick }) => {
+  const total = list.recipes?.length || 0;
+  const color = colorForId(list.id);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="relative aspect-square rounded-3xl overflow-hidden text-left p-4 flex flex-col justify-between active:scale-[0.98] transition-transform"
+      style={{ backgroundImage: `linear-gradient(135deg, ${color.from}, ${color.to})` }}
+    >
+      <div className="flex items-start justify-between">
+        <span className="text-2xl">{list.emoji}</span>
+        <UtensilsCrossed size={18} className="text-white/70" />
+      </div>
+      <div>
+        <p className="text-white font-serif font-bold text-[18px] leading-tight line-clamp-2">{list.name}</p>
+        <p className="text-white/75 text-xs mt-0.5">
+          {total} {total === 1 ? 'recipe' : 'recipes'}
+        </p>
+      </div>
+    </button>
+  );
+};
+
+// Kept for potential future use — the recipe grid card used to show
+// individual meals. The new layout reaches them via the "All Recipes"
+// essential or the recipe sub-list detail view, so the export is unused
+// here. Leaving the component in case a future view wants it.
+export const RecipeCard: React.FC<{ meal: HomeMeal; onClick: () => void }> = ({ meal, onClick }) => {
   const cover = meal.coverPhoto || meal.photos?.[0]?.url || '';
   const total = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
   const color = colorForId(meal.id);

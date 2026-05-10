@@ -85,13 +85,23 @@ const PRESET_CATEGORIES = [...new Set(PRESET_LISTS.map((p) => p.category))];
 const CUSTOM_EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎', '⚡', '🌮', '🍜', '☕', '🎉', '🌿', '🔥', '👨‍🍳', '🏖️', '🌃', '🍔', '🥩', '🍝', '🍰', '🌙', '👥', '💼', '✈️', '🏨', '🎂', '⭐', '👑', '🏙️', '🥗', '🪙', '👶'];
 
 /* ── Create New List Bottom Sheet ── */
+type CreateListKind = 'restaurants' | 'recipes';
+
 const CreateListSheet: React.FC<{
   open: boolean;
   onClose: () => void;
   onCreate: (name: string, emoji: string, type?: PresetList['type']) => void;
   existingListNames: string[];
   onCreateTrip?: () => void;
-}> = ({ open, onClose, onCreate, existingListNames, onCreateTrip }) => {
+  /**
+   * Controls which presets are offered and what `type` a custom list is
+   * created with. 'restaurants' (default) hides the home-cooking preset
+   * since recipe lists live on the Recipes tab; 'recipes' filters the
+   * preset list to home-cooking and tags any custom list created here as
+   * type='home-cooking' so it appears under Recipes.
+   */
+  kind?: CreateListKind;
+}> = ({ open, onClose, onCreate, existingListNames, onCreateTrip, kind = 'restaurants' }) => {
   const { phoneMode } = useSettings();
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<'browse' | 'custom'>('browse');
@@ -101,15 +111,30 @@ const CreateListSheet: React.FC<{
 
   const existingNamesLower = useMemo(() => new Set(existingListNames.map((n) => n.toLowerCase())), [existingListNames]);
 
+  const presetsForKind = useMemo(
+    () => kind === 'recipes'
+      // Recipes tab: only show the home-cooking preset(s).
+      ? PRESET_LISTS.filter((p) => p.type === 'home-cooking')
+      // Restaurants tab: hide home-cooking — those belong to the
+      // Recipes tab now.
+      : PRESET_LISTS.filter((p) => p.type !== 'home-cooking'),
+    [kind],
+  );
+
+  const categoriesForKind = useMemo(
+    () => Array.from(new Set(presetsForKind.map((p) => p.category))),
+    [presetsForKind],
+  );
+
   const filteredPresets = useMemo(() => {
-    let list = PRESET_LISTS;
+    let list = presetsForKind;
     if (selectedCategory) list = list.filter((p) => p.category === selectedCategory);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
     }
     return list;
-  }, [search, selectedCategory]);
+  }, [search, selectedCategory, presetsForKind]);
 
   const groupedPresets = useMemo(() => {
     const groups: Record<string, PresetList[]> = {};
@@ -121,7 +146,14 @@ const CreateListSheet: React.FC<{
   }, [filteredPresets]);
 
   const handleSelectPreset = (preset: PresetList) => { onCreate(preset.name, preset.emoji, preset.type); handleClose(); };
-  const handleCreateCustom = () => { if (!customName.trim()) return; onCreate(customName.trim(), customEmoji); handleClose(); };
+  const handleCreateCustom = () => {
+    if (!customName.trim()) return;
+    // For the Recipes tab, tag a freshly created custom list with
+    // type='home-cooking' so it shows up under Recipes and uses the
+    // recipe-list rendering path in ListDetailView.
+    onCreate(customName.trim(), customEmoji, kind === 'recipes' ? 'home-cooking' : undefined);
+    handleClose();
+  };
   const handleClose = () => { setSearch(''); setMode('browse'); setCustomName(''); setCustomEmoji('📋'); setSelectedCategory(null); onClose(); };
 
   return (
@@ -138,7 +170,11 @@ const CreateListSheet: React.FC<{
             className={cn("bg-surface w-full overflow-hidden flex flex-col", phoneMode ? "h-full rounded-none" : "h-full sm:h-auto sm:max-w-md sm:max-h-[75vh] rounded-none sm:rounded-3xl")}
           >
             <div className="flex items-center justify-between px-5 pt-4 sm:pt-5 pb-3 flex-shrink-0">
-              <h2 className="font-serif font-bold text-lg">{mode === 'browse' ? 'New List' : 'Create Custom List'}</h2>
+              <h2 className="font-serif font-bold text-lg">
+                {mode === 'browse'
+                  ? kind === 'recipes' ? 'New Recipe List' : 'New List'
+                  : kind === 'recipes' ? 'Create Custom Recipe List' : 'Create Custom List'}
+              </h2>
               <button onClick={handleClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
             </div>
 
@@ -161,7 +197,7 @@ const CreateListSheet: React.FC<{
                     >
                       All
                     </button>
-                    {PRESET_CATEGORIES.map((cat) => (
+                    {categoriesForKind.map((cat) => (
                       <button
                         key={cat}
                         onClick={() => setSelectedCategory(cat)}
@@ -181,7 +217,7 @@ const CreateListSheet: React.FC<{
                       <p className="text-[11px] text-primary/60">Choose your own name & emoji</p>
                     </div>
                   </button>
-                  {onCreateTrip && (
+                  {onCreateTrip && kind === 'restaurants' && (
                     <button onClick={() => { handleClose(); onCreateTrip(); }} className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-primary/20 text-primary hover:bg-primary/5 transition-all">
                       <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center"><Plane size={16} /></div>
                       <div className="text-left">
@@ -198,7 +234,7 @@ const CreateListSheet: React.FC<{
                       <button onClick={() => { setMode('custom'); setCustomName(search); }} className="mt-3 text-sm font-semibold text-primary">Create "{search}" as custom list</button>
                     </div>
                   ) : (
-                    PRESET_CATEGORIES.filter((cat) => groupedPresets[cat]).map((category) => (
+                    categoriesForKind.filter((cat) => groupedPresets[cat]).map((category) => (
                       <div key={category} className="mb-6">
                         <h3 className="font-serif font-bold text-base text-on-surface/80 mb-2 px-1">{category}</h3>
                         <div className="divide-y divide-on-surface/[0.06]">
@@ -2603,7 +2639,9 @@ const WishlistFilterSheet: React.FC<{
 };
 
 /* ── Main Page ── */
-type PantryTab = 'lists' | 'trips' | 'wishlist';
+// Top-level tab on the Pantry landing. Restaurants is the default; Recipes
+// surfaces the cookbook (all home meals) plus user-created recipe lists.
+type PantryTab = 'restaurants' | 'recipes';
 
 /* ── Helper: format date range ── */
 function formatDateRange(start: string, end: string): string {
@@ -4741,13 +4779,16 @@ const HomeCookingTab: React.FC<{
 export const Pantry: React.FC = () => {
   const [selectedList, setSelectedList] = useState<CustomList | null>(null);
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
+  // Which tab the create-list sheet was opened from — controls which presets
+  // appear and whether a custom list is tagged as a recipe list.
+  const [createSheetKind, setCreateSheetKind] = useState<'restaurants' | 'recipes'>('restaurants');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
-  const [activeTab, setActiveTab] = useState<PantryTab>('lists');
+  const [pantryTab, setPantryTab] = useState<PantryTab>('restaurants');
   const [showTrips, setShowTrips] = useState(false);
   const [showHomeCooking, setShowHomeCooking] = useState(false);
   const [homeCookingSelectedMealId, setHomeCookingSelectedMealId] = useState<string | null>(null);
-  // Phone-only: when true the user tapped the rated "Your canvas" tile from
-  // the new card layout, so we drop into the existing rated-list rendering.
+  // Set to true when the user taps the rated "Your canvas" tile from the
+  // landing card grid — drops into the existing rated-list rendering.
   const [showAllRated, setShowAllRated] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
@@ -5019,13 +5060,14 @@ export const Pantry: React.FC = () => {
       : lists.find((l) => l.id === selectedList.id) ?? null
     : null;
 
-  // Hide the top More menu on the phone-only card layout — it doesn't appear
-  // in the redesign and the import/export/reorder actions stay reachable
-  // from the rated list (showAllRated) where they make sense.
-  const onPhoneCardHome =
-    phoneMode && !currentList && !showHomeCooking && !showTrips && !showAllRated;
+  // The new tabbed landing is shown on both phone and desktop whenever
+  // there's no list / sub-view selected. Hide the top More menu on that
+  // landing — the import/export/reorder actions live on the rated list
+  // (showAllRated) where they make sense.
+  const onCardHome =
+    !currentList && !showHomeCooking && !showTrips && !showAllRated;
   const hideTopBar =
-    (showHomeCooking && homeCookingSelectedMealId !== null) || onPhoneCardHome;
+    (showHomeCooking && homeCookingSelectedMealId !== null) || onCardHome;
 
   return (
     <div className="pb-32">
@@ -5106,21 +5148,12 @@ export const Pantry: React.FC = () => {
             autoCreate={createTripFromList}
             onAutoCreateHandled={() => setCreateTripFromList(false)}
           />
-        ) : showHomeCooking ? (
-          <HomeCookingTab
-            meals={homeMeals}
-            onCreateMeal={createHomeMeal}
-            onUpdateMeal={updateHomeMeal}
-            onDeleteMeal={deleteHomeMeal}
-            onOpenModal={openHomeMealModal}
-            onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
-            selectedMealId={homeCookingSelectedMealId}
-            onSelectMeal={setHomeCookingSelectedMealId}
-          />
-        ) : phoneMode && !showAllRated ? (
-          // Phone redesign: card grid with Lists / Recipes tabs. Tapping
-          // Wishlist or "Your canvas" routes back into the existing list /
-          // rated views; tapping a recipe opens the home meal modal.
+        ) : !showAllRated ? (
+          // Tabbed landing — shown on both phone and desktop. Tapping
+          // Wishlist, "Your canvas", or "All Recipes" routes back into the
+          // existing list / rated / cookbook views. The "+ New" cards on
+          // each tab open the create-list sheet seeded with the right
+          // kind so a custom list lands on the correct tab.
           <PhonePantryHome
             lists={lists}
             ratedCount={regularRatingsCount}
@@ -5131,6 +5164,8 @@ export const Pantry: React.FC = () => {
               .slice(0, 3)}
             wishlistCount={regularWishlist.length}
             homeMeals={homeMeals}
+            tab={pantryTab}
+            onTabChange={setPantryTab}
             onOpenList={setSelectedList}
             onOpenWishlist={() =>
               setSelectedList({
@@ -5143,14 +5178,15 @@ export const Pantry: React.FC = () => {
               } as CustomList)
             }
             onOpenRated={() => setShowAllRated(true)}
-            onCreateList={() => setCreateSheetOpen(true)}
-            onOpenMeal={(meal) => openHomeMealModal(meal)}
+            onCreateRestaurantList={() => { setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
+            onOpenAllRecipes={() => setShowHomeCooking(true)}
+            onCreateRecipeList={() => { setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
           />
         ) : (
           <>
-            {/* When we entered the rated view from the phone redesign,
+            {/* When we entered the rated view from the card landing,
                  surface a back button so the user can return to the cards. */}
-            {phoneMode && showAllRated && (
+            {showAllRated && (
               <button
                 onClick={() => setShowAllRated(false)}
                 className="flex items-center gap-1 text-sm text-on-surface/55 hover:text-on-surface mb-3 -ml-1 px-1 py-1"
@@ -5394,9 +5430,14 @@ export const Pantry: React.FC = () => {
       <CreateListSheet
         open={createSheetOpen}
         onClose={() => setCreateSheetOpen(false)}
-        onCreate={(name, emoji, type) => createList(name, emoji, type)}
+        onCreate={(name, emoji, type) => {
+          createList(name, emoji, type);
+          // Land the user on the matching tab so the new list is visible.
+          setPantryTab(type === 'home-cooking' ? 'recipes' : 'restaurants');
+        }}
         existingListNames={lists.map((l) => l.name)}
         onCreateTrip={() => { setShowTrips(true); setCreateTripFromList(true); }}
+        kind={createSheetKind}
       />
 
       {/* City picker — full page sheet */}
