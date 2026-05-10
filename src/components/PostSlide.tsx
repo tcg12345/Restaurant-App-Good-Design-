@@ -14,10 +14,11 @@
  */
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Heart, MessageCircle, Bookmark, Share2, ChefHat, ChevronRight, Star, Trash2, MapPin, PlayCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
+import { useSettings } from '../contexts/SettingsContext';
 
 function formatCount(n: number): string {
   if (n >= 1000) {
@@ -222,7 +223,9 @@ export const PostSlide: React.FC<PostSlideProps> = ({
   onActiveItemChange, onLike, onSave, onComment, onShare, onItemAttachmentClick, onDelete,
 }) => {
   const { getPostItemIndex, setPostItemIndex } = usePosts();
+  const { phoneMode } = useSettings();
   const [activeIdx, setActiveIdx] = useState(() => getPostItemIndex(post.id));
+  const [infoOpen, setInfoOpen] = useState(true);
   const stripRef = useRef<HTMLDivElement>(null);
 
   // On mount, snap the carousel to the saved item index. This is what
@@ -358,51 +361,96 @@ export const PostSlide: React.FC<PostSlideProps> = ({
         <ActionRail post={post} onLike={onLike} onSave={onSave} onComment={onComment} onShare={onShare} />
       )}
 
-      {/* Bottom info: author + caption + location + per-item attached card */}
-      <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-5 pt-10">
-        <div className="flex items-center gap-3 mb-2">
-          <Link
-            to={`/user/${encodeURIComponent(post.author?.username || post.userId)}`}
-            className="flex items-center gap-3 min-w-0 flex-1 group"
+      {/* Bottom info: author row stays visible; caption + location + the
+          per-item attached card collapse into a tap-to-expand block, mirroring
+          the reel video slide. The author Link is scoped to avatar + handle +
+          EXPERT chip only — the audio label and the toggle hitbox live
+          outside it so tapping audio/empty space doesn't open the profile. */}
+      {(() => {
+        const hasCollapsibleContent = !!captionForItem
+          || !!post.locationLabel
+          || (item?.attachedKind === 'restaurant' && !!item.restaurant)
+          || (item?.attachedKind === 'recipe' && !!item.recipe);
+        return (
+          <div
+            role={hasCollapsibleContent ? 'button' : undefined}
+            tabIndex={hasCollapsibleContent ? 0 : undefined}
+            onClick={() => hasCollapsibleContent && setInfoOpen((o) => !o)}
+            onKeyDown={(e) => {
+              if (!hasCollapsibleContent) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setInfoOpen((o) => !o);
+              }
+            }}
+            aria-expanded={hasCollapsibleContent ? infoOpen : undefined}
+            aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
+            className={cn(
+              'absolute inset-x-0 bottom-0 z-20 px-4 pt-10',
+              phoneMode ? 'pb-28' : 'pb-5',
+              hasCollapsibleContent && 'cursor-pointer',
+            )}
           >
-            <div className={cn('w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-white/30 transition-transform group-hover:scale-[1.04]', post.author?.avatarColor || 'bg-stone-700')}>
-              {post.author?.initials || post.userId.slice(0, 2).toUpperCase()}
+            <div className="flex items-center gap-3 mb-2">
+              <Link
+                to={`/user/${encodeURIComponent(post.author?.username || post.userId)}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-3 min-w-0 group"
+              >
+                <div className={cn('w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-white/30 transition-transform group-hover:scale-[1.04] group-active:scale-[0.96]', post.author?.avatarColor || 'bg-stone-700')}>
+                  {post.author?.initials || post.userId.slice(0, 2).toUpperCase()}
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{post.author?.username || post.userId.slice(0, 8)}</span>
+                  {post.author?.isExpert && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold flex-shrink-0">
+                      <Star size={9} className="fill-stone-900" />
+                      EXPERT
+                    </span>
+                  )}
+                </div>
+              </Link>
+              <p className="text-white/85 text-[12px] truncate font-mono flex-1 min-w-0">♪ {post.audioLabel}</p>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{post.author?.username || post.userId.slice(0, 8)}</span>
-                {post.author?.isExpert && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold">
-                    <Star size={9} className="fill-stone-900" />
-                    EXPERT
-                  </span>
-                )}
-              </div>
-              <p className="text-white/85 text-[12px] truncate font-mono">♪ {post.audioLabel}</p>
-            </div>
-          </Link>
-        </div>
 
-        {captionForItem && (
-          <p className="text-white text-[15px] font-serif italic leading-snug mb-1 line-clamp-3 max-w-[78%]">
-            {captionForItem}
-          </p>
-        )}
+            <AnimatePresence initial={false}>
+              {infoOpen && hasCollapsibleContent && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden"
+                >
+                  {captionForItem && (
+                    <p className="text-white text-[15px] font-serif italic leading-snug mb-1 line-clamp-3 max-w-[78%]">
+                      {captionForItem}
+                    </p>
+                  )}
 
-        {post.locationLabel && (
-          <div className="flex items-center gap-1 mb-3 text-white/85 text-[12px] font-medium">
-            <MapPin size={11} />
-            <span className="truncate max-w-[78%]">{post.locationLabel}</span>
+                  {post.locationLabel && (
+                    <div className="flex items-center gap-1 mb-3 text-white/85 text-[12px] font-medium">
+                      <MapPin size={11} />
+                      <span className="truncate max-w-[78%]">{post.locationLabel}</span>
+                    </div>
+                  )}
+
+                  {/* Stop propagation so tapping the attached card navigates
+                      to the restaurant/recipe instead of collapsing. */}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    {item?.attachedKind === 'restaurant' && item.restaurant && (
+                      <RestaurantCard item={item} onClick={() => onItemAttachmentClick(item)} />
+                    )}
+                    {item?.attachedKind === 'recipe' && item.recipe && (
+                      <RecipeCard item={item} onClick={() => onItemAttachmentClick(item)} />
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-        )}
-
-        {item?.attachedKind === 'restaurant' && item.restaurant && (
-          <RestaurantCard item={item} onClick={() => onItemAttachmentClick(item)} />
-        )}
-        {item?.attachedKind === 'recipe' && item.recipe && (
-          <RecipeCard item={item} onClick={() => onItemAttachmentClick(item)} />
-        )}
-      </div>
+        );
+      })()}
     </div>
   );
 };
