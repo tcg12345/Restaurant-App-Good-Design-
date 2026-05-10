@@ -51,9 +51,16 @@ function formatCount(n: number): string {
 /* ── Reel tile (vertical 9:14) ────────────────────────────────────────── */
 
 const ReelTile: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onClick }) => {
-  const label = reel.kind === 'restaurant'
-    ? reel.restaurant?.name
-    : reel.recipe?.title;
+  // Title preference: the author's caption (what the video is actually
+  // about) wins; only when there's no caption do we fall back to the
+  // attached restaurant / recipe name. The kind chip in the top-left
+  // already conveys what kind of attachment is on the reel, so showing
+  // the attached entity name as the headline was redundant — and
+  // confusing when the recipe/restaurant title doesn't match the video.
+  const label =
+    reel.caption?.trim()
+    || (reel.kind === 'restaurant' ? reel.restaurant?.name : reel.recipe?.title)
+    || '';
   return (
     <motion.button
       type="button"
