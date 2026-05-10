@@ -777,7 +777,7 @@ const WishlistGridCard: React.FC<{
           'block rounded-2xl bg-white border border-on-surface/[0.07]',
           'p-5 transition-all duration-200',
           'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
-          'flex flex-col min-h-[230px]',
+          'flex flex-col',
         )}
       >
         {/* Top row: name + heart pip (also the remove control) */}
@@ -810,13 +810,10 @@ const WishlistGridCard: React.FC<{
           </p>
         )}
 
-        {/* Spacer pushes the footer to the bottom of the tile */}
-        <div className="flex-1" />
-
         {/* Footer: pin + location (allowed to wrap to two lines so the
             full "Neighborhood, City, ST" doesn't get cut off), then a
             second muted line for the distance when we have one. */}
-        <div className="text-[12.5px] text-on-surface/55">
+        <div className="mt-3 text-[12.5px] text-on-surface/55">
           <div className="flex items-start gap-1.5 min-w-0">
             <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
             <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
@@ -915,7 +912,7 @@ const RestaurantGridCard: React.FC<{
             'block rounded-2xl bg-white border border-on-surface/[0.07]',
             'p-5 transition-all duration-200',
             'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
-            'flex flex-col min-h-[230px]',
+            'flex flex-col',
           )}
         >
           {/* Top row: name + score */}
@@ -942,13 +939,18 @@ const RestaurantGridCard: React.FC<{
             </p>
           )}
 
-          {/* Spacer pushes the footer to the bottom of the tile */}
-          <div className="flex-1" />
+          {/* Notes (italic quote) — only renders when present, so cards
+              without notes collapse to their natural height. */}
+          {notes && notes.trim() && (
+            <p className="mt-2 text-[12px] text-on-surface/55 line-clamp-3 italic leading-snug">
+              &ldquo;{notes}&rdquo;
+            </p>
+          )}
 
           {/* Footer: pin + location (line-clamp 2 so the full Beli-style
               label is never cut off), then a second line with the
               distance label and the hover-revealed action icons. */}
-          <div className="text-[12.5px] text-on-surface/55">
+          <div className="mt-3 text-[12.5px] text-on-surface/55">
             <div className="flex items-start gap-1.5 min-w-0">
               <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
               <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
@@ -2303,7 +2305,7 @@ const ListDetailView: React.FC<{
                 <Star size={14} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Rated ({ratedRestaurants.length})</h3>
               </div>
-              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6" : "divide-y divide-on-surface/[0.06]"}>
+              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : "divide-y divide-on-surface/[0.06]"}>
                 {ratedRestaurants.map(({ id, info, rating }) => viewMode === 'grid' ? (
                   <RestaurantGridCard
                     key={id}
@@ -2378,7 +2380,7 @@ const ListDetailView: React.FC<{
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
               {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start">
                   {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
                     <WishlistGridCard
                       key={id}
@@ -5310,7 +5312,7 @@ const HomeCookingTab: React.FC<{
           )}
         </div>
       ) : effectiveRecipeViewMode === 'grid' ? (
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start">
           {filteredMeals.map((meal) => (
             <RecipeGridCard
               key={meal.id}
@@ -7197,7 +7199,7 @@ export const Pantry: React.FC = () => {
               <div className="space-y-5">
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
-                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6" : "divide-y divide-on-surface/[0.06]"}>
+                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : "divide-y divide-on-surface/[0.06]"}>
                     {filteredRatings.map((r, idx) => {
                       const inLists = getListsForRestaurant(r.restaurantId);
                       const isCustom = sortBy === 'custom';
