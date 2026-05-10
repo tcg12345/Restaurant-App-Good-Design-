@@ -4868,6 +4868,53 @@ const HomeCookingTab: React.FC<{
   );
 };
 
+/* ── Reusable filter chip used in the rated-view toolbar ──
+   One consistent chip token: rounded-full, neutral by default, primary
+   tint when active, optional badge / icon / clear-X. Putting this in
+   one component keeps the toolbar row visually uniform — all the
+   filter buttons read as a cluster instead of five mismatched pills. */
+const FilterPill: React.FC<{
+  onClick: () => void;
+  label: string;
+  active?: boolean;
+  icon?: React.ReactNode;
+  badge?: number;
+  onClear?: () => void;
+}> = ({ onClick, label, active = false, icon, badge, onClear }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      'inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
+      active
+        ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+        : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface',
+    )}
+  >
+    {icon}
+    <span>{label}</span>
+    {badge !== undefined && (
+      <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold">
+        {badge}
+      </span>
+    )}
+    {onClear ? (
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => { e.stopPropagation(); onClear(); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onClear(); } }}
+        aria-label="Clear"
+        className="ml-0.5 text-current/70 hover:text-current"
+      >
+        <X size={10} />
+      </span>
+    ) : (
+      <ChevronDown size={10} className="opacity-60" />
+    )}
+  </button>
+);
+
 /* ── Desktop list switcher row ── */
 const SwitcherRow: React.FC<{
   icon: React.ReactNode;
@@ -5318,9 +5365,10 @@ export const Pantry: React.FC = () => {
     <div className="pb-32">
       {/* Desktop tabs — Restaurants vs Recipes. Hidden on phone (the
           card-grid landing already exposes both tabs), in trips view
-          (its own UI), and inside ListDetailView (its own header). */}
+          (its own UI), and inside ListDetailView (its own header).
+          Aligned at px-3 so the chrome lines up with <main>. */}
       {!phoneMode && !currentList && !showTrips && (
-        <div className="px-4 pt-4 pb-1">
+        <div className="px-3 pt-4 pb-1">
           <div className="inline-flex w-full sm:w-auto bg-on-surface/[0.06] rounded-full p-1">
             <button
               type="button"
@@ -5351,7 +5399,7 @@ export const Pantry: React.FC = () => {
       )}
 
       {!hideTopBar && !currentList && (
-        <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-1">
+        <div className="flex items-center justify-between gap-3 px-3 pt-3 pb-1">
           {/* List switcher — desktop only. On phone, the card landing
               is the navigation surface; here, a popover button is the
               equivalent for the always-on rated view. */}
@@ -5604,160 +5652,170 @@ export const Pantry: React.FC = () => {
               </button>
             )}
 
-            {/* ── In-list search ──
-                Phone keeps the local search bar inline. Desktop drops it
-                in favor of a "Search this list" button: clicking it
-                hijacks the desktop header's search input as a list filter
-                (see PageSearchContext + DesktopHeader). The header bar
-                continues to work normally for global Places search when
-                the user clicks it directly without going through this
-                button. */}
+            {/* ── Page chrome ──
+                Phone keeps the existing stack of three rows (search bar
+                → filter pills → summary). Desktop folds everything into
+                a single editorial toolbar below a thin divider line:
+                  ┌──────────────────────────────────────────────────┐
+                  │ [🔍 Search this list]  •  [Filters] [City] [..] │
+                  │                                  63 places · 8.0│
+                  │                                            ⊞ ▦ │
+                  └──────────────────────────────────────────────────┘
+                The pills inherit a single muted token ("chip") look so
+                the row reads as one cluster instead of five floating
+                buttons in random colors. */}
             {phoneMode ? (
-              <div className="mb-4">
-                <div className="relative">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={mainSearchQuery}
-                    onChange={(e) => setMainSearchQuery(e.target.value)}
-                    placeholder="Search by name, cuisine, location..."
-                    className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
-                  />
-                  {mainSearchQuery && (
-                    <button
-                      onClick={() => setMainSearchQuery('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
-                      aria-label="Clear search"
-                    >
-                      <X size={14} />
+              <>
+                <div className="mb-4">
+                  <div className="relative">
+                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={mainSearchQuery}
+                      onChange={(e) => setMainSearchQuery(e.target.value)}
+                      placeholder="Search by name, cuisine, location..."
+                      className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+                    />
+                    {mainSearchQuery && (
+                      <button
+                        onClick={() => setMainSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                        aria-label="Clear search"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <FilterPill onClick={() => { setFiltersOpen(true); closeAllDropdowns(); }}
+                    icon={<SlidersHorizontal size={12} />} label="Filters" active={activeFilterCount > 0}
+                    badge={activeFilterCount > 0 ? activeFilterCount : undefined} />
+                  <FilterPill onClick={() => setCityDropdownOpen(true)}
+                    icon={<MapPin size={11} />}
+                    label={cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}
+                    active={cityFilter.length > 0}
+                    onClear={cityFilter.length > 0 ? () => setCityFilter([]) : undefined} />
+                  <FilterPill onClick={() => setCuisineDropdownOpen(true)}
+                    label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
+                    active={cuisineFilter.length > 0}
+                    onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
+                  <FilterPill onClick={() => setPriceDropdownOpen(true)}
+                    label={priceFilter || 'Price'} active={!!priceFilter}
+                    onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
+                  <FilterPill onClick={() => setSortDropdownOpen(true)}
+                    icon={<ArrowUpDown size={11} />}
+                    label={sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}
+                    active={sortBy !== 'highest' && sortBy !== 'recent'}
+                    onClear={(sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined} />
+                  {hasActiveFilters && (
+                    <button onClick={handleResetFilters}
+                      className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+                      <X size={10} /><span>Clear</span>
                     </button>
                   )}
                 </div>
-              </div>
+
+                {regularRatingsCount > 0 && (
+                  <div className="flex items-center gap-4 px-1 mb-3">
+                    <p className="text-xs text-on-surface/40">
+                      <span className="font-bold text-on-surface">{filteredRatings.length}</span>
+                      {filteredRatings.length !== regularRatingsCount && ` of ${regularRatingsCount}`} rated
+                    </p>
+                    {filteredRatings.length > 0 && (
+                      <p className="text-xs text-on-surface/40">
+                        Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span>/10
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
             ) : (
-              <div className="mb-4">
-                <button
-                  type="button"
-                  onClick={activateRatedScope}
-                  className={cn(
-                    'inline-flex items-center gap-2 px-4 py-2 rounded-full transition-colors',
-                    'text-sm font-semibold',
-                    mainSearchQuery
-                      ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
-                      : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
-                  )}
-                  aria-label="Search this list"
-                >
-                  <Search size={14} />
-                  <span>Search this list</span>
-                  {mainSearchQuery && (
-                    <span className="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold tabular-nums">
-                      <span className="truncate max-w-[120px]">"{mainSearchQuery}"</span>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); } }}
-                        aria-label="Clear list search"
-                        className="text-primary/70 hover:text-primary"
-                      >
-                        <X size={11} />
+              <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                  {/* Primary action: search this list */}
+                  <button
+                    type="button"
+                    onClick={activateRatedScope}
+                    className={cn(
+                      'inline-flex items-center gap-2 h-8 px-3.5 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0',
+                      mainSearchQuery
+                        ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+                        : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
+                    )}
+                    aria-label="Search this list"
+                  >
+                    <Search size={13} />
+                    <span>Search this list</span>
+                    {mainSearchQuery && (
+                      <span className="inline-flex items-center gap-1 ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold">
+                        <span className="truncate max-w-[100px]">"{mainSearchQuery}"</span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); } }}
+                          aria-label="Clear list search"
+                          className="text-primary/70 hover:text-primary"
+                        >
+                          <X size={11} />
+                        </span>
                       </span>
-                    </span>
+                    )}
+                  </button>
+
+                  {/* Visual divider between primary action and filter cluster */}
+                  <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
+
+                  {/* Filter cluster — uniform chip styling, no individual borders */}
+                  <FilterPill onClick={() => { setFiltersOpen(true); closeAllDropdowns(); }}
+                    icon={<SlidersHorizontal size={12} />} label="Filters" active={activeFilterCount > 0}
+                    badge={activeFilterCount > 0 ? activeFilterCount : undefined} />
+                  <FilterPill onClick={() => setCityDropdownOpen(true)}
+                    icon={<MapPin size={11} />}
+                    label={cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}
+                    active={cityFilter.length > 0}
+                    onClear={cityFilter.length > 0 ? () => setCityFilter([]) : undefined} />
+                  <FilterPill onClick={() => setCuisineDropdownOpen(true)}
+                    label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
+                    active={cuisineFilter.length > 0}
+                    onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
+                  <FilterPill onClick={() => setPriceDropdownOpen(true)}
+                    label={priceFilter || 'Price'} active={!!priceFilter}
+                    onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
+                  <FilterPill onClick={() => setSortDropdownOpen(true)}
+                    icon={<ArrowUpDown size={11} />}
+                    label={sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}
+                    active={sortBy !== 'highest' && sortBy !== 'recent'}
+                    onClear={(sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined} />
+                  {hasActiveFilters && (
+                    <button
+                      onClick={handleResetFilters}
+                      className="inline-flex items-center gap-1 h-8 px-3 rounded-full text-[12px] font-semibold text-red-500/80 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                    >
+                      <X size={11} /><span>Clear all</span>
+                    </button>
                   )}
-                </button>
-              </div>
-            )}
 
-            {/* The horizontal list-pill row that used to live here is gone.
-                Desktop list navigation moved into the sidebar's "My Lists"
-                tray; phone mode never showed this row anyway because the
-                PhonePantryHome card grid is the entry point. */}
-
-            {/* ── Filter bar ── */}
-            <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-              {/* Filters button — always first */}
-              <button
-                onClick={() => { setFiltersOpen(true); closeAllDropdowns(); }}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  activeFilterCount > 0
-                    ? "bg-primary/10 text-primary border-primary/20"
-                    : "bg-on-surface/5 text-on-surface/50 border-transparent"
-                )}
-              >
-                <SlidersHorizontal size={12} />
-                <span>Filters</span>
-                {activeFilterCount > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">{activeFilterCount}</span>
-                )}
-              </button>
-
-              {/* Quick: City → opens full page sheet */}
-              <button
-                onClick={() => setCityDropdownOpen(true)}
-                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  cityFilter.length > 0 ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-              >
-                <MapPin size={11} />
-                <span>{cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}</span>
-                {cityFilter.length > 0 ? <span onClick={(e) => { e.stopPropagation(); setCityFilter([]); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
-              </button>
-
-              {/* Quick: Cuisine → opens full page sheet */}
-              <button
-                onClick={() => setCuisineDropdownOpen(true)}
-                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  cuisineFilter.length > 0 ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-              >
-                <span>{cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}</span>
-                {cuisineFilter.length > 0 ? <span onClick={(e) => { e.stopPropagation(); setCuisineFilter([]); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
-              </button>
-
-              {/* Quick: Price → opens small bottom sheet */}
-              <button
-                onClick={() => setPriceDropdownOpen(true)}
-                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  priceFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-              >
-                <span>{priceFilter || 'Price'}</span>
-                {priceFilter ? <span onClick={(e) => { e.stopPropagation(); setPriceFilter(null); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
-              </button>
-
-              {/* Quick: Sort → opens small bottom sheet */}
-              <button
-                onClick={() => setSortDropdownOpen(true)}
-                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  sortBy !== 'highest' && sortBy !== 'recent' ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-              >
-                <ArrowUpDown size={11} />
-                <span>{sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}</span>
-                {sortBy !== 'highest' && sortBy !== 'recent' ? <span onClick={(e) => { e.stopPropagation(); setSortBy('highest'); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
-              </button>
-
-              {/* Clear all */}
-              {hasActiveFilters && (
-                <button onClick={handleResetFilters}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
-                  <X size={10} /><span>Clear</span>
-                </button>
-              )}
-            </div>
-
-            {/* ── Summary bar ── */}
-            {regularRatingsCount > 0 && (
-              <div className="flex items-center gap-4 px-1 mb-3">
-                <p className="text-xs text-on-surface/40">
-                  <span className="font-bold text-on-surface">{filteredRatings.length}</span>
-                  {filteredRatings.length !== regularRatingsCount && ` of ${regularRatingsCount}`} rated
-                </p>
-                {filteredRatings.length > 0 && (
-                  <p className="text-xs text-on-surface/40">
-                    Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span>/10
-                  </p>
-                )}
-                <div className="ml-auto flex items-center gap-2">
-                  <ViewModeToggle mode={effectiveViewMode} onChange={setViewMode} />
+                  {/* Right side: live result count + avg score + view toggle */}
+                  <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+                    {regularRatingsCount > 0 && (
+                      <p className="text-[12px] text-on-surface/50 whitespace-nowrap tabular-nums">
+                        <span className="font-bold text-on-surface">{filteredRatings.length}</span>
+                        {filteredRatings.length !== regularRatingsCount && (
+                          <span className="text-on-surface/35"> / {regularRatingsCount}</span>
+                        )}
+                        {filteredRatings.length > 0 && (
+                          <>
+                            <span className="text-on-surface/25 mx-1.5">·</span>
+                            <span>Avg <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span></span>
+                          </>
+                        )}
+                      </p>
+                    )}
+                    <ViewModeToggle mode={effectiveViewMode} onChange={setViewMode} />
+                  </div>
                 </div>
               </div>
             )}
