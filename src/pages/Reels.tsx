@@ -11,6 +11,7 @@ import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
+import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -862,6 +863,9 @@ export const Reels: React.FC = () => {
   // attached to the card so the panel can render immediately while it fetches
   // community/friend/expert data.
   const [restaurantPanelSnapshot, setRestaurantPanelSnapshot] = useState<RestaurantPanelSnapshot | null>(null);
+  // Same idea for the featured-recipe card. The snapshot carries authorId +
+  // ReelRecipeSnapshot; the panel resolves the full meal record lazily.
+  const [recipePanelSnapshot, setRecipePanelSnapshot] = useState<RecipePanelSnapshot | null>(null);
 
   const loading = reelsLoading || postsLoading;
 
@@ -927,6 +931,8 @@ export const Reels: React.FC = () => {
   // every time we update it from inside.
   const restaurantPanelSnapshotRef = useRef(restaurantPanelSnapshot);
   restaurantPanelSnapshotRef.current = restaurantPanelSnapshot;
+  const recipePanelSnapshotRef = useRef(recipePanelSnapshot);
+  recipePanelSnapshotRef.current = recipePanelSnapshot;
   const openCommentsReelIdRef = useRef(openCommentsReelId);
   openCommentsReelIdRef.current = openCommentsReelId;
   const openPostCommentsIdRef = useRef(openPostCommentsId);
@@ -959,6 +965,29 @@ export const Reels: React.FC = () => {
       }
       if ((next?.id ?? null) !== (restaurantPanelSnapshotRef.current?.id ?? null)) {
         setRestaurantPanelSnapshot(next);
+      }
+    }
+
+    // Recipe panel auto-switch / close — same rule, but pulls authorId
+    // from the active reel / post (RecipePanel needs it to fetch the
+    // full home-meal record).
+    if (recipePanelSnapshotRef.current) {
+      let next: RecipePanelSnapshot | null = null;
+      if (reel && reel.kind === 'recipe' && reel.recipe) {
+        next = { authorId: reel.authorId, recipe: reel.recipe };
+      } else if (post) {
+        const first = post.items[0];
+        if (first && first.attachedKind === 'recipe' && first.recipe) {
+          next = { authorId: post.userId, recipe: first.recipe };
+        }
+      }
+      const cur = recipePanelSnapshotRef.current;
+      const sameRecipe = next
+        && cur
+        && next.recipe.id === cur.recipe.id
+        && next.authorId === cur.authorId;
+      if (!sameRecipe) {
+        setRecipePanelSnapshot(next);
       }
     }
 
@@ -1036,45 +1065,52 @@ export const Reels: React.FC = () => {
   }, []);
   const showDesktopFrame = isDesktop && !phoneMode;
 
-  // ── Mutual exclusion between the restaurant panel and the comments
-  // sheet/panel: only one side panel can be visible at a time. Wrap the
-  // open calls so opening one always closes the other. The raw close
-  // callbacks (closeCommentsSheet / closePostCommentsSheet) are still
-  // passed unmodified — the user can dismiss either pane independently.
-  //
-  // Tapping the same featured card twice toggles the panel closed; tapping
-  // a different card swaps the panel to that restaurant. Functional setter
-  // so we don't have to add restaurantPanelSnapshot to the useCallback deps
-  // and recreate this function on every panel state change.
+  // ── Mutual exclusion between the side panes (restaurant / recipe /
+  // comments): only one can be visible at a time. Wrap the open calls so
+  // opening any one always closes the other two. Tapping the same
+  // featured card twice toggles its panel closed; tapping a different
+  // card swaps to it. Functional setters so we don't have to add the
+  // panel snapshots to the useCallback deps.
   const openRestaurantPanel = useCallback((snap: RestaurantPanelSnapshot) => {
     closeCommentsSheet();
     closePostCommentsSheet();
+    setRecipePanelSnapshot(null);
     setRestaurantPanelSnapshot((current) => (current && current.id === snap.id ? null : snap));
+  }, [closeCommentsSheet, closePostCommentsSheet]);
+
+  const openRecipePanel = useCallback((snap: RecipePanelSnapshot) => {
+    closeCommentsSheet();
+    closePostCommentsSheet();
+    setRestaurantPanelSnapshot(null);
+    setRecipePanelSnapshot((current) => (
+      current && current.recipe.id === snap.recipe.id && current.authorId === snap.authorId
+        ? null
+        : snap
+    ));
   }, [closeCommentsSheet, closePostCommentsSheet]);
 
   const openReelComments = useCallback((reelId: string) => {
     setRestaurantPanelSnapshot(null);
+    setRecipePanelSnapshot(null);
     openCommentsSheet(reelId);
   }, [openCommentsSheet]);
 
   const openPostComments = useCallback((postId: string) => {
     setRestaurantPanelSnapshot(null);
+    setRecipePanelSnapshot(null);
     openPostCommentsSheet(postId);
   }, [openPostCommentsSheet]);
 
   const handleCardClick = (reel: Reel) => {
     if (reel.kind === 'restaurant' && reel.restaurant) {
-      // Open the in-feed restaurant panel instead of navigating away —
-      // keeps the user inside the reels feed.
       openRestaurantPanel(reel.restaurant);
       return;
     }
     if (reel.kind === 'recipe' && reel.recipe) {
-      // Recipes attached to reels come from the author's Home Cooking
-      // list (homeMeals), not the cloud recipes table — so we route to
-      // /meal/:userId/:mealId, which is the read view that knows how
-      // to load home-meal entries.
-      navigate(`/meal/${encodeURIComponent(reel.authorId)}/${encodeURIComponent(reel.recipe.id)}`);
+      // Same in-feed-panel pattern for recipes — opens RecipePanel
+      // instead of navigating to /meal/:userId/:mealId. The panel
+      // resolves the full home-meal record lazily.
+      openRecipePanel({ authorId: reel.authorId, recipe: reel.recipe });
     }
   };
 
@@ -1167,7 +1203,7 @@ export const Reels: React.FC = () => {
     if (item.attachedKind === 'restaurant' && item.restaurant) {
       openRestaurantPanel(item.restaurant);
     } else if (item.attachedKind === 'recipe' && item.recipe) {
-      navigate(`/meal/${encodeURIComponent(postUserId)}/${encodeURIComponent(item.recipe.id)}`);
+      openRecipePanel({ authorId: postUserId, recipe: item.recipe });
     }
   };
 
@@ -1425,6 +1461,16 @@ export const Reels: React.FC = () => {
           currentUserId={currentUserId}
         />
 
+        {/* Recipe side panel — sibling of the restaurant panel; opens when
+            a featured-recipe card is tapped. Mutual-exclusion logic
+            guarantees only one of the two is ever mounted at a time. */}
+        <RecipePanel
+          variant="panel"
+          snapshot={recipePanelSnapshot}
+          onClose={() => setRecipePanelSnapshot(null)}
+          currentUserId={currentUserId}
+        />
+
         {/* Share dialog — fixed-position, floats above the layout. */}
         <ShareDialog
           open={!!sharePayload}
@@ -1446,6 +1492,13 @@ export const Reels: React.FC = () => {
         variant="sheet"
         snapshot={restaurantPanelSnapshot}
         onClose={() => setRestaurantPanelSnapshot(null)}
+        currentUserId={currentUserId}
+      />
+      {/* Recipe sheet — mobile counterpart of the recipe panel. */}
+      <RecipePanel
+        variant="sheet"
+        snapshot={recipePanelSnapshot}
+        onClose={() => setRecipePanelSnapshot(null)}
         currentUserId={currentUserId}
       />
       <ShareDialog
