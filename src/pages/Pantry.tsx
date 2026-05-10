@@ -5696,7 +5696,7 @@ export const Pantry: React.FC = () => {
           the same chrome and just swaps the list content below.
           Hidden on phone (card landing handles it) and in trips. */}
       {!hideTopBar && (
-        <div className="flex items-center justify-between gap-3 px-3 pt-4 pb-1">
+        <div className="flex items-center justify-between gap-3 px-3 pt-4 pb-5">
           {!phoneMode && !showTrips ? (
             <div className="relative" ref={listSwitcherRef}>
               <div className="inline-flex bg-on-surface/[0.06] rounded-full p-1">
