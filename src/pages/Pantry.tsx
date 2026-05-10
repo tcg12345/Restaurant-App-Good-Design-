@@ -1595,6 +1595,24 @@ const ListDetailView: React.FC<{
   const [wishlistCuisineFilter, setWishlistCuisineFilter] = useState<string[]>([]);
   const [wishlistCityFilter, setWishlistCityFilter] = useState<string[]>([]);
   const [wishlistPriceFilter, setWishlistPriceFilter] = useState<string | null>(null);
+  // Per-pill dropdowns on desktop — same shape as the rated view's
+  // (Pantry's) so the wishlist toolbar opens the same kind of small
+  // bottom sheets when the user taps City / Cuisine / Price / Sort.
+  const [wlCityDropdownOpen, setWlCityDropdownOpen] = useState(false);
+  const [wlCuisineDropdownOpen, setWlCuisineDropdownOpen] = useState(false);
+  const [wlPriceDropdownOpen, setWlPriceDropdownOpen] = useState(false);
+  const [wlSortDropdownOpen, setWlSortDropdownOpen] = useState(false);
+  const closeAllWlDropdowns = () => {
+    setWlCityDropdownOpen(false); setWlCuisineDropdownOpen(false);
+    setWlPriceDropdownOpen(false); setWlSortDropdownOpen(false);
+  };
+  const wlSortLabels: Record<WishlistSort, string> = {
+    recent: 'Recent', oldest: 'Oldest', 'name-asc': 'Name A→Z', 'name-desc': 'Name Z→A',
+  };
+  const toggleWlCity = (c: string) =>
+    setWishlistCityFilter((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+  const toggleWlCuisine = (c: string) =>
+    setWishlistCuisineFilter((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
   const wishlistActiveFilterCount =
     (wishlistCuisineFilter.length > 0 ? 1 : 0) +
     (wishlistCityFilter.length > 0 ? 1 : 0) +
@@ -1936,28 +1954,48 @@ const ListDetailView: React.FC<{
               )}
             </button>
 
-            {/* Wishlist filter pills — surface the existing wishlist
-                filter sheet for the wishlist view. Other list types
-                get a simpler toolbar (filters can be added later). */}
+            {/* Wishlist filter pills — same shape as the rated view:
+                Filters / City / Cuisine / Price / Sort. Each pill opens
+                its own small bottom sheet (defined at the end of this
+                component). The wishlist gets all of these except a
+                rating filter (wishlisted places aren't rated yet). */}
             {isWishlistView && (
               <>
                 <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
                 <FilterPill
-                  onClick={() => setWishlistFilterOpen(true)}
+                  onClick={() => { setWishlistFilterOpen(true); closeAllWlDropdowns(); }}
                   icon={<SlidersHorizontal size={12} />}
                   label="Filters"
                   active={wishlistActiveFilterCount > 0}
                   badge={wishlistActiveFilterCount > 0 ? wishlistActiveFilterCount : undefined}
                 />
-                {quickFilterPills.map((pill) => (
-                  <FilterPill
-                    key={pill.key}
-                    onClick={pill.onClick}
-                    label={pill.label}
-                    active={pill.active}
-                  />
-                ))}
-                {wishlistActiveFilterCount > 0 && (
+                <FilterPill
+                  onClick={() => { closeAllWlDropdowns(); setWlCityDropdownOpen(true); }}
+                  icon={<MapPin size={11} />}
+                  label={wishlistCityFilter.length > 0 ? `City (${wishlistCityFilter.length})` : 'City'}
+                  active={wishlistCityFilter.length > 0}
+                  onClear={wishlistCityFilter.length > 0 ? () => setWishlistCityFilter([]) : undefined}
+                />
+                <FilterPill
+                  onClick={() => { closeAllWlDropdowns(); setWlCuisineDropdownOpen(true); }}
+                  label={wishlistCuisineFilter.length > 0 ? `Cuisine (${wishlistCuisineFilter.length})` : 'Cuisine'}
+                  active={wishlistCuisineFilter.length > 0}
+                  onClear={wishlistCuisineFilter.length > 0 ? () => setWishlistCuisineFilter([]) : undefined}
+                />
+                <FilterPill
+                  onClick={() => { closeAllWlDropdowns(); setWlPriceDropdownOpen(true); }}
+                  label={wishlistPriceFilter || 'Price'}
+                  active={!!wishlistPriceFilter}
+                  onClear={wishlistPriceFilter ? () => setWishlistPriceFilter(null) : undefined}
+                />
+                <FilterPill
+                  onClick={() => { closeAllWlDropdowns(); setWlSortDropdownOpen(true); }}
+                  icon={<ArrowUpDown size={11} />}
+                  label={wishlistSort !== 'recent' ? wlSortLabels[wishlistSort] : 'Sort'}
+                  active={wishlistSort !== 'recent'}
+                  onClear={wishlistSort !== 'recent' ? () => setWishlistSort('recent') : undefined}
+                />
+                {(wishlistActiveFilterCount > 0 || wishlistSort !== 'recent') && (
                   <button
                     onClick={resetWishlistFilters}
                     className="inline-flex items-center gap-1 h-8 px-3 rounded-full text-[12px] font-semibold text-red-500/80 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
@@ -2048,11 +2086,12 @@ const ListDetailView: React.FC<{
         )}
       </AnimatePresence>
 
-      {/* ── Filter pill row + view toggle ─────────────────────────────
+      {/* ── Phone-only filter pill row + view toggle ──────────────────
           Filters pill opens the full sheet. "All" clears every active
           quick filter. Each subsequent pill toggles a city / price /
-          cuisine filter — counts come from the actual list. */}
-      {(isWishlistView ? wishlistedRestaurantsRaw.length > 0 : totalCount > 0) && (
+          cuisine filter — counts come from the actual list. Desktop
+          uses the unified toolbar above instead. */}
+      {phoneMode && (isWishlistView ? wishlistedRestaurantsRaw.length > 0 : totalCount > 0) && (
         <div className="flex items-center gap-2 mb-5 -mx-1 px-1 overflow-x-auto scrollbar-hide pb-1">
           {isWishlistView && (
             <>
@@ -2343,6 +2382,50 @@ const ListDetailView: React.FC<{
           onReset={resetWishlistFilters}
           activeCount={wishlistActiveFilterCount}
         />
+      )}
+
+      {/* Wishlist per-pill dropdowns — small bottom sheets that match
+          the rated view's. Only render on desktop (the toolbar pills
+          that open them are desktop-only too). */}
+      {isWishlistView && !phoneMode && (
+        <>
+          <FilterListSheet
+            open={wlCityDropdownOpen}
+            onClose={() => setWlCityDropdownOpen(false)}
+            title="Select City"
+            placeholder="Search cities..."
+            options={wishlistAllCities}
+            selected={wishlistCityFilter}
+            onToggle={toggleWlCity}
+          />
+          <FilterListSheet
+            open={wlCuisineDropdownOpen}
+            onClose={() => setWlCuisineDropdownOpen(false)}
+            title="Select Cuisine"
+            placeholder="Search cuisines..."
+            options={wishlistAllCuisines}
+            selected={wishlistCuisineFilter}
+            onToggle={toggleWlCuisine}
+          />
+          <PricePickerSheet
+            open={wlPriceDropdownOpen}
+            onClose={() => setWlPriceDropdownOpen(false)}
+            value={wishlistPriceFilter}
+            onChange={setWishlistPriceFilter}
+          />
+          <SortPickerSheet
+            open={wlSortDropdownOpen}
+            onClose={() => setWlSortDropdownOpen(false)}
+            value={wishlistSort}
+            onChange={(v) => setWishlistSort(v as WishlistSort)}
+            options={[
+              ['recent', 'Recent'],
+              ['oldest', 'Oldest'],
+              ['name-asc', 'Name A→Z'],
+              ['name-desc', 'Name Z→A'],
+            ]}
+          />
+        </>
       )}
     </div>
   );
@@ -5062,6 +5145,184 @@ const HomeCookingTab: React.FC<{
         </ul>
       )}
     </div>
+  );
+};
+
+/* ── Reusable bottom-sheet pickers ──
+   These three sheets render the same kind of pop-up the rated view's
+   City / Cuisine / Price / Sort pills open. Extracted so the wishlist
+   (and any future list view) can reuse them with its own state. */
+
+const FilterListSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  placeholder: string;
+  options: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}> = ({ open, onClose, title, placeholder, options, selected, onToggle }) => {
+  const { phoneMode } = useSettings();
+  const [search, setSearch] = useState('');
+  useEffect(() => { if (!open) setSearch(''); }, [open]);
+  const q = search.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            className={cn(
+              'fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden',
+              phoneMode ? 'max-h-[92vh]' : 'max-h-[70vh]',
+            )}
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/[0.06] flex-shrink-0">
+              <h3 className="font-serif font-bold text-lg">{title}</h3>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+            <div className="px-5 pt-3 pb-2 flex-shrink-0">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                <input
+                  type="text"
+                  placeholder={placeholder}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 pb-5">
+              {filtered.length === 0 ? (
+                <p className="text-center py-8 text-sm text-on-surface/40">No matches</p>
+              ) : filtered.map((opt) => {
+                const isSelected = selected.includes(opt);
+                return (
+                  <button
+                    key={opt}
+                    onClick={() => onToggle(opt)}
+                    className={cn(
+                      'w-full flex items-center justify-between px-3 py-3 border-b border-on-surface/[0.05] text-left transition-colors',
+                      isSelected ? 'text-primary bg-primary/[0.03]' : 'text-on-surface/70 hover:bg-on-surface/[0.03]',
+                    )}
+                  >
+                    <span className="text-sm font-medium">{opt}</span>
+                    {isSelected && <Check size={16} className="text-primary" />}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+const PricePickerSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}> = ({ open, onClose, value, onChange }) => {
+  const { phoneMode } = useSettings();
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 350 }}
+            className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="px-5 pt-3 pb-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-serif font-bold text-base">Price Range</h3>
+                <button onClick={onClose} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
+                  <X size={14} className="text-on-surface/60" />
+                </button>
+              </div>
+              <div className="flex gap-2">
+                {['$', '$$', '$$$', '$$$$'].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => { onChange(value === p ? null : p); onClose(); }}
+                    className={cn(
+                      'flex-1 py-3 rounded-xl text-sm font-bold transition-all border-2',
+                      value === p ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
+                    )}
+                  >{p}</button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+const SortPickerSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  value: string;
+  onChange: (v: string) => void;
+  options: ReadonlyArray<readonly [string, string]>;
+}> = ({ open, onClose, value, onChange, options }) => {
+  const { phoneMode } = useSettings();
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 350 }}
+            className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="px-5 pt-3 pb-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-serif font-bold text-base">Sort By</h3>
+                <button onClick={onClose} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
+                  <X size={14} className="text-on-surface/60" />
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {options.map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => { onChange(key); onClose(); }}
+                    className={cn(
+                      'w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left',
+                      value === key ? 'bg-primary/5 text-primary' : 'text-on-surface/70 hover:bg-on-surface/[0.03]',
+                    )}
+                  >
+                    <span className="text-sm font-medium">{label}</span>
+                    {value === key && <Check size={16} className="text-primary" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 };
 
