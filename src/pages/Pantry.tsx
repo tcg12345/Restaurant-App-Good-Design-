@@ -6578,15 +6578,18 @@ export const Pantry: React.FC = () => {
       : 'restaurants';
 
   // Tab clicks reset to that tab's default landing. Trips is its own
-  // top-level mode — clicking either tab leaves it.
+  // top-level mode — clicking either tab leaves it. Each handler also
+  // updates the URL so the back button (e.g. from a restaurant detail
+  // page) brings the user back to the same list, not All Rated.
   const goToRestaurantsTab = () => {
     setShowHomeCooking(false); setShowTrips(false);
     setSelectedList(null); setShowAllRated(false);
-    if (location.search) navigate('/pantry');
+    if (location.pathname !== '/pantry' || location.search) navigate('/pantry');
   };
   const goToRecipesTab = () => {
     setSelectedList(null); setShowTrips(false); setShowAllRated(false);
     setShowHomeCooking(true);
+    navigate('/pantry?view=home-cooking');
   };
 
   // Identity of the currently visible top-level view, used to label the
@@ -6621,7 +6624,10 @@ export const Pantry: React.FC = () => {
   );
 
   // Helpers to drive the switcher's destinations through the existing
-  // showHomeCooking / showTrips / selectedList state machine.
+  // showHomeCooking / showTrips / selectedList state machine. Each one
+  // also pushes the matching URL so a navigation away from /pantry
+  // (e.g. clicking a restaurant or recipe) and back lands the user on
+  // the same list — not All Rated.
   const switchToRated = () => {
     setListSwitcherOpen(false);
     setShowHomeCooking(false); setShowTrips(false);
@@ -6637,21 +6643,25 @@ export const Pantry: React.FC = () => {
       restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId),
       createdAt: 0,
     } as CustomList);
+    navigate('/pantry?list=__wishlist__');
   };
   const switchToList = (list: CustomList) => {
     setListSwitcherOpen(false);
     setShowHomeCooking(false); setShowTrips(false); setShowAllRated(false);
     setSelectedList(list);
+    navigate(`/pantry?list=${encodeURIComponent(list.id)}`);
   };
   const switchToAllRecipes = () => {
     setListSwitcherOpen(false);
     setSelectedList(null); setShowTrips(false); setShowAllRated(false);
     setShowHomeCooking(true);
+    navigate('/pantry?view=home-cooking');
   };
   const switchToTrips = () => {
     setListSwitcherOpen(false);
     setSelectedList(null); setShowHomeCooking(false); setShowAllRated(false);
     setShowTrips(true);
+    navigate('/pantry?view=trips');
   };
 
   return (
@@ -6884,8 +6894,11 @@ export const Pantry: React.FC = () => {
             homeMeals={homeMeals}
             tab={pantryTab}
             onTabChange={setPantryTab}
-            onOpenList={setSelectedList}
-            onOpenWishlist={() =>
+            onOpenList={(list) => {
+              setSelectedList(list);
+              navigate(`/pantry?list=${encodeURIComponent(list.id)}`);
+            }}
+            onOpenWishlist={() => {
               setSelectedList({
                 id: '__wishlist__',
                 name: 'Wishlist',
@@ -6893,11 +6906,12 @@ export const Pantry: React.FC = () => {
                 restaurantIds: [],
                 wishlistIds: regularWishlist.map((w) => w.restaurantId),
                 createdAt: 0,
-              } as CustomList)
-            }
+              } as CustomList);
+              navigate('/pantry?list=__wishlist__');
+            }}
             onOpenRated={() => setShowAllRated(true)}
             onCreateRestaurantList={() => { setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
-            onOpenAllRecipes={() => setShowHomeCooking(true)}
+            onOpenAllRecipes={() => { setShowHomeCooking(true); navigate('/pantry?view=home-cooking'); }}
             onCreateRecipeList={() => { setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
           />
         ) : (
