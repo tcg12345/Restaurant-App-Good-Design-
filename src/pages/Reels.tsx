@@ -912,6 +912,74 @@ export const Reels: React.FC = () => {
     if (activePostId) setLastActivePostId(activePostId);
   }, [activePostId, setLastActivePostId]);
 
+  // ── Side-panel auto-sync as the user scrolls between feed items ──
+  //
+  // When activeKey changes (user scrolls to a new reel/post) we want any
+  // open side pane to follow:
+  //   • Restaurant panel: swap to the new item's featured restaurant. For
+  //     posts the source is the first slide's attachment. If the new item
+  //     has no featured restaurant the panel just closes.
+  //   • Comments: always swap to the new item's comments (per spec —
+  //     comments stuck on a previous reel were confusing).
+  //
+  // We read the current open-state through refs so the effect only fires
+  // on activeKey changes — including the open-state in deps would loop
+  // every time we update it from inside.
+  const restaurantPanelSnapshotRef = useRef(restaurantPanelSnapshot);
+  restaurantPanelSnapshotRef.current = restaurantPanelSnapshot;
+  const openCommentsReelIdRef = useRef(openCommentsReelId);
+  openCommentsReelIdRef.current = openCommentsReelId;
+  const openPostCommentsIdRef = useRef(openPostCommentsId);
+  openPostCommentsIdRef.current = openPostCommentsId;
+
+  useEffect(() => {
+    if (!activeKey) return;
+    const isReel = activeKey.startsWith('reel-');
+    const isPost = activeKey.startsWith('post-');
+    const id = isReel || isPost ? activeKey.slice(5) : null;
+    if (!id) return;
+
+    // Locate the underlying record. Reels live in either the all-reels or
+    // recipe-only list depending on the current tab.
+    const reel = isReel
+      ? (allReels.find((r) => r.id === id) || recipeReels.find((r) => r.id === id) || null)
+      : null;
+    const post = isPost ? (allPosts.find((p) => p.id === id) || null) : null;
+
+    // Restaurant panel auto-switch / close.
+    if (restaurantPanelSnapshotRef.current) {
+      let next: RestaurantPanelSnapshot | null = null;
+      if (reel && reel.kind === 'restaurant' && reel.restaurant) {
+        next = reel.restaurant;
+      } else if (post) {
+        const first = post.items[0];
+        if (first && first.attachedKind === 'restaurant' && first.restaurant) {
+          next = first.restaurant;
+        }
+      }
+      if ((next?.id ?? null) !== (restaurantPanelSnapshotRef.current?.id ?? null)) {
+        setRestaurantPanelSnapshot(next);
+      }
+    }
+
+    // Comments auto-switch. If comments are open they always follow the
+    // active item — swapping kinds (reel↔post) when crossing item types.
+    const commentsAreOpen = !!openCommentsReelIdRef.current || !!openPostCommentsIdRef.current;
+    if (commentsAreOpen) {
+      if (reel) {
+        if (openCommentsReelIdRef.current !== reel.id) {
+          if (openPostCommentsIdRef.current) closePostCommentsSheet();
+          openCommentsSheet(reel.id);
+        }
+      } else if (post) {
+        if (openPostCommentsIdRef.current !== post.id) {
+          if (openCommentsReelIdRef.current) closeCommentsSheet();
+          openPostCommentsSheet(post.id);
+        }
+      }
+    }
+  }, [activeKey, allReels, recipeReels, allPosts, openCommentsSheet, openPostCommentsSheet, closeCommentsSheet, closePostCommentsSheet]);
+
   // After the feed renders for the first time with a saved active post,
   // scroll the snap container so that post is the visible slide. We use
   // a layout effect so the scroll happens before the user sees slide 0.
