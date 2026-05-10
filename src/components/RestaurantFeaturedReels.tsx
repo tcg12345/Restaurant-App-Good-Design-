@@ -195,17 +195,9 @@ export const RestaurantFeaturedReels: React.FC<RestaurantFeaturedReelsProps> = (
   return (
     <section className={className}>
       {withHeader && (
-        <>
-          <p className="section-eyebrow mb-1">
-            Featured In
-          </p>
-          <h2 className={cn('section-title mb-1', size === 'sm' && 'text-[18px]')}>
-            More from {restaurantName}
-          </h2>
-          <p className={cn('text-on-surface/55 mb-4', size === 'sm' ? 'text-[12px]' : 'text-[13px]')}>
-            Reels and posts featuring this place
-          </p>
-        </>
+        <h2 className={cn('section-title mb-3', size === 'sm' && 'text-[18px]')}>
+          More from {restaurantName}
+        </h2>
       )}
 
       <div className="relative">
