@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, ChevronUp, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -203,6 +203,11 @@ interface ReelSlideProps {
 
 const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { phoneMode } = useSettings();
+  const hasCollapsibleContent = !!reel.caption
+    || (reel.kind === 'restaurant' && !!reel.restaurant)
+    || (reel.kind === 'recipe' && !!reel.recipe);
+  const [infoOpen, setInfoOpen] = useState(true);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -271,8 +276,16 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
         <ActionRail reel={reel} onLike={onLike} onSave={onSave} onComment={onComment} onShare={onShare} />
       )}
 
-      {/* Bottom info: author, caption, attached card */}
-      <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-5 pt-10">
+      {/* Bottom info: author row, then a collapsible block with the
+          caption + attached card. On phone the floating BottomNav
+          sits ~68-90px above the bottom edge, so we pad-bottom enough
+          to clear it; desktop keeps the original tighter padding. */}
+      <div
+        className={cn(
+          'absolute inset-x-0 bottom-0 z-20 px-4 pt-10',
+          phoneMode ? 'pb-24' : 'pb-5',
+        )}
+      >
         <div className="flex items-center gap-3 mb-2">
           {/* Tap the avatar + handle (and EXPERT chip) to open the author's
               profile. Audio label sits outside the link area so it isn't
@@ -297,20 +310,43 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
               <p className="text-white/85 text-[12px] truncate font-mono">♪ {reel.audioLabel}</p>
             </div>
           </Link>
+          {hasCollapsibleContent && (
+            <button
+              type="button"
+              onClick={() => setInfoOpen((o) => !o)}
+              aria-label={infoOpen ? 'Hide details' : 'Show details'}
+              aria-expanded={infoOpen}
+              className="flex-shrink-0 w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center text-white/85 hover:text-white hover:bg-black/60 transition-colors"
+            >
+              {infoOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+            </button>
+          )}
         </div>
 
-        {reel.caption && (
-          <p className="text-white text-[15px] font-serif italic leading-snug mb-3 line-clamp-3 max-w-[78%]">
-            {reel.caption}
-          </p>
-        )}
+        <AnimatePresence initial={false}>
+          {infoOpen && hasCollapsibleContent && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="overflow-hidden"
+            >
+              {reel.caption && (
+                <p className="text-white text-[15px] font-serif italic leading-snug mb-3 line-clamp-3 max-w-[78%]">
+                  {reel.caption}
+                </p>
+              )}
 
-        {reel.kind === 'restaurant' && reel.restaurant && (
-          <RestaurantCard reel={reel} onClick={onCardClick} />
-        )}
-        {reel.kind === 'recipe' && reel.recipe && (
-          <RecipeCard reel={reel} onClick={onCardClick} />
-        )}
+              {reel.kind === 'restaurant' && reel.restaurant && (
+                <RestaurantCard reel={reel} onClick={onCardClick} />
+              )}
+              {reel.kind === 'recipe' && reel.recipe && (
+                <RecipeCard reel={reel} onClick={onCardClick} />
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
