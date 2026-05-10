@@ -68,6 +68,10 @@ const ReelTile: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onClick
         reel.bgGradient || 'from-stone-800 to-stone-900',
       )}
     >
+      {/* Cover: prefer poster image, fall back to the video itself
+          (preload=metadata + playsInline so the first frame paints in
+          mobile browsers too). Final fallback is the bgGradient already
+          set on the parent, plus a subtle radial sheen for texture. */}
       {reel.posterUrl ? (
         <img
           src={reel.posterUrl}
@@ -75,6 +79,14 @@ const ReelTile: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onClick
           className="absolute inset-0 w-full h-full object-cover"
           loading="lazy"
           referrerPolicy="no-referrer"
+        />
+      ) : reel.videoUrl ? (
+        <video
+          src={reel.videoUrl}
+          muted
+          playsInline
+          preload="metadata"
+          className="absolute inset-0 w-full h-full object-cover"
         />
       ) : (
         <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.12),transparent_60%)]" />
@@ -127,20 +139,25 @@ const PostTile: React.FC<{ post: Post; onClick: () => void }> = ({ post, onClick
         cover?.bgGradient || 'from-stone-800 to-stone-900',
       )}
     >
-      {cover?.mediaUrl && cover.mediaType === 'image' ? (
+      {/* Cover: video tile when the first item is explicitly a video (so the
+          first frame paints), otherwise any mediaUrl is rendered as an
+          image. Falls back to the parent gradient when both branches miss
+          (e.g. signed URL failed). Mirrors ProfilePostsSection. */}
+      {cover?.mediaType === 'video' && cover.mediaUrl ? (
+        <video
+          src={cover.mediaUrl}
+          muted
+          playsInline
+          preload="metadata"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      ) : cover?.mediaUrl ? (
         <img
           src={cover.mediaUrl}
           alt=""
           className="absolute inset-0 w-full h-full object-cover"
           loading="lazy"
           referrerPolicy="no-referrer"
-        />
-      ) : cover?.mediaUrl && cover.mediaType === 'video' ? (
-        <video
-          src={cover.mediaUrl}
-          muted
-          preload="metadata"
-          className="absolute inset-0 w-full h-full object-cover"
         />
       ) : (
         <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.12),transparent_60%)]" />
