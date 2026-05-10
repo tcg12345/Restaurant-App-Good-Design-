@@ -411,7 +411,7 @@ const RestaurantPanelBody: React.FC<{
         whole time. */
   const scrollRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll({ container: scrollRef });
-  const heroHeight = useTransform(scrollY, [0, 120], [176, 60], { clamp: true });
+  const heroHeight = useTransform(scrollY, [0, 130], [204, 60], { clamp: true });
   const mediaOpacity = useTransform(scrollY, [0, 80], [1, 0], { clamp: true });
   const expandedOpacity = useTransform(scrollY, [0, 60], [1, 0], { clamp: true });
   const expandedY = useTransform(scrollY, [0, 120], [0, -22], { clamp: true });
