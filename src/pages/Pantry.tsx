@@ -1631,7 +1631,7 @@ const ListDetailView: React.FC<{
     return recipes.filter((r) => r.title.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.tags.some((t) => t.toLowerCase().includes(q)));
   }, [recipes, searchQuery]);
 
-  const ratedRestaurants = list.restaurantIds.map((id) => {
+  const ratedRestaurantsRaw = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
     // Prefer list-specific rating over global rating
     const listRating = getListRating(list.id, id);
@@ -1643,6 +1643,26 @@ const ListDetailView: React.FC<{
     const q = searchQuery.toLowerCase();
     return info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q);
   });
+  // Filtered version that the toolbar's City/Cuisine/Price pills also
+  // narrow down. The same wishlist* filter state is reused (the names
+  // are historical — they apply to any non-recipe list view now).
+  const ratedRestaurants = useMemo(() => {
+    if (isWishlistView || isHomeCooking) return ratedRestaurantsRaw;
+    let out = ratedRestaurantsRaw;
+    if (wishlistCuisineFilter.length > 0) {
+      out = out.filter(({ info }) => info?.cuisine && wishlistCuisineFilter.includes(info.cuisine));
+    }
+    if (wishlistCityFilter.length > 0) {
+      out = out.filter(({ info }) => {
+        const c = extractCityState(info?.address || '', info?.address || '');
+        return c && wishlistCityFilter.includes(c);
+      });
+    }
+    if (wishlistPriceFilter) {
+      out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
+    }
+    return out;
+  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter]);
 
   const wishlistedRestaurantsRaw = isHotelBreakfast
     ? wishlist.filter((w) => w.cuisine === 'Hotel Breakfast').map((w) => ({
@@ -1666,26 +1686,35 @@ const ListDetailView: React.FC<{
           return { id, info, wishItem };
         }).filter(({ info }) => info);
 
-  // Filter + sort options pulled from the actual wishlist contents, so
-  // the sheet only ever offers cuisines / cities the user has saved.
+  // Filter + sort options pulled from the list's actual contents, so
+  // the dropdowns only ever offer cuisines / cities the user has on
+  // this list. Recipe lists skip this — they have their own filters.
+  // The names are historical (they used to be wishlist-only); they now
+  // apply to any non-recipe list view (wishlist + custom restaurant +
+  // hotel-breakfast).
   const wishlistAllCuisines = useMemo(() => {
-    if (!isWishlistView) return [] as string[];
+    if (isHomeCooking) return [] as string[];
     const set = new Set<string>();
     wishlistedRestaurantsRaw.forEach(({ info }) => { if (info?.cuisine) set.add(info.cuisine); });
+    ratedRestaurantsRaw.forEach(({ info }) => { if (info?.cuisine) set.add(info.cuisine); });
     return Array.from(set).sort();
-  }, [isWishlistView, wishlistedRestaurantsRaw]);
+  }, [isHomeCooking, wishlistedRestaurantsRaw, ratedRestaurantsRaw]);
   const wishlistAllCities = useMemo(() => {
-    if (!isWishlistView) return [] as string[];
+    if (isHomeCooking) return [] as string[];
     const set = new Set<string>();
     wishlistedRestaurantsRaw.forEach(({ info }) => {
       const c = extractCityState(info?.address || '', info?.address || '');
       if (c) set.add(c);
     });
+    ratedRestaurantsRaw.forEach(({ info }) => {
+      const c = extractCityState(info?.address || '', info?.address || '');
+      if (c) set.add(c);
+    });
     return Array.from(set).sort();
-  }, [isWishlistView, wishlistedRestaurantsRaw]);
+  }, [isHomeCooking, wishlistedRestaurantsRaw, ratedRestaurantsRaw]);
 
   const wishlistedRestaurants = useMemo(() => {
-    if (!isWishlistView) return wishlistedRestaurantsRaw;
+    if (isHomeCooking) return wishlistedRestaurantsRaw;
     let out = wishlistedRestaurantsRaw;
     if (wishlistCuisineFilter.length > 0) {
       out = out.filter(({ info }) => info?.cuisine && wishlistCuisineFilter.includes(info.cuisine));
@@ -1710,7 +1739,7 @@ const ListDetailView: React.FC<{
       }
     });
     return sorted;
-  }, [isWishlistView, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistSort]);
+  }, [isHomeCooking, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistSort]);
 
   // Apply the search input on top of the filter pipeline (wishlist view
   // only — the rated and hotel-breakfast paths already filter above).
@@ -1954,12 +1983,13 @@ const ListDetailView: React.FC<{
               )}
             </button>
 
-            {/* Wishlist filter pills — same shape as the rated view:
+            {/* Filter pills — same shape as the rated view:
                 Filters / City / Cuisine / Price / Sort. Each pill opens
                 its own small bottom sheet (defined at the end of this
-                component). The wishlist gets all of these except a
-                rating filter (wishlisted places aren't rated yet). */}
-            {isWishlistView && (
+                component). All non-recipe list views get these
+                (wishlist, custom restaurant, hotel-breakfast). Recipe
+                lists have their own filter shape. */}
+            {!isHomeCooking && (
               <>
                 <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
                 <FilterPill
@@ -2149,9 +2179,10 @@ const ListDetailView: React.FC<{
             </>
           )}
 
-          <div className="ml-auto flex-shrink-0 hidden lg:block">
-            <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
-          </div>
+          {/* The view toggle that used to live here is gone — the
+              desktop toolbar above carries the only one now, and on
+              phone effectiveViewMode is forced to 'list' anyway, so a
+              second toggle here was either duplicate or dead UI. */}
         </div>
       )}
 
@@ -2365,7 +2396,7 @@ const ListDetailView: React.FC<{
         }}
       />
       <AddHotelBreakfastModal open={hotelModalOpen} onClose={() => setHotelModalOpen(false)} listId={list.id} />
-      {isWishlistView && (
+      {!isHomeCooking && (
         <WishlistFilterSheet
           open={wishlistFilterOpen}
           onClose={() => setWishlistFilterOpen(false)}
@@ -2384,10 +2415,10 @@ const ListDetailView: React.FC<{
         />
       )}
 
-      {/* Wishlist per-pill dropdowns — small bottom sheets that match
-          the rated view's. Only render on desktop (the toolbar pills
-          that open them are desktop-only too). */}
-      {isWishlistView && !phoneMode && (
+      {/* Per-pill dropdowns — small bottom sheets that match the rated
+          view's. Render on desktop for any non-recipe list view (the
+          toolbar pills that open them are desktop-only too). */}
+      {!isHomeCooking && !phoneMode && (
         <>
           <FilterListSheet
             open={wlCityDropdownOpen}
@@ -5632,6 +5663,13 @@ export const Pantry: React.FC = () => {
    *   ?new-list=1          → opens the create-list sheet, then strips
    *                          the param so a refresh doesn't re-open it
    * Plain `/pantry` resets back to the main lists overview.
+   *
+   * Crucially this effect's deps are URL-only — `lists` lives in a
+   * sibling effect below. Mixing them caused a regression where any
+   * list mutation (e.g. addToList) re-ran this effect, found no URL
+   * params (because the user had navigated via state, not URL), and
+   * blew selectedList back to null — i.e. dumped the user back to the
+   * rated view mid-action.
    */
   useEffect(() => {
     const sp = new URLSearchParams(location.search);
@@ -5674,8 +5712,11 @@ export const Pantry: React.FC = () => {
           restaurantIds: [], wishlistIds: [], createdAt: 0,
         } as CustomList);
       } else {
-        const found = lists.find((l) => l.id === listId);
-        if (found) setSelectedList(found);
+        // Stash the id; the lists-driven effect below will fill in the
+        // real list object once data is available.
+        setSelectedList((prev) => prev?.id === listId
+          ? prev
+          : ({ id: listId, name: '', emoji: '', restaurantIds: [], wishlistIds: [], createdAt: 0 } as CustomList));
       }
       return;
     }
@@ -5684,7 +5725,17 @@ export const Pantry: React.FC = () => {
     setSelectedList(null);
     setShowHomeCooking(false);
     setShowTrips(false);
-  }, [location.pathname, location.search, lists, navigate]);
+  }, [location.pathname, location.search, navigate]);
+
+  // Reconcile selectedList against fresh `lists` data. Runs on every
+  // lists update (e.g. after addToList) and re-points selectedList at
+  // the latest object so the page renders fresh contents — without
+  // triggering the URL effect, which would otherwise wipe state.
+  useEffect(() => {
+    if (!selectedList || selectedList.id === '__wishlist__') return;
+    const found = lists.find((l) => l.id === selectedList.id);
+    if (found && found !== selectedList) setSelectedList(found);
+  }, [lists, selectedList]);
 
   const listScrollRef = useRef<HTMLDivElement>(null);
 
@@ -6486,7 +6537,11 @@ export const Pantry: React.FC = () => {
       />
 
       {/* Spotlight-style search popup — opened by the desktop header's
-          Add Rating button (PageAddAction override above). */}
+          Add Rating button (PageAddAction override above). In
+          add-to-list mode it surfaces your rated restaurants up top
+          with checkboxes so you can batch-add several at once via the
+          Done button; search results stay single-pick (each one drops
+          into the rating modal). */}
       <SearchPopup
         open={searchPopupOpen}
         onClose={() => setSearchPopupOpen(false)}
@@ -6494,7 +6549,7 @@ export const Pantry: React.FC = () => {
           ? (currentList.id === '__wishlist__' ? 'Add to Wishlist' : `Add to ${currentList.name}`)
           : undefined}
         placeholder={searchPopupMode === 'add-to-list'
-          ? 'Pick a rated place or search for a new one…'
+          ? 'Pick rated places or search for a new one…'
           : 'Search for a restaurant…'}
         ratedRestaurants={searchPopupMode === 'add-to-list'
           ? ratings.filter((r) => r.cuisine !== 'Hotel Breakfast')
@@ -6505,20 +6560,34 @@ export const Pantry: React.FC = () => {
               ...(currentList.wishlistIds || []),
             ])
           : undefined}
+        multiSelectRated={searchPopupMode === 'add-to-list' && !!currentList && currentList.id !== '__wishlist__'}
+        onCommitRated={(picked) => {
+          if (!currentList || currentList.id === '__wishlist__') return;
+          // Add every picked restaurant to the list. No rating modal
+          // since these are already rated. Cache meta on each so rows
+          // render instantly without an extra fetch.
+          picked.forEach((rating) => {
+            cacheRestaurantMeta({
+              id: rating.restaurantId, name: rating.name, image: rating.image,
+              cuisine: rating.cuisine, price: rating.price, address: rating.address,
+            });
+            addToList(currentList.id, rating.restaurantId);
+          });
+          setSearchPopupOpen(false);
+        }}
         onPickRated={(rating) => {
+          // Single-select fallback path (e.g. wishlist context). Adds
+          // and closes immediately — no rating modal needed.
           if (!currentList) return;
           if (currentList.id === '__wishlist__') {
-            // Wishlist add path — shouldn't really hit since wishlist is
-            // toggled via the heart elsewhere, but covers the edge case.
             setSearchPopupOpen(false);
             return;
           }
-          addToList(currentList.id, rating.restaurantId);
-          // Cache meta so the row renders without an extra fetch.
           cacheRestaurantMeta({
             id: rating.restaurantId, name: rating.name, image: rating.image,
             cuisine: rating.cuisine, price: rating.price, address: rating.address,
           });
+          addToList(currentList.id, rating.restaurantId);
           setSearchPopupOpen(false);
         }}
         onPickPlace={(place) => {

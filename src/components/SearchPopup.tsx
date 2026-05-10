@@ -47,10 +47,18 @@ interface Props {
   /** Restaurant ids already on the target list — rendered with a
    *  greyed-out "Added" pill so the user can't pick them twice. */
   excludeIds?: Set<string>;
-  /** Click handler for a rated restaurant pick. */
+  /** Click handler for a rated restaurant pick (single-select mode). */
   onPickRated?: (rating: RestaurantRating) => void;
   /** Click handler for a Places search result pick. */
   onPickPlace: (place: PlaceResult) => void;
+  /** When true, rated rows accumulate selection until the user clicks
+   *  Done — useful for adding a batch of restaurants to a list at once.
+   *  Search results stay single-pick (each one opens the rating modal
+   *  immediately). */
+  multiSelectRated?: boolean;
+  /** Called with the full set of selected ratings when Done is clicked.
+   *  Required when multiSelectRated is true. */
+  onCommitRated?: (ratings: RestaurantRating[]) => void;
 }
 
 export const SearchPopup: React.FC<Props> = ({
@@ -62,11 +70,16 @@ export const SearchPopup: React.FC<Props> = ({
   excludeIds,
   onPickRated,
   onPickPlace,
+  multiSelectRated = false,
+  onCommitRated,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
+  // Multi-select mode: rated rows toggle into this set instead of
+  // immediately calling onPickRated. Reset whenever the popup re-opens.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef(0);
 
@@ -78,6 +91,7 @@ export const SearchPopup: React.FC<Props> = ({
     setQuery('');
     setResults([]);
     setSearching(false);
+    setSelectedIds(new Set());
     const t = setTimeout(() => inputRef.current?.focus(), 50);
     return () => clearTimeout(t);
   }, [open]);
@@ -143,29 +157,29 @@ export const SearchPopup: React.FC<Props> = ({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.14 }}
+          transition={{ duration: 0.16 }}
           onClick={onClose}
-          className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm flex items-start justify-center pt-[12vh] px-4"
+          className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-md flex items-start justify-center pt-[12vh] px-4"
         >
           <motion.div
             key="search-popup-card"
-            initial={{ opacity: 0, scale: 0.96, y: -8 }}
+            initial={{ opacity: 0, scale: 0.94, y: -12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: -8 }}
-            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-xl bg-surface rounded-3xl shadow-[0_24px_64px_-16px_rgba(0,0,0,0.32)] border border-on-surface/[0.06] overflow-hidden flex flex-col max-h-[70vh]"
+            className="w-full max-w-2xl bg-surface rounded-[28px] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06] overflow-hidden flex flex-col max-h-[70vh]"
           >
             {/* Search input — large, Spotlight-style. */}
-            <div className="flex-shrink-0 flex items-center gap-3 px-5 py-4 border-b border-on-surface/[0.05]">
-              <Search size={20} className="text-on-surface/45 flex-shrink-0" />
+            <div className="flex-shrink-0 flex items-center gap-3 px-6 py-5">
+              <Search size={22} strokeWidth={2.2} className="text-on-surface/45 flex-shrink-0" />
               <input
                 ref={inputRef}
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={placeholder}
-                className="flex-1 bg-transparent text-[18px] font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none"
+                className="flex-1 bg-transparent text-[20px] font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none"
                 aria-label="Search restaurants"
               />
               {query && (
@@ -173,20 +187,21 @@ export const SearchPopup: React.FC<Props> = ({
                   type="button"
                   onClick={() => { setQuery(''); inputRef.current?.focus(); }}
                   aria-label="Clear search"
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] flex-shrink-0 transition-colors"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] flex-shrink-0 transition-colors"
                 >
-                  <X size={14} />
+                  <X size={15} />
                 </button>
               )}
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="Close"
-                className="w-7 h-7 rounded-full flex items-center justify-center text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] flex-shrink-0 transition-colors"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface/40 hover:text-on-surface hover:bg-on-surface/[0.05] flex-shrink-0 transition-colors"
               >
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
+            <div className="border-t border-on-surface/[0.06]" />
 
             {/* Title (optional) */}
             {title && (
@@ -199,17 +214,29 @@ export const SearchPopup: React.FC<Props> = ({
               {/* Rated section — only when caller passed in rated restaurants */}
               {showRatedSection && (
                 <>
-                  <p className="px-5 pt-3 pb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">
-                    Your rated restaurants
-                  </p>
+                  <div className="px-6 pt-3 pb-1 flex items-center justify-between">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/40">
+                      Your rated restaurants
+                    </p>
+                    {multiSelectRated && selectedIds.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedIds(new Set())}
+                        className="text-[11px] font-semibold text-on-surface/45 hover:text-on-surface/70 transition-colors"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                   {filteredRated.length === 0 ? (
-                    <p className="px-5 py-3 text-[13px] text-on-surface/45">
+                    <p className="px-6 py-3 text-[13px] text-on-surface/45">
                       No rated restaurants match "{trimmed}".
                     </p>
                   ) : (
                     <ul className="pb-1">
                       {filteredRated.map((r) => {
                         const already = excludeIds?.has(r.restaurantId);
+                        const isSelected = selectedIds.has(r.restaurantId);
                         return (
                           <PopupRow
                             key={r.restaurantId}
@@ -218,9 +245,20 @@ export const SearchPopup: React.FC<Props> = ({
                             score={r.score}
                             disabled={already}
                             statusLabel={already ? 'Added' : undefined}
+                            multiSelect={multiSelectRated && !already}
+                            selected={isSelected}
                             onClick={() => {
                               if (already) return;
-                              onPickRated?.(r);
+                              if (multiSelectRated) {
+                                setSelectedIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(r.restaurantId)) next.delete(r.restaurantId);
+                                  else next.add(r.restaurantId);
+                                  return next;
+                                });
+                              } else {
+                                onPickRated?.(r);
+                              }
                             }}
                           />
                         );
@@ -274,15 +312,45 @@ export const SearchPopup: React.FC<Props> = ({
 
               {/* Empty state when no rated section AND nothing typed */}
               {showEmptyState && (
-                <div className="px-5 py-12 flex flex-col items-center gap-2 text-center">
-                  <Search size={28} className="text-on-surface/20" />
-                  <p className="text-[13px] font-semibold text-on-surface/55">Start typing to find a place</p>
+                <div className="px-6 py-14 flex flex-col items-center gap-2 text-center">
+                  <Search size={32} className="text-on-surface/20" strokeWidth={1.6} />
+                  <p className="text-[14px] font-semibold text-on-surface/55 mt-1">Start typing to find a place</p>
                   <p className="text-[12px] text-on-surface/35 max-w-[280px]">
                     Search any restaurant by name, cuisine, or city. Picking it opens the rating modal.
                   </p>
                 </div>
               )}
             </div>
+
+            {/* Done footer — only in multi-select mode and when something
+                is selected. Commits the whole batch in one shot. */}
+            {multiSelectRated && (
+              <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-3 flex items-center justify-between gap-3">
+                <p className="text-[12px] text-on-surface/55">
+                  {selectedIds.size === 0
+                    ? 'Tap restaurants to add them to this list'
+                    : `${selectedIds.size} selected`}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedIds.size === 0 || !onCommitRated || !ratedRestaurants) return;
+                    const picked = ratedRestaurants.filter((r) => selectedIds.has(r.restaurantId));
+                    onCommitRated(picked);
+                  }}
+                  disabled={selectedIds.size === 0}
+                  className={cn(
+                    'inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-semibold transition-all',
+                    selectedIds.size > 0
+                      ? 'bg-primary text-white hover:bg-primary/90 active:scale-[0.99] shadow-sm'
+                      : 'bg-on-surface/[0.06] text-on-surface/40 cursor-not-allowed',
+                  )}
+                >
+                  <Check size={14} strokeWidth={2.6} />
+                  <span>{selectedIds.size > 0 ? `Add ${selectedIds.size}` : 'Add to list'}</span>
+                </button>
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}
@@ -298,18 +366,35 @@ const PopupRow: React.FC<{
   score?: number;
   disabled?: boolean;
   statusLabel?: string;
+  multiSelect?: boolean;
+  selected?: boolean;
   onClick: () => void;
-}> = ({ name, sub, score, disabled, statusLabel, onClick }) => (
+}> = ({ name, sub, score, disabled, statusLabel, multiSelect, selected, onClick }) => (
   <li>
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'w-full px-5 py-3 flex items-center gap-3 text-left transition-colors',
+        'w-full px-6 py-3 flex items-center gap-3 text-left transition-colors',
         disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-on-surface/[0.04]',
+        selected && 'bg-primary/[0.04]',
       )}
     >
+      {/* Checkbox-style indicator on the left in multi-select mode */}
+      {multiSelect && (
+        <span
+          aria-hidden="true"
+          className={cn(
+            'flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors',
+            selected
+              ? 'bg-primary border-primary text-white'
+              : 'border-on-surface/20',
+          )}
+        >
+          {selected && <Check size={13} strokeWidth={3} />}
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <p className="text-[14px] font-bold text-on-surface leading-tight truncate">{name}</p>
         {sub && <p className="text-[12px] text-on-surface/50 leading-tight truncate mt-0.5">{sub}</p>}
@@ -323,9 +408,9 @@ const PopupRow: React.FC<{
         <span className="flex-shrink-0 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/45">
           <Check size={12} /> {statusLabel}
         </span>
-      ) : (
+      ) : !multiSelect ? (
         <Plus size={15} strokeWidth={2.4} className="flex-shrink-0 text-on-surface/35" />
-      )}
+      ) : null}
     </button>
   </li>
 );
