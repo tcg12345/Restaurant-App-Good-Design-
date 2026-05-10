@@ -31,9 +31,31 @@ function numericScore(s: unknown): number {
 
 function cityFromAddress(address: string): string | null {
   if (!address) return null;
-  const parts = address.split(',').map((p) => p.trim());
-  if (parts.length >= 2) return parts[parts.length - 1];
-  return parts[0] || null;
+  const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  // Heuristic: in "<street>, <city>, <state-or-country>" the city is the
+  // middle part; in "<street>, <city>" it's the last. Pick accordingly so
+  // we don't render "CT" or "USA" as the place label.
+  if (parts.length >= 3) return parts[parts.length - 2];
+  return parts[parts.length - 1];
+}
+
+/** Stable-per-restaurant warm gradient — used behind cards with no photo so
+ *  they read as distinct tiles instead of a wall of identical placeholders. */
+const TOP_RATED_GRADIENTS = [
+  'from-amber-700 via-amber-600/40 to-stone-800',
+  'from-rose-700 via-rose-500/40 to-stone-800',
+  'from-emerald-800 via-emerald-600/40 to-stone-800',
+  'from-violet-800 via-violet-600/40 to-stone-800',
+  'from-sky-800 via-sky-600/40 to-stone-800',
+  'from-orange-700 via-orange-500/40 to-stone-800',
+  'from-teal-800 via-teal-600/40 to-stone-800',
+  'from-fuchsia-800 via-fuchsia-600/40 to-stone-800',
+];
+function topRatedGradient(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
+  return TOP_RATED_GRADIENTS[Math.abs(h) % TOP_RATED_GRADIENTS.length];
 }
 
 /** ISO string for sorting by recency; never throws (missing/invalid → empty). */
@@ -482,42 +504,69 @@ export const Profile: React.FC = () => {
       </div>
 
       <main className="px-5 space-y-10">
-        {/* Top Rated — immersive full-bleed hero cards */}
+        {/* Top Rated — compact horizontal-scroll cards. Photo (or a hashed
+            warm gradient when there isn't one) up top with a color-coded
+            score chip; serif name + cuisine · price + city stacked tight
+            below over the legibility wash. No giant placeholder letter —
+            the gradient varies per-restaurant so cards stay distinct. */}
         {topRated.length > 0 && (
           <section className="-mx-5">
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-4 px-5">Top Rated</h3>
-            <div className="flex gap-4 overflow-x-auto pb-2 px-5 scrollbar-hide snap-x snap-mandatory">
-              {topRated.slice(0, 8).map((r) => (
-                <Link
-                  key={r.restaurantId}
-                  to={`/restaurant/${r.restaurantId}`}
-                  className="flex-shrink-0 snap-start group"
-                >
-                  <div className="relative w-56 aspect-[3/4] rounded-3xl overflow-hidden bg-on-surface/[0.05] shadow-sm">
-                    {r.image ? (
-                      <img
-                        src={r.image}
-                        alt={r.name}
-                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center bg-on-surface/[0.05] text-on-surface/20 font-serif text-6xl font-bold">
-                        {r.name.charAt(0)}
-                      </div>
-                    )}
-                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-none" />
-                    <div className="absolute inset-x-0 bottom-0 p-4">
-                      <p className="text-white text-base font-bold leading-tight drop-shadow-sm line-clamp-2">{r.name}</p>
-                      <div className="flex items-center gap-1 mt-1.5">
-                        <Star size={12} className="fill-white text-white" />
-                        <span className="text-white/95 text-xs font-semibold tabular-nums">{formatScore(r.score)}</span>
-                        <span className="text-white/60 text-xs">/ 10</span>
+            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-3 px-5">Top Rated</h3>
+            <div className="flex gap-3 overflow-x-auto pb-2 px-5 scrollbar-hide snap-x snap-mandatory">
+              {topRated.slice(0, 8).map((r) => {
+                const gradient = topRatedGradient(r.restaurantId);
+                const city = cityFromAddress(r.address);
+                const score = r.score;
+                const scoreCls = score >= 8
+                  ? 'bg-emerald-700 text-white'
+                  : score >= 5
+                    ? 'bg-amber-600 text-white'
+                    : 'bg-red-500 text-white';
+                return (
+                  <Link
+                    key={r.restaurantId}
+                    to={`/restaurant/${r.restaurantId}`}
+                    className="flex-shrink-0 snap-start group"
+                  >
+                    <div className={cn(
+                      'relative w-40 aspect-[4/5] rounded-2xl overflow-hidden shadow-sm ring-1 ring-on-surface/[0.06] group-hover:shadow-md transition-shadow',
+                      'bg-gradient-to-br',
+                      gradient,
+                    )}>
+                      {r.image && (
+                        <img
+                          src={r.image}
+                          alt={r.name}
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                          referrerPolicy="no-referrer"
+                        />
+                      )}
+                      {/* Score chip top-right */}
+                      <span className={cn(
+                        'absolute top-2 right-2 inline-flex items-center justify-center min-w-[34px] h-7 px-1.5 rounded-lg text-[12px] font-bold tabular-nums shadow-sm',
+                        scoreCls,
+                      )}>
+                        {formatScore(r.score)}
+                      </span>
+                      {/* Bottom legibility wash */}
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[62%] bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
+                      {/* Stacked meta */}
+                      <div className="absolute inset-x-0 bottom-0 p-2.5">
+                        <p className="font-serif font-bold text-white text-[13.5px] leading-[1.15] drop-shadow line-clamp-2">{r.name}</p>
+                        <p className="text-white/85 text-[10.5px] mt-1 truncate">
+                          {[r.cuisine, r.price].filter(Boolean).join(' · ')}
+                        </p>
+                        {city && (
+                          <div className="flex items-center gap-1 mt-0.5 text-white/70 text-[10px]">
+                            <MapPin size={9} className="flex-shrink-0" />
+                            <span className="truncate">{city}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
             </div>
           </section>
         )}
