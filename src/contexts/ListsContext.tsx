@@ -612,9 +612,55 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const cloudRatings = migrateRatings(
           cloud.ratings.length > 0 ? cloud.ratings : localRatings.length > 0 ? localRatings : recoveredRatings
         );
-        const cloudLists = migrateLists(
+        const baseCloudLists = migrateLists(
           cloud.lists.length > 0 ? cloud.lists : localLists.length > 0 ? localLists : DEFAULT_LISTS
         );
+        // Top-level pick (cloud or local) used to silently wipe anything
+        // local had that cloud didn't — recipes added to a list right
+        // before close, restaurants just dropped into a wishlist, even
+        // entire lists created on this device but never synced. Merge
+        // local additions in by id so a slightly-stale cloud snapshot
+        // can't erase work the user already saw committed locally.
+        const cloudLists = (() => {
+          const localById = new Map<string, CustomList>(
+            (localLists as CustomList[]).map((l) => [l.id, l]),
+          );
+          const merged = baseCloudLists.map((cl) => {
+            const ll = localById.get(cl.id);
+            if (!ll) return cl;
+            const cloudRecipeIds = new Set((cl.recipes || []).map((r) => r.id));
+            const localOnlyRecipes = (ll.recipes || []).filter((r) => r && r.id && !cloudRecipeIds.has(r.id));
+            const cloudRestaurantIds = new Set(cl.restaurantIds || []);
+            const localOnlyRestaurantIds = (ll.restaurantIds || []).filter((id) => id && !cloudRestaurantIds.has(id));
+            const cloudWishlistIds = new Set(cl.wishlistIds || []);
+            const localOnlyWishlistIds = (ll.wishlistIds || []).filter((id) => id && !cloudWishlistIds.has(id));
+            if (localOnlyRecipes.length === 0 && localOnlyRestaurantIds.length === 0 && localOnlyWishlistIds.length === 0) {
+              return cl;
+            }
+            return {
+              ...cl,
+              recipes: localOnlyRecipes.length > 0
+                ? [...(cl.recipes || []), ...localOnlyRecipes]
+                : cl.recipes,
+              restaurantIds: localOnlyRestaurantIds.length > 0
+                ? [...(cl.restaurantIds || []), ...localOnlyRestaurantIds]
+                : cl.restaurantIds,
+              wishlistIds: localOnlyWishlistIds.length > 0
+                ? [...(cl.wishlistIds || []), ...localOnlyWishlistIds]
+                : cl.wishlistIds,
+            };
+          });
+          // Local-only lists (created before sync completed) are appended
+          // so the user doesn't lose a freshly-created list on reload.
+          const baseIds = new Set(baseCloudLists.map((l) => l.id));
+          const localOnlyLists = (localLists as CustomList[]).filter((l) => l && l.id && !baseIds.has(l.id));
+          return [...merged, ...localOnlyLists];
+        })();
+        // Track whether the merge actually rescued anything — if so we
+        // need to push the unioned set back to the cloud so subsequent
+        // reloads see it without relying on local cache again.
+        const listsMergedFromLocal = cloudLists.length !== baseCloudLists.length
+          || cloudLists.some((l, i) => l !== baseCloudLists[i]);
         const cloudWishlist = migrateWishlist(
           cloud.wishlist.length > 0 ? cloud.wishlist : localWishlist.length > 0 ? localWishlist : []
         );
@@ -688,9 +734,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           try { localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews)); } catch { /* quota — best-effort */ }
         }
 
-        // If we used local fallback data (cloud was empty but local had content), or lists were reconciled, save back to cloud
+        // If we used local fallback data (cloud was empty but local had
+        // content), reconciled, or merged local-only list contents into
+        // cloud lists, push the union back so subsequent reloads see it
+        // even if localStorage gets cleared.
         const finalLists = listsChanged ? reconciledLists : cloudLists;
-        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || homeMealsUsedLocalFallback) {
+        if ((cloud.ratings.length === 0 && cloudRatings.length > 0) || listsChanged || listsMergedFromLocal || homeMealsUsedLocalFallback) {
           await saveUserData(userId, { ratings: cloudRatings, lists: finalLists, wishlist: cloudWishlist, restaurantMeta: cloudMeta, recentViews: cloudRecentViews, trips: cloudTrips as Trip[], homeMeals: cloudHomeMeals });
         }
 
