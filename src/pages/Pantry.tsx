@@ -2493,19 +2493,46 @@ const FilterSheet: React.FC<{
     <AnimatePresence>
       {open && (
         <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={onClose} />
+          {/* Backdrop. Desktop gets a richer blur — same Spotlight feel
+              as the SearchPopup. Phone keeps the lighter blur so the
+              underlying page is still subtly visible behind the sheet. */}
           <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            drag={phoneMode ? 'y' : false}
-            dragConstraints={{ top: 0 }}
-            dragElastic={{ top: 0, bottom: 0.4 }}
-            onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) onClose(); }}
-            className={cn("fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: phoneMode ? 0.14 : 0.16 }}
+            className={cn(
+              'fixed inset-0 z-50',
+              phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
+              !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+            )}
+            onClick={onClose}
           >
-            {/* Drag handle */}
+            <motion.div
+              {...(phoneMode
+                ? {
+                    initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
+                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                    drag: 'y' as const,
+                    dragConstraints: { top: 0 },
+                    dragElastic: { top: 0, bottom: 0.4 },
+                    onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+                      if (info.offset.y > 80 || info.velocity.y > 300) onClose();
+                    },
+                  }
+                : {
+                    initial: { opacity: 0, scale: 0.94, y: -12 },
+                    animate: { opacity: 1, scale: 1, y: 0 },
+                    exit: { opacity: 0, scale: 0.96, y: -8 },
+                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                  })}
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              className={cn(
+                'flex flex-col overflow-hidden bg-surface',
+                phoneMode
+                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[92vh]'
+                  : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
+              )}
+            >
+            {/* Drag handle (phone only — desktop has no draggable affordance) */}
             {phoneMode && (
               <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing flex-shrink-0">
                 <div className="w-10 h-1 rounded-full bg-on-surface/15" />
@@ -2513,12 +2540,16 @@ const FilterSheet: React.FC<{
             )}
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
-              <h3 className="font-serif font-bold text-lg">Filters</h3>
-              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors">
+            <div className={cn(
+              'flex items-center justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-3 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
+            )}>
+              <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>Filters</h3>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors">
                 <X size={16} className="text-on-surface/60" />
               </button>
             </div>
+            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
@@ -2637,12 +2668,13 @@ const FilterSheet: React.FC<{
             </div>
 
             {/* Footer */}
-            <div className="flex-shrink-0 border-t border-on-surface/6 px-5 py-4 flex gap-3">
+            <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3">
               <button onClick={onReset}
-                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors">Reset</button>
+                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.04] transition-colors">Reset</button>
               <button onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25">Apply</button>
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all">Apply</button>
             </div>
+            </motion.div>
           </motion.div>
         </>
       )}
@@ -2690,39 +2722,60 @@ const WishlistFilterSheet: React.FC<{
   return (
     <AnimatePresence>
       {open && (
-        <>
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+          className={cn(
+            'fixed inset-0 z-[120]',
+            phoneMode ? 'bg-black/45 backdrop-blur-md' : 'bg-black/50 backdrop-blur-md',
+            !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+          )}
+          onClick={onClose}
+        >
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="fixed inset-0 bg-black/45 backdrop-blur-md z-[120]"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 320, mass: 0.9 }}
-            drag={phoneMode ? 'y' : false}
-            dragConstraints={{ top: 0 }}
-            dragElastic={{ top: 0, bottom: 0.4 }}
-            onDragEnd={(_: any, info: any) => { if (info.offset.y > 90 || info.velocity.y > 350) onClose(); }}
+            {...(phoneMode
+              ? {
+                  initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
+                  transition: { type: 'spring' as const, damping: 30, stiffness: 320, mass: 0.9 },
+                  drag: 'y' as const,
+                  dragConstraints: { top: 0 },
+                  dragElastic: { top: 0, bottom: 0.4 },
+                  onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+                    if (info.offset.y > 90 || info.velocity.y > 350) onClose();
+                  },
+                }
+              : {
+                  initial: { opacity: 0, scale: 0.94, y: -12 },
+                  animate: { opacity: 1, scale: 1, y: 0 },
+                  exit: { opacity: 0, scale: 0.96, y: -8 },
+                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                })}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
             className={cn(
-              "fixed bottom-0 left-0 right-0 z-[120] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              "shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]",
-              phoneMode ? "h-[88vh]" : "max-h-[78vh] sm:max-w-md sm:left-1/2 sm:-translate-x-1/2 sm:rounded-3xl sm:bottom-6"
+              'flex flex-col overflow-hidden bg-surface',
+              phoneMode
+                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[88vh] shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]'
+                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
             )}
           >
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
-              <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-            </div>
+            {/* Drag handle (phone only) */}
+            {phoneMode && (
+              <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
+                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+              </div>
+            )}
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-on-surface/[0.06] flex-shrink-0">
+            <div className={cn(
+              'flex items-center justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-2 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
+            )}>
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
                   <SlidersHorizontal size={15} />
                 </div>
                 <div>
-                  <h3 className="font-serif font-bold text-lg leading-tight">Filter wishlist</h3>
+                  <h3 className={cn('font-serif font-bold leading-tight', phoneMode ? 'text-lg' : 'text-[20px]')}>Filter wishlist</h3>
                   {activeCount > 0 && (
                     <p className="text-[11px] text-on-surface/45 font-medium">
                       {activeCount} active filter{activeCount === 1 ? '' : 's'}
@@ -2732,11 +2785,12 @@ const WishlistFilterSheet: React.FC<{
               </div>
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+                className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
               >
                 <X size={16} className="text-on-surface/60" />
               </button>
             </div>
+            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
@@ -2906,13 +2960,13 @@ const WishlistFilterSheet: React.FC<{
               </button>
               <button
                 onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25"
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all"
               >
                 {activeCount > 0 ? `Show results` : 'Done'}
               </button>
             </div>
           </motion.div>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   );
