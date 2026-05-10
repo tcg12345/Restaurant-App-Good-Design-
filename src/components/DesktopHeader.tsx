@@ -274,27 +274,6 @@ export const DesktopHeader: React.FC = () => {
             'absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none',
             isScoped ? 'text-primary' : 'text-on-surface/40',
           )} />
-          {/* When scoped, a chip sits inside the input padding showing
-              which list is being filtered, with an X to exit the scope
-              and revert to global search. */}
-          {isScoped && scopedSearch && (
-            <div className="absolute left-10 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/[0.10] text-primary text-[12px] font-semibold pointer-events-auto">
-              <span className="truncate max-w-[140px]">Searching {scopedSearch.scopeName}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  scopedSearch.onDismiss?.();
-                  setScopedSearch(null);
-                  setQuery('');
-                  inputRef.current?.focus();
-                }}
-                aria-label="Exit list search"
-                className="text-primary/70 hover:text-primary transition-colors flex-shrink-0"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          )}
           <input
             ref={inputRef}
             type="text"
@@ -308,27 +287,28 @@ export const DesktopHeader: React.FC = () => {
               }
             }}
             onFocus={() => { if (!isScoped) setOpen(true); }}
+            onBlur={() => {
+              // Click-off in scoped mode reverts the bar to the global
+              // Places search. The page's list filter is preserved so
+              // the results don't disappear — the page's "Search this
+              // list" pill still shows the active query with its own
+              // clear button.
+              if (isScoped) setScopedSearch(null);
+            }}
             onKeyDown={handleKeyDown}
             placeholder={isScoped && scopedSearch
               ? (scopedSearch.placeholder || `Search ${scopedSearch.scopeName.toLowerCase()}...`)
               : 'Search by name, cuisine, location...'}
             className={cn(
               'w-full hover:bg-on-surface/[0.06]',
-              'rounded-full py-2.5 pr-10 text-[14px] font-medium text-on-surface',
+              'rounded-full py-2.5 pl-11 pr-10 text-[14px] font-medium text-on-surface',
               'placeholder:text-on-surface/40',
               'focus:outline-none focus:ring-2 focus:ring-primary/20',
               'transition-colors',
-              isScoped && scopedSearch
-                // While scoped, leave room on the left for the chip.
-                // The chip width depends on the scope name, so reserve
-                // a generous padding-left and let the input own anything
-                // past it.
-                ? 'pl-[calc(2.75rem+var(--scope-chip-w,9rem))] bg-primary/[0.04] focus:bg-primary/[0.06]'
-                : 'pl-11 bg-on-surface/[0.04] focus:bg-on-surface/[0.06]',
+              isScoped
+                ? 'bg-primary/[0.06] focus:bg-primary/[0.09] placeholder:text-primary/60'
+                : 'bg-on-surface/[0.04] focus:bg-on-surface/[0.06]',
             )}
-            style={isScoped && scopedSearch
-              ? { ['--scope-chip-w' as string]: `${Math.min(scopedSearch.scopeName.length * 7 + 56, 200)}px` }
-              : undefined}
             aria-label={isScoped && scopedSearch ? `Search ${scopedSearch.scopeName}` : 'Search restaurants'}
             aria-haspopup={isScoped ? undefined : 'listbox'}
             aria-expanded={isScoped ? undefined : open}
@@ -336,6 +316,10 @@ export const DesktopHeader: React.FC = () => {
           {((isScoped && scopedSearch?.query) || (!isScoped && query)) && (
             <button
               type="button"
+              // preventDefault on mousedown keeps the input focused, so
+              // the blur-to-revert handler doesn't clear scoped mode out
+              // from under the click before the clear runs.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 if (isScoped && scopedSearch) scopedSearch.setQuery('');
                 else setQuery('');
