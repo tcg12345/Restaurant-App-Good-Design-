@@ -5355,60 +5355,49 @@ const HomeCookingTab: React.FC<{
 };
 
 /* ── Recipe row (list view) ──
-   Mirrors RestaurantRow's restraint: square thumbnail on the left,
-   serif title + meta + score on the right. Edit pencil fades in on
-   hover so the chrome doesn't sit on top of the row at rest. */
+   List view drops the cover image — just title + meta + score on a
+   single line. The cover photo is already the headline element of the
+   grid view, so the list view stays compact and text-first. */
 const RecipeRow: React.FC<{
   meal: HomeMeal;
   onClick: () => void;
   onEdit: () => void;
 }> = ({ meal, onClick, onEdit }) => {
-  const coverPhoto = getMealCoverUrl(meal);
   const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
   const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
   return (
     <li className="relative group/row">
       <button
         onClick={onClick}
-        className="w-full flex gap-4 py-4 text-left group active:scale-[0.99] transition-transform"
+        className="w-full text-left py-4 active:scale-[0.99] transition-transform"
       >
-        <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
-          {coverPhoto ? (
-            <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-emerald-50">
-              <ChefHat size={28} className="text-emerald-300" />
-            </div>
-          )}
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
+          <span className={cn('text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 mr-7 tabular-nums', scoreColor(meal.score))}>
+            {meal.score > 0 ? meal.score.toFixed(1) : '—'}
+          </span>
         </div>
-        <div className="flex-1 min-w-0 flex flex-col justify-center">
-          <div className="flex items-start justify-between gap-3">
-            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
-            <span className={cn('text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 mr-7 tabular-nums', scoreColor(meal.score))}>
-              {meal.score > 0 ? meal.score.toFixed(1) : '—'}
-            </span>
-          </div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
-            {meal.cuisine && <><span>{meal.cuisine}</span><span className="text-on-surface/25">·</span></>}
-            {totalTime > 0 ? (
-              <>
-                <Clock size={11} />
-                <span>{formatDuration(totalTime)}</span>
-                {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
-              </>
-            ) : meal.difficulty ? (
-              <span>{meal.difficulty}</span>
-            ) : meal.dishes.length > 0 ? (
-              <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
-            ) : null}
-          </div>
-          {ingredientPreview.length > 0 && (
-            <p className="text-[12px] text-on-surface/50 mt-1 leading-snug line-clamp-2">
-              {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
-              {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
-            </p>
-          )}
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
+          {meal.cuisine && <><span>{meal.cuisine}</span></>}
+          {meal.cuisine && totalTime > 0 && <span className="text-on-surface/25">·</span>}
+          {totalTime > 0 ? (
+            <>
+              <Clock size={11} />
+              <span>{formatDuration(totalTime)}</span>
+              {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
+            </>
+          ) : meal.difficulty ? (
+            <span>{meal.difficulty}</span>
+          ) : meal.dishes.length > 0 ? (
+            <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
+          ) : null}
         </div>
+        {ingredientPreview.length > 0 && (
+          <p className="text-[12px] text-on-surface/50 mt-1 leading-snug line-clamp-2">
+            {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
+            {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
+          </p>
+        )}
       </button>
       <button
         type="button"
