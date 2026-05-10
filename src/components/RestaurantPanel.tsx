@@ -20,11 +20,12 @@
  * modals handle them — no chrome duplicated here.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
 import { Link } from 'react-router-dom';
 import {
   X, MapPin, Star, Heart, Plus, ArrowUpRight, Pencil, Users, Award, Loader2, ImageOff,
-  Navigation, Phone, Globe, Clock, ChevronDown, StickyNote, Tag, Image as ImageIcon, CalendarDays, DollarSign,
+  Navigation, Phone, Globe, Clock, ChevronDown, StickyNote, Tag, Image as ImageIcon, CalendarDays, DollarSign, ChevronRight,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // Required for the Mapbox canvas to actually render — provides the
@@ -39,8 +40,10 @@ import {
   getCommunityStats,
   getFriendsStats,
   getExpertRecommendations,
+  getCommunityPhotos,
   getProfilesByIds,
   type CommunityRating,
+  type CommunityPhoto,
   type ExpertRecommendation,
   type UserProfile,
 } from '../lib/supabase-community';
@@ -48,6 +51,7 @@ import type { ReelRestaurantSnapshot } from '../lib/supabase-reels';
 import { getPlaceDetails, type PlaceDetails } from '../lib/places';
 import { MAPBOX_TOKEN, getTodayHours } from '../pages/useRestaurantDetail';
 import { RestaurantFeaturedReels } from './RestaurantFeaturedReels';
+import { PhotoGallery } from './PhotoGallery';
 
 /* ── Snapshot the panel accepts ───────────────────────────────────────────
    We accept any object that quacks like a ReelRestaurantSnapshot so reels
@@ -254,6 +258,20 @@ const RestaurantPanelBody: React.FC<{
   const [experts, setExperts] = useState<ExpertRecommendation[]>([]);
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
   const [loading, setLoading] = useState(true);
+  // Community photo gallery — small grid section in the panel, full-screen
+  // viewer when a thumb is tapped.
+  const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>([]);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryStart, setGalleryStart] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCommunityPhotos([]);
+    getCommunityPhotos(snapshot.id).then((ps) => {
+      if (!cancelled) setCommunityPhotos(ps);
+    }).catch(() => { /* keep empty list */ });
+    return () => { cancelled = true; };
+  }, [snapshot.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -531,74 +549,6 @@ const RestaurantPanelBody: React.FC<{
           />
         </div>
 
-        {/* Address + thin hours accordion */}
-        <div className="space-y-2">
-          {snapshot.address && (
-            <div className="flex items-start gap-2.5 text-on-surface/75">
-              <MapPin size={14} className="mt-0.5 flex-shrink-0 text-on-surface/50" />
-              <p className="text-[13px] leading-snug">{snapshot.address}</p>
-            </div>
-          )}
-          {hours.length > 0 && (
-            <div>
-              <button
-                type="button"
-                onClick={() => setHoursOpen((o) => !o)}
-                aria-expanded={hoursOpen}
-                className="w-full flex items-center gap-2.5 text-on-surface/75 hover:text-on-surface transition-colors py-1.5"
-              >
-                <Clock size={14} className="flex-shrink-0 text-on-surface/50" />
-                <div className="flex items-center gap-2 min-w-0 flex-1 text-left">
-                  {isOpenNow !== null && (
-                    <>
-                      <span className={cn('inline-block w-1.5 h-1.5 rounded-full flex-shrink-0', isOpenNow ? 'bg-emerald-600' : 'bg-clay')} />
-                      <span className={cn('text-[13px] font-semibold flex-shrink-0', isOpenNow ? 'text-emerald-700' : 'text-clay')}>
-                        {isOpenNow ? 'Open' : 'Closed'}
-                      </span>
-                    </>
-                  )}
-                  {todayHours && (
-                    <span className="text-[13px] text-on-surface/65 truncate">· {todayHours}</span>
-                  )}
-                </div>
-                <ChevronDown size={14} className={cn('text-on-surface/45 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
-              </button>
-              <AnimatePresence initial={false}>
-                {hoursOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <ul className="mt-1.5 pl-[26px] space-y-1">
-                      {hours.map((line, i) => {
-                        const today = new Date().getDay();
-                        // Google returns Mon-first; getDay returns Sun=0..Sat=6.
-                        // Convert getDay → Mon=0..Sun=6 to match.
-                        const idxMonFirst = (today + 6) % 7;
-                        const isToday = i === idxMonFirst;
-                        return (
-                          <li
-                            key={i}
-                            className={cn(
-                              'text-[12px] tabular-nums',
-                              isToday ? 'text-on-surface font-semibold' : 'text-on-surface/65',
-                            )}
-                          >
-                            {line}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
-
         {/* Score grid */}
         <div className="grid grid-cols-3 gap-2">
           <ScorePill
@@ -797,6 +747,54 @@ const RestaurantPanelBody: React.FC<{
           </div>
         )}
 
+        {/* Photos — small 4-up grid of community photos. Tapping any
+            thumbnail (or the count chip) opens the full-screen
+            PhotoGallery at that index. Hidden when there are no
+            community photos. */}
+        {communityPhotos.length > 0 && (
+          <section>
+            <button
+              type="button"
+              onClick={() => { setGalleryStart(0); setGalleryOpen(true); }}
+              className="w-full flex items-baseline justify-between mb-2.5 text-left"
+            >
+              <h3 className="font-serif font-bold text-on-surface text-[15px]">Photos</h3>
+              <span className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-on-surface/60 hover:text-on-surface transition-colors">
+                See all {communityPhotos.length}
+                <ChevronRight size={13} />
+              </span>
+            </button>
+            <div className="grid grid-cols-4 gap-1.5">
+              {communityPhotos.slice(0, 4).map((p, idx) => {
+                const isLast = idx === 3 && communityPhotos.length > 4;
+                const more = communityPhotos.length - 4;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => { setGalleryStart(idx); setGalleryOpen(true); }}
+                    className="relative aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] ring-1 ring-on-surface/[0.06] hover:ring-on-surface/[0.14] transition-shadow"
+                    aria-label={p.caption || `Photo ${idx + 1} of ${communityPhotos.length}`}
+                  >
+                    <img
+                      src={p.url}
+                      alt=""
+                      className="absolute inset-0 w-full h-full object-cover"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                    />
+                    {isLast && (
+                      <div className="absolute inset-0 bg-black/55 backdrop-blur-[1px] flex items-center justify-center">
+                        <span className="text-white text-[14px] font-bold tabular-nums">+{more}</span>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* Featured-in strip */}
         <RestaurantFeaturedReels
           restaurantId={snapshot.id}
@@ -871,6 +869,77 @@ const RestaurantPanelBody: React.FC<{
           </>
         )}
 
+        {/* Address + thin hours accordion — sits below the reviews so the
+            page reads "what people think" before "where it is / when it's
+            open". Hours default closed; today's slice is shown on the
+            trigger row. */}
+        <div className="space-y-2">
+          {snapshot.address && (
+            <div className="flex items-start gap-2.5 text-on-surface/75">
+              <MapPin size={14} className="mt-0.5 flex-shrink-0 text-on-surface/50" />
+              <p className="text-[13px] leading-snug">{snapshot.address}</p>
+            </div>
+          )}
+          {hours.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setHoursOpen((o) => !o)}
+                aria-expanded={hoursOpen}
+                className="w-full flex items-center gap-2.5 text-on-surface/75 hover:text-on-surface transition-colors py-1.5"
+              >
+                <Clock size={14} className="flex-shrink-0 text-on-surface/50" />
+                <div className="flex items-center gap-2 min-w-0 flex-1 text-left">
+                  {isOpenNow !== null && (
+                    <>
+                      <span className={cn('inline-block w-1.5 h-1.5 rounded-full flex-shrink-0', isOpenNow ? 'bg-emerald-600' : 'bg-clay')} />
+                      <span className={cn('text-[13px] font-semibold flex-shrink-0', isOpenNow ? 'text-emerald-700' : 'text-clay')}>
+                        {isOpenNow ? 'Open' : 'Closed'}
+                      </span>
+                    </>
+                  )}
+                  {todayHours && (
+                    <span className="text-[13px] text-on-surface/65 truncate">· {todayHours}</span>
+                  )}
+                </div>
+                <ChevronDown size={14} className={cn('text-on-surface/45 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
+              </button>
+              <AnimatePresence initial={false}>
+                {hoursOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <ul className="mt-1.5 pl-[26px] space-y-1">
+                      {hours.map((line, i) => {
+                        const today = new Date().getDay();
+                        // Google returns Mon-first; getDay returns Sun=0..Sat=6.
+                        // Convert getDay → Mon=0..Sun=6 to match.
+                        const idxMonFirst = (today + 6) % 7;
+                        const isToday = i === idxMonFirst;
+                        return (
+                          <li
+                            key={i}
+                            className={cn(
+                              'text-[12px] tabular-nums',
+                              isToday ? 'text-on-surface font-semibold' : 'text-on-surface/65',
+                            )}
+                          >
+                            {line}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+
         {/* View full restaurant page — primary route to the detail page. */}
         <Link
           to={`/restaurant/${encodeURIComponent(snapshot.id)}`}
@@ -881,6 +950,21 @@ const RestaurantPanelBody: React.FC<{
           <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
         </Link>
       </div>
+
+      {/* Full-screen community photo gallery. Portaled to document.body
+          so it escapes the panel's transform stacking context — a fixed
+          child of a transformed ancestor would otherwise be clipped to
+          the 380px panel column. */}
+      {galleryOpen && communityPhotos.length > 0 && createPortal(
+        <PhotoGallery
+          photos={[]}
+          communityPhotos={communityPhotos}
+          name={snapshot.name}
+          initialIndex={galleryStart}
+          onClose={() => setGalleryOpen(false)}
+        />,
+        document.body,
+      )}
     </>
   );
 };
