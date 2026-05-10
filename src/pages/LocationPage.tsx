@@ -21,6 +21,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useSettings } from '../contexts/SettingsContext';
 import {
   searchPlacesByTextPaged,
   priceLevelToString,
@@ -1884,6 +1885,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   selectedDriveMin,
   onDriveMinChange,
 }) => {
+  const { phoneMode } = useSettings();
   const toggleCuisine = (type: string) => {
     onCuisinesChange(
       selectedCuisines.includes(type)
@@ -1905,36 +1907,61 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   return (
     <AnimatePresence>
       {open && (
-        <>
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+          className={cn(
+            'fixed inset-0 z-50',
+            phoneMode ? 'bg-black/30 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
+            !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+          )}
+          onClick={onClose}
+        >
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+            {...(phoneMode
+              ? {
+                  initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
+                  transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                }
+              : {
+                  initial: { opacity: 0, scale: 0.94, y: -12 },
+                  animate: { opacity: 1, scale: 1, y: 0 },
+                  exit: { opacity: 0, scale: 0.96, y: -8 },
+                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                })}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className={cn(
+              'flex flex-col overflow-hidden bg-surface',
+              phoneMode
+                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl max-h-[85vh] shadow-2xl'
+                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
+            )}
           >
-            <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-              <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-            </div>
-            <div className="flex items-center justify-between px-5 pt-1 pb-3 border-b border-on-surface/6 flex-shrink-0">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface/60">
+            {phoneMode && (
+              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+              </div>
+            )}
+            <div className={cn(
+              'flex items-center justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-1 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
+            )}>
+              <h3 className={cn(
+                phoneMode
+                  ? 'text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface/60'
+                  : 'font-serif font-bold text-[20px]',
+              )}>
                 Filters
               </h3>
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+                className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
                 aria-label="Close"
               >
                 <X size={16} className="text-on-surface/60" />
               </button>
             </div>
+            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
             <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
               <div>
@@ -2134,13 +2161,13 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
               </button>
               <button
                 onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25 hover:shadow-xl transition-shadow"
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all"
               >
                 Apply
               </button>
             </div>
           </motion.div>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   );
