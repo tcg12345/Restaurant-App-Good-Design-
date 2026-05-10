@@ -20,13 +20,18 @@
  * modals handle them — no chrome duplicated here.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
 import { Link } from 'react-router-dom';
 import {
   X, MapPin, Star, Heart, Plus, ArrowUpRight, Pencil, Users, Award, Loader2, ImageOff,
   Navigation, Phone, Globe, Clock, ChevronDown, StickyNote, Tag, Image as ImageIcon, CalendarDays, DollarSign,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
+// Required for the Mapbox canvas to actually render — provides the
+// .mapboxgl-canvas-container / .mapboxgl-canvas positioning rules. The
+// rest of the app already imports this from the detail page; the panel
+// is a separate entry point so it has to bring it in too.
+import 'mapbox-gl/dist/mapbox-gl.css';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
 import { useLists } from '../contexts/ListsContext';
@@ -370,11 +375,34 @@ const RestaurantPanelBody: React.FC<{
   const hasPhotos = !!myRating?.photos && myRating.photos.length > 0;
   const hasPrice = !!myRating?.price;
 
+  /* ── Scroll-driven hero collapse. As the user scrolls the body, the
+        hero shrinks from 220px to a compact 72px sticky bar: the map
+        fades out, the big white title slides up and fades, and a
+        compact dark title fades in centered between the heart + close
+        pills. The pills themselves stay pinned to top-3 / top-3 the
+        whole time. */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const { scrollY } = useScroll({ container: scrollRef });
+  const heroHeight = useTransform(scrollY, [0, 140], [220, 72], { clamp: true });
+  const mediaOpacity = useTransform(scrollY, [0, 90], [1, 0], { clamp: true });
+  const expandedOpacity = useTransform(scrollY, [0, 70], [1, 0], { clamp: true });
+  const expandedY = useTransform(scrollY, [0, 140], [0, -24], { clamp: true });
+  const compactOpacity = useTransform(scrollY, [70, 140], [0, 1], { clamp: true });
+  const bottomLineOpacity = useTransform(scrollY, [90, 140], [0, 1], { clamp: true });
+
   return (
     <>
-      {/* Header — map hero (or fallback gradient/photo) with name overlay */}
-      <div className="relative flex-shrink-0">
-        <div className="relative h-[200px] w-full bg-on-surface/5 overflow-hidden">
+      {/* Header — map hero (or fallback photo/gradient) that collapses on
+          scroll. Three stacked layers inside a height-animated outer
+          container: media (map / image / gradient) which fades out, an
+          expanded title that slides up + fades, and a compact title that
+          fades in centered between the heart/close pills. */}
+      <motion.div
+        className="relative flex-shrink-0 w-full bg-surface overflow-hidden"
+        style={{ height: heroHeight }}
+      >
+        {/* Media layer — fades out as the panel collapses */}
+        <motion.div className="absolute inset-0" style={{ opacity: mediaOpacity }}>
           {lat != null && lng != null ? (
             <div
               key={`${snapshot.id}-${lat}-${lng}`}
@@ -393,44 +421,81 @@ const RestaurantPanelBody: React.FC<{
               <ImageOff size={32} />
             </div>
           )}
-          {/* Bottom legibility wash. Slightly lighter over the map so the
-              cartography stays visible behind the title. */}
+          {/* Bottom legibility wash — gradient sits inside the media layer
+              so it fades together with the map. */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/55 backdrop-blur text-white hover:bg-black/75 flex items-center justify-center transition-colors"
-          >
-            <X size={17} />
-          </button>
-          <button
-            type="button"
-            onClick={onWishlist}
-            aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
-            aria-pressed={wishlisted}
-            className={cn(
-              'absolute top-3 left-3 w-9 h-9 rounded-full backdrop-blur flex items-center justify-center transition-colors',
-              wishlisted
-                ? 'bg-rose-500 text-white hover:bg-rose-600 shadow-md shadow-rose-900/20'
-                : 'bg-black/55 text-white hover:bg-black/75',
-            )}
-          >
-            <Heart size={17} className={cn(wishlisted && 'fill-white')} />
-          </button>
-          <div className="absolute inset-x-0 bottom-0 px-5 pb-4 text-white">
-            <h2 className="font-serif font-bold text-[22px] leading-[1.1] tracking-tight line-clamp-2">
+        </motion.div>
+
+        {/* Expanded title — large serif name + cuisine/price/distance,
+            pinned to the bottom of the expanded hero. Fades + slides up
+            as the hero collapses. */}
+        <motion.div
+          className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-4 text-white"
+          style={{ opacity: expandedOpacity, y: expandedY }}
+        >
+          <h2 className="font-serif font-bold text-[22px] leading-[1.1] tracking-tight line-clamp-2">
+            {snapshot.name}
+          </h2>
+          <p className="text-[12px] text-white/80 mt-1 truncate">
+            {[snapshot.cuisine, snapshot.price, distance].filter(Boolean).join(' · ')}
+          </p>
+        </motion.div>
+
+        {/* Compact title — vertically centered in the collapsed hero,
+            fits between the heart and close pills. Dark text on the
+            cream surface that the media layer reveals as it fades. */}
+        <motion.div
+          className="pointer-events-none absolute inset-0 flex items-center justify-center px-16"
+          style={{ opacity: compactOpacity }}
+        >
+          <div className="min-w-0 text-center">
+            <h3 className="font-serif font-bold text-on-surface text-[15px] leading-tight truncate">
               {snapshot.name}
-            </h2>
-            <p className="text-[12px] text-white/80 mt-1 truncate">
-              {[snapshot.cuisine, snapshot.price, distance].filter(Boolean).join(' · ')}
+            </h3>
+            <p className="text-[11px] text-on-surface/55 truncate mt-0.5">
+              {[snapshot.cuisine, snapshot.price].filter(Boolean).join(' · ')}
             </p>
           </div>
-        </div>
-      </div>
+        </motion.div>
 
-      {/* Scrollable body */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6">
+        {/* Heart + close pills — pinned to the top corners across both
+            states. Kept dark so they read against the map at the top of
+            the panel AND remain visible against the cream surface when
+            collapsed. */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/55 backdrop-blur text-white hover:bg-black/75 flex items-center justify-center transition-colors z-10"
+        >
+          <X size={17} />
+        </button>
+        <button
+          type="button"
+          onClick={onWishlist}
+          aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+          aria-pressed={wishlisted}
+          className={cn(
+            'absolute top-3 left-3 w-9 h-9 rounded-full backdrop-blur flex items-center justify-center transition-colors z-10',
+            wishlisted
+              ? 'bg-rose-500 text-white hover:bg-rose-600 shadow-md shadow-rose-900/20'
+              : 'bg-black/55 text-white hover:bg-black/75',
+          )}
+        >
+          <Heart size={17} className={cn(wishlisted && 'fill-white')} />
+        </button>
+
+        {/* Hairline separator that appears once the header has fully
+            collapsed onto the body — gives the compact header a clear
+            edge against the scroll area below. */}
+        <motion.div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-on-surface/[0.09]"
+          style={{ opacity: bottomLineOpacity }}
+        />
+      </motion.div>
+
+      {/* Scrollable body — scrollRef drives the hero collapse above. */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6">
         {/* Action row — Directions / Call / Website */}
         <div className="grid grid-cols-3 gap-2">
           <ActionButton
