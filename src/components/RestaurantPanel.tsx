@@ -586,6 +586,77 @@ const RestaurantPanelBody: React.FC<{
           />
         </div>
 
+        {/* Address + thin hours accordion — sits directly below the score
+            chips so "where it is / when it's open" is at-a-glance without
+            scrolling past the social proof. Hours default closed; today's
+            slice is shown on the trigger row. */}
+        <div className="space-y-2">
+          {snapshot.address && (
+            <div className="flex items-start gap-2.5 text-on-surface/75">
+              <MapPin size={14} className="mt-0.5 flex-shrink-0 text-on-surface/50" />
+              <p className="text-[13px] leading-snug">{snapshot.address}</p>
+            </div>
+          )}
+          {hours.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setHoursOpen((o) => !o)}
+                aria-expanded={hoursOpen}
+                className="w-full flex items-center gap-2.5 text-on-surface/75 hover:text-on-surface transition-colors py-1.5"
+              >
+                <Clock size={14} className="flex-shrink-0 text-on-surface/50" />
+                <div className="flex items-center gap-2 min-w-0 flex-1 text-left">
+                  {isOpenNow !== null && (
+                    <>
+                      <span className={cn('inline-block w-1.5 h-1.5 rounded-full flex-shrink-0', isOpenNow ? 'bg-emerald-600' : 'bg-clay')} />
+                      <span className={cn('text-[13px] font-semibold flex-shrink-0', isOpenNow ? 'text-emerald-700' : 'text-clay')}>
+                        {isOpenNow ? 'Open' : 'Closed'}
+                      </span>
+                    </>
+                  )}
+                  {todayHours && (
+                    <span className="text-[13px] text-on-surface/65 truncate">· {todayHours}</span>
+                  )}
+                </div>
+                <ChevronDown size={14} className={cn('text-on-surface/45 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
+              </button>
+              <AnimatePresence initial={false}>
+                {hoursOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <ul className="mt-1.5 pl-[26px] space-y-1">
+                      {hours.map((line, i) => {
+                        const today = new Date().getDay();
+                        // Google returns Mon-first; getDay returns Sun=0..Sat=6.
+                        // Convert getDay → Mon=0..Sun=6 to match.
+                        const idxMonFirst = (today + 6) % 7;
+                        const isToday = i === idxMonFirst;
+                        return (
+                          <li
+                            key={i}
+                            className={cn(
+                              'text-[12px] tabular-nums',
+                              isToday ? 'text-on-surface font-semibold' : 'text-on-surface/65',
+                            )}
+                          >
+                            {line}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
+
         {/* Your rating — chrome-free, divider-separated, with an expandable
             details accordion that mirrors the layout of the full detail page. */}
         {myRating ? (
@@ -879,77 +950,6 @@ const RestaurantPanelBody: React.FC<{
             )}
           </>
         )}
-
-        {/* Address + thin hours accordion — sits below the reviews so the
-            page reads "what people think" before "where it is / when it's
-            open". Hours default closed; today's slice is shown on the
-            trigger row. */}
-        <div className="space-y-2">
-          {snapshot.address && (
-            <div className="flex items-start gap-2.5 text-on-surface/75">
-              <MapPin size={14} className="mt-0.5 flex-shrink-0 text-on-surface/50" />
-              <p className="text-[13px] leading-snug">{snapshot.address}</p>
-            </div>
-          )}
-          {hours.length > 0 && (
-            <div>
-              <button
-                type="button"
-                onClick={() => setHoursOpen((o) => !o)}
-                aria-expanded={hoursOpen}
-                className="w-full flex items-center gap-2.5 text-on-surface/75 hover:text-on-surface transition-colors py-1.5"
-              >
-                <Clock size={14} className="flex-shrink-0 text-on-surface/50" />
-                <div className="flex items-center gap-2 min-w-0 flex-1 text-left">
-                  {isOpenNow !== null && (
-                    <>
-                      <span className={cn('inline-block w-1.5 h-1.5 rounded-full flex-shrink-0', isOpenNow ? 'bg-emerald-600' : 'bg-clay')} />
-                      <span className={cn('text-[13px] font-semibold flex-shrink-0', isOpenNow ? 'text-emerald-700' : 'text-clay')}>
-                        {isOpenNow ? 'Open' : 'Closed'}
-                      </span>
-                    </>
-                  )}
-                  {todayHours && (
-                    <span className="text-[13px] text-on-surface/65 truncate">· {todayHours}</span>
-                  )}
-                </div>
-                <ChevronDown size={14} className={cn('text-on-surface/45 flex-shrink-0 transition-transform duration-200', hoursOpen && 'rotate-180')} />
-              </button>
-              <AnimatePresence initial={false}>
-                {hoursOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <ul className="mt-1.5 pl-[26px] space-y-1">
-                      {hours.map((line, i) => {
-                        const today = new Date().getDay();
-                        // Google returns Mon-first; getDay returns Sun=0..Sat=6.
-                        // Convert getDay → Mon=0..Sun=6 to match.
-                        const idxMonFirst = (today + 6) % 7;
-                        const isToday = i === idxMonFirst;
-                        return (
-                          <li
-                            key={i}
-                            className={cn(
-                              'text-[12px] tabular-nums',
-                              isToday ? 'text-on-surface font-semibold' : 'text-on-surface/65',
-                            )}
-                          >
-                            {line}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
 
         {/* View full restaurant page — primary route to the detail page. */}
         <Link
