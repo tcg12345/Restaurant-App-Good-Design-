@@ -3990,7 +3990,11 @@ const HomeCookingTab: React.FC<{
   onBack: () => void;
   selectedMealId: string | null;
   onSelectMeal: (id: string | null) => void;
-}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal }) => {
+  // When the desktop tabs render this view, the page already has a
+  // tab strip + back via the Restaurants tab — skip the local back
+  // button + duplicate header to avoid two layers of chrome.
+  hideHeader?: boolean;
+}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
   const { phoneMode } = useSettings();
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
@@ -4636,24 +4640,40 @@ const HomeCookingTab: React.FC<{
   // ── Meal list view ──
   return (
     <div>
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-          <ArrowLeft size={20} />
-        </button>
-        <ChefHat size={22} className="text-emerald-600" />
-        <div className="flex-1 min-w-0">
-          <h2 className="font-serif font-bold text-xl">Home Cooking</h2>
-          <p className="text-xs text-on-surface/40">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
+      {hideHeader ? (
+        // Compact action row when desktop tabs own the page chrome —
+        // keep the search-toggle and "log a meal" controls but drop
+        // the back arrow, icon, and big title.
+        <div className="flex items-center justify-end gap-2 mb-4">
+          <button onClick={() => setSearchOpen(!searchOpen)}
+            className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
+            <Search size={18} />
+          </button>
+          <button onClick={() => onOpenModal()}
+            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Log a meal">
+            <Plus size={20} />
+          </button>
         </div>
-        <button onClick={() => setSearchOpen(!searchOpen)}
-          className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
-          <Search size={18} />
-        </button>
-        <button onClick={() => onOpenModal()}
-          className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Log a meal">
-          <Plus size={20} />
-        </button>
-      </div>
+      ) : (
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+            <ArrowLeft size={20} />
+          </button>
+          <ChefHat size={22} className="text-emerald-600" />
+          <div className="flex-1 min-w-0">
+            <h2 className="font-serif font-bold text-xl">Home Cooking</h2>
+            <p className="text-xs text-on-surface/40">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
+          </div>
+          <button onClick={() => setSearchOpen(!searchOpen)}
+            className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
+            <Search size={18} />
+          </button>
+          <button onClick={() => onOpenModal()}
+            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Log a meal">
+            <Plus size={20} />
+          </button>
+        </div>
+      )}
 
       {/* Search bar */}
       <AnimatePresence>
@@ -5112,6 +5132,28 @@ export const Pantry: React.FC = () => {
   const hideTopBar =
     (showHomeCooking && homeCookingSelectedMealId !== null) || onPhoneCardHome;
 
+  // Which top-level desktop tab is the user currently on? Derived so any
+  // path into a recipe-y view (cookbook, recipe sub-list) lights up the
+  // Recipes tab; everything else (rated, wishlist, restaurant sub-list)
+  // sits under Restaurants.
+  const activeDesktopTab: 'restaurants' | 'recipes' = showHomeCooking
+    ? 'recipes'
+    : (selectedList && selectedList.type === 'home-cooking')
+      ? 'recipes'
+      : 'restaurants';
+
+  // Tab clicks reset to that tab's default landing. Trips is its own
+  // top-level mode — clicking either tab leaves it.
+  const goToRestaurantsTab = () => {
+    setShowHomeCooking(false); setShowTrips(false);
+    setSelectedList(null); setShowAllRated(false);
+    if (location.search) navigate('/pantry');
+  };
+  const goToRecipesTab = () => {
+    setSelectedList(null); setShowTrips(false); setShowAllRated(false);
+    setShowHomeCooking(true);
+  };
+
   // Identity of the currently visible top-level view, used to label the
   // list switcher button. (currentList views render inside ListDetailView,
   // which has its own header — the switcher doesn't appear there.)
@@ -5167,8 +5209,42 @@ export const Pantry: React.FC = () => {
 
   return (
     <div className="pb-32">
+      {/* Desktop tabs — Restaurants vs Recipes. Hidden on phone (the
+          card-grid landing already exposes both tabs), in trips view
+          (its own UI), and inside ListDetailView (its own header). */}
+      {!phoneMode && !currentList && !showTrips && (
+        <div className="px-4 pt-4 pb-1">
+          <div className="inline-flex w-full sm:w-auto bg-on-surface/[0.06] rounded-full p-1">
+            <button
+              type="button"
+              onClick={goToRestaurantsTab}
+              className={cn(
+                'flex-1 sm:flex-initial sm:px-6 px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
+                activeDesktopTab === 'restaurants'
+                  ? 'bg-white text-on-surface shadow-sm'
+                  : 'text-on-surface/45 hover:text-on-surface/65',
+              )}
+            >
+              Restaurants
+            </button>
+            <button
+              type="button"
+              onClick={goToRecipesTab}
+              className={cn(
+                'flex-1 sm:flex-initial sm:px-6 px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
+                activeDesktopTab === 'recipes'
+                  ? 'bg-white text-on-surface shadow-sm'
+                  : 'text-on-surface/45 hover:text-on-surface/65',
+              )}
+            >
+              Recipes
+            </button>
+          </div>
+        </div>
+      )}
+
       {!hideTopBar && !currentList && (
-        <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-1">
+        <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-1">
           {/* List switcher — desktop only. On phone, the card landing
               is the navigation surface; here, a popover button is the
               equivalent for the always-on rated view. */}
@@ -5348,6 +5424,10 @@ export const Pantry: React.FC = () => {
             onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
             selectedMealId={homeCookingSelectedMealId}
             onSelectMeal={setHomeCookingSelectedMealId}
+            // On desktop the page-level Restaurants/Recipes tabs already
+            // own the chrome — drop HomeCookingTab's local header so we
+            // don't render duplicate titles + back arrows.
+            hideHeader={!phoneMode && homeCookingSelectedMealId === null}
           />
         ) : showTrips ? (
           <TripsTab
