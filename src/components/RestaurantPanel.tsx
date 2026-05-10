@@ -355,14 +355,20 @@ const RestaurantPanelBody: React.FC<{
     mapboxgl.accessToken = MAPBOX_TOKEN;
     const map = new mapboxgl.Map({
       container: el,
-      style: 'mapbox://styles/mapbox/light-v11',
+      // Dark style gives the white title good contrast without depending on
+      // a heavy legibility gradient. interactive: false keeps it a
+      // decorative locator map.
+      style: 'mapbox://styles/mapbox/dark-v11',
       center: [lng, lat],
-      zoom: 14.5,
+      // Zoomed out a notch so the surrounding streets are visible, not just
+      // the building footprint. ~12.5 shows ~1 mile across.
+      zoom: 12.5,
       interactive: false,
       attributionControl: false,
     });
     mapInstanceRef.current = map;
-    new mapboxgl.Marker({ color: '#9f3012' }).setLngLat([lng, lat]).addTo(map);
+    // Use a bright accent for the marker so it pops against the dark style.
+    new mapboxgl.Marker({ color: '#e85a2c' }).setLngLat([lng, lat]).addTo(map);
 
     const ro = new ResizeObserver(() => { try { map.resize(); } catch { /* noop */ } });
     ro.observe(el);
@@ -432,7 +438,12 @@ const RestaurantPanelBody: React.FC<{
           <motion.div
             key={`${snapshot.id}-${lat}-${lng}`}
             ref={mapContainerRef}
-            className="absolute inset-0"
+            // Arbitrary-variant Tailwind classes hide the Mapbox logo and
+            // attribution chrome that would otherwise sit over the title.
+            // The map is decorative in this context (non-interactive, used
+            // as a locator), so the attribution moves to the full detail
+            // page where the interactive map lives.
+            className="absolute inset-0 [&_.mapboxgl-ctrl-bottom-left]:hidden [&_.mapboxgl-ctrl-bottom-right]:hidden"
             style={{ width: '100%', height: '100%', opacity: mediaOpacity }}
           />
         ) : snapshot.image ? (
