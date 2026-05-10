@@ -4335,6 +4335,37 @@ const HomeCookingTab: React.FC<{
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'quickest'>('recent');
+  // Recipe filters — these are recipe-specific and mirror the
+  // restaurant filter shape (Cuisine / Difficulty / Time / Sort).
+  const [cuisineFilter, setCuisineFilter] = useState<string[]>([]);
+  const [difficultyFilter, setDifficultyFilter] = useState<Array<'Easy' | 'Medium' | 'Hard'>>([]);
+  const [timeFilter, setTimeFilter] = useState<'fast' | 'medium' | 'slow' | null>(null);
+  const [recipeFiltersOpen, setRecipeFiltersOpen] = useState(false);
+  const [recipeViewMode, setRecipeViewMode] = useState<'list' | 'grid'>('list');
+  const effectiveRecipeViewMode = phoneMode ? 'list' : recipeViewMode;
+
+  const allRecipeCuisines = useMemo(() => {
+    const set = new Set<string>();
+    meals.forEach((m) => { if (m.cuisine) set.add(m.cuisine); });
+    return Array.from(set).sort();
+  }, [meals]);
+
+  const recipeActiveFilterCount =
+    (cuisineFilter.length > 0 ? 1 : 0) +
+    (difficultyFilter.length > 0 ? 1 : 0) +
+    (timeFilter ? 1 : 0);
+  const resetRecipeFilters = () => {
+    setCuisineFilter([]); setDifficultyFilter([]); setTimeFilter(null); setSortBy('recent');
+  };
+  const toggleCuisine = (c: string) =>
+    setCuisineFilter((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+  const toggleDifficulty = (d: 'Easy' | 'Medium' | 'Hard') =>
+    setDifficultyFilter((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+
+  const recipeSortLabels: Record<typeof sortBy, string> = {
+    recent: 'Recent', highest: 'Highest', lowest: 'Lowest', quickest: 'Quickest',
+  };
+  const timeLabel = (t: typeof timeFilter) => t === 'fast' ? '<30 min' : t === 'medium' ? '30–60 min' : t === 'slow' ? '>60 min' : 'Time';
 
   // Desktop: clicking "Search this list" hijacks the desktop header
   // search input as a recipe filter, just like the rated view does.
@@ -4426,8 +4457,26 @@ const HomeCookingTab: React.FC<{
       result = result.filter((m) =>
         m.name.toLowerCase().includes(q) ||
         m.dishes.some((d) => d.name.toLowerCase().includes(q)) ||
-        m.tags.some((t) => t.toLowerCase().includes(q))
+        m.tags.some((t) => t.toLowerCase().includes(q)) ||
+        (m.cuisine?.toLowerCase().includes(q) ?? false)
       );
+    }
+
+    if (cuisineFilter.length > 0) {
+      result = result.filter((m) => m.cuisine && cuisineFilter.includes(m.cuisine));
+    }
+    if (difficultyFilter.length > 0) {
+      result = result.filter((m) => m.difficulty && difficultyFilter.includes(m.difficulty));
+    }
+    if (timeFilter) {
+      const total = (m: HomeMeal) => (m.prepTime || 0) + (m.cookTime || 0);
+      result = result.filter((m) => {
+        const t = total(m);
+        if (timeFilter === 'fast') return t > 0 && t < 30;
+        if (timeFilter === 'medium') return t >= 30 && t <= 60;
+        if (timeFilter === 'slow') return t > 60;
+        return true;
+      });
     }
 
     if (sortBy === 'recent') {
@@ -4444,7 +4493,7 @@ const HomeCookingTab: React.FC<{
     }
 
     return result;
-  }, [meals, searchQuery, sortBy]);
+  }, [meals, searchQuery, sortBy, cuisineFilter, difficultyFilter, timeFilter]);
 
   // ── Meal detail view (diary / blog entry style) ──
   if (selectedMeal) {
@@ -5016,9 +5065,10 @@ const HomeCookingTab: React.FC<{
   return (
     <div>
       {hideHeader ? (
-        // Desktop toolbar — same shape as the rated view + ListDetailView.
-        // Search this list pill on the left, recipe sort pills next to
-        // it, count + avg + view toggle on the right, thin border.
+        // Desktop toolbar — same shape as the rated view + list detail.
+        // Search this list pill on the left, then Filters + anchored
+        // recipe-specific pills (Cuisine / Difficulty / Time / Sort),
+        // then count + avg + view toggle on the right.
         <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
             <button
@@ -5053,23 +5103,113 @@ const HomeCookingTab: React.FC<{
 
             <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
 
-            {/* Recipe sort pills — inline rather than a modal sheet, so
-                the user can switch sort without an extra click. */}
-            {(['recent', 'highest', 'lowest', 'quickest'] as const).map((s) => (
+            {/* Filters button — opens the full Spotlight-style recipe
+                filter sheet (defined just below this component). */}
+            <FilterPill
+              onClick={() => setRecipeFiltersOpen(true)}
+              icon={<SlidersHorizontal size={12} />}
+              label="Filters"
+              active={recipeActiveFilterCount > 0}
+              badge={recipeActiveFilterCount > 0 ? recipeActiveFilterCount : undefined}
+            />
+            <AnchoredPill
+              pill={{
+                label: cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine',
+                active: cuisineFilter.length > 0,
+                onClear: cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined,
+              }}
+              popoverWidth="w-[260px]"
+            >
+              {() => (
+                <SearchableMultiSelect
+                  placeholder="Search cuisines..."
+                  options={allRecipeCuisines}
+                  selected={cuisineFilter}
+                  onToggle={toggleCuisine}
+                />
+              )}
+            </AnchoredPill>
+            <AnchoredPill
+              pill={{
+                label: difficultyFilter.length > 0 ? `Difficulty (${difficultyFilter.length})` : 'Difficulty',
+                active: difficultyFilter.length > 0,
+                onClear: difficultyFilter.length > 0 ? () => setDifficultyFilter([]) : undefined,
+              }}
+              popoverWidth="w-[200px]"
+            >
+              {() => (
+                <div className="p-2">
+                  {(['Easy', 'Medium', 'Hard'] as const).map((d) => {
+                    const isSelected = difficultyFilter.includes(d);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => toggleDifficulty(d)}
+                        className={cn(
+                          'w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors text-left',
+                          isSelected ? 'bg-primary/[0.06] text-primary' : 'text-on-surface/75 hover:bg-on-surface/[0.04]',
+                        )}
+                      >
+                        <span className="text-[13px] font-medium">{d}</span>
+                        {isSelected && <Check size={14} className="text-primary" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </AnchoredPill>
+            <AnchoredPill
+              pill={{
+                icon: <Clock size={11} />,
+                label: timeFilter ? timeLabel(timeFilter) : 'Time',
+                active: !!timeFilter,
+                onClear: timeFilter ? () => setTimeFilter(null) : undefined,
+              }}
+              popoverWidth="w-[220px]"
+            >
+              {(close) => (
+                <SortPickerContent
+                  value={timeFilter ?? ''}
+                  options={[
+                    ['fast', 'Under 30 min'],
+                    ['medium', '30 to 60 min'],
+                    ['slow', 'Over 60 min'],
+                  ]}
+                  onChange={(v) => { setTimeFilter(v as 'fast' | 'medium' | 'slow'); close(); }}
+                />
+              )}
+            </AnchoredPill>
+            <AnchoredPill
+              pill={{
+                icon: <ArrowUpDown size={11} />,
+                label: sortBy !== 'recent' ? recipeSortLabels[sortBy] : 'Sort',
+                active: sortBy !== 'recent',
+                onClear: sortBy !== 'recent' ? () => setSortBy('recent') : undefined,
+              }}
+              popoverWidth="w-[220px]"
+            >
+              {(close) => (
+                <SortPickerContent
+                  value={sortBy}
+                  options={[
+                    ['recent', 'Recent'],
+                    ['highest', 'Highest score'],
+                    ['lowest', 'Lowest score'],
+                    ['quickest', 'Quickest'],
+                  ]}
+                  onChange={(v) => { setSortBy(v as typeof sortBy); close(); }}
+                />
+              )}
+            </AnchoredPill>
+            {(recipeActiveFilterCount > 0 || sortBy !== 'recent') && (
               <button
-                key={s}
-                type="button"
-                onClick={() => setSortBy(s)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
-                  sortBy === s
-                    ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
-                    : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface',
-                )}
+                onClick={resetRecipeFilters}
+                className="inline-flex items-center gap-1 h-8 px-3 rounded-full text-[12px] font-semibold text-red-500/80 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
               >
-                {s === 'recent' ? 'Recent' : s === 'highest' ? 'Highest' : s === 'lowest' ? 'Lowest' : 'Quickest'}
+                <X size={11} /><span>Clear all</span>
               </button>
-            ))}
+            )}
 
             <div className="ml-auto flex items-center gap-3 flex-shrink-0">
               {meals.length > 0 && (
@@ -5086,6 +5226,7 @@ const HomeCookingTab: React.FC<{
                   )}
                 </p>
               )}
+              <ViewModeToggle mode={effectiveRecipeViewMode} onChange={setRecipeViewMode} />
             </div>
           </div>
         </div>
@@ -5146,90 +5287,386 @@ const HomeCookingTab: React.FC<{
         </>
       )}
 
-      {/* Meal cards */}
+      {/* Meal cards — list or grid based on the toolbar's view toggle.
+          Cards mirror the restaurant card style: cover image (or chef-
+          hat placeholder) + name + cuisine/difficulty/time meta + score
+          chip on the right. */}
       {filteredMeals.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <UtensilsCrossed size={40} className="text-on-surface/15 mb-3" />
           <p className="text-sm font-semibold text-on-surface/40 mb-1">
-            {searchQuery.trim() ? 'No meals found' : 'No meals logged yet'}
+            {searchQuery.trim() || recipeActiveFilterCount > 0 ? 'No recipes found' : 'No recipes logged yet'}
           </p>
-          <p className="text-xs text-on-surface/30 mb-4 max-w-[220px]">
-            {searchQuery.trim() ? 'Try a different search' : 'Tap + to log your first home-cooked meal'}
+          <p className="text-xs text-on-surface/30 mb-4 max-w-[260px]">
+            {searchQuery.trim() || recipeActiveFilterCount > 0
+              ? 'Try clearing some filters or searching for something else'
+              : 'Tap + to log your first home-cooked meal'}
           </p>
-          {!searchQuery.trim() && (
+          {!searchQuery.trim() && recipeActiveFilterCount === 0 && (
             <button onClick={() => onOpenModal()}
               className="px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-semibold hover:bg-emerald-700 transition-colors">
               Log a Meal
             </button>
           )}
         </div>
+      ) : effectiveRecipeViewMode === 'grid' ? (
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6">
+          {filteredMeals.map((meal) => (
+            <RecipeGridCard
+              key={meal.id}
+              meal={meal}
+              onClick={() => onSelectMeal(meal.id)}
+              onEdit={() => onOpenModal(meal)}
+            />
+          ))}
+        </div>
       ) : (
         <ul className="divide-y divide-on-surface/[0.06]">
-          {filteredMeals.map((meal) => {
-            const coverPhoto = getMealCoverUrl(meal);
-            const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
-            const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
-            return (
-              <li key={meal.id} className="relative group/row">
-                <button
-                  onClick={() => onSelectMeal(meal.id)}
-                  className="w-full flex gap-4 py-4 text-left group active:scale-[0.99] transition-transform"
-                >
-                  {/* Photo thumbnail */}
-                  <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
-                    {coverPhoto ? (
-                      <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-emerald-50">
-                        <ChefHat size={28} className="text-emerald-300" />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
-                      {/* Score sits next to a placeholder gap so the pencil button (absolute-positioned)
-                           doesn't overlap the number on narrow rows. */}
-                      <span className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 mr-7", scoreColor(meal.score))}>
-                        {meal.score.toFixed(1)}
-                      </span>
-                    </div>
-
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
-                      {totalTime > 0 ? (
-                        <>
-                          <Clock size={11} />
-                          <span>{formatDuration(totalTime)}</span>
-                          {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
-                        </>
-                      ) : meal.dishes.length > 0 ? (
-                        <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
-                      ) : null}
-                    </div>
-
-                    {ingredientPreview.length > 0 && (
-                      <p className="text-[12px] text-on-surface/50 mt-1 leading-snug line-clamp-2">
-                        {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
-                        {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
-                      </p>
-                    )}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onOpenModal(meal); }}
-                  aria-label={`Edit ${meal.name}`}
-                  className="absolute top-4 right-0 p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100"
-                >
-                  <Edit3 size={15} />
-                </button>
-              </li>
-            );
-          })}
+          {filteredMeals.map((meal) => (
+            <RecipeRow
+              key={meal.id}
+              meal={meal}
+              onClick={() => onSelectMeal(meal.id)}
+              onEdit={() => onOpenModal(meal)}
+            />
+          ))}
         </ul>
       )}
+
+      {/* Recipe filter sheet — Spotlight popup on desktop, bottom sheet
+          on phone. Same chrome as the restaurant FilterSheet. */}
+      <RecipeFilterSheet
+        open={recipeFiltersOpen}
+        onClose={() => setRecipeFiltersOpen(false)}
+        sortBy={sortBy}
+        onSortBy={(v) => setSortBy(v as typeof sortBy)}
+        cuisineFilter={cuisineFilter}
+        onCuisineFilter={setCuisineFilter}
+        difficultyFilter={difficultyFilter}
+        onDifficultyFilter={setDifficultyFilter}
+        timeFilter={timeFilter}
+        onTimeFilter={setTimeFilter}
+        allCuisines={allRecipeCuisines}
+        onReset={resetRecipeFilters}
+        activeCount={recipeActiveFilterCount}
+      />
     </div>
+  );
+};
+
+/* ── Recipe row (list view) ──
+   Mirrors RestaurantRow's restraint: square thumbnail on the left,
+   serif title + meta + score on the right. Edit pencil fades in on
+   hover so the chrome doesn't sit on top of the row at rest. */
+const RecipeRow: React.FC<{
+  meal: HomeMeal;
+  onClick: () => void;
+  onEdit: () => void;
+}> = ({ meal, onClick, onEdit }) => {
+  const coverPhoto = getMealCoverUrl(meal);
+  const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+  const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
+  return (
+    <li className="relative group/row">
+      <button
+        onClick={onClick}
+        className="w-full flex gap-4 py-4 text-left group active:scale-[0.99] transition-transform"
+      >
+        <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
+          {coverPhoto ? (
+            <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-emerald-50">
+              <ChefHat size={28} className="text-emerald-300" />
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col justify-center">
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
+            <span className={cn('text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 mr-7 tabular-nums', scoreColor(meal.score))}>
+              {meal.score > 0 ? meal.score.toFixed(1) : '—'}
+            </span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
+            {meal.cuisine && <><span>{meal.cuisine}</span><span className="text-on-surface/25">·</span></>}
+            {totalTime > 0 ? (
+              <>
+                <Clock size={11} />
+                <span>{formatDuration(totalTime)}</span>
+                {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
+              </>
+            ) : meal.difficulty ? (
+              <span>{meal.difficulty}</span>
+            ) : meal.dishes.length > 0 ? (
+              <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
+            ) : null}
+          </div>
+          {ingredientPreview.length > 0 && (
+            <p className="text-[12px] text-on-surface/50 mt-1 leading-snug line-clamp-2">
+              {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
+              {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
+            </p>
+          )}
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        aria-label={`Edit ${meal.name}`}
+        className="absolute top-4 right-0 p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100"
+      >
+        <Edit3 size={15} />
+      </button>
+    </li>
+  );
+};
+
+/* ── Recipe grid card ──
+   Mirrors RestaurantGridCard: editorial tile with the cover image on
+   top (or a soft chef-hat placeholder), title underneath, meta row,
+   and a score chip. Edit pencil fades in on hover. */
+const RecipeGridCard: React.FC<{
+  meal: HomeMeal;
+  onClick: () => void;
+  onEdit: () => void;
+}> = ({ meal, onClick, onEdit }) => {
+  const coverPhoto = getMealCoverUrl(meal);
+  const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+  return (
+    <div className="group relative">
+      <button
+        onClick={onClick}
+        className="w-full text-left active:scale-[0.99] transition-transform"
+      >
+        {/* Cover image / placeholder */}
+        <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-on-surface/[0.05] mb-3 relative">
+          {coverPhoto ? (
+            <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-emerald-50">
+              <ChefHat size={44} className="text-emerald-300" strokeWidth={1.6} />
+            </div>
+          )}
+          {meal.score > 0 && (
+            <span className={cn(
+              'absolute top-2 right-2 px-2 py-0.5 rounded-full text-[12px] font-serif font-bold tabular-nums shadow-sm',
+              meal.score >= 8.5 ? 'bg-emerald-600 text-white'
+                : meal.score >= 7 ? 'bg-emerald-500 text-white'
+                : meal.score >= 5 ? 'bg-amber-400 text-on-surface'
+                : 'bg-red-400 text-white',
+            )}>
+              {meal.score.toFixed(1)}
+            </span>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="px-0.5">
+          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 text-on-surface">
+            {meal.name}
+          </h3>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-on-surface/55 font-medium uppercase tracking-wider">
+            {meal.cuisine && <span>{meal.cuisine}</span>}
+            {meal.cuisine && totalTime > 0 && <span className="text-on-surface/25">·</span>}
+            {totalTime > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <Clock size={11} />{formatDuration(totalTime)}
+              </span>
+            )}
+            {(meal.cuisine || totalTime > 0) && meal.difficulty && <span className="text-on-surface/25">·</span>}
+            {meal.difficulty && <span>{meal.difficulty}</span>}
+          </div>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        aria-label={`Edit ${meal.name}`}
+        className="absolute top-2 left-2 w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-all opacity-0 group-hover:opacity-100"
+      >
+        <Edit3 size={13} className="mx-auto" />
+      </button>
+    </div>
+  );
+};
+
+/* ── Recipe filter sheet ──
+   Spotlight-style centered popup on desktop, drag-to-dismiss bottom
+   sheet on phone. Sections: Sort / Cuisine / Difficulty / Time. */
+const RecipeFilterSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  sortBy: string;
+  onSortBy: (v: string) => void;
+  cuisineFilter: string[];
+  onCuisineFilter: (v: string[]) => void;
+  difficultyFilter: Array<'Easy' | 'Medium' | 'Hard'>;
+  onDifficultyFilter: (v: Array<'Easy' | 'Medium' | 'Hard'>) => void;
+  timeFilter: 'fast' | 'medium' | 'slow' | null;
+  onTimeFilter: (v: 'fast' | 'medium' | 'slow' | null) => void;
+  allCuisines: string[];
+  onReset: () => void;
+  activeCount: number;
+}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, difficultyFilter, onDifficultyFilter, timeFilter, onTimeFilter, allCuisines, onReset, activeCount }) => {
+  const { phoneMode } = useSettings();
+  const [cuisineSearch, setCuisineSearch] = useState('');
+  useEffect(() => { if (!open) setCuisineSearch(''); }, [open]);
+  const filteredCuisines = cuisineSearch.trim()
+    ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase()))
+    : allCuisines;
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+          className={cn(
+            'fixed inset-0 z-[120]',
+            phoneMode ? 'bg-black/45 backdrop-blur-md' : 'bg-black/50 backdrop-blur-md',
+            !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+          )}
+          onClick={onClose}
+        >
+          <motion.div
+            {...(phoneMode
+              ? {
+                  initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
+                  transition: { type: 'spring' as const, damping: 30, stiffness: 320, mass: 0.9 },
+                  drag: 'y' as const,
+                  dragConstraints: { top: 0 },
+                  dragElastic: { top: 0, bottom: 0.4 },
+                  onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+                    if (info.offset.y > 90 || info.velocity.y > 350) onClose();
+                  },
+                }
+              : {
+                  initial: { opacity: 0, scale: 0.94, y: -12 },
+                  animate: { opacity: 1, scale: 1, y: 0 },
+                  exit: { opacity: 0, scale: 0.96, y: -8 },
+                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                })}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className={cn(
+              'flex flex-col overflow-hidden bg-surface',
+              phoneMode
+                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[88vh] shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]'
+                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
+            )}
+          >
+            {phoneMode && (
+              <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
+                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+              </div>
+            )}
+            <div className={cn(
+              'flex items-center justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-2 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
+            )}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <SlidersHorizontal size={15} />
+                </div>
+                <div>
+                  <h3 className={cn('font-serif font-bold leading-tight', phoneMode ? 'text-lg' : 'text-[20px]')}>Filter recipes</h3>
+                  {activeCount > 0 && (
+                    <p className="text-[11px] text-on-surface/45 font-medium">
+                      {activeCount} active filter{activeCount === 1 ? '' : 's'}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors">
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              {/* Sort */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
+                <div className="flex flex-wrap gap-2">
+                  {([['recent', 'Recent'], ['highest', 'Highest score'], ['lowest', 'Lowest score'], ['quickest', 'Quickest']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => onSortBy(key)}
+                      className={cn('px-3.5 py-2 rounded-full text-xs font-semibold transition-all',
+                        sortBy === key ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/55 hover:bg-on-surface/[0.10]')}>{label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Difficulty */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Difficulty</p>
+                <div className="flex gap-2">
+                  {(['Easy', 'Medium', 'Hard'] as const).map((d) => {
+                    const isSelected = difficultyFilter.includes(d);
+                    return (
+                      <button key={d}
+                        onClick={() => onDifficultyFilter(isSelected ? difficultyFilter.filter((x) => x !== d) : [...difficultyFilter, d])}
+                        className={cn('flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2',
+                          isSelected ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25')}
+                      >{d}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Time */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Total time</p>
+                <div className="flex gap-2">
+                  {([['fast', 'Under 30 min'], ['medium', '30 to 60 min'], ['slow', 'Over 60 min']] as const).map(([key, label]) => (
+                    <button key={key}
+                      onClick={() => onTimeFilter(timeFilter === key ? null : key)}
+                      className={cn('flex-1 py-2 rounded-xl text-[11px] font-bold transition-all border-2',
+                        timeFilter === key ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25')}
+                    >{label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cuisine */}
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
+                  {cuisineFilter.length > 0 && (
+                    <button onClick={() => onCuisineFilter([])} className="text-[11px] text-primary font-semibold">Clear</button>
+                  )}
+                </div>
+                <div className="relative mb-2">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                  <input type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)} placeholder="Search cuisines..."
+                    className="w-full bg-on-surface/[0.05] rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pb-1">
+                  {filteredCuisines.length === 0 ? (
+                    <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>
+                  ) : filteredCuisines.map((c) => {
+                    const on = cuisineFilter.includes(c);
+                    return (
+                      <button key={c}
+                        onClick={() => onCuisineFilter(on ? cuisineFilter.filter((x) => x !== c) : [...cuisineFilter, c])}
+                        className={cn('px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border',
+                          on ? 'border-primary bg-primary/10 text-primary' : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25')}>{c}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3">
+              <button onClick={onReset}
+                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.04] transition-colors">Reset</button>
+              <button onClick={onClose}
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all">
+                {activeCount > 0 ? 'Show recipes' : 'Done'}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 
