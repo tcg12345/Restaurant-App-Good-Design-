@@ -6129,22 +6129,50 @@ const SwitcherRow: React.FC<{
 );
 
 export const Pantry: React.FC = () => {
-  const [selectedList, setSelectedList] = useState<CustomList | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Read URL params synchronously on first render so the initial state
+  // matches the URL — fixes the flicker (and worse, the visible "back-
+  // to-All-Rated" jump) when remounting at /pantry?list=<id> after
+  // navigating to a restaurant detail and back. Without this the URL
+  // effect runs only after the first render commits, briefly showing
+  // the rated view before snapping into the right list.
+  const initialUrlState = (() => {
+    const sp = new URLSearchParams(location.search);
+    return {
+      listId: sp.get('list'),
+      view: sp.get('view'),
+    };
+  })();
+  const [selectedList, setSelectedList] = useState<CustomList | null>(() => {
+    const id = initialUrlState.listId;
+    if (!id) return null;
+    if (id === '__wishlist__') {
+      return {
+        id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+        restaurantIds: [], wishlistIds: [], createdAt: 0,
+      } as CustomList;
+    }
+    // Stub matches the URL effect's behavior — the lists-driven effect
+    // below fills in the real list object once data is available.
+    return {
+      id, name: '', emoji: '',
+      restaurantIds: [], wishlistIds: [], createdAt: 0,
+    } as CustomList;
+  });
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
   // Which tab the create-list sheet was opened from — controls which presets
   // appear and whether a custom list is tagged as a recipe list.
   const [createSheetKind, setCreateSheetKind] = useState<'restaurants' | 'recipes'>('restaurants');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
   const [pantryTab, setPantryTab] = useState<PantryTab>('restaurants');
-  const [showTrips, setShowTrips] = useState(false);
-  const [showHomeCooking, setShowHomeCooking] = useState(false);
+  const [showTrips, setShowTrips] = useState<boolean>(() => initialUrlState.view === 'trips');
+  const [showHomeCooking, setShowHomeCooking] = useState<boolean>(() => initialUrlState.view === 'home-cooking');
   const [homeCookingSelectedMealId, setHomeCookingSelectedMealId] = useState<string | null>(null);
   // Set to true when the user taps the rated "Your canvas" tile from the
   // landing card grid — drops into the existing rated-list rendering.
   const [showAllRated, setShowAllRated] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
   const { phoneMode, setHideBottomNav } = useSettings();
   const { setScopedSearch, bumpFocus, scopedSearch } = usePageSearch();
   const { setOverride: setPageAddAction } = usePageAddAction();
