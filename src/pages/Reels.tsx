@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -210,6 +210,12 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
     || (reel.kind === 'restaurant' && !!reel.restaurant)
     || (reel.kind === 'recipe' && !!reel.recipe);
   const [infoOpen, setInfoOpen] = useState(true);
+  // Brief play/pause feedback overlay — flashes a centered icon when the
+  // user taps the video to toggle, then fades out after ~700ms. The
+  // icon shown matches the action that just happened (pause icon when
+  // pausing, play icon when resuming).
+  const [tapIndicator, setTapIndicator] = useState<'play' | 'pause' | null>(null);
+  const tapTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -223,11 +229,28 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
     }
   }, [active, muted]);
 
+  // Clear any in-flight tap-feedback timeout when this slide unmounts
+  // (e.g. user scrolls past mid-flash).
+  useEffect(() => () => {
+    if (tapTimeoutRef.current != null) window.clearTimeout(tapTimeoutRef.current);
+  }, []);
+
+  const showTapIndicator = (kind: 'play' | 'pause') => {
+    if (tapTimeoutRef.current != null) window.clearTimeout(tapTimeoutRef.current);
+    setTapIndicator(kind);
+    tapTimeoutRef.current = window.setTimeout(() => setTapIndicator(null), 650);
+  };
+
   const onTapVideo = () => {
     const el = videoRef.current;
     if (!el) return;
-    if (el.paused) el.play().catch(() => {});
-    else el.pause();
+    if (el.paused) {
+      el.play().catch(() => {});
+      showTapIndicator('play');
+    } else {
+      el.pause();
+      showTapIndicator('pause');
+    }
   };
 
   return (
@@ -260,6 +283,31 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       {/* Gradient overlays for text legibility */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/55 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/75 via-black/30 to-transparent z-10" />
+
+      {/* Tap-to-toggle feedback — flashes a centered play/pause icon for
+          ~650ms whenever the user toggles playback by tapping the video.
+          pointer-events-none so a quick double tap still routes to the
+          underlying video click handler. */}
+      <AnimatePresence>
+        {tapIndicator && (
+          <motion.div
+            key={`${tapIndicator}-${Date.now()}`}
+            initial={{ opacity: 0, scale: 0.7 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.25 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+          >
+            <div className="w-[88px] h-[88px] rounded-full bg-black/55 backdrop-blur flex items-center justify-center shadow-lg">
+              {tapIndicator === 'play' ? (
+                <Play size={40} className="text-white fill-white ml-1.5" strokeWidth={1.5} />
+              ) : (
+                <Pause size={40} className="text-white fill-white" strokeWidth={1.5} />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Owner-only delete button (top-right area, below the mute pill) */}
       {isMine && !hideOwnerDelete && (
