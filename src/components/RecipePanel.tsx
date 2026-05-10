@@ -1,35 +1,52 @@
 /**
  * RecipePanel — side panel / bottom sheet that opens when a viewer taps a
- * "featured recipe" card on a reel or post. Mirrors RestaurantPanel: the
- * goal is to surface the recipe at a glance without yanking the user out
- * of the feed. Tap the card → side panel slides in. Scroll the body →
- * the hero collapses smoothly. Tap a different card / scroll to a
- * different reel → the panel swaps to follow.
+ * "featured recipe" card on a reel or post. Brings the full meal-recipe
+ * page experience inside the feed:
  *
- * The recipe itself lives in the author's home_meals table (FriendHomeMeal),
- * fetched lazily via getPublicHomeMealById. Until that resolves we render
- * what the reel/post snapshot already carries (title, time, servings,
- * difficulty, cover image) so the panel paints immediately.
+ *   - Compact, static header (no big hero image / no scroll-collapse).
+ *   - Selectable ingredients with a servings scaler (state shared with
+ *     the full /meal page via RecipesContext).
+ *   - Numbered method steps with built-in StepTimer parsing.
+ *   - Reviews list + inline rating / notes form.
+ *   - "Save to my recipes" copies the meal into the viewer's own
+ *     homeMeals as a private entry, so they get an editable copy.
+ *   - "View full recipe" remains as the primary route for users who
+ *     want the full editorial experience.
+ *
+ * The recipe lives in the author's home_meals table (FriendHomeMeal),
+ * fetched lazily via getPublicHomeMealById.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
 import {
-  X, ArrowUpRight, Clock, Users, Flame, ChefHat, ImageOff, Loader2, ChevronDown, ListChecks, BookOpen,
+  X, ArrowUpRight, Clock, Flame, ChefHat, Loader2, BookmarkPlus, Bookmark, Star, Send,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   getPublicHomeMealById,
   getProfilesByIds,
+  getFriends,
   type FriendHomeMeal,
   type UserProfile,
 } from '../lib/supabase-community';
+import {
+  getHomeMealReviews,
+  getMyHomeMealReview,
+  upsertHomeMealReview,
+  type HomeMealReview,
+} from '../lib/supabase-home-meal-reviews';
 import type { ReelRecipeSnapshot } from '../lib/supabase-reels';
+import { useLists, type HomeMeal } from '../contexts/ListsContext';
+import { useToast } from '../contexts/ToastContext';
+import {
+  RecipeIngredientList,
+  RecipeDirectionsList,
+  RecipeReviewList,
+  formatDuration,
+} from '../lib/recipe-display';
 
-/* ── Snapshot the panel accepts ───────────────────────────────────────────
-   Both reels and posts can attach a recipe; the snapshot shapes match.
-   We carry the snapshot itself plus the author's user id (needed to
-   resolve the full meal record from supabase). */
+/* ── Snapshot the panel accepts ──────────────────────────────────────── */
 export interface RecipePanelSnapshot {
   authorId: string;
   recipe: ReelRecipeSnapshot;
@@ -42,39 +59,265 @@ interface RecipePanelProps {
   variant: 'panel' | 'sheet';
 }
 
-function formatTime(min: number): string {
-  if (!min || min <= 0) return '';
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
+/* ── Star rating (used by both the form and the per-review rendering) ── */
 
-/* ── Stat chip (time / servings / difficulty) ─────────────────────────── */
-
-const StatPill: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}> = ({ icon, label, value }) => (
-  <div className="flex flex-col gap-1.5 rounded-2xl bg-paper ring-1 ring-on-surface/[0.07] px-3 py-3">
-    <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/55">
-      <span className="opacity-70">{icon}</span>
-      {label}
+const StarRating: React.FC<{
+  value: number;
+  onChange?: (n: number) => void;
+  size?: number;
+  /** When provided, hovering lights up that many stars instead of value. */
+  hover?: number | null;
+  onHover?: (n: number | null) => void;
+}> = ({ value, onChange, size = 22, hover, onHover }) => {
+  const display = hover ?? value;
+  const interactive = !!onChange;
+  return (
+    <div className="flex items-center gap-1">
+      {[1, 2, 3, 4, 5].map((n) => {
+        const filled = n <= display;
+        const Cmp = interactive ? 'button' : 'span';
+        return (
+          <Cmp
+            key={n}
+            type={interactive ? 'button' : undefined}
+            onClick={interactive ? () => onChange?.(n) : undefined}
+            onMouseEnter={interactive && onHover ? () => onHover(n) : undefined}
+            onMouseLeave={interactive && onHover ? () => onHover(null) : undefined}
+            className={cn(
+              'inline-flex items-center justify-center transition-colors',
+              interactive && 'hover:scale-110 active:scale-95',
+            )}
+            aria-label={interactive ? `${n} star${n === 1 ? '' : 's'}` : undefined}
+          >
+            <Star
+              size={size}
+              strokeWidth={1.6}
+              className={cn(
+                filled ? 'fill-amber-400 text-amber-400' : 'text-on-surface/25',
+                'transition-colors',
+              )}
+            />
+          </Cmp>
+        );
+      })}
     </div>
-    <p className="text-[15px] font-bold leading-none text-on-surface tabular-nums">
-      {value || '—'}
-    </p>
-  </div>
-);
+  );
+};
 
-/* ── Body (shared between sheet + panel) ──────────────────────────────── */
+const RATING_LABELS = ['', 'Poor', 'Just ok', 'Good', 'Great', 'Amazing!'];
+
+/* ── Reviews section (list + form) ──────────────────────────────────── */
+
+const ReviewsSection: React.FC<{
+  meal: FriendHomeMeal;
+  currentUserId: string | null;
+}> = ({ meal, currentUserId }) => {
+  const { showToast } = useToast();
+  const { stashMetaKey } = useLists();
+  const isAuthor = currentUserId === meal.userId;
+
+  const [reviews, setReviews] = useState<HomeMealReview[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
+  const [myReview, setMyReview] = useState<HomeMealReview | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Form state
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState<number | null>(null);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [submitError, setSubmitError] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  // Load reviews + my review on mount.
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setReviews([]);
+    setProfiles({});
+    setMyReview(null);
+
+    (async () => {
+      // Scan: author + me + my friends — same scope as the full page.
+      let scanIds: string[] = [meal.userId];
+      if (currentUserId) {
+        scanIds.push(currentUserId);
+        try {
+          const friends = await getFriends(currentUserId);
+          scanIds = Array.from(new Set([...scanIds, ...friends.map((f) => f.friend_id)]));
+        } catch { /* best-effort */ }
+      }
+      const [all, mine] = await Promise.all([
+        getHomeMealReviews(meal.id, scanIds),
+        currentUserId ? getMyHomeMealReview(currentUserId, meal.id) : Promise.resolve(null),
+      ]);
+      if (cancelled) return;
+      setReviews(all);
+      setMyReview(mine);
+      if (mine) {
+        setRating(mine.rating);
+        setNotes(mine.notes);
+      }
+      // Pull profiles so reviewer names render properly.
+      const ids = Array.from(new Set(all.map((r) => r.userId)));
+      if (ids.length > 0) {
+        const profs = await getProfilesByIds(ids);
+        if (!cancelled) setProfiles(profs);
+      }
+      if (!cancelled) setLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [meal.id, meal.userId, currentUserId]);
+
+  const onSubmit = async () => {
+    if (!currentUserId || rating < 1 || saving || isAuthor) return;
+    setSaving(true);
+    setSubmitError(false);
+    try {
+      const saved = await upsertHomeMealReview(currentUserId, meal.id, { rating, notes });
+      if (!saved) throw new Error('save failed');
+      // Update the in-memory review list so the new entry appears
+      // immediately. Drop the previous entry by this user if present.
+      setReviews((prev) => {
+        const filtered = prev.filter((r) => r.userId !== currentUserId);
+        return [saved, ...filtered];
+      });
+      setMyReview(saved);
+      // Stash through ListsContext meta so it survives navigation away
+      // and back without a re-fetch (mirrors the full-page behavior).
+      try {
+        const meta = (stashMetaKey as unknown as (k: string, v: unknown) => void);
+        meta('__my_meal_reviews__', { ...({}), [meal.id]: { rating, notes } });
+      } catch { /* meta sync is best-effort */ }
+      setSavedAt(Date.now());
+      showToast(myReview ? 'Review updated' : 'Review posted');
+    } catch {
+      setSubmitError(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const visibleReviews = showAll ? reviews : reviews.slice(0, 3);
+  const summary = useMemo(() => {
+    if (reviews.length === 0) return null;
+    const total = reviews.reduce((acc, r) => acc + (r.rating || 0), 0);
+    return { avg: total / reviews.length, count: reviews.length };
+  }, [reviews]);
+
+  return (
+    <section>
+      <div className="flex items-baseline justify-between mb-3">
+        <h3 className="font-serif font-bold text-on-surface text-[15px]">Reviews</h3>
+        {summary && (
+          <span className="text-[12px] text-on-surface/55 inline-flex items-center gap-1.5">
+            <span className="font-bold tabular-nums text-amber-600">{summary.avg.toFixed(1)}</span>
+            <Star size={11} className="fill-amber-400 text-amber-400" />
+            <span className="text-on-surface/45 tabular-nums">· {summary.count}</span>
+          </span>
+        )}
+      </div>
+
+      {/* Form — only shown to non-author signed-in viewers */}
+      {currentUserId && !isAuthor && (
+        <div className="rounded-2xl bg-paper ring-1 ring-on-surface/[0.07] p-4 mb-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/55 mb-2.5">
+            {myReview ? 'Update your review' : 'Rate this recipe'}
+          </p>
+          <StarRating
+            value={rating}
+            onChange={setRating}
+            hover={hoverRating}
+            onHover={setHoverRating}
+          />
+          {(hoverRating || rating) > 0 && (
+            <p className="text-[12px] text-on-surface/65 mt-1.5 font-medium">
+              {RATING_LABELS[hoverRating ?? rating]}
+            </p>
+          )}
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes (optional)"
+            rows={3}
+            className="mt-3 w-full rounded-xl bg-on-surface/[0.04] border border-on-surface/[0.06] focus:bg-on-surface/[0.06] focus:ring-2 focus:ring-on-surface/10 focus:outline-none px-3 py-2 text-[13px] text-on-surface placeholder:text-on-surface/40 resize-none transition-colors"
+          />
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={rating < 1 || saving}
+            className={cn(
+              'mt-3 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-full text-[13px] font-bold transition-colors',
+              rating >= 1 && !saving
+                ? 'bg-on-surface text-surface hover:bg-on-surface/90'
+                : 'bg-on-surface/[0.08] text-on-surface/40 cursor-not-allowed',
+            )}
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Send size={13} />}
+            {saving ? 'Saving…' : savedAt ? 'Review saved' : myReview ? 'Update review' : 'Post review'}
+          </button>
+          {submitError && (
+            <p className="text-[11px] text-rose-600 mt-2">Something went wrong. Try again.</p>
+          )}
+        </div>
+      )}
+      {!currentUserId && (
+        <p className="text-[12px] text-on-surface/55 mb-4">Sign in to leave a review.</p>
+      )}
+      {isAuthor && (
+        <p className="text-[12px] text-on-surface/55 mb-4 italic">You can't rate your own recipe.</p>
+      )}
+
+      {/* List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-4 text-on-surface/45">
+          <Loader2 size={16} className="animate-spin" />
+        </div>
+      ) : reviews.length === 0 ? (
+        <p className="text-[13px] text-on-surface/55 text-center py-4">
+          No reviews yet. Be the first to rate it.
+        </p>
+      ) : (
+        <>
+          <RecipeReviewList
+            reviews={visibleReviews.map((r) => ({
+              id: r.id,
+              userId: r.userId,
+              rating: r.rating,
+              notes: r.notes,
+              createdAt: r.createdAt,
+            }))}
+            profiles={profiles}
+            currentUserId={currentUserId ?? undefined}
+            renderRating={(n) => <StarRating value={n} size={13} />}
+          />
+          {reviews.length > 3 && (
+            <button
+              type="button"
+              onClick={() => setShowAll((o) => !o)}
+              className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/65 hover:text-on-surface transition-colors"
+            >
+              {showAll ? 'Show fewer' : `Show all ${reviews.length} reviews`}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+};
+
+/* ── Body ─────────────────────────────────────────────────────────────── */
 
 const RecipePanelBody: React.FC<{
   snapshot: RecipePanelSnapshot;
   onClose: () => void;
-}> = ({ snapshot, onClose }) => {
+  currentUserId: string | null;
+}> = ({ snapshot, onClose, currentUserId }) => {
   const { authorId, recipe } = snapshot;
+  const { homeMeals, createHomeMeal } = useLists();
+  const { showToast } = useToast();
 
   const [meal, setMeal] = useState<FriendHomeMeal | null>(null);
   const [author, setAuthor] = useState<UserProfile | null>(null);
@@ -97,120 +340,99 @@ const RecipePanelBody: React.FC<{
     return () => { cancelled = true; };
   }, [authorId, recipe.id]);
 
-  /* ── Hero cover: prefer the recipe snapshot's image (already signed
-        on the reel/post row), then the meal's coverPhoto, then the
-        first uploaded photo. Falls back to a warm gradient. */
-  const cover = recipe.image || meal?.coverPhoto || meal?.photos?.[0]?.url || '';
+  /* ── Servings scaler — local to this panel session so the user's
+        scratchpad doesn't survive across recipes. */
+  const baseServings = recipe.servings || meal?.servings || 4;
+  const [servingsScale, setServingsScale] = useState(1);
+  // Reset the scaler when the snapshot changes (different recipe).
+  useEffect(() => { setServingsScale(1); }, [recipe.id, authorId]);
 
-  /* ── Derived stats. Snapshot fields cover the common case; the meal
-        record fills in cuisine + tags + ingredients + steps. */
+  /* ── Save-to-my-recipes. We detect "already saved" by checking the
+        user's own homeMeals for one whose name matches AND whose
+        description holds our origin tag. createHomeMeal stores
+        meta in the description so this round-trips. */
+  const ORIGIN_TAG = `[from @${author?.username || authorId}]`;
+  const alreadySaved = useMemo(() => {
+    if (!meal) return false;
+    return homeMeals.some(
+      (m) => m.name === meal.name && (m.description || '').includes(ORIGIN_TAG),
+    );
+  }, [homeMeals, meal, ORIGIN_TAG]);
+
+  const isOwnMeal = currentUserId === authorId;
+
+  const handleSave = () => {
+    if (!meal || alreadySaved || isOwnMeal) return;
+    const description = meal.description
+      ? `${meal.description}\n\n${ORIGIN_TAG}`
+      : ORIGIN_TAG;
+    const copy: Omit<HomeMeal, 'id' | 'createdAt'> = {
+      name: meal.name,
+      date: new Date().toISOString().slice(0, 10),
+      score: 0,
+      wouldMakeAgain: false,
+      description,
+      photos: meal.photos || [],
+      tags: meal.tags || [],
+      dishes: meal.dishes || [],
+      isPublic: false,
+      coverPhoto: meal.coverPhoto || meal.photos?.[0]?.url,
+      prepTime: meal.prepTime,
+      cookTime: meal.cookTime,
+      servings: meal.servings,
+      difficulty: meal.difficulty,
+      cuisine: meal.cuisine,
+      ingredients: meal.ingredients,
+      steps: meal.steps,
+    };
+    createHomeMeal(copy);
+    showToast('Saved to your recipes');
+  };
+
+  /* ── Derived display strings */
   const totalTime = (recipe.prepTime || 0) + (recipe.cookTime || 0);
   const cuisine = meal?.cuisine || '';
-  const description = meal?.description || '';
+  const description = (meal?.description || '').replace(ORIGIN_TAG, '').trim();
   const tags = meal?.tags || [];
   const ingredients = meal?.ingredients || [];
   const steps = meal?.steps || [];
-  const photos = meal?.photos || [];
-
-  const [ingredientsOpen, setIngredientsOpen] = useState(false);
-  const [stepsOpen, setStepsOpen] = useState(false);
-
-  const visibleIngredients = ingredientsOpen ? ingredients : ingredients.slice(0, 6);
-  const visibleSteps = stepsOpen ? steps : steps.slice(0, 3);
-
-  /* ── Scroll-driven hero collapse — same shape as RestaurantPanel so
-        the two panels feel like siblings. */
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const { scrollY } = useScroll({ container: scrollRef });
-  const heroHeight = useTransform(scrollY, [0, 130], [204, 60], { clamp: true });
-  const mediaOpacity = useTransform(scrollY, [0, 80], [1, 0], { clamp: true });
-  const expandedOpacity = useTransform(scrollY, [0, 60], [1, 0], { clamp: true });
-  const expandedY = useTransform(scrollY, [0, 130], [0, -22], { clamp: true });
-  const compactOpacity = useTransform(scrollY, [60, 130], [0, 1], { clamp: true });
-  const bottomLineOpacity = useTransform(scrollY, [80, 130], [0, 1], { clamp: true });
+  const recipeKey = `meal-${recipe.id}`;
 
   const fullRecipeHref = `/meal/${encodeURIComponent(authorId)}/${encodeURIComponent(recipe.id)}`;
 
   return (
     <>
-      {/* Header — cover photo (or gradient) that collapses on scroll */}
-      <motion.div
-        className="relative flex-shrink-0 w-full bg-cream-2 overflow-hidden"
-        style={{ height: heroHeight }}
-      >
-        {cover ? (
-          <motion.img
-            src={cover}
-            alt=""
-            className="absolute inset-0 w-full h-full object-cover"
-            style={{ opacity: mediaOpacity }}
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <motion.div
-            className="absolute inset-0 bg-gradient-to-br from-amber-700 via-orange-700/40 to-stone-800 flex items-center justify-center text-white/30"
-            style={{ opacity: mediaOpacity }}
-          >
-            <ChefHat size={32} />
-          </motion.div>
-        )}
-        {/* Bottom legibility wash */}
-        <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/75 via-black/25 to-transparent"
-          style={{ opacity: mediaOpacity }}
-        />
-
-        {/* Expanded title — fades + slides up as the hero collapses */}
-        <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-3.5 text-white"
-          style={{ opacity: expandedOpacity, y: expandedY }}
-        >
-          <h2 className="font-serif font-bold text-[21px] leading-[1.1] tracking-tight line-clamp-2">
-            {recipe.title}
-          </h2>
-          <p className="text-[12px] text-white/85 mt-0.5 truncate">
-            {[cuisine, totalTime > 0 ? formatTime(totalTime) : null, recipe.servings ? `${recipe.servings} servings` : null]
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
-        </motion.div>
-
-        {/* Compact title — fades in centered when collapsed */}
-        <motion.div
-          className="pointer-events-none absolute inset-0 flex items-center justify-center px-16"
-          style={{ opacity: compactOpacity }}
-        >
-          <div className="min-w-0 text-center">
-            <h3 className="font-serif font-bold text-on-surface text-[15px] leading-tight truncate">
+      {/* Compact static header — no hero image, no scroll-collapse. Two
+          rows: title + close, then a small meta line. */}
+      <div className="flex-shrink-0 border-b border-on-surface/[0.07] bg-surface/95 backdrop-blur sticky top-0 z-10 px-5 pt-4 pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="font-serif font-bold text-on-surface text-[18px] leading-[1.15] tracking-tight line-clamp-2">
               {recipe.title}
-            </h3>
-            <p className="text-[11px] text-on-surface/55 truncate mt-0.5">
-              {[cuisine, recipe.difficulty].filter(Boolean).join(' · ')}
+            </h2>
+            <p className="text-[11px] text-on-surface/55 mt-1 truncate">
+              {[
+                author ? `@${author.username}` : null,
+                cuisine,
+                totalTime > 0 ? formatDuration(totalTime) : null,
+                recipe.difficulty,
+              ].filter(Boolean).join(' · ')}
             </p>
           </div>
-        </motion.div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 rounded-full hover:bg-on-surface/[0.07] flex items-center justify-center text-on-surface/65 transition-colors flex-shrink-0"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      </div>
 
-        {/* Close pill — pinned across both states */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/55 backdrop-blur text-white hover:bg-black/75 flex items-center justify-center transition-colors z-10"
-        >
-          <X size={17} />
-        </button>
-
-        {/* Hairline separator that appears once collapsed */}
-        <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-on-surface/[0.09]"
-          style={{ opacity: bottomLineOpacity }}
-        />
-      </motion.div>
-
-      {/* Body */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6">
-        {/* Author chip — sits flush at the top so the eye lands on
-            "who made this" before the meta. */}
+      {/* Scrollable body */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6">
+        {/* Author chip */}
         {author && (
           <Link
             to={`/user/${encodeURIComponent(author.username)}`}
@@ -230,11 +452,27 @@ const RecipePanelBody: React.FC<{
           </Link>
         )}
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-2">
-          <StatPill icon={<Clock size={11} />} label="Time" value={formatTime(totalTime)} />
-          <StatPill icon={<Users size={11} />} label="Serves" value={recipe.servings ? String(recipe.servings) : ''} />
-          <StatPill icon={<Flame size={11} />} label="Level" value={recipe.difficulty || ''} />
+        {/* Quick info — time + difficulty (servings is in the ingredient
+            list since it's interactive there). */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="flex items-center gap-2 rounded-2xl bg-paper ring-1 ring-on-surface/[0.07] px-3 py-2.5">
+            <Clock size={14} className="text-on-surface/55 flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/55 leading-none">Time</p>
+              <p className="text-[14px] font-bold text-on-surface tabular-nums leading-tight mt-0.5">
+                {totalTime > 0 ? formatDuration(totalTime) : '—'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 rounded-2xl bg-paper ring-1 ring-on-surface/[0.07] px-3 py-2.5">
+            <Flame size={14} className="text-on-surface/55 flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/55 leading-none">Level</p>
+              <p className="text-[14px] font-bold text-on-surface leading-tight mt-0.5">
+                {recipe.difficulty || '—'}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Description */}
@@ -255,122 +493,67 @@ const RecipePanelBody: React.FC<{
           </div>
         )}
 
-        {/* Ingredients */}
-        {loading && ingredients.length === 0 && steps.length === 0 ? (
+        {/* Save button — pinned high so it's discoverable; turns into a
+            "Saved" pill once the user has copied this recipe to their
+            own collection. Hidden if the user is the author. */}
+        {!isOwnMeal && (
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={alreadySaved || !meal}
+            className={cn(
+              'w-full inline-flex items-center justify-center gap-1.5 h-11 rounded-full text-[13px] font-bold transition-colors',
+              alreadySaved
+                ? 'bg-emerald-100 text-emerald-800 cursor-default'
+                : 'bg-on-surface/[0.06] text-on-surface hover:bg-on-surface/[0.1]',
+            )}
+          >
+            {alreadySaved ? <Bookmark size={14} className="fill-emerald-700" /> : <BookmarkPlus size={14} />}
+            {alreadySaved ? 'Saved to your recipes' : 'Save to your recipes'}
+          </button>
+        )}
+
+        {/* Loading until the full meal record arrives — ingredients +
+            steps + reviews all need it. */}
+        {loading && (!ingredients.length && !steps.length) ? (
           <div className="flex items-center justify-center py-6 text-on-surface/45">
             <Loader2 size={18} className="animate-spin" />
           </div>
         ) : (
           <>
+            {/* Ingredients — reuses the shared component so checkbox
+                state syncs with the full /meal page (RecipesContext key). */}
             {ingredients.length > 0 && (
               <section>
-                <div className="flex items-center justify-between mb-2.5">
-                  <h3 className="flex items-center gap-1.5 font-serif font-bold text-on-surface text-[15px]">
-                    <ListChecks size={14} className="text-on-surface/55" />
-                    Ingredients
-                  </h3>
-                  <span className="text-[11px] text-on-surface/50 tabular-nums">
-                    {ingredients.length} item{ingredients.length === 1 ? '' : 's'}
-                  </span>
-                </div>
-                <ul className="space-y-1.5">
-                  {visibleIngredients.map((ing, i) => (
-                    <li key={i} className="flex items-baseline gap-2.5 text-[13px] text-on-surface/85">
-                      <span className="text-on-surface/40 tabular-nums shrink-0 min-w-[55px]">
-                        {[ing.amount, ing.unit].filter(Boolean).join(' ') || '·'}
-                      </span>
-                      <span>{ing.name}</span>
-                    </li>
-                  ))}
-                </ul>
-                {ingredients.length > 6 && (
-                  <button
-                    type="button"
-                    onClick={() => setIngredientsOpen((o) => !o)}
-                    className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/65 hover:text-on-surface transition-colors"
-                  >
-                    {ingredientsOpen ? 'Show less' : `Show all ${ingredients.length}`}
-                    <ChevronDown size={13} className={cn('transition-transform duration-200', ingredientsOpen && 'rotate-180')} />
-                  </button>
-                )}
+                <h3 className="font-serif font-bold text-on-surface text-[15px] mb-3">Ingredients</h3>
+                <RecipeIngredientList
+                  recipeKey={recipeKey}
+                  ingredients={ingredients}
+                  servings={baseServings > 0 ? {
+                    base: baseServings,
+                    scale: servingsScale,
+                    onScaleChange: setServingsScale,
+                  } : undefined}
+                />
               </section>
             )}
 
-            {/* Method / steps */}
+            {/* Method — RecipeDirectionsList parses minute durations from
+                the step text and renders an inline StepTimer. */}
             {steps.length > 0 && (
               <section>
-                <div className="flex items-center justify-between mb-2.5">
-                  <h3 className="flex items-center gap-1.5 font-serif font-bold text-on-surface text-[15px]">
-                    <BookOpen size={14} className="text-on-surface/55" />
-                    Method
-                  </h3>
-                  <span className="text-[11px] text-on-surface/50 tabular-nums">
-                    {steps.length} step{steps.length === 1 ? '' : 's'}
-                  </span>
-                </div>
-                <ol className="space-y-3">
-                  {visibleSteps.map((s, i) => (
-                    <li key={i} className="flex gap-3">
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-on-surface/[0.06] text-on-surface text-[12px] font-bold tabular-nums flex items-center justify-center mt-0.5">
-                        {i + 1}
-                      </span>
-                      <p className="flex-1 text-[13px] text-on-surface/85 leading-relaxed">{s}</p>
-                    </li>
-                  ))}
-                </ol>
-                {steps.length > 3 && (
-                  <button
-                    type="button"
-                    onClick={() => setStepsOpen((o) => !o)}
-                    className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/65 hover:text-on-surface transition-colors"
-                  >
-                    {stepsOpen ? 'Show less' : `Show all ${steps.length} steps`}
-                    <ChevronDown size={13} className={cn('transition-transform duration-200', stepsOpen && 'rotate-180')} />
-                  </button>
-                )}
+                <h3 className="font-serif font-bold text-on-surface text-[15px] mb-3">Method</h3>
+                <RecipeDirectionsList steps={steps} />
               </section>
             )}
 
-            {/* Photos — 4-up grid; tapping any thumbnail jumps into the
-                full recipe page where the gallery lightbox lives. */}
-            {photos.length > 1 && (
-              <section>
-                <div className="flex items-baseline justify-between mb-2.5">
-                  <h3 className="font-serif font-bold text-on-surface text-[15px]">Photos</h3>
-                  <span className="text-[11px] text-on-surface/50 tabular-nums">{photos.length}</span>
-                </div>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {photos.slice(0, 4).map((p, idx) => {
-                    const isLast = idx === 3 && photos.length > 4;
-                    const more = photos.length - 4;
-                    return (
-                      <Link
-                        key={idx}
-                        to={fullRecipeHref}
-                        onClick={onClose}
-                        className="relative aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] ring-1 ring-on-surface/[0.06] hover:ring-on-surface/[0.14] transition-shadow"
-                      >
-                        <img
-                          src={p.url}
-                          alt=""
-                          className="absolute inset-0 w-full h-full object-cover"
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                        />
-                        {isLast && (
-                          <div className="absolute inset-0 bg-black/55 backdrop-blur-[1px] flex items-center justify-center">
-                            <span className="text-white text-[14px] font-bold tabular-nums">+{more}</span>
-                          </div>
-                        )}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </section>
+            {/* Reviews */}
+            {meal && (
+              <ReviewsSection meal={meal} currentUserId={currentUserId} />
             )}
 
             {/* Empty state — meal couldn't load (deleted / private / RLS) */}
-            {!loading && !meal && ingredients.length === 0 && steps.length === 0 && (
+            {!loading && !meal && (
               <div className="rounded-2xl bg-on-surface/[0.04] px-4 py-5 text-center">
                 <p className="text-[13px] text-on-surface/65 leading-snug">
                   Recipe details are unavailable. Open the full page for the latest.
@@ -396,8 +579,7 @@ const RecipePanelBody: React.FC<{
 
 /* ── Desktop side panel + mobile sheet ───────────────────────────────── */
 
-export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, currentUserId: _currentUserId, variant }) => {
-  void _currentUserId; // accepted for symmetry with RestaurantPanel; unused for now
+export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, currentUserId, variant }) => {
   if (variant === 'sheet') {
     return (
       <AnimatePresence>
@@ -416,12 +598,12 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, cur
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
               className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16]"
-              style={{ height: '85%' }}
+              style={{ height: '88%' }}
             >
               <div className="pt-2 pb-1 flex justify-center flex-shrink-0">
                 <span className="w-10 h-1 rounded-full bg-on-surface/15" />
               </div>
-              <RecipePanelBody snapshot={snapshot} onClose={onClose} />
+              <RecipePanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
             </motion.div>
           </motion.div>
         )}
@@ -441,7 +623,7 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, cur
           className="h-full bg-surface ring-1 ring-on-surface/[0.16] rounded-[24px] overflow-hidden flex flex-col flex-shrink-0 shadow-md"
         >
           <div className="w-[380px] h-full flex flex-col">
-            <RecipePanelBody snapshot={snapshot} onClose={onClose} />
+            <RecipePanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
           </div>
         </motion.div>
       )}
