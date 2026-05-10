@@ -316,8 +316,12 @@ const RestaurantPanelBody: React.FC<{
         leave the canvas blank in dev. */
   const mapInstanceRef = useRef<mapboxgl.Map | null>(null);
   const mapCleanupRef = useRef<(() => void) | null>(null);
-  const lat = details && Number.isFinite(details.lat) ? details.lat : null;
-  const lng = details && Number.isFinite(details.lng) ? details.lng : null;
+  // getPlaceDetails defaults missing coords to 0/0 (Atlantic Ocean), which
+  // Number.isFinite would happily accept — so guard against the literal
+  // 0 sentinel too. If both coords are 0 we treat it as no location.
+  const lat = details && Number.isFinite(details.lat) && details.lat !== 0 ? details.lat : null;
+  const lng = details && Number.isFinite(details.lng) && details.lng !== 0 ? details.lng : null;
+  const hasMap = lat != null && lng != null;
 
   const mapContainerRef = useCallback((el: HTMLDivElement | null) => {
     if (!el) {
@@ -383,12 +387,12 @@ const RestaurantPanelBody: React.FC<{
         whole time. */
   const scrollRef = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll({ container: scrollRef });
-  const heroHeight = useTransform(scrollY, [0, 140], [220, 72], { clamp: true });
-  const mediaOpacity = useTransform(scrollY, [0, 90], [1, 0], { clamp: true });
-  const expandedOpacity = useTransform(scrollY, [0, 70], [1, 0], { clamp: true });
-  const expandedY = useTransform(scrollY, [0, 140], [0, -24], { clamp: true });
-  const compactOpacity = useTransform(scrollY, [70, 140], [0, 1], { clamp: true });
-  const bottomLineOpacity = useTransform(scrollY, [90, 140], [0, 1], { clamp: true });
+  const heroHeight = useTransform(scrollY, [0, 120], [176, 60], { clamp: true });
+  const mediaOpacity = useTransform(scrollY, [0, 80], [1, 0], { clamp: true });
+  const expandedOpacity = useTransform(scrollY, [0, 60], [1, 0], { clamp: true });
+  const expandedY = useTransform(scrollY, [0, 120], [0, -22], { clamp: true });
+  const compactOpacity = useTransform(scrollY, [60, 120], [0, 1], { clamp: true });
+  const bottomLineOpacity = useTransform(scrollY, [80, 120], [0, 1], { clamp: true });
 
   return (
     <>
@@ -398,45 +402,55 @@ const RestaurantPanelBody: React.FC<{
           expanded title that slides up + fades, and a compact title that
           fades in centered between the heart/close pills. */}
       <motion.div
-        className="relative flex-shrink-0 w-full bg-surface overflow-hidden"
+        className="relative flex-shrink-0 w-full bg-cream-2 overflow-hidden"
         style={{ height: heroHeight }}
       >
-        {/* Media layer — fades out as the panel collapses */}
-        <motion.div className="absolute inset-0" style={{ opacity: mediaOpacity }}>
-          {lat != null && lng != null ? (
-            <div
-              key={`${snapshot.id}-${lat}-${lng}`}
-              ref={mapContainerRef}
-              className="absolute inset-0"
-            />
-          ) : snapshot.image ? (
-            <img
-              src={snapshot.image}
-              alt=""
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-clay/30 to-olive/20 flex items-center justify-center text-on-surface/30">
-              <ImageOff size={32} />
-            </div>
-          )}
-          {/* Bottom legibility wash — gradient sits inside the media layer
-              so it fades together with the map. */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
-        </motion.div>
+        {/* Media layer — map (preferred) / image / gradient. Mounted as a
+            direct child of the hero with explicit inline width + height so
+            Mapbox can bootstrap its canvas size correctly: Tailwind's
+            `inset-0` alone leaves the canvas at 0×0 in some browsers, which
+            silently prevents tiles from loading even after CSS is applied. */}
+        {hasMap ? (
+          <motion.div
+            key={`${snapshot.id}-${lat}-${lng}`}
+            ref={mapContainerRef}
+            className="absolute inset-0"
+            style={{ width: '100%', height: '100%', opacity: mediaOpacity }}
+          />
+        ) : snapshot.image ? (
+          <motion.img
+            src={snapshot.image}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ opacity: mediaOpacity }}
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <motion.div
+            className="absolute inset-0 bg-gradient-to-br from-clay/30 to-olive/20 flex items-center justify-center text-on-surface/30"
+            style={{ opacity: mediaOpacity }}
+          >
+            <ImageOff size={28} />
+          </motion.div>
+        )}
+        {/* Bottom legibility wash — separate layer so it doesn't constrain
+            the map container's size. Fades together with the media. */}
+        <motion.div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/65 via-black/20 to-transparent"
+          style={{ opacity: mediaOpacity }}
+        />
 
         {/* Expanded title — large serif name + cuisine/price/distance,
             pinned to the bottom of the expanded hero. Fades + slides up
             as the hero collapses. */}
         <motion.div
-          className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-4 text-white"
+          className="pointer-events-none absolute inset-x-0 bottom-0 px-5 pb-3.5 text-white"
           style={{ opacity: expandedOpacity, y: expandedY }}
         >
-          <h2 className="font-serif font-bold text-[22px] leading-[1.1] tracking-tight line-clamp-2">
+          <h2 className="font-serif font-bold text-[21px] leading-[1.1] tracking-tight line-clamp-2">
             {snapshot.name}
           </h2>
-          <p className="text-[12px] text-white/80 mt-1 truncate">
+          <p className="text-[12px] text-white/80 mt-0.5 truncate">
             {[snapshot.cuisine, snapshot.price, distance].filter(Boolean).join(' · ')}
           </p>
         </motion.div>
