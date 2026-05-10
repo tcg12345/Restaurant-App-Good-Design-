@@ -10,6 +10,7 @@ import { useToast } from '../contexts/ToastContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
+import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -856,6 +857,11 @@ export const Reels: React.FC = () => {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
+  // Tapping a featured-restaurant card on a reel/post opens this side panel
+  // instead of navigating to /restaurant/:id. Set to the restaurant snapshot
+  // attached to the card so the panel can render immediately while it fetches
+  // community/friend/expert data.
+  const [restaurantPanelSnapshot, setRestaurantPanelSnapshot] = useState<RestaurantPanelSnapshot | null>(null);
 
   const loading = reelsLoading || postsLoading;
 
@@ -964,7 +970,9 @@ export const Reels: React.FC = () => {
 
   const handleCardClick = (reel: Reel) => {
     if (reel.kind === 'restaurant' && reel.restaurant) {
-      navigate(`/restaurant/${reel.restaurant.id}`);
+      // Open the in-feed restaurant panel instead of navigating away —
+      // keeps the user inside the reels feed.
+      setRestaurantPanelSnapshot(reel.restaurant);
       return;
     }
     if (reel.kind === 'recipe' && reel.recipe) {
@@ -1057,12 +1065,13 @@ export const Reels: React.FC = () => {
     else showToast("Couldn't delete post");
   };
 
-  // Per-item attachment click — routes to the right detail page.
-  // Recipes attached to a post are home-meal entries owned by the post's
-  // author, so they live under /meal/:userId/:mealId, not /recipe/:id.
+  // Per-item attachment click — restaurants open the in-feed side panel;
+  // recipes still navigate to the home-meal read view (/meal/:userId/:mealId,
+  // not /recipe/:id, because attached recipes are home-meal entries owned
+  // by the post's author).
   const handlePostItemClick = (postUserId: string, item: PostItemRow) => {
     if (item.attachedKind === 'restaurant' && item.restaurant) {
-      navigate(`/restaurant/${item.restaurant.id}`);
+      setRestaurantPanelSnapshot(item.restaurant);
     } else if (item.attachedKind === 'recipe' && item.recipe) {
       navigate(`/meal/${encodeURIComponent(postUserId)}/${encodeURIComponent(item.recipe.id)}`);
     }
@@ -1312,6 +1321,16 @@ export const Reels: React.FC = () => {
           currentUserId={currentUserId}
         />
 
+        {/* Restaurant side panel — opens when a featured-place card is tapped
+            on a reel or post. Sits to the right of the action rail, mirrors
+            the comments panel's animation + chrome. */}
+        <RestaurantPanel
+          variant="panel"
+          snapshot={restaurantPanelSnapshot}
+          onClose={() => setRestaurantPanelSnapshot(null)}
+          currentUserId={currentUserId}
+        />
+
         {/* Share dialog — fixed-position, floats above the layout. */}
         <ShareDialog
           open={!!sharePayload}
@@ -1327,6 +1346,14 @@ export const Reels: React.FC = () => {
     <div className="relative h-screen w-full bg-black overflow-hidden">
       <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
       {renderFeed({})}
+      {/* Restaurant sheet — mobile counterpart of the desktop panel. Slides
+          up from the bottom over the feed. */}
+      <RestaurantPanel
+        variant="sheet"
+        snapshot={restaurantPanelSnapshot}
+        onClose={() => setRestaurantPanelSnapshot(null)}
+        currentUserId={currentUserId}
+      />
       <ShareDialog
         open={!!sharePayload}
         payload={sharePayload}
