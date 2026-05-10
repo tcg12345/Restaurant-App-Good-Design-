@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, ChevronUp, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -277,50 +277,57 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       )}
 
       {/* Bottom info: author row, then a collapsible block with the
-          caption + attached card. On phone the floating BottomNav
-          sits ~68-90px above the bottom edge, so we pad-bottom enough
-          to clear it; desktop keeps the original tighter padding. */}
+          caption + attached card. The whole region is a click-to-toggle
+          target on phone — child interactives (avatar/handle link, the
+          attached card) stop propagation so they still work normally.
+          On phone the floating BottomNav sits ~70-90px above the bottom
+          edge so we pad-bottom enough to clear it; desktop keeps the
+          original tighter padding. */}
       <div
+        role={hasCollapsibleContent ? 'button' : undefined}
+        tabIndex={hasCollapsibleContent ? 0 : undefined}
+        onClick={() => hasCollapsibleContent && setInfoOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (!hasCollapsibleContent) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setInfoOpen((o) => !o);
+          }
+        }}
+        aria-expanded={hasCollapsibleContent ? infoOpen : undefined}
+        aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
         className={cn(
           'absolute inset-x-0 bottom-0 z-20 px-4 pt-10',
-          phoneMode ? 'pb-24' : 'pb-5',
+          phoneMode ? 'pb-28' : 'pb-5',
+          hasCollapsibleContent && 'cursor-pointer',
         )}
       >
         <div className="flex items-center gap-3 mb-2">
-          {/* Tap the avatar + handle (and EXPERT chip) to open the author's
-              profile. Audio label sits outside the link area so it isn't
-              part of the clickable region. */}
+          {/* Avatar + @handle + EXPERT chip — only this region opens the
+              author's profile. Audio label is rendered outside the
+              Link so it falls through to the toggle handler. Stop
+              propagation so the toggle doesn't also fire. */}
           <Link
             to={`/user/${encodeURIComponent(reel.authorUsername)}`}
-            className="flex items-center gap-3 min-w-0 flex-1 group"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-3 min-w-0 group"
           >
             <div className={cn('w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-white/30 transition-transform group-hover:scale-[1.04] group-active:scale-[0.96]', reel.authorAvatarColor)}>
               {reel.authorInitials}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
-                {reel.isExpert && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold">
-                    <Star size={9} className="fill-stone-900" />
-                    EXPERT
-                  </span>
-                )}
-              </div>
-              <p className="text-white/85 text-[12px] truncate font-mono">♪ {reel.audioLabel}</p>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
+              {reel.isExpert && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold flex-shrink-0">
+                  <Star size={9} className="fill-stone-900" />
+                  EXPERT
+                </span>
+              )}
             </div>
           </Link>
-          {hasCollapsibleContent && (
-            <button
-              type="button"
-              onClick={() => setInfoOpen((o) => !o)}
-              aria-label={infoOpen ? 'Hide details' : 'Show details'}
-              aria-expanded={infoOpen}
-              className="flex-shrink-0 w-9 h-9 rounded-full bg-black/45 backdrop-blur flex items-center justify-center text-white/85 hover:text-white hover:bg-black/60 transition-colors"
-            >
-              {infoOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-            </button>
-          )}
+          {/* Audio label sits to the right, outside the profile link
+              hitbox. It still falls under the toggle handler. */}
+          <p className="text-white/85 text-[12px] truncate font-mono flex-1 min-w-0">♪ {reel.audioLabel}</p>
         </div>
 
         <AnimatePresence initial={false}>
@@ -338,12 +345,17 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
                 </p>
               )}
 
-              {reel.kind === 'restaurant' && reel.restaurant && (
-                <RestaurantCard reel={reel} onClick={onCardClick} />
-              )}
-              {reel.kind === 'recipe' && reel.recipe && (
-                <RecipeCard reel={reel} onClick={onCardClick} />
-              )}
+              {/* Stop click propagation on the card so tapping it
+                  navigates to the restaurant/recipe instead of just
+                  collapsing the section. */}
+              <div onClick={(e) => e.stopPropagation()}>
+                {reel.kind === 'restaurant' && reel.restaurant && (
+                  <RestaurantCard reel={reel} onClick={onCardClick} />
+                )}
+                {reel.kind === 'recipe' && reel.recipe && (
+                  <RecipeCard reel={reel} onClick={onCardClick} />
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
