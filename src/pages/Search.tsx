@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search as SearchIcon } from 'lucide-react';
+import { Search as SearchIcon, Map as MapIcon, ChevronRight } from 'lucide-react';
 import { FollowingFeed } from '../components/FollowingFeed';
 import { cn } from '../lib/utils';
 
@@ -62,6 +62,22 @@ export const Search: React.FC = () => {
                 aria-label="Search"
               />
             </div>
+
+            {/* Prominent map entry — replaces the old navbar split. */}
+            <button
+              type="button"
+              onClick={() => navigate('/map')}
+              className="group w-full flex items-center gap-3 rounded-2xl border border-on-surface/[0.08] bg-white px-4 py-3.5 text-left transition-all hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] active:scale-[0.99]"
+            >
+              <span className="flex-shrink-0 w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                <MapIcon size={22} strokeWidth={2.2} />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[15px] font-bold text-on-surface leading-tight">Explore on map</span>
+                <span className="block text-[12px] text-on-surface/55 mt-0.5">Discover restaurants near you</span>
+              </span>
+              <ChevronRight size={18} className="flex-shrink-0 text-on-surface/30 group-hover:text-on-surface/55 transition-colors" />
+            </button>
 
           </div>
         ) : (

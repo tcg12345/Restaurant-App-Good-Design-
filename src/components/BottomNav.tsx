@@ -139,8 +139,11 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
 
           // ── Search button with split into Search + Map ──
           if (isSplittable) {
-            // Force split open when collapsed on the map page
-            const showSplit = searchSplit || (collapsedShowsSearch && !isExpanded);
+            // Force split open when collapsed on the map page.
+            // On phone we never split — the navbar Search button is a plain
+            // link to /search; the map is reached from a button inside the
+            // Discover tab instead.
+            const showSplit = !phoneMode && (searchSplit || (collapsedShowsSearch && !isExpanded));
 
             return (
               <motion.div
@@ -228,6 +231,11 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                         }
                       }}
                       onClick={() => {
+                        // Phone: plain link to /search, no split, no map.
+                        if (phoneMode) {
+                          if (location.pathname !== '/search') navigate('/search');
+                          return;
+                        }
                         if (isSearchOrMap) {
                           setSearchSplit(true);
                           return;
@@ -240,13 +248,13 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                       }}
                       className={cn(
                         "flex flex-col items-center justify-center gap-1 rounded-full min-w-[44px] min-h-[44px] px-3 py-2 transition-colors duration-200",
-                        isSearchOrMap
+                        (phoneMode ? isSearchActive : isSearchOrMap)
                           ? "bg-primary/10 text-primary"
                           : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
                       )}
                       transition={{ type: 'spring', damping: 22, stiffness: 280, mass: 0.8 }}
                     >
-                      <Search size={22} strokeWidth={isSearchOrMap ? 2.5 : 2} />
+                      <Search size={22} strokeWidth={(phoneMode ? isSearchActive : isSearchOrMap) ? 2.5 : 2} />
                       <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
                     </motion.button>
                   )}
