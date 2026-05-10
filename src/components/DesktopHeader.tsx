@@ -7,6 +7,7 @@ import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
+import { usePageSearch } from '../contexts/PageSearchContext';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
 
@@ -85,6 +86,9 @@ export const DesktopHeader: React.FC = () => {
   const { toggleWishlist, isWishlisted, openAddRestaurantModal } = useLists();
   const { unreadCount } = useChat();
   const { pendingRequestCount } = useAuth();
+  const { scopedSearch, setScopedSearch, focusBump } = usePageSearch();
+  // True while a page (Pantry) has hijacked this input as a list filter.
+  const isScoped = scopedSearch !== null;
 
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -167,11 +171,32 @@ export const DesktopHeader: React.FC = () => {
   }, [open]);
 
   // Reset whenever the route changes — if a result triggered the nav,
-  // we don't want a stale dropdown over the new page.
+  // we don't want a stale dropdown over the new page. Also drop any
+  // scoped-search state so the next page starts clean.
   useEffect(() => {
     setOpen(false);
     setQuery('');
-  }, [location.pathname, location.search]);
+    setScopedSearch(null);
+  }, [location.pathname, setScopedSearch]);
+
+  // Pages bump focusBump after activating a scope so the input grabs
+  // focus and the user can start typing immediately.
+  useEffect(() => {
+    if (focusBump > 0) inputRef.current?.focus();
+  }, [focusBump]);
+
+  // ESC while scoped exits the scope without clearing global search.
+  useEffect(() => {
+    if (!isScoped) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        scopedSearch?.onDismiss?.();
+        setScopedSearch(null);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isScoped, scopedSearch, setScopedSearch]);
 
   const persistRecent = (place: PlaceResult) => {
     setRecents((prev) => {
@@ -226,6 +251,8 @@ export const DesktopHeader: React.FC = () => {
   // Active row navigation via keyboard.
   const navigableLength = showResults ? results.length : recents.length;
   const handleKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    // Scoped mode is just a filter input — no dropdown to navigate.
+    if (isScoped) return;
     if (!open || navigableLength === 0) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => (i + 1) % navigableLength); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => (i - 1 + navigableLength) % navigableLength); }
@@ -243,30 +270,77 @@ export const DesktopHeader: React.FC = () => {
       <div className="px-6 py-3 flex items-center gap-3">
         {/* ── Search input + dropdown ─────────────────────────────── */}
         <div ref={wrapperRef} className="relative flex-1 max-w-2xl">
-          <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none" />
+          <Search size={16} className={cn(
+            'absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none',
+            isScoped ? 'text-primary' : 'text-on-surface/40',
+          )} />
+          {/* When scoped, a chip sits inside the input padding showing
+              which list is being filtered, with an X to exit the scope
+              and revert to global search. */}
+          {isScoped && scopedSearch && (
+            <div className="absolute left-10 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2 py-1 rounded-full bg-primary/[0.10] text-primary text-[12px] font-semibold pointer-events-auto">
+              <span className="truncate max-w-[140px]">Searching {scopedSearch.scopeName}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  scopedSearch.onDismiss?.();
+                  setScopedSearch(null);
+                  setQuery('');
+                  inputRef.current?.focus();
+                }}
+                aria-label="Exit list search"
+                className="text-primary/70 hover:text-primary transition-colors flex-shrink-0"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
           <input
             ref={inputRef}
             type="text"
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-            onFocus={() => setOpen(true)}
+            value={isScoped && scopedSearch ? scopedSearch.query : query}
+            onChange={(e) => {
+              if (isScoped && scopedSearch) {
+                scopedSearch.setQuery(e.target.value);
+              } else {
+                setQuery(e.target.value);
+                setOpen(true);
+              }
+            }}
+            onFocus={() => { if (!isScoped) setOpen(true); }}
             onKeyDown={handleKeyDown}
-            placeholder="Search by name, cuisine, location..."
+            placeholder={isScoped && scopedSearch
+              ? (scopedSearch.placeholder || `Search ${scopedSearch.scopeName.toLowerCase()}...`)
+              : 'Search by name, cuisine, location...'}
             className={cn(
-              'w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06]',
-              'rounded-full py-2.5 pl-11 pr-10 text-[14px] font-medium text-on-surface',
+              'w-full hover:bg-on-surface/[0.06]',
+              'rounded-full py-2.5 pr-10 text-[14px] font-medium text-on-surface',
               'placeholder:text-on-surface/40',
-              'focus:outline-none focus:bg-on-surface/[0.06] focus:ring-2 focus:ring-primary/20',
+              'focus:outline-none focus:ring-2 focus:ring-primary/20',
               'transition-colors',
+              isScoped && scopedSearch
+                // While scoped, leave room on the left for the chip.
+                // The chip width depends on the scope name, so reserve
+                // a generous padding-left and let the input own anything
+                // past it.
+                ? 'pl-[calc(2.75rem+var(--scope-chip-w,9rem))] bg-primary/[0.04] focus:bg-primary/[0.06]'
+                : 'pl-11 bg-on-surface/[0.04] focus:bg-on-surface/[0.06]',
             )}
-            aria-label="Search restaurants"
-            aria-haspopup="listbox"
-            aria-expanded={open}
+            style={isScoped && scopedSearch
+              ? { ['--scope-chip-w' as string]: `${Math.min(scopedSearch.scopeName.length * 7 + 56, 200)}px` }
+              : undefined}
+            aria-label={isScoped && scopedSearch ? `Search ${scopedSearch.scopeName}` : 'Search restaurants'}
+            aria-haspopup={isScoped ? undefined : 'listbox'}
+            aria-expanded={isScoped ? undefined : open}
           />
-          {query && (
+          {((isScoped && scopedSearch?.query) || (!isScoped && query)) && (
             <button
               type="button"
-              onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+              onClick={() => {
+                if (isScoped && scopedSearch) scopedSearch.setQuery('');
+                else setQuery('');
+                inputRef.current?.focus();
+              }}
               aria-label="Clear search"
               className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/40 hover:text-on-surface/70 transition-colors"
             >
@@ -276,7 +350,7 @@ export const DesktopHeader: React.FC = () => {
 
           {createPortal(
             <AnimatePresence>
-              {open && dropdownPos && (
+              {open && dropdownPos && !isScoped && (
                 <motion.div
                   initial={{ opacity: 0, y: -4, scale: 0.99 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}

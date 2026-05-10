@@ -11,6 +11,7 @@ import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
 import { useSettings } from '../contexts/SettingsContext';
+import { usePageSearch } from '../contexts/PageSearchContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
@@ -1526,6 +1527,8 @@ const ListDetailView: React.FC<{
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
   const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe } = useLists();
+  const { phoneMode } = useSettings();
+  const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [hotelModalOpen, setHotelModalOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1548,6 +1551,39 @@ const ListDetailView: React.FC<{
   const isWishlistView = list.id === '__wishlist__';
   const isHotelBreakfast = list.type === 'hotel-breakfast';
   const isHomeCooking = list.type === 'home-cooking';
+
+  // ── Scoped header search (desktop only) ──
+  // Click "Search this list" → hijack the desktop header input as a
+  // filter for this list. Mirrors the rated-view pattern in <Pantry>.
+  // We tag the scope with the list id so the keep-in-sync effect below
+  // doesn't fight with sibling scopes from other components.
+  const scopeName = isWishlistView ? 'Wishlist' : list.name;
+  const scopeKey = `list:${list.id}`;
+  const activateListScope = useCallback(() => {
+    setScopedSearch({
+      scopeName,
+      placeholder: `Search ${scopeName.toLowerCase()}…`,
+      query: searchQuery,
+      setQuery: setSearchQuery,
+      onDismiss: () => setSearchQuery(''),
+    });
+    bumpFocus();
+  }, [scopeName, searchQuery, setScopedSearch, bumpFocus]);
+
+  // Keep header chip + input value in lockstep with searchQuery without
+  // looping. Only pages that own the active scope re-set it.
+  useEffect(() => {
+    if (scopedSearch && scopedSearch.scopeName === scopeName && scopedSearch.query !== searchQuery) {
+      setScopedSearch({ ...scopedSearch, query: searchQuery });
+    }
+  }, [searchQuery, scopedSearch, scopeName, setScopedSearch]);
+
+  // Drop the scope when the list unmounts (user backed out / picked
+  // another list) so a stale chip doesn't carry over.
+  useEffect(() => {
+    return () => { setScopedSearch(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
   // ── Wishlist-only filter state ─────────────────────────────────────
   // Lives on ListView (not the global page) so the sheet's selections
@@ -1797,7 +1833,7 @@ const ListDetailView: React.FC<{
           Adding to a list is done via the dashed footer button at the
           bottom of the grid — same path as before, just no longer
           duplicated up top. */}
-      <div className="flex items-center justify-end mb-4">
+      <div className="flex items-center justify-end gap-2 mb-4">
         <button
           onClick={onBack}
           aria-label="Back"
@@ -1805,20 +1841,56 @@ const ListDetailView: React.FC<{
         >
           <ArrowLeft size={20} />
         </button>
-        <button
-          type="button"
-          onClick={() => setSearchOpen((o) => !o)}
-          aria-label={searchOpen ? 'Close search' : `Search ${list.name}`}
-          title={searchOpen ? 'Close search' : `Search ${list.name}`}
-          className={cn(
-            'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
-            searchOpen
-              ? 'bg-on-surface/[0.08] text-on-surface'
-              : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
-          )}
-        >
-          <Search size={17} />
-        </button>
+        {/* Desktop: prominent "Search this list" pill that pipes typing
+            into the header search input. Phone: small icon that toggles
+            the inline search input below. */}
+        {!phoneMode ? (
+          <button
+            type="button"
+            onClick={activateListScope}
+            aria-label={`Search ${list.name}`}
+            className={cn(
+              'mr-auto inline-flex items-center gap-2 px-4 py-2 rounded-full transition-colors',
+              'text-sm font-semibold',
+              searchQuery
+                ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+                : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
+            )}
+          >
+            <Search size={14} />
+            <span>Search this list</span>
+            {searchQuery && (
+              <span className="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold tabular-nums">
+                <span className="truncate max-w-[120px]">"{searchQuery}"</span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); } }}
+                  aria-label="Clear list search"
+                  className="text-primary/70 hover:text-primary"
+                >
+                  <X size={11} />
+                </span>
+              </span>
+            )}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setSearchOpen((o) => !o)}
+            aria-label={searchOpen ? 'Close search' : `Search ${list.name}`}
+            title={searchOpen ? 'Close search' : `Search ${list.name}`}
+            className={cn(
+              'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
+              searchOpen
+                ? 'bg-on-surface/[0.08] text-on-surface'
+                : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
+            )}
+          >
+            <Search size={17} />
+          </button>
+        )}
         {!isWishlistView && (
           <button
             type="button"
@@ -1832,10 +1904,10 @@ const ListDetailView: React.FC<{
         )}
       </div>
 
-      {/* Collapsible search input — toggled by the icon button above.
-          Animates open / closed with a height fade. */}
+      {/* Collapsible search input — phone only. Desktop uses the
+          header-scoped search button above instead. */}
       <AnimatePresence initial={false}>
-        {searchOpen && (
+        {searchOpen && phoneMode && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -4839,6 +4911,7 @@ export const Pantry: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { phoneMode, setHideBottomNav } = useSettings();
+  const { setScopedSearch, bumpFocus, scopedSearch } = usePageSearch();
 
   // On phone, always use list view
   const effectiveViewMode = phoneMode ? 'list' : viewMode;
@@ -4866,6 +4939,40 @@ export const Pantry: React.FC = () => {
   const [mainSearchQuery, setMainSearchQuery] = useState('');
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  // ── Scoped header search ──
+  // Clicking "Search this list" hijacks the desktop header input so the
+  // page can be filtered without an in-page search bar. The page owns
+  // the query state (mainSearchQuery for the rated view); we mirror it
+  // back into the context so the header shows the live value, and the
+  // header calls setMainSearchQuery on every keystroke.
+  const activateRatedScope = useCallback(() => {
+    setScopedSearch({
+      scopeName: 'All Rated',
+      placeholder: 'Search this list…',
+      query: mainSearchQuery,
+      setQuery: setMainSearchQuery,
+      onDismiss: () => setMainSearchQuery(''),
+    });
+    bumpFocus();
+  }, [mainSearchQuery, setScopedSearch, bumpFocus]);
+
+  // Keep the scope's query field in lockstep with mainSearchQuery so the
+  // header input always shows the current filter text. Guard against an
+  // update loop by only re-setting when the values actually differ.
+  useEffect(() => {
+    if (scopedSearch && scopedSearch.scopeName === 'All Rated' && scopedSearch.query !== mainSearchQuery) {
+      setScopedSearch({ ...scopedSearch, query: mainSearchQuery });
+    }
+  }, [mainSearchQuery, scopedSearch, setScopedSearch]);
+
+  // The rated-view scope only makes sense on the rated landing — drop
+  // it the moment the user picks a sub-view or specific list.
+  useEffect(() => {
+    if (scopedSearch?.scopeName === 'All Rated' && (selectedList || showHomeCooking || showTrips)) {
+      setScopedSearch(null);
+    }
+  }, [selectedList, showHomeCooking, showTrips, scopedSearch, setScopedSearch]);
 
   // Desktop list switcher — replaces the sidebar's old Pantry tray. The
   // button shows the current view ("All Rated", "All Recipes", "Wishlist"),
@@ -5497,28 +5604,70 @@ export const Pantry: React.FC = () => {
               </button>
             )}
 
-            {/* ── Always-visible main search bar ── */}
-            <div className="mb-4">
-              <div className="relative">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
-                <input
-                  type="text"
-                  value={mainSearchQuery}
-                  onChange={(e) => setMainSearchQuery(e.target.value)}
-                  placeholder="Search by name, cuisine, location..."
-                  className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
-                />
-                {mainSearchQuery && (
-                  <button
-                    onClick={() => setMainSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
-                    aria-label="Clear search"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
+            {/* ── In-list search ──
+                Phone keeps the local search bar inline. Desktop drops it
+                in favor of a "Search this list" button: clicking it
+                hijacks the desktop header's search input as a list filter
+                (see PageSearchContext + DesktopHeader). The header bar
+                continues to work normally for global Places search when
+                the user clicks it directly without going through this
+                button. */}
+            {phoneMode ? (
+              <div className="mb-4">
+                <div className="relative">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={mainSearchQuery}
+                    onChange={(e) => setMainSearchQuery(e.target.value)}
+                    placeholder="Search by name, cuisine, location..."
+                    className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+                  />
+                  {mainSearchQuery && (
+                    <button
+                      onClick={() => setMainSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                      aria-label="Clear search"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={activateRatedScope}
+                  className={cn(
+                    'inline-flex items-center gap-2 px-4 py-2 rounded-full transition-colors',
+                    'text-sm font-semibold',
+                    mainSearchQuery
+                      ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+                      : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
+                  )}
+                  aria-label="Search this list"
+                >
+                  <Search size={14} />
+                  <span>Search this list</span>
+                  {mainSearchQuery && (
+                    <span className="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold tabular-nums">
+                      <span className="truncate max-w-[120px]">"{mainSearchQuery}"</span>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); } }}
+                        aria-label="Clear list search"
+                        className="text-primary/70 hover:text-primary"
+                      >
+                        <X size={11} />
+                      </span>
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
 
             {/* The horizontal list-pill row that used to live here is gone.
                 Desktop list navigation moved into the sidebar's "My Lists"

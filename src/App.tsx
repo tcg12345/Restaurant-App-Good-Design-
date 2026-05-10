@@ -49,6 +49,7 @@ import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
 import { ReelsProvider } from './contexts/ReelsContext';
 import { PostsProvider } from './contexts/PostsContext';
+import { PageSearchProvider } from './contexts/PageSearchContext';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
@@ -253,7 +254,9 @@ export default function App() {
                 <ChatProvider>
                   <ReelsProvider>
                     <PostsProvider>
-                      <AppContent />
+                      <PageSearchProvider>
+                        <AppContent />
+                      </PageSearchProvider>
                     </PostsProvider>
                   </ReelsProvider>
                 </ChatProvider>
