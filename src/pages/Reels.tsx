@@ -1249,10 +1249,13 @@ export const Reels: React.FC = () => {
       // into the reel — the reel is height-driven, so the smaller the
       // vertical padding, the bigger the reel ends up.
       <div className="relative h-screen w-full bg-surface overflow-hidden flex items-center justify-center gap-4 px-6 py-3">
-        {/* Reel column — full available height; aspect ratio drives width. */}
+        {/* Reel column — full available height; aspect ratio drives width.
+            9/16 matches the native reels video ratio and Instagram's desktop
+            reels column, so the frame reads as a proper short-form video
+            surface instead of a too-narrow phone shape. */}
         <div
           className="relative h-full bg-black rounded-[36px] overflow-hidden shadow-xl border border-on-surface/[0.08]"
-          style={{ aspectRatio: '9 / 19.5' }}
+          style={{ aspectRatio: '9 / 16' }}
         >
           <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
           {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true })}
