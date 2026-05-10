@@ -1595,17 +1595,9 @@ const ListDetailView: React.FC<{
   const [wishlistCuisineFilter, setWishlistCuisineFilter] = useState<string[]>([]);
   const [wishlistCityFilter, setWishlistCityFilter] = useState<string[]>([]);
   const [wishlistPriceFilter, setWishlistPriceFilter] = useState<string | null>(null);
-  // Per-pill dropdowns on desktop — same shape as the rated view's
-  // (Pantry's) so the wishlist toolbar opens the same kind of small
-  // bottom sheets when the user taps City / Cuisine / Price / Sort.
-  const [wlCityDropdownOpen, setWlCityDropdownOpen] = useState(false);
-  const [wlCuisineDropdownOpen, setWlCuisineDropdownOpen] = useState(false);
-  const [wlPriceDropdownOpen, setWlPriceDropdownOpen] = useState(false);
-  const [wlSortDropdownOpen, setWlSortDropdownOpen] = useState(false);
-  const closeAllWlDropdowns = () => {
-    setWlCityDropdownOpen(false); setWlCuisineDropdownOpen(false);
-    setWlPriceDropdownOpen(false); setWlSortDropdownOpen(false);
-  };
+  // Per-pill dropdowns now live inside <AnchoredPill> on desktop, so
+  // each pill manages its own open state. The shared open/close state
+  // that used to coordinate sibling sheets is no longer needed.
   const wlSortLabels: Record<WishlistSort, string> = {
     recent: 'Recent', oldest: 'Oldest', 'name-asc': 'Name A→Z', 'name-desc': 'Name Z→A',
   };
@@ -1984,47 +1976,93 @@ const ListDetailView: React.FC<{
             </button>
 
             {/* Filter pills — same shape as the rated view:
-                Filters / City / Cuisine / Price / Sort. Each pill opens
-                its own small bottom sheet (defined at the end of this
-                component). All non-recipe list views get these
-                (wishlist, custom restaurant, hotel-breakfast). Recipe
-                lists have their own filter shape. */}
+                Filters / City / Cuisine / Price / Sort. Each pill
+                except "Filters" opens an anchored dropdown popover
+                (positioned right under the pill on desktop). The main
+                "Filters" pill opens the full Spotlight-style filter
+                sheet that lives at the end of this component. */}
             {!isHomeCooking && (
               <>
                 <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
                 <FilterPill
-                  onClick={() => { setWishlistFilterOpen(true); closeAllWlDropdowns(); }}
+                  onClick={() => setWishlistFilterOpen(true)}
                   icon={<SlidersHorizontal size={12} />}
                   label="Filters"
                   active={wishlistActiveFilterCount > 0}
                   badge={wishlistActiveFilterCount > 0 ? wishlistActiveFilterCount : undefined}
                 />
-                <FilterPill
-                  onClick={() => { closeAllWlDropdowns(); setWlCityDropdownOpen(true); }}
-                  icon={<MapPin size={11} />}
-                  label={wishlistCityFilter.length > 0 ? `City (${wishlistCityFilter.length})` : 'City'}
-                  active={wishlistCityFilter.length > 0}
-                  onClear={wishlistCityFilter.length > 0 ? () => setWishlistCityFilter([]) : undefined}
-                />
-                <FilterPill
-                  onClick={() => { closeAllWlDropdowns(); setWlCuisineDropdownOpen(true); }}
-                  label={wishlistCuisineFilter.length > 0 ? `Cuisine (${wishlistCuisineFilter.length})` : 'Cuisine'}
-                  active={wishlistCuisineFilter.length > 0}
-                  onClear={wishlistCuisineFilter.length > 0 ? () => setWishlistCuisineFilter([]) : undefined}
-                />
-                <FilterPill
-                  onClick={() => { closeAllWlDropdowns(); setWlPriceDropdownOpen(true); }}
-                  label={wishlistPriceFilter || 'Price'}
-                  active={!!wishlistPriceFilter}
-                  onClear={wishlistPriceFilter ? () => setWishlistPriceFilter(null) : undefined}
-                />
-                <FilterPill
-                  onClick={() => { closeAllWlDropdowns(); setWlSortDropdownOpen(true); }}
-                  icon={<ArrowUpDown size={11} />}
-                  label={wishlistSort !== 'recent' ? wlSortLabels[wishlistSort] : 'Sort'}
-                  active={wishlistSort !== 'recent'}
-                  onClear={wishlistSort !== 'recent' ? () => setWishlistSort('recent') : undefined}
-                />
+                <AnchoredPill
+                  pill={{
+                    icon: <MapPin size={11} />,
+                    label: wishlistCityFilter.length > 0 ? `City (${wishlistCityFilter.length})` : 'City',
+                    active: wishlistCityFilter.length > 0,
+                    onClear: wishlistCityFilter.length > 0 ? () => setWishlistCityFilter([]) : undefined,
+                  }}
+                  popoverWidth="w-[280px]"
+                >
+                  {() => (
+                    <SearchableMultiSelect
+                      placeholder="Search cities..."
+                      options={wishlistAllCities}
+                      selected={wishlistCityFilter}
+                      onToggle={toggleWlCity}
+                    />
+                  )}
+                </AnchoredPill>
+                <AnchoredPill
+                  pill={{
+                    label: wishlistCuisineFilter.length > 0 ? `Cuisine (${wishlistCuisineFilter.length})` : 'Cuisine',
+                    active: wishlistCuisineFilter.length > 0,
+                    onClear: wishlistCuisineFilter.length > 0 ? () => setWishlistCuisineFilter([]) : undefined,
+                  }}
+                  popoverWidth="w-[280px]"
+                >
+                  {() => (
+                    <SearchableMultiSelect
+                      placeholder="Search cuisines..."
+                      options={wishlistAllCuisines}
+                      selected={wishlistCuisineFilter}
+                      onToggle={toggleWlCuisine}
+                    />
+                  )}
+                </AnchoredPill>
+                <AnchoredPill
+                  pill={{
+                    label: wishlistPriceFilter || 'Price',
+                    active: !!wishlistPriceFilter,
+                    onClear: wishlistPriceFilter ? () => setWishlistPriceFilter(null) : undefined,
+                  }}
+                  popoverWidth="w-[240px]"
+                >
+                  {(close) => (
+                    <PricePickerContent
+                      value={wishlistPriceFilter}
+                      onChange={(v) => { setWishlistPriceFilter(v); close(); }}
+                    />
+                  )}
+                </AnchoredPill>
+                <AnchoredPill
+                  pill={{
+                    icon: <ArrowUpDown size={11} />,
+                    label: wishlistSort !== 'recent' ? wlSortLabels[wishlistSort] : 'Sort',
+                    active: wishlistSort !== 'recent',
+                    onClear: wishlistSort !== 'recent' ? () => setWishlistSort('recent') : undefined,
+                  }}
+                  popoverWidth="w-[220px]"
+                >
+                  {(close) => (
+                    <SortPickerContent
+                      value={wishlistSort}
+                      options={[
+                        ['recent', 'Recent'],
+                        ['oldest', 'Oldest'],
+                        ['name-asc', 'Name A→Z'],
+                        ['name-desc', 'Name Z→A'],
+                      ]}
+                      onChange={(v) => { setWishlistSort(v as WishlistSort); close(); }}
+                    />
+                  )}
+                </AnchoredPill>
                 {(wishlistActiveFilterCount > 0 || wishlistSort !== 'recent') && (
                   <button
                     onClick={resetWishlistFilters}
@@ -2415,49 +2453,11 @@ const ListDetailView: React.FC<{
         />
       )}
 
-      {/* Per-pill dropdowns — small bottom sheets that match the rated
-          view's. Render on desktop for any non-recipe list view (the
-          toolbar pills that open them are desktop-only too). */}
-      {!isHomeCooking && !phoneMode && (
-        <>
-          <FilterListSheet
-            open={wlCityDropdownOpen}
-            onClose={() => setWlCityDropdownOpen(false)}
-            title="Select City"
-            placeholder="Search cities..."
-            options={wishlistAllCities}
-            selected={wishlistCityFilter}
-            onToggle={toggleWlCity}
-          />
-          <FilterListSheet
-            open={wlCuisineDropdownOpen}
-            onClose={() => setWlCuisineDropdownOpen(false)}
-            title="Select Cuisine"
-            placeholder="Search cuisines..."
-            options={wishlistAllCuisines}
-            selected={wishlistCuisineFilter}
-            onToggle={toggleWlCuisine}
-          />
-          <PricePickerSheet
-            open={wlPriceDropdownOpen}
-            onClose={() => setWlPriceDropdownOpen(false)}
-            value={wishlistPriceFilter}
-            onChange={setWishlistPriceFilter}
-          />
-          <SortPickerSheet
-            open={wlSortDropdownOpen}
-            onClose={() => setWlSortDropdownOpen(false)}
-            value={wishlistSort}
-            onChange={(v) => setWishlistSort(v as WishlistSort)}
-            options={[
-              ['recent', 'Recent'],
-              ['oldest', 'Oldest'],
-              ['name-asc', 'Name A→Z'],
-              ['name-desc', 'Name Z→A'],
-            ]}
-          />
-        </>
-      )}
+      {/* The per-pill bottom sheets that used to live here are gone —
+          the desktop toolbar's pills now embed their own anchored
+          popovers via <AnchoredPill> instead, so taps drop a small
+          dropdown right under the pill rather than sliding a sheet up
+          from the bottom of the screen. */}
     </div>
   );
 };
@@ -5443,6 +5443,186 @@ const FilterPill: React.FC<{
   </button>
 );
 
+/* ── Anchored pill + popover (desktop) ──
+   Dropdowns that hang under the pill button instead of sliding up
+   from the bottom of the screen. The phone version (sheet) is still
+   used when phoneMode is on. Shared shell handles outside-click +
+   Escape so each callsite just renders content. */
+
+const AnchoredPopover: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  width?: string;
+  children: React.ReactNode;
+}> = ({ open, onClose, width = 'w-[280px]', children }) => {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.97, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.97, y: -4 }}
+          transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+          className={cn(
+            'absolute top-full left-0 mt-2 z-50 bg-surface rounded-2xl',
+            'shadow-[0_18px_48px_-12px_rgba(0,0,0,0.22)] ring-1 ring-on-surface/[0.06]',
+            'overflow-hidden',
+            width,
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+// Wraps the FilterPill button + an anchored popover. Handles outside-
+// click. Each pill type passes its own dropdown content via children.
+const AnchoredPill: React.FC<{
+  pill: {
+    icon?: React.ReactNode;
+    label: string;
+    active?: boolean;
+    badge?: number;
+    onClear?: () => void;
+  };
+  popoverWidth?: string;
+  children: (close: () => void) => React.ReactNode;
+}> = ({ pill, popoverWidth, children }) => {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  return (
+    <div ref={wrapRef} className="relative inline-flex flex-shrink-0">
+      <FilterPill
+        onClick={() => setOpen((o) => !o)}
+        icon={pill.icon}
+        label={pill.label}
+        active={pill.active}
+        badge={pill.badge}
+        onClear={pill.onClear}
+      />
+      <AnchoredPopover open={open} onClose={() => setOpen(false)} width={popoverWidth}>
+        {children(() => setOpen(false))}
+      </AnchoredPopover>
+    </div>
+  );
+};
+
+// Compact $/$$/$$$/$$$$ row — drop-in for the anchored Price pill.
+const PricePickerContent: React.FC<{
+  value: string | null;
+  onChange: (v: string | null) => void;
+}> = ({ value, onChange }) => (
+  <div className="p-3">
+    <div className="flex gap-1.5">
+      {['$', '$$', '$$$', '$$$$'].map((p) => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => onChange(value === p ? null : p)}
+          className={cn(
+            'flex-1 py-2.5 rounded-xl text-[13px] font-bold transition-all border-2',
+            value === p
+              ? 'border-primary bg-primary/[0.05] text-primary'
+              : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25',
+          )}
+        >{p}</button>
+      ))}
+    </div>
+  </div>
+);
+
+// Vertical list of sort options — drop-in for the anchored Sort pill.
+const SortPickerContent: React.FC<{
+  value: string;
+  options: ReadonlyArray<readonly [string, string]>;
+  onChange: (v: string) => void;
+}> = ({ value, options, onChange }) => (
+  <div className="p-2">
+    {options.map(([key, label]) => (
+      <button
+        key={key}
+        type="button"
+        onClick={() => onChange(key)}
+        className={cn(
+          'w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors text-left',
+          value === key ? 'bg-primary/[0.06] text-primary' : 'text-on-surface/75 hover:bg-on-surface/[0.04]',
+        )}
+      >
+        <span className="text-[13px] font-medium">{label}</span>
+        {value === key && <Check size={14} className="text-primary" />}
+      </button>
+    ))}
+  </div>
+);
+
+// Searchable scrollable list — used inside CityPill + CuisinePill
+// popovers. Lighter chrome than FilterListSheet (no big header bar).
+const SearchableMultiSelect: React.FC<{
+  placeholder: string;
+  options: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}> = ({ placeholder, options, selected, onToggle }) => {
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+  return (
+    <div className="flex flex-col max-h-[340px]">
+      <div className="px-3 pt-3 pb-2 flex-shrink-0">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
+          <input
+            autoFocus
+            type="text"
+            placeholder={placeholder}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-on-surface/[0.05] rounded-xl py-2 pl-9 pr-3 text-[13px] font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-1 pb-2">
+        {filtered.length === 0 ? (
+          <p className="text-center py-6 text-[13px] text-on-surface/40">No matches</p>
+        ) : filtered.map((opt) => {
+          const isSelected = selected.includes(opt);
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onToggle(opt)}
+              className={cn(
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors',
+                isSelected ? 'bg-primary/[0.06] text-primary' : 'text-on-surface/75 hover:bg-on-surface/[0.04]',
+              )}
+            >
+              <span className="text-[13px] font-medium truncate pr-2">{opt}</span>
+              {isSelected && <Check size={14} className="text-primary flex-shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 /* ── Desktop list switcher row ── */
 const SwitcherRow: React.FC<{
   icon: React.ReactNode;
@@ -6369,27 +6549,86 @@ export const Pantry: React.FC = () => {
                   {/* Visual divider between primary action and filter cluster */}
                   <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
 
-                  {/* Filter cluster — uniform chip styling, no individual borders */}
-                  <FilterPill onClick={() => { setFiltersOpen(true); closeAllDropdowns(); }}
+                  {/* Filter cluster — Filters opens the full sheet;
+                      City / Cuisine / Price / Sort each drop an
+                      anchored popover under the pill instead of
+                      sliding a bottom sheet up. */}
+                  <FilterPill onClick={() => { setFiltersOpen(true); }}
                     icon={<SlidersHorizontal size={12} />} label="Filters" active={activeFilterCount > 0}
                     badge={activeFilterCount > 0 ? activeFilterCount : undefined} />
-                  <FilterPill onClick={() => setCityDropdownOpen(true)}
-                    icon={<MapPin size={11} />}
-                    label={cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}
-                    active={cityFilter.length > 0}
-                    onClear={cityFilter.length > 0 ? () => setCityFilter([]) : undefined} />
-                  <FilterPill onClick={() => setCuisineDropdownOpen(true)}
-                    label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
-                    active={cuisineFilter.length > 0}
-                    onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
-                  <FilterPill onClick={() => setPriceDropdownOpen(true)}
-                    label={priceFilter || 'Price'} active={!!priceFilter}
-                    onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
-                  <FilterPill onClick={() => setSortDropdownOpen(true)}
-                    icon={<ArrowUpDown size={11} />}
-                    label={sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}
-                    active={sortBy !== 'highest' && sortBy !== 'recent'}
-                    onClear={(sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined} />
+                  <AnchoredPill
+                    pill={{
+                      icon: <MapPin size={11} />,
+                      label: cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City',
+                      active: cityFilter.length > 0,
+                      onClear: cityFilter.length > 0 ? () => setCityFilter([]) : undefined,
+                    }}
+                    popoverWidth="w-[280px]"
+                  >
+                    {() => (
+                      <SearchableMultiSelect
+                        placeholder="Search cities..."
+                        options={allCities}
+                        selected={cityFilter}
+                        onToggle={toggleCityFilter}
+                      />
+                    )}
+                  </AnchoredPill>
+                  <AnchoredPill
+                    pill={{
+                      label: cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine',
+                      active: cuisineFilter.length > 0,
+                      onClear: cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined,
+                    }}
+                    popoverWidth="w-[280px]"
+                  >
+                    {() => (
+                      <SearchableMultiSelect
+                        placeholder="Search cuisines..."
+                        options={allCuisines}
+                        selected={cuisineFilter}
+                        onToggle={toggleCuisineFilter}
+                      />
+                    )}
+                  </AnchoredPill>
+                  <AnchoredPill
+                    pill={{
+                      label: priceFilter || 'Price',
+                      active: !!priceFilter,
+                      onClear: priceFilter ? () => setPriceFilter(null) : undefined,
+                    }}
+                    popoverWidth="w-[240px]"
+                  >
+                    {(close) => (
+                      <PricePickerContent
+                        value={priceFilter}
+                        onChange={(v) => { setPriceFilter(v); close(); }}
+                      />
+                    )}
+                  </AnchoredPill>
+                  <AnchoredPill
+                    pill={{
+                      icon: <ArrowUpDown size={11} />,
+                      label: sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort',
+                      active: sortBy !== 'highest' && sortBy !== 'recent',
+                      onClear: (sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined,
+                    }}
+                    popoverWidth="w-[240px]"
+                  >
+                    {(close) => (
+                      <SortPickerContent
+                        value={sortBy}
+                        options={[
+                          ['recent', 'Recent'],
+                          ['highest', 'Highest Score'],
+                          ['lowest', 'Lowest Score'],
+                          ['added', 'Date Added'],
+                          ['custom', 'Custom Order'],
+                        ]}
+                        onChange={(v) => { handleSortBy(v as typeof sortBy); close(); }}
+                      />
+                    )}
+                  </AnchoredPill>
                   {hasActiveFilters && (
                     <button
                       onClick={handleResetFilters}
