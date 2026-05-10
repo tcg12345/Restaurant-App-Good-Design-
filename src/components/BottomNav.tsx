@@ -63,8 +63,8 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
         hideBottomNav && "pointer-events-none",
         !phoneMode && "bottom-6",
         isExpanded
-          ? phoneMode ? "gap-2 px-3 py-2" : "gap-2 px-6 py-2"
-          : phoneMode ? "px-2 py-2" : "px-3 py-2"
+          ? phoneMode ? "gap-1 px-2 py-1.5" : "gap-2 px-6 py-2"
+          : phoneMode ? "px-1.5 py-1.5" : "px-3 py-2"
       )}
       style={{
         x: '-50%',
@@ -106,7 +106,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                   scale: { type: 'spring', damping: 18, stiffness: 350, mass: 0.6 },
                   filter: { duration: 0.2 },
                 }}
-                className={cn("flex items-center justify-center", isExpanded ? `flex-1 ${phoneMode ? 'min-w-[3rem]' : 'min-w-[3.5rem]'}` : "flex-none")}
+                className={cn("flex items-center justify-center", isExpanded ? (phoneMode ? "flex-none" : "flex-1 min-w-[3.5rem]") : "flex-none")}
               >
                 <button
                   onClick={() => {
@@ -123,15 +123,21 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                   onTouchStart={() => {
                     if (!isExpanded && collapsible) setExpanded(true);
                   }}
+                  aria-label={item.label}
                   className={cn(
-                    "flex flex-col items-center justify-center gap-1 rounded-full min-w-[44px] min-h-[44px] px-3 py-2 transition-colors duration-200",
+                    "flex items-center justify-center rounded-full transition-colors duration-200",
+                    phoneMode
+                      ? "w-11 h-11"
+                      : "flex-col gap-1 min-w-[44px] min-h-[44px] px-3 py-2",
                     location.pathname === '/'
                       ? "bg-primary/10 text-primary"
                       : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
                   )}
                 >
-                  <item.icon size={22} strokeWidth={location.pathname === '/' ? 2.5 : 2} />
-                  <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
+                  <item.icon size={phoneMode ? 22 : 22} strokeWidth={location.pathname === '/' ? 2.5 : 2} />
+                  {!phoneMode && (
+                    <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
+                  )}
                 </button>
               </motion.div>
             );
@@ -139,8 +145,11 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
 
           // ── Search button with split into Search + Map ──
           if (isSplittable) {
-            // Force split open when collapsed on the map page
-            const showSplit = searchSplit || (collapsedShowsSearch && !isExpanded);
+            // Force split open when collapsed on the map page.
+            // On phone we never split — the navbar Search button is a plain
+            // link to /search; the map is reached from a button inside the
+            // Discover tab instead.
+            const showSplit = !phoneMode && (searchSplit || (collapsedShowsSearch && !isExpanded));
 
             return (
               <motion.div
@@ -155,7 +164,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                   scale: { type: 'spring', damping: 18, stiffness: 350, mass: 0.6 },
                   filter: { duration: 0.2 },
                 }}
-                className={cn("flex items-center justify-center", isExpanded ? `flex-1 ${phoneMode ? 'min-w-[3rem]' : 'min-w-[3.5rem]'}` : "flex-none")}
+                className={cn("flex items-center justify-center", isExpanded ? (phoneMode ? "flex-none" : "flex-1 min-w-[3.5rem]") : "flex-none")}
               >
                 <AnimatePresence mode="popLayout" initial={false}>
                   {showSplit ? (
@@ -175,13 +184,14 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                         }
                       }}
                     >
-                      {/* Search half */}
+                      {/* Search half (desktop only — phone never splits) */}
                       <motion.button
                         layoutId="search-icon"
                         onClick={() => {
                           navigate('/search');
                           if (collapsible) setTimeout(() => setExpanded(false), 150);
                         }}
+                        aria-label="Search"
                         className={cn(
                           "flex flex-col items-center justify-center gap-1 rounded-full min-w-[44px] min-h-[44px] px-2.5 py-2 transition-colors duration-200",
                           isSearchActive
@@ -194,7 +204,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                         <span className="font-semibold uppercase text-[9px] tracking-wider">Search</span>
                       </motion.button>
 
-                      {/* Map half */}
+                      {/* Map half (desktop only — phone never splits) */}
                       <motion.button
                         layoutId="map-icon"
                         initial={{ opacity: 0, scale: 0.3, filter: 'blur(4px)' }}
@@ -204,6 +214,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                           navigate('/map');
                           if (collapsible) setTimeout(() => setExpanded(false), 150);
                         }}
+                        aria-label="Map"
                         className={cn(
                           "flex flex-col items-center justify-center gap-1 rounded-full min-w-[44px] min-h-[44px] px-2.5 py-2 transition-colors duration-200",
                           isMapActive
@@ -228,6 +239,11 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                         }
                       }}
                       onClick={() => {
+                        // Phone: plain link to /search, no split, no map.
+                        if (phoneMode) {
+                          if (location.pathname !== '/search') navigate('/search');
+                          return;
+                        }
                         if (isSearchOrMap) {
                           setSearchSplit(true);
                           return;
@@ -238,16 +254,22 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                         }, 200);
                         if (collapsible) setTimeout(() => setExpanded(false), 350);
                       }}
+                      aria-label={item.label}
                       className={cn(
-                        "flex flex-col items-center justify-center gap-1 rounded-full min-w-[44px] min-h-[44px] px-3 py-2 transition-colors duration-200",
-                        isSearchOrMap
+                        "flex items-center justify-center rounded-full transition-colors duration-200",
+                        phoneMode
+                          ? "w-11 h-11"
+                          : "flex-col gap-1 min-w-[44px] min-h-[44px] px-3 py-2",
+                        (phoneMode ? isSearchActive : isSearchOrMap)
                           ? "bg-primary/10 text-primary"
                           : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
                       )}
                       transition={{ type: 'spring', damping: 22, stiffness: 280, mass: 0.8 }}
                     >
-                      <Search size={22} strokeWidth={isSearchOrMap ? 2.5 : 2} />
-                      <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
+                      <Search size={22} strokeWidth={(phoneMode ? isSearchActive : isSearchOrMap) ? 2.5 : 2} />
+                      {!phoneMode && (
+                        <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
+                      )}
                     </motion.button>
                   )}
                 </AnimatePresence>
@@ -269,7 +291,7 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                 scale: { type: 'spring', damping: 18, stiffness: 350, mass: 0.6 },
                 filter: { duration: 0.2 },
               }}
-              className={cn("flex items-center justify-center", isExpanded ? `flex-1 ${phoneMode ? 'min-w-[3rem]' : 'min-w-[3.5rem]'}` : "flex-none")}
+              className={cn("flex items-center justify-center", isExpanded ? (phoneMode ? "flex-none" : "flex-1 min-w-[3.5rem]") : "flex-none")}
             >
               <NavLink
                 to={item.path}
@@ -279,9 +301,13 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                     setTimeout(() => setExpanded(false), 150);
                   }
                 }}
+                aria-label={item.label}
                 className={({ isActive }) =>
                   cn(
-                    "flex flex-col items-center justify-center gap-1 rounded-full min-w-[44px] min-h-[44px] px-3 py-2 transition-colors duration-200",
+                    "flex items-center justify-center rounded-full transition-colors duration-200",
+                    phoneMode
+                      ? "w-11 h-11"
+                      : "flex-col gap-1 min-w-[44px] min-h-[44px] px-3 py-2",
                     isActive
                       ? "bg-primary/10 text-primary"
                       : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
@@ -291,7 +317,9 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                 {({ isActive }) => (
                   <>
                     <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
-                    <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
+                    {!phoneMode && (
+                      <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
+                    )}
                   </>
                 )}
               </NavLink>

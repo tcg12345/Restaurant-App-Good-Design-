@@ -7,6 +7,8 @@ import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
+import { usePageSearch } from '../contexts/PageSearchContext';
+import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
 
@@ -85,6 +87,10 @@ export const DesktopHeader: React.FC = () => {
   const { toggleWishlist, isWishlisted, openAddRestaurantModal } = useLists();
   const { unreadCount } = useChat();
   const { pendingRequestCount } = useAuth();
+  const { scopedSearch, setScopedSearch, focusBump } = usePageSearch();
+  const { override: addActionOverride } = usePageAddAction();
+  // True while a page (Pantry) has hijacked this input as a list filter.
+  const isScoped = scopedSearch !== null;
 
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -167,11 +173,32 @@ export const DesktopHeader: React.FC = () => {
   }, [open]);
 
   // Reset whenever the route changes — if a result triggered the nav,
-  // we don't want a stale dropdown over the new page.
+  // we don't want a stale dropdown over the new page. Also drop any
+  // scoped-search state so the next page starts clean.
   useEffect(() => {
     setOpen(false);
     setQuery('');
-  }, [location.pathname, location.search]);
+    setScopedSearch(null);
+  }, [location.pathname, setScopedSearch]);
+
+  // Pages bump focusBump after activating a scope so the input grabs
+  // focus and the user can start typing immediately.
+  useEffect(() => {
+    if (focusBump > 0) inputRef.current?.focus();
+  }, [focusBump]);
+
+  // ESC while scoped exits the scope without clearing global search.
+  useEffect(() => {
+    if (!isScoped) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        scopedSearch?.onDismiss?.();
+        setScopedSearch(null);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isScoped, scopedSearch, setScopedSearch]);
 
   const persistRecent = (place: PlaceResult) => {
     setRecents((prev) => {
@@ -226,6 +253,8 @@ export const DesktopHeader: React.FC = () => {
   // Active row navigation via keyboard.
   const navigableLength = showResults ? results.length : recents.length;
   const handleKeyDown: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    // Scoped mode is just a filter input — no dropdown to navigate.
+    if (isScoped) return;
     if (!open || navigableLength === 0) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => (i + 1) % navigableLength); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => (i - 1 + navigableLength) % navigableLength); }
@@ -243,30 +272,61 @@ export const DesktopHeader: React.FC = () => {
       <div className="px-6 py-3 flex items-center gap-3">
         {/* ── Search input + dropdown ─────────────────────────────── */}
         <div ref={wrapperRef} className="relative flex-1 max-w-2xl">
-          <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none" />
+          <Search size={16} className={cn(
+            'absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none',
+            isScoped ? 'text-primary' : 'text-on-surface/40',
+          )} />
           <input
             ref={inputRef}
             type="text"
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-            onFocus={() => setOpen(true)}
+            value={isScoped && scopedSearch ? scopedSearch.query : query}
+            onChange={(e) => {
+              if (isScoped && scopedSearch) {
+                scopedSearch.setQuery(e.target.value);
+              } else {
+                setQuery(e.target.value);
+                setOpen(true);
+              }
+            }}
+            onFocus={() => { if (!isScoped) setOpen(true); }}
+            onBlur={() => {
+              // Click-off in scoped mode reverts the bar to the global
+              // Places search. The page's list filter is preserved so
+              // the results don't disappear — the page's "Search this
+              // list" pill still shows the active query with its own
+              // clear button.
+              if (isScoped) setScopedSearch(null);
+            }}
             onKeyDown={handleKeyDown}
-            placeholder="Search by name, cuisine, location..."
+            placeholder={isScoped && scopedSearch
+              ? (scopedSearch.placeholder || `Search ${scopedSearch.scopeName.toLowerCase()}...`)
+              : 'Search by name, cuisine, location...'}
             className={cn(
-              'w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06]',
+              'w-full hover:bg-on-surface/[0.06]',
               'rounded-full py-2.5 pl-11 pr-10 text-[14px] font-medium text-on-surface',
               'placeholder:text-on-surface/40',
-              'focus:outline-none focus:bg-on-surface/[0.06] focus:ring-2 focus:ring-primary/20',
+              'focus:outline-none focus:ring-2 focus:ring-primary/20',
               'transition-colors',
+              isScoped
+                ? 'bg-primary/[0.06] focus:bg-primary/[0.09] placeholder:text-primary/60'
+                : 'bg-on-surface/[0.04] focus:bg-on-surface/[0.06]',
             )}
-            aria-label="Search restaurants"
-            aria-haspopup="listbox"
-            aria-expanded={open}
+            aria-label={isScoped && scopedSearch ? `Search ${scopedSearch.scopeName}` : 'Search restaurants'}
+            aria-haspopup={isScoped ? undefined : 'listbox'}
+            aria-expanded={isScoped ? undefined : open}
           />
-          {query && (
+          {((isScoped && scopedSearch?.query) || (!isScoped && query)) && (
             <button
               type="button"
-              onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+              // preventDefault on mousedown keeps the input focused, so
+              // the blur-to-revert handler doesn't clear scoped mode out
+              // from under the click before the clear runs.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                if (isScoped && scopedSearch) scopedSearch.setQuery('');
+                else setQuery('');
+                inputRef.current?.focus();
+              }}
               aria-label="Clear search"
               className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/40 hover:text-on-surface/70 transition-colors"
             >
@@ -276,7 +336,7 @@ export const DesktopHeader: React.FC = () => {
 
           {createPortal(
             <AnimatePresence>
-              {open && dropdownPos && (
+              {open && dropdownPos && !isScoped && (
                 <motion.div
                   initial={{ opacity: 0, y: -4, scale: 0.99 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -386,13 +446,20 @@ export const DesktopHeader: React.FC = () => {
 
         {/* ── Right side actions ─────────────────────────────────── */}
         <div className="ml-auto flex items-center gap-2">
-          {/* Add Rating CTA — hidden on Discover (the home grid already
-              has + buttons on every card and the search dropdown
-              now exposes one per result). */}
-          {!isHomeRoute && (
+          {/* Add CTA — hidden on Discover (the home grid already has +
+              buttons on every card and the search dropdown now exposes
+              one per result). Pages can override the label + click via
+              PageAddActionContext (e.g. Pantry swaps it to "Add Recipe"
+              on recipe views and opens a SearchPopup on restaurant
+              views). When no override is set, it routes to /search/main
+              like before. */}
+          {!isHomeRoute && !(addActionOverride?.hidden) && (
             <button
               type="button"
-              onClick={() => navigate('/search/main')}
+              onClick={() => {
+                if (addActionOverride) addActionOverride.onClick();
+                else navigate('/search/main');
+              }}
               className={cn(
                 'inline-flex items-center gap-2 px-4 py-2.5 rounded-full',
                 'bg-primary text-white text-[13px] font-semibold',
@@ -400,7 +467,7 @@ export const DesktopHeader: React.FC = () => {
               )}
             >
               <Plus size={15} strokeWidth={2.5} />
-              <span>Add Rating</span>
+              <span>{addActionOverride?.label ?? 'Add Rating'}</span>
             </button>
           )}
 

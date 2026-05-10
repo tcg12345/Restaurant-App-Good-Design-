@@ -49,6 +49,8 @@ import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
 import { ReelsProvider } from './contexts/ReelsContext';
 import { PostsProvider } from './contexts/PostsContext';
+import { PageSearchProvider } from './contexts/PageSearchContext';
+import { PageAddActionProvider } from './contexts/PageAddActionContext';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
@@ -71,7 +73,7 @@ const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
-  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/reels'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
@@ -253,7 +255,11 @@ export default function App() {
                 <ChatProvider>
                   <ReelsProvider>
                     <PostsProvider>
-                      <AppContent />
+                      <PageSearchProvider>
+                        <PageAddActionProvider>
+                          <AppContent />
+                        </PageAddActionProvider>
+                      </PageSearchProvider>
                     </PostsProvider>
                   </ReelsProvider>
                 </ChatProvider>

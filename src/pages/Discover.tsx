@@ -2626,23 +2626,40 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           })();
 
           return (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-md z-50" onClick={() => setFilterSheetOpen(false)} />
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+            className={cn(
+              'fixed inset-0 z-50',
+              phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
+              !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+            )}
+            onClick={() => setFilterSheetOpen(false)}
+          >
             <motion.div
-              initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 12 }}
-              animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
-              exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 8 }}
-              transition={phoneMode
-                ? { type: 'spring', damping: 28, stiffness: 300 }
-                : { type: 'spring', damping: 26, stiffness: 320 }}
-              drag={phoneMode ? 'y' : false} dragConstraints={{ top: 0 }} dragElastic={{ top: 0, bottom: 0.4 }}
-              onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) setFilterSheetOpen(false); }}
+              {...(phoneMode
+                ? {
+                    initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
+                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                    drag: 'y' as const,
+                    dragConstraints: { top: 0 },
+                    dragElastic: { top: 0, bottom: 0.4 },
+                    onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+                      if (info.offset.y > 80 || info.velocity.y > 300) setFilterSheetOpen(false);
+                    },
+                  }
+                : {
+                    initial: { opacity: 0, scale: 0.94, y: -12 },
+                    animate: { opacity: 1, scale: 1, y: 0 },
+                    exit: { opacity: 0, scale: 0.96, y: -8 },
+                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                  })}
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
               className={cn(
-                "fixed z-50 bg-surface flex flex-col overflow-hidden",
+                'flex flex-col overflow-hidden bg-surface',
                 phoneMode
-                  ? "bottom-0 left-0 right-0 rounded-t-3xl h-[92vh]"
-                  : "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-3xl w-[min(560px,92vw)] max-h-[86vh] shadow-[0_24px_80px_-12px_rgba(0,0,0,0.35)] ring-1 ring-black/5"
+                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[92vh]'
+                  : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
               )}
             >
               {/* Drag handle */}
@@ -2852,7 +2869,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 </button>
               </div>
             </motion.div>
-          </>
+          </motion.div>
           );
         })()}
       </AnimatePresence>

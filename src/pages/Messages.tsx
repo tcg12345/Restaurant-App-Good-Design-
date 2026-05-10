@@ -1061,9 +1061,11 @@ export const Messages: React.FC = () => {
       {/* Header */}
       <header className="sticky top-0 w-full px-5 py-4 flex items-center justify-between bg-surface/80 backdrop-blur-md z-40">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-            <ArrowLeft size={20} />
-          </button>
+          {phoneMode && (
+            <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+              <ArrowLeft size={20} />
+            </button>
+          )}
           <h1 className="text-xl font-serif font-bold tracking-tight">Messages</h1>
         </div>
         <button onClick={() => setNewChatOpen(true)}

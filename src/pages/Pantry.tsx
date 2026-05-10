@@ -10,7 +10,10 @@ import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../li
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
 import { useLists, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type TripHotel, type RestaurantRating, type RestaurantMeta, type HomeMeal } from '../contexts/ListsContext';
 import { PhonePantryHome } from '../components/PhonePantryHome';
+import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
+import { usePageSearch } from '../contexts/PageSearchContext';
+import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { searchHotels, searchPlacesByText, extractCityState, formatLocationLabel, fetchLocationDataForPlace, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from './useRestaurantDetail';
@@ -85,13 +88,23 @@ const PRESET_CATEGORIES = [...new Set(PRESET_LISTS.map((p) => p.category))];
 const CUSTOM_EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎', '⚡', '🌮', '🍜', '☕', '🎉', '🌿', '🔥', '👨‍🍳', '🏖️', '🌃', '🍔', '🥩', '🍝', '🍰', '🌙', '👥', '💼', '✈️', '🏨', '🎂', '⭐', '👑', '🏙️', '🥗', '🪙', '👶'];
 
 /* ── Create New List Bottom Sheet ── */
+type CreateListKind = 'restaurants' | 'recipes';
+
 const CreateListSheet: React.FC<{
   open: boolean;
   onClose: () => void;
   onCreate: (name: string, emoji: string, type?: PresetList['type']) => void;
   existingListNames: string[];
   onCreateTrip?: () => void;
-}> = ({ open, onClose, onCreate, existingListNames, onCreateTrip }) => {
+  /**
+   * Controls which presets are offered and what `type` a custom list is
+   * created with. 'restaurants' (default) hides the home-cooking preset
+   * since recipe lists live on the Recipes tab; 'recipes' filters the
+   * preset list to home-cooking and tags any custom list created here as
+   * type='home-cooking' so it appears under Recipes.
+   */
+  kind?: CreateListKind;
+}> = ({ open, onClose, onCreate, existingListNames, onCreateTrip, kind = 'restaurants' }) => {
   const { phoneMode } = useSettings();
   const [search, setSearch] = useState('');
   const [mode, setMode] = useState<'browse' | 'custom'>('browse');
@@ -101,15 +114,30 @@ const CreateListSheet: React.FC<{
 
   const existingNamesLower = useMemo(() => new Set(existingListNames.map((n) => n.toLowerCase())), [existingListNames]);
 
+  const presetsForKind = useMemo(
+    () => kind === 'recipes'
+      // Recipes tab: only show the home-cooking preset(s).
+      ? PRESET_LISTS.filter((p) => p.type === 'home-cooking')
+      // Restaurants tab: hide home-cooking — those belong to the
+      // Recipes tab now.
+      : PRESET_LISTS.filter((p) => p.type !== 'home-cooking'),
+    [kind],
+  );
+
+  const categoriesForKind = useMemo(
+    () => Array.from(new Set(presetsForKind.map((p) => p.category))),
+    [presetsForKind],
+  );
+
   const filteredPresets = useMemo(() => {
-    let list = PRESET_LISTS;
+    let list = presetsForKind;
     if (selectedCategory) list = list.filter((p) => p.category === selectedCategory);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
     }
     return list;
-  }, [search, selectedCategory]);
+  }, [search, selectedCategory, presetsForKind]);
 
   const groupedPresets = useMemo(() => {
     const groups: Record<string, PresetList[]> = {};
@@ -121,7 +149,14 @@ const CreateListSheet: React.FC<{
   }, [filteredPresets]);
 
   const handleSelectPreset = (preset: PresetList) => { onCreate(preset.name, preset.emoji, preset.type); handleClose(); };
-  const handleCreateCustom = () => { if (!customName.trim()) return; onCreate(customName.trim(), customEmoji); handleClose(); };
+  const handleCreateCustom = () => {
+    if (!customName.trim()) return;
+    // For the Recipes tab, tag a freshly created custom list with
+    // type='home-cooking' so it shows up under Recipes and uses the
+    // recipe-list rendering path in ListDetailView.
+    onCreate(customName.trim(), customEmoji, kind === 'recipes' ? 'home-cooking' : undefined);
+    handleClose();
+  };
   const handleClose = () => { setSearch(''); setMode('browse'); setCustomName(''); setCustomEmoji('📋'); setSelectedCategory(null); onClose(); };
 
   return (
@@ -138,7 +173,11 @@ const CreateListSheet: React.FC<{
             className={cn("bg-surface w-full overflow-hidden flex flex-col", phoneMode ? "h-full rounded-none" : "h-full sm:h-auto sm:max-w-md sm:max-h-[75vh] rounded-none sm:rounded-3xl")}
           >
             <div className="flex items-center justify-between px-5 pt-4 sm:pt-5 pb-3 flex-shrink-0">
-              <h2 className="font-serif font-bold text-lg">{mode === 'browse' ? 'New List' : 'Create Custom List'}</h2>
+              <h2 className="font-serif font-bold text-lg">
+                {mode === 'browse'
+                  ? kind === 'recipes' ? 'New Recipe List' : 'New List'
+                  : kind === 'recipes' ? 'Create Custom Recipe List' : 'Create Custom List'}
+              </h2>
               <button onClick={handleClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
             </div>
 
@@ -161,7 +200,7 @@ const CreateListSheet: React.FC<{
                     >
                       All
                     </button>
-                    {PRESET_CATEGORIES.map((cat) => (
+                    {categoriesForKind.map((cat) => (
                       <button
                         key={cat}
                         onClick={() => setSelectedCategory(cat)}
@@ -181,7 +220,7 @@ const CreateListSheet: React.FC<{
                       <p className="text-[11px] text-primary/60">Choose your own name & emoji</p>
                     </div>
                   </button>
-                  {onCreateTrip && (
+                  {onCreateTrip && kind === 'restaurants' && (
                     <button onClick={() => { handleClose(); onCreateTrip(); }} className="w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-primary/20 text-primary hover:bg-primary/5 transition-all">
                       <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center"><Plane size={16} /></div>
                       <div className="text-left">
@@ -198,7 +237,7 @@ const CreateListSheet: React.FC<{
                       <button onClick={() => { setMode('custom'); setCustomName(search); }} className="mt-3 text-sm font-semibold text-primary">Create "{search}" as custom list</button>
                     </div>
                   ) : (
-                    PRESET_CATEGORIES.filter((cat) => groupedPresets[cat]).map((category) => (
+                    categoriesForKind.filter((cat) => groupedPresets[cat]).map((category) => (
                       <div key={category} className="mb-6">
                         <h3 className="font-serif font-bold text-base text-on-surface/80 mb-2 px-1">{category}</h3>
                         <div className="divide-y divide-on-surface/[0.06]">
@@ -738,7 +777,7 @@ const WishlistGridCard: React.FC<{
           'block rounded-2xl bg-white border border-on-surface/[0.07]',
           'p-5 transition-all duration-200',
           'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
-          'flex flex-col min-h-[230px]',
+          'flex flex-col',
         )}
       >
         {/* Top row: name + heart pip (also the remove control) */}
@@ -771,13 +810,10 @@ const WishlistGridCard: React.FC<{
           </p>
         )}
 
-        {/* Spacer pushes the footer to the bottom of the tile */}
-        <div className="flex-1" />
-
         {/* Footer: pin + location (allowed to wrap to two lines so the
             full "Neighborhood, City, ST" doesn't get cut off), then a
             second muted line for the distance when we have one. */}
-        <div className="text-[12.5px] text-on-surface/55">
+        <div className="mt-3 text-[12.5px] text-on-surface/55">
           <div className="flex items-start gap-1.5 min-w-0">
             <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
             <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
@@ -876,7 +912,7 @@ const RestaurantGridCard: React.FC<{
             'block rounded-2xl bg-white border border-on-surface/[0.07]',
             'p-5 transition-all duration-200',
             'hover:border-on-surface/15 hover:shadow-[0_8px_24px_-14px_rgba(0,0,0,0.16)] hover:-translate-y-px',
-            'flex flex-col min-h-[230px]',
+            'flex flex-col',
           )}
         >
           {/* Top row: name + score */}
@@ -903,13 +939,18 @@ const RestaurantGridCard: React.FC<{
             </p>
           )}
 
-          {/* Spacer pushes the footer to the bottom of the tile */}
-          <div className="flex-1" />
+          {/* Notes (italic quote) — only renders when present, so cards
+              without notes collapse to their natural height. */}
+          {notes && notes.trim() && (
+            <p className="mt-2 text-[12px] text-on-surface/55 line-clamp-3 italic leading-snug">
+              &ldquo;{notes}&rdquo;
+            </p>
+          )}
 
           {/* Footer: pin + location (line-clamp 2 so the full Beli-style
               label is never cut off), then a second line with the
               distance label and the hover-revealed action icons. */}
-          <div className="text-[12.5px] text-on-surface/55">
+          <div className="mt-3 text-[12.5px] text-on-surface/55">
             <div className="flex items-start gap-1.5 min-w-0">
               <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
               <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
@@ -1490,9 +1531,10 @@ const ListDetailView: React.FC<{
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
   const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, rateRestaurant, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, removeRecipe } = useLists();
+  const { phoneMode } = useSettings();
+  const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [hotelModalOpen, setHotelModalOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const pendingListRatingRef = useRef<{ restaurantId: string; openedAt: number } | null>(null);
 
   // Watch for the global rating being updated after we opened the modal for a list-specific rating
@@ -1513,6 +1555,39 @@ const ListDetailView: React.FC<{
   const isHotelBreakfast = list.type === 'hotel-breakfast';
   const isHomeCooking = list.type === 'home-cooking';
 
+  // ── Scoped header search (desktop only) ──
+  // Click "Search this list" → hijack the desktop header input as a
+  // filter for this list. Mirrors the rated-view pattern in <Pantry>.
+  // We tag the scope with the list id so the keep-in-sync effect below
+  // doesn't fight with sibling scopes from other components.
+  const scopeName = isWishlistView ? 'Wishlist' : list.name;
+  const scopeKey = `list:${list.id}`;
+  const activateListScope = useCallback(() => {
+    setScopedSearch({
+      scopeName,
+      placeholder: `Search ${scopeName.toLowerCase()}…`,
+      query: searchQuery,
+      setQuery: setSearchQuery,
+      onDismiss: () => setSearchQuery(''),
+    });
+    bumpFocus();
+  }, [scopeName, searchQuery, setScopedSearch, bumpFocus]);
+
+  // Keep header chip + input value in lockstep with searchQuery without
+  // looping. Only pages that own the active scope re-set it.
+  useEffect(() => {
+    if (scopedSearch && scopedSearch.scopeName === scopeName && scopedSearch.query !== searchQuery) {
+      setScopedSearch({ ...scopedSearch, query: searchQuery });
+    }
+  }, [searchQuery, scopedSearch, scopeName, setScopedSearch]);
+
+  // Drop the scope when the list unmounts (user backed out / picked
+  // another list) so a stale chip doesn't carry over.
+  useEffect(() => {
+    return () => { setScopedSearch(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
+
   // ── Wishlist-only filter state ─────────────────────────────────────
   // Lives on ListView (not the global page) so the sheet's selections
   // reset cleanly when the user closes the view.
@@ -1521,6 +1596,16 @@ const ListDetailView: React.FC<{
   const [wishlistCuisineFilter, setWishlistCuisineFilter] = useState<string[]>([]);
   const [wishlistCityFilter, setWishlistCityFilter] = useState<string[]>([]);
   const [wishlistPriceFilter, setWishlistPriceFilter] = useState<string | null>(null);
+  // Per-pill dropdowns now live inside <AnchoredPill> on desktop, so
+  // each pill manages its own open state. The shared open/close state
+  // that used to coordinate sibling sheets is no longer needed.
+  const wlSortLabels: Record<WishlistSort, string> = {
+    recent: 'Recent', oldest: 'Oldest', 'name-asc': 'Name A→Z', 'name-desc': 'Name Z→A',
+  };
+  const toggleWlCity = (c: string) =>
+    setWishlistCityFilter((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+  const toggleWlCuisine = (c: string) =>
+    setWishlistCuisineFilter((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
   const wishlistActiveFilterCount =
     (wishlistCuisineFilter.length > 0 ? 1 : 0) +
     (wishlistCityFilter.length > 0 ? 1 : 0) +
@@ -1532,14 +1617,77 @@ const ListDetailView: React.FC<{
     setWishlistSort('recent');
   };
 
-  const recipes = getRecipes(list.id);
-  const filteredRecipes = useMemo(() => {
-    if (!searchQuery.trim()) return recipes;
-    const q = searchQuery.toLowerCase();
-    return recipes.filter((r) => r.title.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.tags.some((t) => t.toLowerCase().includes(q)));
-  }, [recipes, searchQuery]);
+  // ── Recipe-list filter state ─────────────────────────────────────
+  // Mirrors the All Recipes (HomeCookingTab) filter shape: Cuisine /
+  // Difficulty / Time / Sort. Lives on ListView so it resets when the
+  // user closes the list. Restaurant lists ignore these — the gate
+  // around the filter UI keeps things tidy.
+  const [recipeFiltersOpen, setRecipeFiltersOpen] = useState(false);
+  const [recipeCuisineFilter, setRecipeCuisineFilter] = useState<string[]>([]);
+  const [recipeDifficultyFilter, setRecipeDifficultyFilter] = useState<Array<'Easy' | 'Medium' | 'Hard'>>([]);
+  const [recipeTimeFilter, setRecipeTimeFilter] = useState<'fast' | 'medium' | 'slow' | null>(null);
+  const [recipeSortBy, setRecipeSortBy] = useState<'recent' | 'highest' | 'lowest' | 'quickest'>('recent');
+  const recipeSortLabels: Record<typeof recipeSortBy, string> = {
+    recent: 'Recent', highest: 'Highest', lowest: 'Lowest', quickest: 'Quickest',
+  };
+  const recipeTimeLabel = (t: typeof recipeTimeFilter) =>
+    t === 'fast' ? '<30 min' : t === 'medium' ? '30–60 min' : t === 'slow' ? '>60 min' : 'Time';
+  const recipeActiveFilterCount =
+    (recipeCuisineFilter.length > 0 ? 1 : 0) +
+    (recipeDifficultyFilter.length > 0 ? 1 : 0) +
+    (recipeTimeFilter ? 1 : 0);
+  const resetRecipeFilters = () => {
+    setRecipeCuisineFilter([]);
+    setRecipeDifficultyFilter([]);
+    setRecipeTimeFilter(null);
+    setRecipeSortBy('recent');
+  };
 
-  const ratedRestaurants = list.restaurantIds.map((id) => {
+  const recipes = getRecipes(list.id);
+  const allRecipeCuisines = useMemo(() => {
+    const set = new Set<string>();
+    recipes.forEach((r) => { if (r.cuisine) set.add(r.cuisine); });
+    return Array.from(set).sort();
+  }, [recipes]);
+  const filteredRecipes = useMemo(() => {
+    let out = recipes;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      out = out.filter((r) =>
+        r.title.toLowerCase().includes(q) ||
+        r.cuisine.toLowerCase().includes(q) ||
+        r.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    }
+    if (recipeCuisineFilter.length > 0) {
+      out = out.filter((r) => r.cuisine && recipeCuisineFilter.includes(r.cuisine));
+    }
+    if (recipeDifficultyFilter.length > 0) {
+      out = out.filter((r) => r.difficulty && recipeDifficultyFilter.includes(r.difficulty));
+    }
+    if (recipeTimeFilter) {
+      out = out.filter((r) => {
+        const total = (r.prepTime ?? 0) + (r.cookTime ?? 0);
+        if (recipeTimeFilter === 'fast') return total < 30;
+        if (recipeTimeFilter === 'medium') return total >= 30 && total <= 60;
+        return total > 60;
+      });
+    }
+    const sorted = [...out];
+    sorted.sort((a, b) => {
+      switch (recipeSortBy) {
+        case 'highest': return b.score - a.score;
+        case 'lowest': return a.score - b.score;
+        case 'quickest':
+          return ((a.prepTime ?? 0) + (a.cookTime ?? 0)) - ((b.prepTime ?? 0) + (b.cookTime ?? 0));
+        case 'recent':
+        default: return b.createdAt - a.createdAt;
+      }
+    });
+    return sorted;
+  }, [recipes, searchQuery, recipeCuisineFilter, recipeDifficultyFilter, recipeTimeFilter, recipeSortBy]);
+
+  const ratedRestaurantsRaw = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
     // Prefer list-specific rating over global rating
     const listRating = getListRating(list.id, id);
@@ -1551,6 +1699,26 @@ const ListDetailView: React.FC<{
     const q = searchQuery.toLowerCase();
     return info?.name.toLowerCase().includes(q) || info?.cuisine.toLowerCase().includes(q) || info?.address.toLowerCase().includes(q);
   });
+  // Filtered version that the toolbar's City/Cuisine/Price pills also
+  // narrow down. The same wishlist* filter state is reused (the names
+  // are historical — they apply to any non-recipe list view now).
+  const ratedRestaurants = useMemo(() => {
+    if (isWishlistView || isHomeCooking) return ratedRestaurantsRaw;
+    let out = ratedRestaurantsRaw;
+    if (wishlistCuisineFilter.length > 0) {
+      out = out.filter(({ info }) => info?.cuisine && wishlistCuisineFilter.includes(info.cuisine));
+    }
+    if (wishlistCityFilter.length > 0) {
+      out = out.filter(({ info }) => {
+        const c = extractCityState(info?.address || '', info?.address || '');
+        return c && wishlistCityFilter.includes(c);
+      });
+    }
+    if (wishlistPriceFilter) {
+      out = out.filter(({ info }) => info?.price === wishlistPriceFilter);
+    }
+    return out;
+  }, [isWishlistView, isHomeCooking, ratedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter]);
 
   const wishlistedRestaurantsRaw = isHotelBreakfast
     ? wishlist.filter((w) => w.cuisine === 'Hotel Breakfast').map((w) => ({
@@ -1574,26 +1742,35 @@ const ListDetailView: React.FC<{
           return { id, info, wishItem };
         }).filter(({ info }) => info);
 
-  // Filter + sort options pulled from the actual wishlist contents, so
-  // the sheet only ever offers cuisines / cities the user has saved.
+  // Filter + sort options pulled from the list's actual contents, so
+  // the dropdowns only ever offer cuisines / cities the user has on
+  // this list. Recipe lists skip this — they have their own filters.
+  // The names are historical (they used to be wishlist-only); they now
+  // apply to any non-recipe list view (wishlist + custom restaurant +
+  // hotel-breakfast).
   const wishlistAllCuisines = useMemo(() => {
-    if (!isWishlistView) return [] as string[];
+    if (isHomeCooking) return [] as string[];
     const set = new Set<string>();
     wishlistedRestaurantsRaw.forEach(({ info }) => { if (info?.cuisine) set.add(info.cuisine); });
+    ratedRestaurantsRaw.forEach(({ info }) => { if (info?.cuisine) set.add(info.cuisine); });
     return Array.from(set).sort();
-  }, [isWishlistView, wishlistedRestaurantsRaw]);
+  }, [isHomeCooking, wishlistedRestaurantsRaw, ratedRestaurantsRaw]);
   const wishlistAllCities = useMemo(() => {
-    if (!isWishlistView) return [] as string[];
+    if (isHomeCooking) return [] as string[];
     const set = new Set<string>();
     wishlistedRestaurantsRaw.forEach(({ info }) => {
       const c = extractCityState(info?.address || '', info?.address || '');
       if (c) set.add(c);
     });
+    ratedRestaurantsRaw.forEach(({ info }) => {
+      const c = extractCityState(info?.address || '', info?.address || '');
+      if (c) set.add(c);
+    });
     return Array.from(set).sort();
-  }, [isWishlistView, wishlistedRestaurantsRaw]);
+  }, [isHomeCooking, wishlistedRestaurantsRaw, ratedRestaurantsRaw]);
 
   const wishlistedRestaurants = useMemo(() => {
-    if (!isWishlistView) return wishlistedRestaurantsRaw;
+    if (isHomeCooking) return wishlistedRestaurantsRaw;
     let out = wishlistedRestaurantsRaw;
     if (wishlistCuisineFilter.length > 0) {
       out = out.filter(({ info }) => info?.cuisine && wishlistCuisineFilter.includes(info.cuisine));
@@ -1618,7 +1795,7 @@ const ListDetailView: React.FC<{
       }
     });
     return sorted;
-  }, [isWishlistView, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistSort]);
+  }, [isHomeCooking, wishlistedRestaurantsRaw, wishlistCuisineFilter, wishlistCityFilter, wishlistPriceFilter, wishlistSort]);
 
   // Apply the search input on top of the filter pipeline (wishlist view
   // only — the rated and hotel-breakfast paths already filter above).
@@ -1751,91 +1928,269 @@ const ListDetailView: React.FC<{
     return out;
   }, [isWishlistView, wishlistedRestaurantsRaw, wishlistCityFilter, wishlistPriceFilter, wishlistCuisineFilter]);
 
+  // Result count + avg score for the desktop toolbar's right-side stats.
+  // These are best-effort numbers — they show what's currently visible
+  // vs the list's true total, so users still see "5 / 14 · Avg 8.0"
+  // when filters narrow things down. Avg uses each item's score (rated
+  // or list-rating override; recipes use meal score).
+  const listStats = (() => {
+    if (isHomeCooking) {
+      const total = recipes.length;
+      const visible = filteredRecipes.length;
+      const scored = filteredRecipes.filter((r) => r.score > 0);
+      const avg = scored.length > 0
+        ? scored.reduce((s, r) => s + r.score, 0) / scored.length
+        : null;
+      return { total, visible, avg };
+    }
+    if (isWishlistView) {
+      return { total: wishlistedRestaurantsRaw.length, visible: wishlistedRestaurantsFinal.length, avg: null };
+    }
+    // Custom restaurant or hotel-breakfast list — combine rated and wishlist sections.
+    const total = ratedRestaurants.length + wishlistedRestaurantsRaw.length;
+    const visible = total; // no per-list filter UI yet beyond search
+    const scored = ratedRestaurants
+      .map((r) => r.rating?.score)
+      .filter((s): s is number => typeof s === 'number' && s > 0);
+    const avg = scored.length > 0 ? scored.reduce((s, n) => s + n, 0) / scored.length : null;
+    return { total, visible, avg };
+  })();
+
   return (
     <div>
-      {/* ── Minimal top bar (every list type) ─────────────────────────
-          The list's identity already lives in the sidebar's permanent
-          tray, so the page itself drops the editorial header + the
-          big Add CTA. All that remains is a back arrow on phone, a
-          search-icon toggle, and (for deletable lists) a trash icon.
-          Adding to a list is done via the dashed footer button at the
-          bottom of the grid — same path as before, just no longer
-          duplicated up top. */}
-      <div className="flex items-center justify-end mb-4">
-        <button
-          onClick={onBack}
-          aria-label="Back"
-          className="lg:hidden p-2 -ml-2 mr-auto text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setSearchOpen((o) => !o)}
-          aria-label={searchOpen ? 'Close search' : `Search ${list.name}`}
-          title={searchOpen ? 'Close search' : `Search ${list.name}`}
-          className={cn(
-            'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
-            searchOpen
-              ? 'bg-on-surface/[0.08] text-on-surface'
-              : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
-          )}
-        >
-          <Search size={17} />
-        </button>
-        {!isWishlistView && (
+      {/* ── Phone-only top bar ─────────────────────────────────────────
+          Back arrow, prominent Add button, and (for deletable lists) a
+          trash icon. The standalone search-icon toggle is gone — phone
+          now mounts an always-visible search input below this row,
+          matching the All Rated layout. Desktop drops this entire row
+          — Pantry's tab pill handles navigation, the toolbar below
+          handles search, and delete moves to the More menu (⋯). */}
+      {phoneMode && (
+        <div className="flex items-center gap-2 mb-3">
+          <button
+            onClick={onBack}
+            aria-label="Back"
+            className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
+          >
+            <ArrowLeft size={20} />
+          </button>
           <button
             type="button"
-            onClick={() => setConfirmDeleteList(true)}
-            aria-label="Delete list"
-            title="Delete list"
-            className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface/40 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+            onClick={handlePlusClick}
+            className={cn(
+              'ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold transition-colors flex-shrink-0',
+              isHomeCooking
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                : 'bg-primary text-white hover:bg-primary/90',
+            )}
           >
-            <Trash2 size={16} />
+            <Plus size={15} strokeWidth={2.5} />
+            <span>
+              {isHomeCooking ? 'Add Recipe' : isHotelBreakfast ? 'Add Hotel' : 'Add Rating'}
+            </span>
           </button>
-        )}
-      </div>
+          {!isWishlistView && (
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteList(true)}
+              aria-label="Delete list"
+              title="Delete list"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/40 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
+        </div>
+      )}
 
-      {/* Collapsible search input — toggled by the icon button above.
-          Animates open / closed with a height fade. */}
-      <AnimatePresence initial={false}>
-        {searchOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="overflow-hidden mb-4"
-          >
-            <div className="relative max-w-2xl">
-              <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/35 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={
-                  isHomeCooking
-                    ? 'Search your recipes...'
-                    : isWishlistView
-                      ? 'Search your wishlist...'
-                      : `Search ${list.name.toLowerCase()}...`
-                }
-                autoFocus
-                className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06] focus:bg-on-surface/[0.06] rounded-full py-2.5 pl-11 pr-10 text-sm font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
-              />
+      {/* ── Desktop toolbar ───────────────────────────────────────────
+          Same shape as the rated view: Search this list pill on the
+          left, list-appropriate filter pills next to it, result count
+          + avg + view toggle on the right, thin border separates the
+          chrome from the content below. */}
+      {!phoneMode && (
+        <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+            {/* Search this list */}
+            <button
+              type="button"
+              onClick={activateListScope}
+              aria-label={`Search ${list.name}`}
+              className={cn(
+                'inline-flex items-center gap-2 h-8 px-3.5 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0',
+                searchQuery
+                  ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+                  : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
+              )}
+            >
+              <Search size={13} />
+              <span>Search this list</span>
               {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  aria-label="Clear search"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/35 hover:text-on-surface/70 transition-colors"
+                <span className="inline-flex items-center gap-1 ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold">
+                  <span className="truncate max-w-[100px]">"{searchQuery}"</span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); } }}
+                    aria-label="Clear list search"
+                    className="text-primary/70 hover:text-primary"
+                  >
+                    <X size={11} />
+                  </span>
+                </span>
+              )}
+            </button>
+
+            {/* Filter pills — same shape as the rated view:
+                Filters / City / Cuisine / Price / Sort. Each pill
+                except "Filters" opens an anchored dropdown popover
+                (positioned right under the pill on desktop). The main
+                "Filters" pill opens the full Spotlight-style filter
+                sheet that lives at the end of this component. */}
+            {!isHomeCooking && (
+              <>
+                <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
+                <FilterPill
+                  onClick={() => setWishlistFilterOpen(true)}
+                  icon={<SlidersHorizontal size={12} />}
+                  label="Filters"
+                  active={wishlistActiveFilterCount > 0}
+                  badge={wishlistActiveFilterCount > 0 ? wishlistActiveFilterCount : undefined}
+                />
+                <AnchoredPill
+                  pill={{
+                    icon: <MapPin size={11} />,
+                    label: wishlistCityFilter.length > 0 ? `City (${wishlistCityFilter.length})` : 'City',
+                    active: wishlistCityFilter.length > 0,
+                    onClear: wishlistCityFilter.length > 0 ? () => setWishlistCityFilter([]) : undefined,
+                  }}
+                  popoverWidth="w-[280px]"
                 >
-                  <X size={14} />
-                </button>
+                  {() => (
+                    <SearchableMultiSelect
+                      placeholder="Search cities..."
+                      options={wishlistAllCities}
+                      selected={wishlistCityFilter}
+                      onToggle={toggleWlCity}
+                    />
+                  )}
+                </AnchoredPill>
+                <AnchoredPill
+                  pill={{
+                    label: wishlistCuisineFilter.length > 0 ? `Cuisine (${wishlistCuisineFilter.length})` : 'Cuisine',
+                    active: wishlistCuisineFilter.length > 0,
+                    onClear: wishlistCuisineFilter.length > 0 ? () => setWishlistCuisineFilter([]) : undefined,
+                  }}
+                  popoverWidth="w-[280px]"
+                >
+                  {() => (
+                    <SearchableMultiSelect
+                      placeholder="Search cuisines..."
+                      options={wishlistAllCuisines}
+                      selected={wishlistCuisineFilter}
+                      onToggle={toggleWlCuisine}
+                    />
+                  )}
+                </AnchoredPill>
+                <AnchoredPill
+                  pill={{
+                    label: wishlistPriceFilter || 'Price',
+                    active: !!wishlistPriceFilter,
+                    onClear: wishlistPriceFilter ? () => setWishlistPriceFilter(null) : undefined,
+                  }}
+                  popoverWidth="w-[240px]"
+                >
+                  {(close) => (
+                    <PricePickerContent
+                      value={wishlistPriceFilter}
+                      onChange={(v) => { setWishlistPriceFilter(v); close(); }}
+                    />
+                  )}
+                </AnchoredPill>
+                <AnchoredPill
+                  pill={{
+                    icon: <ArrowUpDown size={11} />,
+                    label: wishlistSort !== 'recent' ? wlSortLabels[wishlistSort] : 'Sort',
+                    active: wishlistSort !== 'recent',
+                    onClear: wishlistSort !== 'recent' ? () => setWishlistSort('recent') : undefined,
+                  }}
+                  popoverWidth="w-[220px]"
+                >
+                  {(close) => (
+                    <SortPickerContent
+                      value={wishlistSort}
+                      options={[
+                        ['recent', 'Recent'],
+                        ['oldest', 'Oldest'],
+                        ['name-asc', 'Name A→Z'],
+                        ['name-desc', 'Name Z→A'],
+                      ]}
+                      onChange={(v) => { setWishlistSort(v as WishlistSort); close(); }}
+                    />
+                  )}
+                </AnchoredPill>
+                {(wishlistActiveFilterCount > 0 || wishlistSort !== 'recent') && (
+                  <button
+                    onClick={resetWishlistFilters}
+                    className="inline-flex items-center gap-1 h-8 px-3 rounded-full text-[12px] font-semibold text-red-500/80 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                  >
+                    <X size={11} /><span>Clear all</span>
+                  </button>
+                )}
+              </>
+            )}
+
+            {/* Right side: stats + view toggle */}
+            <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+              {listStats.total > 0 && (
+                <p className="text-[12px] text-on-surface/50 whitespace-nowrap tabular-nums">
+                  <span className="font-bold text-on-surface">{listStats.visible}</span>
+                  {listStats.visible !== listStats.total && (
+                    <span className="text-on-surface/35"> / {listStats.total}</span>
+                  )}
+                  {listStats.avg !== null && (
+                    <>
+                      <span className="text-on-surface/25 mx-1.5">·</span>
+                      <span>Avg <span className="font-bold text-on-surface">{listStats.avg.toFixed(1)}</span></span>
+                    </>
+                  )}
+                </p>
+              )}
+              {!isHomeCooking && (
+                <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
               )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+        </div>
+      )}
+
+      {/* Always-visible search input — phone only. Mirrors the All
+          Rated phone layout so every list reads the same. Desktop uses
+          the header-scoped "Search this list" button instead. */}
+      {phoneMode && (
+        <div className="mb-4">
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, cuisine, location..."
+              className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Delete list confirmation */}
       <AnimatePresence>
@@ -1852,71 +2207,82 @@ const ListDetailView: React.FC<{
         )}
       </AnimatePresence>
 
-      {/* ── Filter pill row + view toggle ─────────────────────────────
-          Filters pill opens the full sheet. "All" clears every active
-          quick filter. Each subsequent pill toggles a city / price /
-          cuisine filter — counts come from the actual list. */}
-      {(isWishlistView ? wishlistedRestaurantsRaw.length > 0 : totalCount > 0) && (
-        <div className="flex items-center gap-2 mb-5 -mx-1 px-1 overflow-x-auto scrollbar-hide pb-1">
-          {isWishlistView && (
-            <>
-              <button
-                onClick={() => setWishlistFilterOpen(true)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold border transition-colors flex-shrink-0',
-                  wishlistActiveFilterCount > 0
-                    ? 'border-primary/30 bg-primary/[0.06] text-primary'
-                    : 'border-on-surface/[0.08] text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
-                )}
-              >
-                <SlidersHorizontal size={12} />
-                Filters
-                {wishlistActiveFilterCount > 0 && (
-                  <span className="ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold">{wishlistActiveFilterCount}</span>
-                )}
-              </button>
-
-              <span className="w-px h-4 bg-on-surface/[0.08] mx-1 flex-shrink-0" />
-
-              {/* "All" pill — solid when no quick filter is active */}
-              <button
-                onClick={resetWishlistFilters}
-                className={cn(
-                  'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors flex-shrink-0',
-                  wishlistActiveFilterCount === 0
-                    ? 'bg-on-surface text-surface'
-                    : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
-                )}
-              >
-                All
-                <span className={cn('text-[11px] tabular-nums', wishlistActiveFilterCount === 0 ? 'text-surface/65' : 'text-on-surface/40')}>
-                  {wishlistedRestaurantsRaw.length}
-                </span>
-              </button>
-
-              {quickFilterPills.map((pill) => (
-                <button
-                  key={pill.key}
-                  onClick={pill.onClick}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors flex-shrink-0',
-                    pill.active
-                      ? 'bg-on-surface text-surface'
-                      : 'text-on-surface/65 hover:text-on-surface hover:bg-on-surface/[0.04]',
-                  )}
-                >
-                  {pill.label}
-                  <span className={cn('text-[11px] tabular-nums', pill.active ? 'text-surface/65' : 'text-on-surface/40')}>
-                    {pill.count}
-                  </span>
-                </button>
-              ))}
-            </>
+      {/* ── Phone-only filter pill row ─────────────────────────────────
+          Same chrome as the All Rated phone view: Filters / City /
+          Cuisine / Price / Sort. Each pill opens the combined filter
+          bottom sheet (Sort + Price + Cuisine + City sections), so
+          phone users get the same filter surface as desktop without
+          juggling four separate sheets. Recipe lists skip this row —
+          they have their own filter chrome inside the home-cooking
+          branch below. */}
+      {phoneMode && !isHomeCooking && totalCount > 0 && (
+        <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            icon={<SlidersHorizontal size={12} />} label="Filters"
+            active={wishlistActiveFilterCount > 0}
+            badge={wishlistActiveFilterCount > 0 ? wishlistActiveFilterCount : undefined} />
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            icon={<MapPin size={11} />}
+            label={wishlistCityFilter.length > 0 ? `City (${wishlistCityFilter.length})` : 'City'}
+            active={wishlistCityFilter.length > 0}
+            onClear={wishlistCityFilter.length > 0 ? () => setWishlistCityFilter([]) : undefined} />
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            label={wishlistCuisineFilter.length > 0 ? `Cuisine (${wishlistCuisineFilter.length})` : 'Cuisine'}
+            active={wishlistCuisineFilter.length > 0}
+            onClear={wishlistCuisineFilter.length > 0 ? () => setWishlistCuisineFilter([]) : undefined} />
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            label={wishlistPriceFilter || 'Price'}
+            active={!!wishlistPriceFilter}
+            onClear={wishlistPriceFilter ? () => setWishlistPriceFilter(null) : undefined} />
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            icon={<ArrowUpDown size={11} />}
+            label={wishlistSort !== 'recent' ? wlSortLabels[wishlistSort] : 'Sort'}
+            active={wishlistSort !== 'recent'}
+            onClear={wishlistSort !== 'recent' ? () => setWishlistSort('recent') : undefined} />
+          {(wishlistActiveFilterCount > 0 || wishlistSort !== 'recent') && (
+            <button onClick={resetWishlistFilters}
+              className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+              <X size={10} /><span>Clear</span>
+            </button>
           )}
+        </div>
+      )}
 
-          <div className="ml-auto flex-shrink-0 hidden lg:block">
-            <ViewModeToggle mode={viewMode} onChange={onViewModeChange} />
-          </div>
+      {/* ── Phone-only filter pill row for recipe lists ────────────────
+          Mirrors the All Recipes (HomeCookingTab) chrome on desktop:
+          Filters / Cuisine / Difficulty / Time / Sort. Each pill opens
+          the unified RecipeFilterSheet bottom sheet that already
+          handles every section. */}
+      {phoneMode && isHomeCooking && totalCount > 0 && (
+        <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            icon={<SlidersHorizontal size={12} />} label="Filters"
+            active={recipeActiveFilterCount > 0}
+            badge={recipeActiveFilterCount > 0 ? recipeActiveFilterCount : undefined} />
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            label={recipeCuisineFilter.length > 0 ? `Cuisine (${recipeCuisineFilter.length})` : 'Cuisine'}
+            active={recipeCuisineFilter.length > 0}
+            onClear={recipeCuisineFilter.length > 0 ? () => setRecipeCuisineFilter([]) : undefined} />
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            label={recipeDifficultyFilter.length > 0 ? `Difficulty (${recipeDifficultyFilter.length})` : 'Difficulty'}
+            active={recipeDifficultyFilter.length > 0}
+            onClear={recipeDifficultyFilter.length > 0 ? () => setRecipeDifficultyFilter([]) : undefined} />
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            icon={<Clock size={11} />}
+            label={recipeTimeFilter ? recipeTimeLabel(recipeTimeFilter) : 'Time'}
+            active={!!recipeTimeFilter}
+            onClear={recipeTimeFilter ? () => setRecipeTimeFilter(null) : undefined} />
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            icon={<ArrowUpDown size={11} />}
+            label={recipeSortBy !== 'recent' ? recipeSortLabels[recipeSortBy] : 'Sort'}
+            active={recipeSortBy !== 'recent'}
+            onClear={recipeSortBy !== 'recent' ? () => setRecipeSortBy('recent') : undefined} />
+          {(recipeActiveFilterCount > 0 || recipeSortBy !== 'recent') && (
+            <button onClick={resetRecipeFilters}
+              className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+              <X size={10} /><span>Clear</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1970,11 +2336,14 @@ const ListDetailView: React.FC<{
                 </button>
               );
             })}
-            {/* Add more button */}
-            <button onClick={() => openAddRecipeModal(list.id)}
-              className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
-              <Plus size={16} /><span className="text-sm font-semibold">Add Recipe</span>
-            </button>
+            {/* Add more button — phone only. On desktop the header's
+                "Add Recipe" CTA replaces this footer. */}
+            {phoneMode && (
+              <button onClick={() => openAddRecipeModal(list.id)}
+                className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
+                <Plus size={16} /><span className="text-sm font-semibold">Add Recipe</span>
+              </button>
+            )}
           </div>
         )
       ) : totalCount === 0 ? (
@@ -1996,7 +2365,7 @@ const ListDetailView: React.FC<{
                 <Star size={14} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Rated ({ratedRestaurants.length})</h3>
               </div>
-              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6" : "divide-y divide-on-surface/[0.06]"}>
+              <div className={viewMode === 'grid' ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : "divide-y divide-on-surface/[0.06]"}>
                 {ratedRestaurants.map(({ id, info, rating }) => viewMode === 'grid' ? (
                   <RestaurantGridCard
                     key={id}
@@ -2071,7 +2440,7 @@ const ListDetailView: React.FC<{
                 <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Wishlist ({wishlistedRestaurantsFinal.length}{isWishlistView && wishlistedRestaurantsFinal.length !== wishlistedRestaurantsRaw.length ? ` of ${wishlistedRestaurantsRaw.length}` : ''})</h3>
               </div>
               {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start">
                   {wishlistedRestaurantsFinal.map(({ id, info, wishItem }) => (
                     <WishlistGridCard
                       key={id}
@@ -2105,14 +2474,11 @@ const ListDetailView: React.FC<{
               )}
             </div>
           )}
-          {/* Add more button — hidden in the synthetic Wishlist view because
-              the heart icons across the app are how you add to the wishlist. */}
-          {!isWishlistView && (
-            <button onClick={handlePlusClick}
-              className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
-              <Plus size={16} /><span className="text-sm font-semibold">{isHotelBreakfast ? 'Add Hotel' : 'Add Restaurants'}</span>
-            </button>
-          )}
+          {/* The dashed "Add Restaurants" / "Add Hotel" footer that
+              used to sit here is gone — the prominent top Add button
+              in the phone header now covers that affordance, and
+              keeping a duplicate at the bottom just clutters the
+              list. Desktop never had this footer. */}
         </div>
       )}
 
@@ -2124,7 +2490,7 @@ const ListDetailView: React.FC<{
         }}
       />
       <AddHotelBreakfastModal open={hotelModalOpen} onClose={() => setHotelModalOpen(false)} listId={list.id} />
-      {isWishlistView && (
+      {!isHomeCooking && (
         <WishlistFilterSheet
           open={wishlistFilterOpen}
           onClose={() => setWishlistFilterOpen(false)}
@@ -2142,6 +2508,30 @@ const ListDetailView: React.FC<{
           activeCount={wishlistActiveFilterCount}
         />
       )}
+
+      {isHomeCooking && (
+        <RecipeFilterSheet
+          open={recipeFiltersOpen}
+          onClose={() => setRecipeFiltersOpen(false)}
+          sortBy={recipeSortBy}
+          onSortBy={(v) => setRecipeSortBy(v as typeof recipeSortBy)}
+          cuisineFilter={recipeCuisineFilter}
+          onCuisineFilter={setRecipeCuisineFilter}
+          difficultyFilter={recipeDifficultyFilter}
+          onDifficultyFilter={setRecipeDifficultyFilter}
+          timeFilter={recipeTimeFilter}
+          onTimeFilter={setRecipeTimeFilter}
+          allCuisines={allRecipeCuisines}
+          onReset={resetRecipeFilters}
+          activeCount={recipeActiveFilterCount}
+        />
+      )}
+
+      {/* The per-pill bottom sheets that used to live here are gone —
+          the desktop toolbar's pills now embed their own anchored
+          popovers via <AnchoredPill> instead, so taps drop a small
+          dropdown right under the pill rather than sliding a sheet up
+          from the bottom of the screen. */}
     </div>
   );
 };
@@ -2177,19 +2567,46 @@ const FilterSheet: React.FC<{
     <AnimatePresence>
       {open && (
         <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={onClose} />
+          {/* Backdrop. Desktop gets a richer blur — same Spotlight feel
+              as the SearchPopup. Phone keeps the lighter blur so the
+              underlying page is still subtly visible behind the sheet. */}
           <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            drag={phoneMode ? 'y' : false}
-            dragConstraints={{ top: 0 }}
-            dragElastic={{ top: 0, bottom: 0.4 }}
-            onDragEnd={(_: any, info: any) => { if (info.offset.y > 80 || info.velocity.y > 300) onClose(); }}
-            className={cn("fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: phoneMode ? 0.14 : 0.16 }}
+            className={cn(
+              'fixed inset-0 z-50',
+              phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
+              !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+            )}
+            onClick={onClose}
           >
-            {/* Drag handle */}
+            <motion.div
+              {...(phoneMode
+                ? {
+                    initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
+                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                    drag: 'y' as const,
+                    dragConstraints: { top: 0 },
+                    dragElastic: { top: 0, bottom: 0.4 },
+                    onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+                      if (info.offset.y > 80 || info.velocity.y > 300) onClose();
+                    },
+                  }
+                : {
+                    initial: { opacity: 0, scale: 0.94, y: -12 },
+                    animate: { opacity: 1, scale: 1, y: 0 },
+                    exit: { opacity: 0, scale: 0.96, y: -8 },
+                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                  })}
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              className={cn(
+                'flex flex-col overflow-hidden bg-surface',
+                phoneMode
+                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[92vh]'
+                  : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
+              )}
+            >
+            {/* Drag handle (phone only — desktop has no draggable affordance) */}
             {phoneMode && (
               <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing flex-shrink-0">
                 <div className="w-10 h-1 rounded-full bg-on-surface/15" />
@@ -2197,12 +2614,16 @@ const FilterSheet: React.FC<{
             )}
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
-              <h3 className="font-serif font-bold text-lg">Filters</h3>
-              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors">
+            <div className={cn(
+              'flex items-center justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-3 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
+            )}>
+              <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>Filters</h3>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors">
                 <X size={16} className="text-on-surface/60" />
               </button>
             </div>
+            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
@@ -2321,12 +2742,13 @@ const FilterSheet: React.FC<{
             </div>
 
             {/* Footer */}
-            <div className="flex-shrink-0 border-t border-on-surface/6 px-5 py-4 flex gap-3">
+            <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3">
               <button onClick={onReset}
-                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors">Reset</button>
+                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.04] transition-colors">Reset</button>
               <button onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25">Apply</button>
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all">Apply</button>
             </div>
+            </motion.div>
           </motion.div>
         </>
       )}
@@ -2374,39 +2796,60 @@ const WishlistFilterSheet: React.FC<{
   return (
     <AnimatePresence>
       {open && (
-        <>
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+          className={cn(
+            'fixed inset-0 z-[120]',
+            phoneMode ? 'bg-black/45 backdrop-blur-md' : 'bg-black/50 backdrop-blur-md',
+            !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+          )}
+          onClick={onClose}
+        >
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="fixed inset-0 bg-black/45 backdrop-blur-md z-[120]"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 320, mass: 0.9 }}
-            drag={phoneMode ? 'y' : false}
-            dragConstraints={{ top: 0 }}
-            dragElastic={{ top: 0, bottom: 0.4 }}
-            onDragEnd={(_: any, info: any) => { if (info.offset.y > 90 || info.velocity.y > 350) onClose(); }}
+            {...(phoneMode
+              ? {
+                  initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
+                  transition: { type: 'spring' as const, damping: 30, stiffness: 320, mass: 0.9 },
+                  drag: 'y' as const,
+                  dragConstraints: { top: 0 },
+                  dragElastic: { top: 0, bottom: 0.4 },
+                  onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+                    if (info.offset.y > 90 || info.velocity.y > 350) onClose();
+                  },
+                }
+              : {
+                  initial: { opacity: 0, scale: 0.94, y: -12 },
+                  animate: { opacity: 1, scale: 1, y: 0 },
+                  exit: { opacity: 0, scale: 0.96, y: -8 },
+                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                })}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
             className={cn(
-              "fixed bottom-0 left-0 right-0 z-[120] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              "shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]",
-              phoneMode ? "h-[88vh]" : "max-h-[78vh] sm:max-w-md sm:left-1/2 sm:-translate-x-1/2 sm:rounded-3xl sm:bottom-6"
+              'flex flex-col overflow-hidden bg-surface',
+              phoneMode
+                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[88vh] shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]'
+                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
             )}
           >
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
-              <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-            </div>
+            {/* Drag handle (phone only) */}
+            {phoneMode && (
+              <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
+                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+              </div>
+            )}
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-2 pb-3 border-b border-on-surface/[0.06] flex-shrink-0">
+            <div className={cn(
+              'flex items-center justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-2 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
+            )}>
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-full bg-red-50 text-red-400 flex items-center justify-center">
                   <SlidersHorizontal size={15} />
                 </div>
                 <div>
-                  <h3 className="font-serif font-bold text-lg leading-tight">Filter wishlist</h3>
+                  <h3 className={cn('font-serif font-bold leading-tight', phoneMode ? 'text-lg' : 'text-[20px]')}>Filter wishlist</h3>
                   {activeCount > 0 && (
                     <p className="text-[11px] text-on-surface/45 font-medium">
                       {activeCount} active filter{activeCount === 1 ? '' : 's'}
@@ -2416,11 +2859,12 @@ const WishlistFilterSheet: React.FC<{
               </div>
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
+                className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
               >
                 <X size={16} className="text-on-surface/60" />
               </button>
             </div>
+            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
@@ -2590,20 +3034,22 @@ const WishlistFilterSheet: React.FC<{
               </button>
               <button
                 onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-lg shadow-primary/25"
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all"
               >
                 {activeCount > 0 ? `Show results` : 'Done'}
               </button>
             </div>
           </motion.div>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   );
 };
 
 /* ── Main Page ── */
-type PantryTab = 'lists' | 'trips' | 'wishlist';
+// Top-level tab on the Pantry landing. Restaurants is the default; Recipes
+// surfaces the cookbook (all home meals) plus user-created recipe lists.
+type PantryTab = 'restaurants' | 'recipes';
 
 /* ── Helper: format date range ── */
 function formatDateRange(start: string, end: string): string {
@@ -3952,12 +4398,74 @@ const HomeCookingTab: React.FC<{
   onBack: () => void;
   selectedMealId: string | null;
   onSelectMeal: (id: string | null) => void;
-}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal }) => {
+  // When the desktop tabs render this view, the page already has a
+  // tab strip + back via the Restaurants tab — skip the local back
+  // button + duplicate header to avoid two layers of chrome.
+  hideHeader?: boolean;
+}> = ({ meals, onCreateMeal, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
   const { phoneMode } = useSettings();
   const { user } = useAuth();
+  const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [sortBy, setSortBy] = useState<'recent' | 'highest'>('recent');
+  const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'quickest'>('recent');
+  // Recipe filters — these are recipe-specific and mirror the
+  // restaurant filter shape (Cuisine / Difficulty / Time / Sort).
+  const [cuisineFilter, setCuisineFilter] = useState<string[]>([]);
+  const [difficultyFilter, setDifficultyFilter] = useState<Array<'Easy' | 'Medium' | 'Hard'>>([]);
+  const [timeFilter, setTimeFilter] = useState<'fast' | 'medium' | 'slow' | null>(null);
+  const [recipeFiltersOpen, setRecipeFiltersOpen] = useState(false);
+  const [recipeViewMode, setRecipeViewMode] = useState<'list' | 'grid'>('list');
+  const effectiveRecipeViewMode = phoneMode ? 'list' : recipeViewMode;
+
+  const allRecipeCuisines = useMemo(() => {
+    const set = new Set<string>();
+    meals.forEach((m) => { if (m.cuisine) set.add(m.cuisine); });
+    return Array.from(set).sort();
+  }, [meals]);
+
+  const recipeActiveFilterCount =
+    (cuisineFilter.length > 0 ? 1 : 0) +
+    (difficultyFilter.length > 0 ? 1 : 0) +
+    (timeFilter ? 1 : 0);
+  const resetRecipeFilters = () => {
+    setCuisineFilter([]); setDifficultyFilter([]); setTimeFilter(null); setSortBy('recent');
+  };
+  const toggleCuisine = (c: string) =>
+    setCuisineFilter((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
+  const toggleDifficulty = (d: 'Easy' | 'Medium' | 'Hard') =>
+    setDifficultyFilter((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+
+  const recipeSortLabels: Record<typeof sortBy, string> = {
+    recent: 'Recent', highest: 'Highest', lowest: 'Lowest', quickest: 'Quickest',
+  };
+  const timeLabel = (t: typeof timeFilter) => t === 'fast' ? '<30 min' : t === 'medium' ? '30–60 min' : t === 'slow' ? '>60 min' : 'Time';
+
+  // Desktop: clicking "Search this list" hijacks the desktop header
+  // search input as a recipe filter, just like the rated view does.
+  const activateRecipesScope = useCallback(() => {
+    setScopedSearch({
+      scopeName: 'All Recipes',
+      placeholder: 'Search this list…',
+      query: searchQuery,
+      setQuery: setSearchQuery,
+      onDismiss: () => setSearchQuery(''),
+    });
+    bumpFocus();
+  }, [searchQuery, setScopedSearch, bumpFocus]);
+
+  useEffect(() => {
+    if (scopedSearch && scopedSearch.scopeName === 'All Recipes' && scopedSearch.query !== searchQuery) {
+      setScopedSearch({ ...scopedSearch, query: searchQuery });
+    }
+  }, [searchQuery, scopedSearch, setScopedSearch]);
+
+  // Drop the scope when the cookbook unmounts so it doesn't bleed into
+  // the next page. Other components manage their own scope on mount, so
+  // an unconditional clear here is safe.
+  useEffect(() => {
+    return () => { setScopedSearch(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [lightboxPhotoIdx, setLightboxPhotoIdx] = useState<number | null>(null);
   // Transient recipe-page UI state (not persisted — pure display aids).
@@ -4022,18 +4530,43 @@ const HomeCookingTab: React.FC<{
       result = result.filter((m) =>
         m.name.toLowerCase().includes(q) ||
         m.dishes.some((d) => d.name.toLowerCase().includes(q)) ||
-        m.tags.some((t) => t.toLowerCase().includes(q))
+        m.tags.some((t) => t.toLowerCase().includes(q)) ||
+        (m.cuisine?.toLowerCase().includes(q) ?? false)
       );
+    }
+
+    if (cuisineFilter.length > 0) {
+      result = result.filter((m) => m.cuisine && cuisineFilter.includes(m.cuisine));
+    }
+    if (difficultyFilter.length > 0) {
+      result = result.filter((m) => m.difficulty && difficultyFilter.includes(m.difficulty));
+    }
+    if (timeFilter) {
+      const total = (m: HomeMeal) => (m.prepTime || 0) + (m.cookTime || 0);
+      result = result.filter((m) => {
+        const t = total(m);
+        if (timeFilter === 'fast') return t > 0 && t < 30;
+        if (timeFilter === 'medium') return t >= 30 && t <= 60;
+        if (timeFilter === 'slow') return t > 60;
+        return true;
+      });
     }
 
     if (sortBy === 'recent') {
       result.sort((a, b) => b.createdAt - a.createdAt);
-    } else {
+    } else if (sortBy === 'highest') {
       result.sort((a, b) => b.score - a.score);
+    } else if (sortBy === 'lowest') {
+      result.sort((a, b) => a.score - b.score);
+    } else if (sortBy === 'quickest') {
+      // Total time = prep + cook. Treat undefined as 0 so meals without
+      // times sink to the top of the list (they're "instant" by default).
+      const total = (m: HomeMeal) => (m.prepTime || 0) + (m.cookTime || 0);
+      result.sort((a, b) => total(a) - total(b));
     }
 
     return result;
-  }, [meals, searchQuery, sortBy]);
+  }, [meals, searchQuery, sortBy, cuisineFilter, difficultyFilter, timeFilter]);
 
   // ── Meal detail view (diary / blog entry style) ──
   if (selectedMeal) {
@@ -4596,163 +5129,1166 @@ const HomeCookingTab: React.FC<{
   }
 
   // ── Meal list view ──
+  // Stats for the desktop toolbar's right side: visible / total + avg.
+  const visibleScored = filteredMeals.filter((m) => m.score > 0);
+  const visibleAvg = visibleScored.length > 0
+    ? visibleScored.reduce((s, m) => s + m.score, 0) / visibleScored.length
+    : null;
+
   return (
     <div>
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-          <ArrowLeft size={20} />
-        </button>
-        <ChefHat size={22} className="text-emerald-600" />
-        <div className="flex-1 min-w-0">
-          <h2 className="font-serif font-bold text-xl">Home Cooking</h2>
-          <p className="text-xs text-on-surface/40">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
-        </div>
-        <button onClick={() => setSearchOpen(!searchOpen)}
-          className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
-          <Search size={18} />
-        </button>
-        <button onClick={() => onOpenModal()}
-          className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Log a meal">
-          <Plus size={20} />
-        </button>
-      </div>
+      {hideHeader ? (
+        // Desktop toolbar — same shape as the rated view + list detail.
+        // Search this list pill on the left, then Filters + anchored
+        // recipe-specific pills (Cuisine / Difficulty / Time / Sort),
+        // then count + avg + view toggle on the right.
+        <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+            <button
+              type="button"
+              onClick={activateRecipesScope}
+              aria-label="Search this list"
+              className={cn(
+                'inline-flex items-center gap-2 h-8 px-3.5 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0',
+                searchQuery
+                  ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+                  : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
+              )}
+            >
+              <Search size={13} />
+              <span>Search this list</span>
+              {searchQuery && (
+                <span className="inline-flex items-center gap-1 ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold">
+                  <span className="truncate max-w-[100px]">"{searchQuery}"</span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setSearchQuery(''); setScopedSearch(null); } }}
+                    aria-label="Clear list search"
+                    className="text-primary/70 hover:text-primary"
+                  >
+                    <X size={11} />
+                  </span>
+                </span>
+              )}
+            </button>
 
-      {/* Search bar */}
-      <AnimatePresence>
-        {searchOpen && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden mb-3">
+            <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
+
+            {/* Filters button — opens the full Spotlight-style recipe
+                filter sheet (defined just below this component). */}
+            <FilterPill
+              onClick={() => setRecipeFiltersOpen(true)}
+              icon={<SlidersHorizontal size={12} />}
+              label="Filters"
+              active={recipeActiveFilterCount > 0}
+              badge={recipeActiveFilterCount > 0 ? recipeActiveFilterCount : undefined}
+            />
+            <AnchoredPill
+              pill={{
+                label: cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine',
+                active: cuisineFilter.length > 0,
+                onClear: cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined,
+              }}
+              popoverWidth="w-[260px]"
+            >
+              {() => (
+                <SearchableMultiSelect
+                  placeholder="Search cuisines..."
+                  options={allRecipeCuisines}
+                  selected={cuisineFilter}
+                  onToggle={toggleCuisine}
+                />
+              )}
+            </AnchoredPill>
+            <AnchoredPill
+              pill={{
+                label: difficultyFilter.length > 0 ? `Difficulty (${difficultyFilter.length})` : 'Difficulty',
+                active: difficultyFilter.length > 0,
+                onClear: difficultyFilter.length > 0 ? () => setDifficultyFilter([]) : undefined,
+              }}
+              popoverWidth="w-[200px]"
+            >
+              {() => (
+                <div className="p-2">
+                  {(['Easy', 'Medium', 'Hard'] as const).map((d) => {
+                    const isSelected = difficultyFilter.includes(d);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => toggleDifficulty(d)}
+                        className={cn(
+                          'w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors text-left',
+                          isSelected ? 'bg-primary/[0.06] text-primary' : 'text-on-surface/75 hover:bg-on-surface/[0.04]',
+                        )}
+                      >
+                        <span className="text-[13px] font-medium">{d}</span>
+                        {isSelected && <Check size={14} className="text-primary" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </AnchoredPill>
+            <AnchoredPill
+              pill={{
+                icon: <Clock size={11} />,
+                label: timeFilter ? timeLabel(timeFilter) : 'Time',
+                active: !!timeFilter,
+                onClear: timeFilter ? () => setTimeFilter(null) : undefined,
+              }}
+              popoverWidth="w-[220px]"
+            >
+              {(close) => (
+                <SortPickerContent
+                  value={timeFilter ?? ''}
+                  options={[
+                    ['fast', 'Under 30 min'],
+                    ['medium', '30 to 60 min'],
+                    ['slow', 'Over 60 min'],
+                  ]}
+                  onChange={(v) => { setTimeFilter(v as 'fast' | 'medium' | 'slow'); close(); }}
+                />
+              )}
+            </AnchoredPill>
+            <AnchoredPill
+              pill={{
+                icon: <ArrowUpDown size={11} />,
+                label: sortBy !== 'recent' ? recipeSortLabels[sortBy] : 'Sort',
+                active: sortBy !== 'recent',
+                onClear: sortBy !== 'recent' ? () => setSortBy('recent') : undefined,
+              }}
+              popoverWidth="w-[220px]"
+            >
+              {(close) => (
+                <SortPickerContent
+                  value={sortBy}
+                  options={[
+                    ['recent', 'Recent'],
+                    ['highest', 'Highest score'],
+                    ['lowest', 'Lowest score'],
+                    ['quickest', 'Quickest'],
+                  ]}
+                  onChange={(v) => { setSortBy(v as typeof sortBy); close(); }}
+                />
+              )}
+            </AnchoredPill>
+            {(recipeActiveFilterCount > 0 || sortBy !== 'recent') && (
+              <button
+                onClick={resetRecipeFilters}
+                className="inline-flex items-center gap-1 h-8 px-3 rounded-full text-[12px] font-semibold text-red-500/80 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+              >
+                <X size={11} /><span>Clear all</span>
+              </button>
+            )}
+
+            <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+              {meals.length > 0 && (
+                <p className="text-[12px] text-on-surface/50 whitespace-nowrap tabular-nums">
+                  <span className="font-bold text-on-surface">{filteredMeals.length}</span>
+                  {filteredMeals.length !== meals.length && (
+                    <span className="text-on-surface/35"> / {meals.length}</span>
+                  )}
+                  {visibleAvg !== null && (
+                    <>
+                      <span className="text-on-surface/25 mx-1.5">·</span>
+                      <span>Avg <span className="font-bold text-on-surface">{visibleAvg.toFixed(1)}</span></span>
+                    </>
+                  )}
+                </p>
+              )}
+              <ViewModeToggle mode={effectiveRecipeViewMode} onChange={setRecipeViewMode} />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Phone top bar — back arrow + prominent Add Recipe. The
+              standalone search-icon toggle and the cluttered title row
+              with chef-hat / count are gone; the always-visible search
+              input below covers search, and the page header in the
+              parent already names the view. */}
+          <div className="flex items-center gap-2 mb-3">
+            <button onClick={onBack} aria-label="Back" className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
+              <ArrowLeft size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenModal()}
+              className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex-shrink-0"
+            >
+              <Plus size={15} strokeWidth={2.5} />
+              <span>Add Recipe</span>
+            </button>
+          </div>
+
+          {/* Always-visible search input — same look as every other
+              list view on phone. */}
+          <div className="mb-4">
             <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Search meals or dishes..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                autoFocus
-                className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 transition-all"
+                placeholder="Search by name, cuisine, location..."
+                className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
               />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
 
-      {/* Sort bar */}
-      <div className="flex gap-2 mb-4">
-        {(['recent', 'highest'] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setSortBy(s)}
-            className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-              sortBy === s ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-          >
-            {s === 'recent' ? 'Recent' : 'Highest Rated'}
-          </button>
-        ))}
-      </div>
+          {/* Filter pill row — mirrors the desktop toolbar's recipe
+              filters (Filters / Cuisine / Difficulty / Time / Sort).
+              Each pill opens the unified RecipeFilterSheet bottom
+              sheet that already covers every section. */}
+          {meals.length > 0 && (
+            <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                icon={<SlidersHorizontal size={12} />} label="Filters"
+                active={recipeActiveFilterCount > 0}
+                badge={recipeActiveFilterCount > 0 ? recipeActiveFilterCount : undefined} />
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
+                active={cuisineFilter.length > 0}
+                onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                label={difficultyFilter.length > 0 ? `Difficulty (${difficultyFilter.length})` : 'Difficulty'}
+                active={difficultyFilter.length > 0}
+                onClear={difficultyFilter.length > 0 ? () => setDifficultyFilter([]) : undefined} />
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                icon={<Clock size={11} />}
+                label={timeFilter ? timeLabel(timeFilter) : 'Time'}
+                active={!!timeFilter}
+                onClear={timeFilter ? () => setTimeFilter(null) : undefined} />
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                icon={<ArrowUpDown size={11} />}
+                label={sortBy !== 'recent' ? recipeSortLabels[sortBy] : 'Sort'}
+                active={sortBy !== 'recent'}
+                onClear={sortBy !== 'recent' ? () => setSortBy('recent') : undefined} />
+              {(recipeActiveFilterCount > 0 || sortBy !== 'recent') && (
+                <button onClick={resetRecipeFilters}
+                  className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+                  <X size={10} /><span>Clear</span>
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
 
-      {/* Meal cards */}
+      {/* Meal cards — list or grid based on the toolbar's view toggle.
+          Cards mirror the restaurant card style: cover image (or chef-
+          hat placeholder) + name + cuisine/difficulty/time meta + score
+          chip on the right. */}
       {filteredMeals.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <UtensilsCrossed size={40} className="text-on-surface/15 mb-3" />
           <p className="text-sm font-semibold text-on-surface/40 mb-1">
-            {searchQuery.trim() ? 'No meals found' : 'No meals logged yet'}
+            {searchQuery.trim() || recipeActiveFilterCount > 0 ? 'No recipes found' : 'No recipes logged yet'}
           </p>
-          <p className="text-xs text-on-surface/30 mb-4 max-w-[220px]">
-            {searchQuery.trim() ? 'Try a different search' : 'Tap + to log your first home-cooked meal'}
+          <p className="text-xs text-on-surface/30 mb-4 max-w-[260px]">
+            {searchQuery.trim() || recipeActiveFilterCount > 0
+              ? 'Try clearing some filters or searching for something else'
+              : 'Tap + to log your first home-cooked meal'}
           </p>
-          {!searchQuery.trim() && (
+          {!searchQuery.trim() && recipeActiveFilterCount === 0 && (
             <button onClick={() => onOpenModal()}
               className="px-4 py-2 bg-emerald-600 text-white rounded-full text-sm font-semibold hover:bg-emerald-700 transition-colors">
               Log a Meal
             </button>
           )}
         </div>
+      ) : effectiveRecipeViewMode === 'grid' ? (
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start">
+          {filteredMeals.map((meal) => (
+            <RecipeGridCard
+              key={meal.id}
+              meal={meal}
+              onClick={() => onSelectMeal(meal.id)}
+              onEdit={() => onOpenModal(meal)}
+            />
+          ))}
+        </div>
       ) : (
         <ul className="divide-y divide-on-surface/[0.06]">
-          {filteredMeals.map((meal) => {
-            const coverPhoto = getMealCoverUrl(meal);
-            const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
-            const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
-            return (
-              <li key={meal.id} className="relative group/row">
-                <button
-                  onClick={() => onSelectMeal(meal.id)}
-                  className="w-full flex gap-4 py-4 text-left group active:scale-[0.99] transition-transform"
-                >
-                  {/* Photo thumbnail */}
-                  <div className="w-24 h-24 rounded-2xl overflow-hidden bg-on-surface/[0.05] flex-shrink-0">
-                    {coverPhoto ? (
-                      <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-emerald-50">
-                        <ChefHat size={28} className="text-emerald-300" />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
-                      {/* Score sits next to a placeholder gap so the pencil button (absolute-positioned)
-                           doesn't overlap the number on narrow rows. */}
-                      <span className={cn("text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 mr-7", scoreColor(meal.score))}>
-                        {meal.score.toFixed(1)}
-                      </span>
-                    </div>
-
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
-                      {totalTime > 0 ? (
-                        <>
-                          <Clock size={11} />
-                          <span>{formatDuration(totalTime)}</span>
-                          {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
-                        </>
-                      ) : meal.dishes.length > 0 ? (
-                        <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
-                      ) : null}
-                    </div>
-
-                    {ingredientPreview.length > 0 && (
-                      <p className="text-[12px] text-on-surface/50 mt-1 leading-snug line-clamp-2">
-                        {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
-                        {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
-                      </p>
-                    )}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onOpenModal(meal); }}
-                  aria-label={`Edit ${meal.name}`}
-                  className="absolute top-4 right-0 p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100"
-                >
-                  <Edit3 size={15} />
-                </button>
-              </li>
-            );
-          })}
+          {filteredMeals.map((meal) => (
+            <RecipeRow
+              key={meal.id}
+              meal={meal}
+              onClick={() => onSelectMeal(meal.id)}
+              onEdit={() => onOpenModal(meal)}
+            />
+          ))}
         </ul>
       )}
+
+      {/* Recipe filter sheet — Spotlight popup on desktop, bottom sheet
+          on phone. Same chrome as the restaurant FilterSheet. */}
+      <RecipeFilterSheet
+        open={recipeFiltersOpen}
+        onClose={() => setRecipeFiltersOpen(false)}
+        sortBy={sortBy}
+        onSortBy={(v) => setSortBy(v as typeof sortBy)}
+        cuisineFilter={cuisineFilter}
+        onCuisineFilter={setCuisineFilter}
+        difficultyFilter={difficultyFilter}
+        onDifficultyFilter={setDifficultyFilter}
+        timeFilter={timeFilter}
+        onTimeFilter={setTimeFilter}
+        allCuisines={allRecipeCuisines}
+        onReset={resetRecipeFilters}
+        activeCount={recipeActiveFilterCount}
+      />
     </div>
   );
 };
 
+/* ── Recipe row (list view) ──
+   List view drops the cover image — just title + meta + score on a
+   single line. The cover photo is already the headline element of the
+   grid view, so the list view stays compact and text-first. */
+const RecipeRow: React.FC<{
+  meal: HomeMeal;
+  onClick: () => void;
+  onEdit: () => void;
+}> = ({ meal, onClick, onEdit }) => {
+  const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+  const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
+  return (
+    <li className="relative group/row">
+      <button
+        onClick={onClick}
+        className="w-full text-left py-4 active:scale-[0.99] transition-transform"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
+          <span className={cn('text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 mr-7 tabular-nums', scoreColor(meal.score))}>
+            {meal.score > 0 ? meal.score.toFixed(1) : '—'}
+          </span>
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
+          {meal.cuisine && <><span>{meal.cuisine}</span></>}
+          {meal.cuisine && totalTime > 0 && <span className="text-on-surface/25">·</span>}
+          {totalTime > 0 ? (
+            <>
+              <Clock size={11} />
+              <span>{formatDuration(totalTime)}</span>
+              {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
+            </>
+          ) : meal.difficulty ? (
+            <span>{meal.difficulty}</span>
+          ) : meal.dishes.length > 0 ? (
+            <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
+          ) : null}
+        </div>
+        {ingredientPreview.length > 0 && (
+          <p className="text-[12px] text-on-surface/50 mt-1 leading-snug line-clamp-2">
+            {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
+            {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
+          </p>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        aria-label={`Edit ${meal.name}`}
+        className="absolute top-4 right-0 p-1.5 rounded-full text-on-surface/35 hover:text-emerald-600 hover:bg-emerald-50 transition-colors sm:opacity-0 sm:group-hover/row:opacity-100 focus:opacity-100"
+      >
+        <Edit3 size={15} />
+      </button>
+    </li>
+  );
+};
+
+/* ── Recipe grid card ──
+   Mirrors RestaurantGridCard: editorial tile with the cover image on
+   top (or a soft chef-hat placeholder), title underneath, meta row,
+   and a score chip. Edit pencil fades in on hover. */
+const RecipeGridCard: React.FC<{
+  meal: HomeMeal;
+  onClick: () => void;
+  onEdit: () => void;
+}> = ({ meal, onClick, onEdit }) => {
+  const coverPhoto = getMealCoverUrl(meal);
+  const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+  return (
+    <div className="group relative">
+      <button
+        onClick={onClick}
+        className="w-full text-left active:scale-[0.99] transition-transform"
+      >
+        {/* Cover image / placeholder */}
+        <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-on-surface/[0.05] mb-3 relative">
+          {coverPhoto ? (
+            <img src={coverPhoto} alt={meal.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-emerald-50">
+              <ChefHat size={44} className="text-emerald-300" strokeWidth={1.6} />
+            </div>
+          )}
+          {meal.score > 0 && (
+            <span className={cn(
+              'absolute top-2 right-2 px-2 py-0.5 rounded-full text-[12px] font-serif font-bold tabular-nums shadow-sm',
+              meal.score >= 8.5 ? 'bg-emerald-600 text-white'
+                : meal.score >= 7 ? 'bg-emerald-500 text-white'
+                : meal.score >= 5 ? 'bg-amber-400 text-on-surface'
+                : 'bg-red-400 text-white',
+            )}>
+              {meal.score.toFixed(1)}
+            </span>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="px-0.5">
+          <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 text-on-surface">
+            {meal.name}
+          </h3>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-on-surface/55 font-medium uppercase tracking-wider">
+            {meal.cuisine && <span>{meal.cuisine}</span>}
+            {meal.cuisine && totalTime > 0 && <span className="text-on-surface/25">·</span>}
+            {totalTime > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <Clock size={11} />{formatDuration(totalTime)}
+              </span>
+            )}
+            {(meal.cuisine || totalTime > 0) && meal.difficulty && <span className="text-on-surface/25">·</span>}
+            {meal.difficulty && <span>{meal.difficulty}</span>}
+          </div>
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        aria-label={`Edit ${meal.name}`}
+        className="absolute top-2 left-2 w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-on-surface/55 hover:text-emerald-600 hover:bg-white transition-all opacity-0 group-hover:opacity-100"
+      >
+        <Edit3 size={13} className="mx-auto" />
+      </button>
+    </div>
+  );
+};
+
+/* ── Recipe filter sheet ──
+   Spotlight-style centered popup on desktop, drag-to-dismiss bottom
+   sheet on phone. Sections: Sort / Cuisine / Difficulty / Time. */
+const RecipeFilterSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  sortBy: string;
+  onSortBy: (v: string) => void;
+  cuisineFilter: string[];
+  onCuisineFilter: (v: string[]) => void;
+  difficultyFilter: Array<'Easy' | 'Medium' | 'Hard'>;
+  onDifficultyFilter: (v: Array<'Easy' | 'Medium' | 'Hard'>) => void;
+  timeFilter: 'fast' | 'medium' | 'slow' | null;
+  onTimeFilter: (v: 'fast' | 'medium' | 'slow' | null) => void;
+  allCuisines: string[];
+  onReset: () => void;
+  activeCount: number;
+}> = ({ open, onClose, sortBy, onSortBy, cuisineFilter, onCuisineFilter, difficultyFilter, onDifficultyFilter, timeFilter, onTimeFilter, allCuisines, onReset, activeCount }) => {
+  const { phoneMode } = useSettings();
+  const [cuisineSearch, setCuisineSearch] = useState('');
+  useEffect(() => { if (!open) setCuisineSearch(''); }, [open]);
+  const filteredCuisines = cuisineSearch.trim()
+    ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase()))
+    : allCuisines;
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+          className={cn(
+            'fixed inset-0 z-[120]',
+            phoneMode ? 'bg-black/45 backdrop-blur-md' : 'bg-black/50 backdrop-blur-md',
+            !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+          )}
+          onClick={onClose}
+        >
+          <motion.div
+            {...(phoneMode
+              ? {
+                  initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
+                  transition: { type: 'spring' as const, damping: 30, stiffness: 320, mass: 0.9 },
+                  drag: 'y' as const,
+                  dragConstraints: { top: 0 },
+                  dragElastic: { top: 0, bottom: 0.4 },
+                  onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
+                    if (info.offset.y > 90 || info.velocity.y > 350) onClose();
+                  },
+                }
+              : {
+                  initial: { opacity: 0, scale: 0.94, y: -12 },
+                  animate: { opacity: 1, scale: 1, y: 0 },
+                  exit: { opacity: 0, scale: 0.96, y: -8 },
+                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                })}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className={cn(
+              'flex flex-col overflow-hidden bg-surface',
+              phoneMode
+                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[88vh] shadow-[0_-12px_40px_-8px_rgba(0,0,0,0.18)]'
+                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
+            )}
+          >
+            {phoneMode && (
+              <div className="flex justify-center pt-3 pb-1.5 cursor-grab active:cursor-grabbing flex-shrink-0">
+                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+              </div>
+            )}
+            <div className={cn(
+              'flex items-center justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-2 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
+            )}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <SlidersHorizontal size={15} />
+                </div>
+                <div>
+                  <h3 className={cn('font-serif font-bold leading-tight', phoneMode ? 'text-lg' : 'text-[20px]')}>Filter recipes</h3>
+                  {activeCount > 0 && (
+                    <p className="text-[11px] text-on-surface/45 font-medium">
+                      {activeCount} active filter{activeCount === 1 ? '' : 's'}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors">
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              {/* Sort */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
+                <div className="flex flex-wrap gap-2">
+                  {([['recent', 'Recent'], ['highest', 'Highest score'], ['lowest', 'Lowest score'], ['quickest', 'Quickest']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => onSortBy(key)}
+                      className={cn('px-3.5 py-2 rounded-full text-xs font-semibold transition-all',
+                        sortBy === key ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/55 hover:bg-on-surface/[0.10]')}>{label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Difficulty */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Difficulty</p>
+                <div className="flex gap-2">
+                  {(['Easy', 'Medium', 'Hard'] as const).map((d) => {
+                    const isSelected = difficultyFilter.includes(d);
+                    return (
+                      <button key={d}
+                        onClick={() => onDifficultyFilter(isSelected ? difficultyFilter.filter((x) => x !== d) : [...difficultyFilter, d])}
+                        className={cn('flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2',
+                          isSelected ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25')}
+                      >{d}</button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Time */}
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Total time</p>
+                <div className="flex gap-2">
+                  {([['fast', 'Under 30 min'], ['medium', '30 to 60 min'], ['slow', 'Over 60 min']] as const).map(([key, label]) => (
+                    <button key={key}
+                      onClick={() => onTimeFilter(timeFilter === key ? null : key)}
+                      className={cn('flex-1 py-2 rounded-xl text-[11px] font-bold transition-all border-2',
+                        timeFilter === key ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25')}
+                    >{label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cuisine */}
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">Cuisine</p>
+                  {cuisineFilter.length > 0 && (
+                    <button onClick={() => onCuisineFilter([])} className="text-[11px] text-primary font-semibold">Clear</button>
+                  )}
+                </div>
+                <div className="relative mb-2">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                  <input type="text" value={cuisineSearch} onChange={(e) => setCuisineSearch(e.target.value)} placeholder="Search cuisines..."
+                    className="w-full bg-on-surface/[0.05] rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                </div>
+                <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pb-1">
+                  {filteredCuisines.length === 0 ? (
+                    <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>
+                  ) : filteredCuisines.map((c) => {
+                    const on = cuisineFilter.includes(c);
+                    return (
+                      <button key={c}
+                        onClick={() => onCuisineFilter(on ? cuisineFilter.filter((x) => x !== c) : [...cuisineFilter, c])}
+                        className={cn('px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border',
+                          on ? 'border-primary bg-primary/10 text-primary' : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25')}>{c}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-shrink-0 border-t border-on-surface/[0.06] px-5 py-4 flex gap-3">
+              <button onClick={onReset}
+                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-on-surface/[0.04] transition-colors">Reset</button>
+              <button onClick={onClose}
+                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all">
+                {activeCount > 0 ? 'Show recipes' : 'Done'}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+/* ── Reusable bottom-sheet pickers ──
+   These three sheets render the same kind of pop-up the rated view's
+   City / Cuisine / Price / Sort pills open. Extracted so the wishlist
+   (and any future list view) can reuse them with its own state. */
+
+const FilterListSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  placeholder: string;
+  options: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}> = ({ open, onClose, title, placeholder, options, selected, onToggle }) => {
+  const { phoneMode } = useSettings();
+  const [search, setSearch] = useState('');
+  useEffect(() => { if (!open) setSearch(''); }, [open]);
+  const q = search.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            className={cn(
+              'fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl flex flex-col overflow-hidden',
+              phoneMode ? 'max-h-[92vh]' : 'max-h-[70vh]',
+            )}
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/[0.06] flex-shrink-0">
+              <h3 className="font-serif font-bold text-lg">{title}</h3>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+            <div className="px-5 pt-3 pb-2 flex-shrink-0">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                <input
+                  type="text"
+                  placeholder={placeholder}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 pb-5">
+              {filtered.length === 0 ? (
+                <p className="text-center py-8 text-sm text-on-surface/40">No matches</p>
+              ) : filtered.map((opt) => {
+                const isSelected = selected.includes(opt);
+                return (
+                  <button
+                    key={opt}
+                    onClick={() => onToggle(opt)}
+                    className={cn(
+                      'w-full flex items-center justify-between px-3 py-3 border-b border-on-surface/[0.05] text-left transition-colors',
+                      isSelected ? 'text-primary bg-primary/[0.03]' : 'text-on-surface/70 hover:bg-on-surface/[0.03]',
+                    )}
+                  >
+                    <span className="text-sm font-medium">{opt}</span>
+                    {isSelected && <Check size={16} className="text-primary" />}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+const PricePickerSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}> = ({ open, onClose, value, onChange }) => {
+  const { phoneMode } = useSettings();
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 350 }}
+            className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="px-5 pt-3 pb-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-serif font-bold text-base">Price Range</h3>
+                <button onClick={onClose} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
+                  <X size={14} className="text-on-surface/60" />
+                </button>
+              </div>
+              <div className="flex gap-2">
+                {['$', '$$', '$$$', '$$$$'].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => { onChange(value === p ? null : p); onClose(); }}
+                    className={cn(
+                      'flex-1 py-3 rounded-xl text-sm font-bold transition-all border-2',
+                      value === p ? 'border-primary bg-primary/[0.05] text-primary' : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
+                    )}
+                  >{p}</button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+const SortPickerSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  value: string;
+  onChange: (v: string) => void;
+  options: ReadonlyArray<readonly [string, string]>;
+}> = ({ open, onClose, value, onChange, options }) => {
+  const { phoneMode } = useSettings();
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/30 z-[60]" onClick={onClose} />
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 350 }}
+            className="fixed bottom-0 left-0 right-0 z-[60] bg-surface rounded-t-3xl"
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className="px-5 pt-3 pb-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-serif font-bold text-base">Sort By</h3>
+                <button onClick={onClose} className="w-7 h-7 rounded-full bg-on-surface/5 flex items-center justify-center">
+                  <X size={14} className="text-on-surface/60" />
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {options.map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => { onChange(key); onClose(); }}
+                    className={cn(
+                      'w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left',
+                      value === key ? 'bg-primary/5 text-primary' : 'text-on-surface/70 hover:bg-on-surface/[0.03]',
+                    )}
+                  >
+                    <span className="text-sm font-medium">{label}</span>
+                    {value === key && <Check size={16} className="text-primary" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+/* ── Combined Restaurants/Recipes tab + list-selector ──
+   The active tab carries the current list info (emoji + name + count
+   + chevron) and toggles a dropdown when clicked. The inactive tab
+   just shows its category label and switches sections on click. */
+const CombinedTabButton: React.FC<{
+  isActive: boolean;
+  inactiveLabel: string;
+  activeEmoji: string;
+  activeName: string;
+  activeCount: number;
+  dropdownOpen: boolean;
+  onClick: () => void;
+}> = ({ isActive, inactiveLabel, activeEmoji, activeName, activeCount, dropdownOpen, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-haspopup={isActive ? 'menu' : undefined}
+    aria-expanded={isActive ? dropdownOpen : undefined}
+    className={cn(
+      'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
+      isActive
+        ? 'bg-white text-on-surface shadow-sm'
+        : 'text-on-surface/45 hover:text-on-surface/65',
+    )}
+  >
+    {isActive ? (
+      <>
+        <span className="text-base leading-none">{activeEmoji}</span>
+        <span>{activeName}</span>
+        <span className="text-[11px] tabular-nums text-on-surface/40">{activeCount}</span>
+        <ChevronDown
+          size={13}
+          className={cn('text-on-surface/45 transition-transform', dropdownOpen && 'rotate-180')}
+        />
+      </>
+    ) : inactiveLabel}
+  </button>
+);
+
+/* ── Reusable filter chip used in the rated-view toolbar ──
+   One consistent chip token: rounded-full, neutral by default, primary
+   tint when active, optional badge / icon / clear-X. Putting this in
+   one component keeps the toolbar row visually uniform — all the
+   filter buttons read as a cluster instead of five mismatched pills. */
+const FilterPill: React.FC<{
+  onClick: () => void;
+  label: string;
+  active?: boolean;
+  icon?: React.ReactNode;
+  badge?: number;
+  onClear?: () => void;
+}> = ({ onClick, label, active = false, icon, badge, onClear }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      'inline-flex items-center gap-1.5 h-8 px-3 rounded-full transition-colors text-[12px] font-semibold flex-shrink-0',
+      active
+        ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+        : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08] hover:text-on-surface',
+    )}
+  >
+    {icon}
+    <span>{label}</span>
+    {badge !== undefined && (
+      <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold">
+        {badge}
+      </span>
+    )}
+    {onClear ? (
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => { e.stopPropagation(); onClear(); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onClear(); } }}
+        aria-label="Clear"
+        className="ml-0.5 text-current/70 hover:text-current"
+      >
+        <X size={10} />
+      </span>
+    ) : (
+      <ChevronDown size={10} className="opacity-60" />
+    )}
+  </button>
+);
+
+/* ── Anchored pill + popover (desktop) ──
+   Dropdowns that hang under the pill button instead of sliding up
+   from the bottom of the screen. The phone version (sheet) is still
+   used when phoneMode is on. Shared shell handles outside-click +
+   Escape so each callsite just renders content. */
+
+const AnchoredPopover: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  width?: string;
+  children: React.ReactNode;
+}> = ({ open, onClose, width = 'w-[280px]', children }) => {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.97, y: -4 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.97, y: -4 }}
+          transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+          className={cn(
+            'absolute top-full left-0 mt-2 z-50 bg-surface rounded-2xl',
+            'shadow-[0_18px_48px_-12px_rgba(0,0,0,0.22)] ring-1 ring-on-surface/[0.06]',
+            'overflow-hidden',
+            width,
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+// Wraps the FilterPill button + an anchored popover. Handles outside-
+// click. Each pill type passes its own dropdown content via children.
+const AnchoredPill: React.FC<{
+  pill: {
+    icon?: React.ReactNode;
+    label: string;
+    active?: boolean;
+    badge?: number;
+    onClear?: () => void;
+  };
+  popoverWidth?: string;
+  children: (close: () => void) => React.ReactNode;
+}> = ({ pill, popoverWidth, children }) => {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  return (
+    <div ref={wrapRef} className="relative inline-flex flex-shrink-0">
+      <FilterPill
+        onClick={() => setOpen((o) => !o)}
+        icon={pill.icon}
+        label={pill.label}
+        active={pill.active}
+        badge={pill.badge}
+        onClear={pill.onClear}
+      />
+      <AnchoredPopover open={open} onClose={() => setOpen(false)} width={popoverWidth}>
+        {children(() => setOpen(false))}
+      </AnchoredPopover>
+    </div>
+  );
+};
+
+// Compact $/$$/$$$/$$$$ row — drop-in for the anchored Price pill.
+const PricePickerContent: React.FC<{
+  value: string | null;
+  onChange: (v: string | null) => void;
+}> = ({ value, onChange }) => (
+  <div className="p-3">
+    <div className="flex gap-1.5">
+      {['$', '$$', '$$$', '$$$$'].map((p) => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => onChange(value === p ? null : p)}
+          className={cn(
+            'flex-1 py-2.5 rounded-xl text-[13px] font-bold transition-all border-2',
+            value === p
+              ? 'border-primary bg-primary/[0.05] text-primary'
+              : 'border-on-surface/[0.10] text-on-surface/55 hover:border-on-surface/25',
+          )}
+        >{p}</button>
+      ))}
+    </div>
+  </div>
+);
+
+// Vertical list of sort options — drop-in for the anchored Sort pill.
+const SortPickerContent: React.FC<{
+  value: string;
+  options: ReadonlyArray<readonly [string, string]>;
+  onChange: (v: string) => void;
+}> = ({ value, options, onChange }) => (
+  <div className="p-2">
+    {options.map(([key, label]) => (
+      <button
+        key={key}
+        type="button"
+        onClick={() => onChange(key)}
+        className={cn(
+          'w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors text-left',
+          value === key ? 'bg-primary/[0.06] text-primary' : 'text-on-surface/75 hover:bg-on-surface/[0.04]',
+        )}
+      >
+        <span className="text-[13px] font-medium">{label}</span>
+        {value === key && <Check size={14} className="text-primary" />}
+      </button>
+    ))}
+  </div>
+);
+
+// Searchable scrollable list — used inside CityPill + CuisinePill
+// popovers. Lighter chrome than FilterListSheet (no big header bar).
+const SearchableMultiSelect: React.FC<{
+  placeholder: string;
+  options: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}> = ({ placeholder, options, selected, onToggle }) => {
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
+  return (
+    <div className="flex flex-col max-h-[340px]">
+      <div className="px-3 pt-3 pb-2 flex-shrink-0">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
+          <input
+            autoFocus
+            type="text"
+            placeholder={placeholder}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-on-surface/[0.05] rounded-xl py-2 pl-9 pr-3 text-[13px] font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-1 pb-2">
+        {filtered.length === 0 ? (
+          <p className="text-center py-6 text-[13px] text-on-surface/40">No matches</p>
+        ) : filtered.map((opt) => {
+          const isSelected = selected.includes(opt);
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onToggle(opt)}
+              className={cn(
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-left transition-colors',
+                isSelected ? 'bg-primary/[0.06] text-primary' : 'text-on-surface/75 hover:bg-on-surface/[0.04]',
+              )}
+            >
+              <span className="text-[13px] font-medium truncate pr-2">{opt}</span>
+              {isSelected && <Check size={14} className="text-primary flex-shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/* ── Desktop list switcher row ── */
+const SwitcherRow: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}> = ({ icon, label, count, active, onClick }) => (
+  <button
+    type="button"
+    role="menuitem"
+    onClick={onClick}
+    className={cn(
+      'w-full flex items-center gap-2.5 px-4 py-2 text-[13px] transition-colors text-left',
+      active
+        ? 'bg-on-surface/[0.06] text-on-surface font-bold'
+        : 'text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.04] font-medium',
+    )}
+  >
+    <span className="flex-shrink-0 w-5 inline-flex justify-center items-center">{icon}</span>
+    <span className="flex-1 truncate">{label}</span>
+    <span className="text-[11px] tabular-nums text-on-surface/40">{count}</span>
+  </button>
+);
+
 export const Pantry: React.FC = () => {
-  const [selectedList, setSelectedList] = useState<CustomList | null>(null);
-  const [createSheetOpen, setCreateSheetOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
-  const [activeTab, setActiveTab] = useState<PantryTab>('lists');
-  const [showTrips, setShowTrips] = useState(false);
-  const [showHomeCooking, setShowHomeCooking] = useState(false);
-  const [homeCookingSelectedMealId, setHomeCookingSelectedMealId] = useState<string | null>(null);
-  // Phone-only: when true the user tapped the rated "Your canvas" tile from
-  // the new card layout, so we drop into the existing rated-list rendering.
-  const [showAllRated, setShowAllRated] = useState(false);
-  const [createTripFromList, setCreateTripFromList] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  // Read URL params synchronously on first render so the initial state
+  // matches the URL — fixes the flicker (and worse, the visible "back-
+  // to-All-Rated" jump) when remounting at /pantry?list=<id> after
+  // navigating to a restaurant detail and back. Without this the URL
+  // effect runs only after the first render commits, briefly showing
+  // the rated view before snapping into the right list.
+  const initialUrlState = (() => {
+    const sp = new URLSearchParams(location.search);
+    return {
+      listId: sp.get('list'),
+      view: sp.get('view'),
+    };
+  })();
+  const [selectedList, setSelectedList] = useState<CustomList | null>(() => {
+    const id = initialUrlState.listId;
+    if (!id) return null;
+    if (id === '__wishlist__') {
+      return {
+        id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+        restaurantIds: [], wishlistIds: [], createdAt: 0,
+      } as CustomList;
+    }
+    // Stub matches the URL effect's behavior — the lists-driven effect
+    // below fills in the real list object once data is available.
+    return {
+      id, name: '', emoji: '',
+      restaurantIds: [], wishlistIds: [], createdAt: 0,
+    } as CustomList;
+  });
+  const [createSheetOpen, setCreateSheetOpen] = useState(false);
+  // Which tab the create-list sheet was opened from — controls which presets
+  // appear and whether a custom list is tagged as a recipe list.
+  const [createSheetKind, setCreateSheetKind] = useState<'restaurants' | 'recipes'>('restaurants');
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
+  const [pantryTab, setPantryTab] = useState<PantryTab>('restaurants');
+  const [showTrips, setShowTrips] = useState<boolean>(() => initialUrlState.view === 'trips');
+  const [showHomeCooking, setShowHomeCooking] = useState<boolean>(() => initialUrlState.view === 'home-cooking');
+  const [homeCookingSelectedMealId, setHomeCookingSelectedMealId] = useState<string | null>(null);
+  // Set to true when the user taps the rated "Your canvas" tile from the
+  // landing card grid — drops into the existing rated-list rendering.
+  const [showAllRated, setShowAllRated] = useState(false);
+  const [createTripFromList, setCreateTripFromList] = useState(false);
   const { phoneMode, setHideBottomNav } = useSettings();
+  const { setScopedSearch, bumpFocus, scopedSearch } = usePageSearch();
+  const { setOverride: setPageAddAction } = usePageAddAction();
+
+  // Spotlight-style search popup — opened by the desktop header's
+  // "Add Rating" button. Mode determines what the popup shows:
+  //   - 'rate-new'        Main rated page. Search-only, picking a place
+  //                       opens the Add Rating modal so the user can rate
+  //                       it on the spot.
+  //   - 'add-to-list'     Custom restaurant list / Wishlist. Shows your
+  //                       rated restaurants up top (one-tap to add to
+  //                       the list, no rating modal — already rated)
+  //                       plus search results below (pick → adds to list
+  //                       AND opens the Add Rating modal).
+  const [searchPopupOpen, setSearchPopupOpen] = useState(false);
+  const [searchPopupMode, setSearchPopupMode] = useState<'rate-new' | 'add-to-list'>('rate-new');
 
   // On phone, always use list view
   const effectiveViewMode = phoneMode ? 'list' : viewMode;
@@ -4781,6 +6317,47 @@ export const Pantry: React.FC = () => {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
+  // ── Scoped header search ──
+  // Clicking "Search this list" hijacks the desktop header input so the
+  // page can be filtered without an in-page search bar. The page owns
+  // the query state (mainSearchQuery for the rated view); we mirror it
+  // back into the context so the header shows the live value, and the
+  // header calls setMainSearchQuery on every keystroke.
+  const activateRatedScope = useCallback(() => {
+    setScopedSearch({
+      scopeName: 'All Rated',
+      placeholder: 'Search this list…',
+      query: mainSearchQuery,
+      setQuery: setMainSearchQuery,
+      onDismiss: () => setMainSearchQuery(''),
+    });
+    bumpFocus();
+  }, [mainSearchQuery, setScopedSearch, bumpFocus]);
+
+  // Keep the scope's query field in lockstep with mainSearchQuery so the
+  // header input always shows the current filter text. Guard against an
+  // update loop by only re-setting when the values actually differ.
+  useEffect(() => {
+    if (scopedSearch && scopedSearch.scopeName === 'All Rated' && scopedSearch.query !== mainSearchQuery) {
+      setScopedSearch({ ...scopedSearch, query: mainSearchQuery });
+    }
+  }, [mainSearchQuery, scopedSearch, setScopedSearch]);
+
+  // The rated-view scope only makes sense on the rated landing — drop
+  // it the moment the user picks a sub-view or specific list.
+  useEffect(() => {
+    if (scopedSearch?.scopeName === 'All Rated' && (selectedList || showHomeCooking || showTrips)) {
+      setScopedSearch(null);
+    }
+  }, [selectedList, showHomeCooking, showTrips, scopedSearch, setScopedSearch]);
+
+  // Desktop list switcher — replaces the sidebar's old Pantry tray. The
+  // button shows the current view ("All Rated", "All Recipes", "Wishlist"),
+  // and a popover lists every other list grouped by Restaurants / Recipes
+  // so the user can jump between them without leaving the page.
+  const [listSwitcherOpen, setListSwitcherOpen] = useState(false);
+  const listSwitcherRef = useRef<HTMLDivElement>(null);
+
   // Close more menu on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -4789,6 +6366,17 @@ export const Pantry: React.FC = () => {
     if (moreMenuOpen) document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [moreMenuOpen]);
+
+  useEffect(() => {
+    if (!listSwitcherOpen) return;
+    const handle = (e: MouseEvent) => {
+      if (listSwitcherRef.current && !listSwitcherRef.current.contains(e.target as Node)) {
+        setListSwitcherOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [listSwitcherOpen]);
 
   const handleExport = (format: 'csv' | 'json') => {
     const items = filteredRatings.map((r) => ({
@@ -4850,6 +6438,7 @@ export const Pantry: React.FC = () => {
     rateRestaurant, cacheRestaurantMeta, addToList,
     customOrder, setCustomOrder,
     homeMeals, createHomeMeal, updateHomeMeal, deleteHomeMeal, openHomeMealModal,
+    openAddRecipeModal,
   } = useLists();
 
   /**
@@ -4862,6 +6451,13 @@ export const Pantry: React.FC = () => {
    *   ?new-list=1          → opens the create-list sheet, then strips
    *                          the param so a refresh doesn't re-open it
    * Plain `/pantry` resets back to the main lists overview.
+   *
+   * Crucially this effect's deps are URL-only — `lists` lives in a
+   * sibling effect below. Mixing them caused a regression where any
+   * list mutation (e.g. addToList) re-ran this effect, found no URL
+   * params (because the user had navigated via state, not URL), and
+   * blew selectedList back to null — i.e. dumped the user back to the
+   * rated view mid-action.
    */
   useEffect(() => {
     const sp = new URLSearchParams(location.search);
@@ -4904,8 +6500,11 @@ export const Pantry: React.FC = () => {
           restaurantIds: [], wishlistIds: [], createdAt: 0,
         } as CustomList);
       } else {
-        const found = lists.find((l) => l.id === listId);
-        if (found) setSelectedList(found);
+        // Stash the id; the lists-driven effect below will fill in the
+        // real list object once data is available.
+        setSelectedList((prev) => prev?.id === listId
+          ? prev
+          : ({ id: listId, name: '', emoji: '', restaurantIds: [], wishlistIds: [], createdAt: 0 } as CustomList));
       }
       return;
     }
@@ -4914,7 +6513,17 @@ export const Pantry: React.FC = () => {
     setSelectedList(null);
     setShowHomeCooking(false);
     setShowTrips(false);
-  }, [location.pathname, location.search, lists, navigate]);
+  }, [location.pathname, location.search, navigate]);
+
+  // Reconcile selectedList against fresh `lists` data. Runs on every
+  // lists update (e.g. after addToList) and re-points selectedList at
+  // the latest object so the page renders fresh contents — without
+  // triggering the URL effect, which would otherwise wipe state.
+  useEffect(() => {
+    if (!selectedList || selectedList.id === '__wishlist__') return;
+    const found = lists.find((l) => l.id === selectedList.id);
+    if (found && found !== selectedList) setSelectedList(found);
+  }, [lists, selectedList]);
 
   const listScrollRef = useRef<HTMLDivElement>(null);
 
@@ -5019,18 +6628,302 @@ export const Pantry: React.FC = () => {
       : lists.find((l) => l.id === selectedList.id) ?? null
     : null;
 
-  // Hide the top More menu on the phone-only card layout — it doesn't appear
-  // in the redesign and the import/export/reorder actions stay reachable
-  // from the rated list (showAllRated) where they make sense.
+  // The card-grid landing is phone-only — desktop lands on the rated list
+  // directly and uses the on-page list switcher to jump between lists.
+  // Hide the top More menu on that phone landing — the import/export/
+  // reorder actions live on the rated list where they make sense.
   const onPhoneCardHome =
     phoneMode && !currentList && !showHomeCooking && !showTrips && !showAllRated;
   const hideTopBar =
     (showHomeCooking && homeCookingSelectedMealId !== null) || onPhoneCardHome;
 
+  // ── Override the desktop header's Add CTA per view ──
+  // Phone keeps the default behavior. On desktop, the button label and
+  // click handler swap based on which list is open:
+  //   • Recipe view (All Recipes or a custom recipe list) → "Add Recipe",
+  //     opens the right recipe modal directly (HomeMeal modal for All
+  //     Recipes; AddRecipeModal scoped to the list otherwise).
+  //   • Custom restaurant list / Wishlist → "Add Rating", opens the
+  //     SearchPopup in 'add-to-list' mode (rated section + search).
+  //   • Rated list → "Add Rating", opens the SearchPopup in 'rate-new'
+  //     mode (search-only — your rated places are already on the page).
+  //   • Trips / phone card landing → fall through to the default
+  //     /search/main route.
+  useEffect(() => {
+    if (phoneMode || onPhoneCardHome) {
+      setPageAddAction(null);
+      return;
+    }
+    if (showTrips) {
+      setPageAddAction(null);
+      return;
+    }
+    if (showHomeCooking) {
+      setPageAddAction({
+        label: 'Add Recipe',
+        onClick: () => openHomeMealModal(),
+      });
+      return;
+    }
+    if (selectedList && selectedList.type === 'home-cooking') {
+      setPageAddAction({
+        label: 'Add Recipe',
+        onClick: () => openAddRecipeModal(selectedList.id),
+      });
+      return;
+    }
+    if (selectedList) {
+      // Wishlist or custom restaurant list → SearchPopup with rated
+      // section so the user can one-tap their already-rated places into
+      // the list.
+      setPageAddAction({
+        label: 'Add Rating',
+        onClick: () => { setSearchPopupMode('add-to-list'); setSearchPopupOpen(true); },
+      });
+      return;
+    }
+    // Default rated view (with or without showAllRated): search-only popup.
+    setPageAddAction({
+      label: 'Add Rating',
+      onClick: () => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); },
+    });
+  }, [phoneMode, onPhoneCardHome, showTrips, showHomeCooking, selectedList, openHomeMealModal, openAddRecipeModal, setPageAddAction]);
+
+  // Reset the override when Pantry unmounts so other pages start clean.
+  useEffect(() => {
+    return () => { setPageAddAction(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Which top-level desktop tab is the user currently on? Derived so any
+  // path into a recipe-y view (cookbook, recipe sub-list) lights up the
+  // Recipes tab; everything else (rated, wishlist, restaurant sub-list)
+  // sits under Restaurants.
+  const activeDesktopTab: 'restaurants' | 'recipes' = showHomeCooking
+    ? 'recipes'
+    : (selectedList && selectedList.type === 'home-cooking')
+      ? 'recipes'
+      : 'restaurants';
+
+  // Tab clicks reset to that tab's default landing. Trips is its own
+  // top-level mode — clicking either tab leaves it. Each handler also
+  // updates the URL so the back button (e.g. from a restaurant detail
+  // page) brings the user back to the same list, not All Rated.
+  const goToRestaurantsTab = () => {
+    setShowHomeCooking(false); setShowTrips(false);
+    setSelectedList(null); setShowAllRated(false);
+    if (location.pathname !== '/pantry' || location.search) navigate('/pantry');
+  };
+  const goToRecipesTab = () => {
+    setSelectedList(null); setShowTrips(false); setShowAllRated(false);
+    setShowHomeCooking(true);
+    navigate('/pantry?view=home-cooking');
+  };
+
+  // Identity of the currently visible top-level view, used to label the
+  // list switcher button. Now that the tab pill also persists when a
+  // sub-list is open, derive from selectedList first so opening
+  // Wishlist or "Best Pizza" updates the active tab's label/count
+  // instead of stranding "All Rated" up there.
+  const currentViewLabel = (() => {
+    if (selectedList) {
+      if (selectedList.id === '__wishlist__') {
+        return { emoji: '❤️', name: 'Wishlist', count: regularWishlist.length };
+      }
+      const isRecipeList = selectedList.type === 'home-cooking';
+      const count = isRecipeList
+        ? (selectedList.recipes?.length || 0)
+        : selectedList.restaurantIds.length + (selectedList.wishlistIds?.length || 0);
+      return { emoji: selectedList.emoji, name: selectedList.name, count };
+    }
+    if (showHomeCooking) return { emoji: '🍳', name: 'All Recipes', count: homeMeals.length };
+    if (showTrips) return { emoji: '✈️', name: 'Trips', count: trips.length };
+    return { emoji: '⭐', name: 'All Rated', count: regularRatingsCount };
+  })();
+
+  // Restaurant + recipe lists split for the popover sections.
+  const restaurantListsForSwitcher = useMemo(
+    () => lists.filter((l) => l.type !== 'home-cooking'),
+    [lists],
+  );
+  const recipeListsForSwitcher = useMemo(
+    () => lists.filter((l) => l.type === 'home-cooking'),
+    [lists],
+  );
+
+  // Helpers to drive the switcher's destinations through the existing
+  // showHomeCooking / showTrips / selectedList state machine. Each one
+  // also pushes the matching URL so a navigation away from /pantry
+  // (e.g. clicking a restaurant or recipe) and back lands the user on
+  // the same list — not All Rated.
+  const switchToRated = () => {
+    setListSwitcherOpen(false);
+    setShowHomeCooking(false); setShowTrips(false);
+    setSelectedList(null); setShowAllRated(false);
+    if (location.pathname !== '/pantry' || location.search) navigate('/pantry');
+  };
+  const switchToWishlist = () => {
+    setListSwitcherOpen(false);
+    setShowHomeCooking(false); setShowTrips(false);
+    setShowAllRated(false);
+    setSelectedList({
+      id: '__wishlist__', name: 'Wishlist', emoji: '❤️',
+      restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId),
+      createdAt: 0,
+    } as CustomList);
+    navigate('/pantry?list=__wishlist__');
+  };
+  const switchToList = (list: CustomList) => {
+    setListSwitcherOpen(false);
+    setShowHomeCooking(false); setShowTrips(false); setShowAllRated(false);
+    setSelectedList(list);
+    navigate(`/pantry?list=${encodeURIComponent(list.id)}`);
+  };
+  const switchToAllRecipes = () => {
+    setListSwitcherOpen(false);
+    setSelectedList(null); setShowTrips(false); setShowAllRated(false);
+    setShowHomeCooking(true);
+    navigate('/pantry?view=home-cooking');
+  };
+  const switchToTrips = () => {
+    setListSwitcherOpen(false);
+    setSelectedList(null); setShowHomeCooking(false); setShowAllRated(false);
+    setShowTrips(true);
+    navigate('/pantry?view=trips');
+  };
+
   return (
     <div className="pb-32">
-      {!hideTopBar && !currentList && (
-        <div className="flex items-center justify-end px-4 pt-4 pb-1">
+      {/* Combined tabs + list selector — desktop only.
+          The tab pill IS the list selector: each tab shows the active
+          list within its section (emoji + name + count + chevron).
+          Click the active tab → dropdown of that section's lists.
+          Click the inactive tab → switch to it. The dropdown adapts
+          to whichever tab is active so Restaurants only sees
+          restaurant lists, and Recipes only sees recipe lists.
+          Now shows even when a sub-list is selected so navigation
+          stays consistent — opening Wishlist or a custom list keeps
+          the same chrome and just swaps the list content below.
+          Hidden on phone (card landing handles it) and in trips. */}
+      {!hideTopBar && (
+        <div className="flex items-center justify-between gap-3 px-3 pt-4 pb-5">
+          {!phoneMode && !showTrips ? (
+            <div className="relative" ref={listSwitcherRef}>
+              <div className="inline-flex bg-on-surface/[0.06] rounded-full p-1">
+                <CombinedTabButton
+                  isActive={activeDesktopTab === 'restaurants'}
+                  inactiveLabel="Restaurants"
+                  activeEmoji={currentViewLabel.emoji}
+                  activeName={currentViewLabel.name}
+                  activeCount={currentViewLabel.count}
+                  dropdownOpen={listSwitcherOpen}
+                  onClick={() => {
+                    if (activeDesktopTab === 'restaurants') {
+                      setListSwitcherOpen((o) => !o);
+                    } else {
+                      goToRestaurantsTab();
+                      setListSwitcherOpen(false);
+                    }
+                  }}
+                />
+                <CombinedTabButton
+                  isActive={activeDesktopTab === 'recipes'}
+                  inactiveLabel="Recipes"
+                  activeEmoji={currentViewLabel.emoji}
+                  activeName={currentViewLabel.name}
+                  activeCount={currentViewLabel.count}
+                  dropdownOpen={listSwitcherOpen}
+                  onClick={() => {
+                    if (activeDesktopTab === 'recipes') {
+                      setListSwitcherOpen((o) => !o);
+                    } else {
+                      goToRecipesTab();
+                      setListSwitcherOpen(false);
+                    }
+                  }}
+                />
+              </div>
+
+              <AnimatePresence>
+                {listSwitcherOpen && (
+                  <motion.div
+                    role="menu"
+                    initial={{ opacity: 0, scale: 0.97, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.97, y: -4 }}
+                    transition={{ duration: 0.14, ease: 'easeOut' }}
+                    className="absolute left-0 top-full mt-2 w-72 max-h-[70vh] overflow-y-auto bg-surface rounded-2xl shadow-xl border border-on-surface/[0.08] z-50 py-2"
+                  >
+                    {activeDesktopTab === 'restaurants' ? (
+                      <>
+                        <SwitcherRow
+                          icon={<span className="text-base leading-none">⭐</span>}
+                          label="All Rated"
+                          count={regularRatingsCount}
+                          active={!showHomeCooking && !showTrips && !selectedList}
+                          onClick={switchToRated}
+                        />
+                        <SwitcherRow
+                          icon={<Heart size={14} className="text-red-400 fill-red-400" />}
+                          label="Wishlist"
+                          count={regularWishlist.length}
+                          active={selectedList?.id === '__wishlist__'}
+                          onClick={switchToWishlist}
+                        />
+                        {restaurantListsForSwitcher.map((l) => (
+                          <SwitcherRow
+                            key={l.id}
+                            icon={<span className="text-base leading-none">{l.emoji}</span>}
+                            label={l.name}
+                            count={l.restaurantIds.length + (l.wishlistIds?.length || 0)}
+                            active={selectedList?.id === l.id}
+                            onClick={() => switchToList(l)}
+                          />
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setListSwitcherOpen(false); setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
+                        >
+                          <Plus size={14} />
+                          <span>New restaurant list</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <SwitcherRow
+                          icon={<ChefHat size={14} className="text-emerald-600" />}
+                          label="All Recipes"
+                          count={homeMeals.length}
+                          active={showHomeCooking}
+                          onClick={switchToAllRecipes}
+                        />
+                        {recipeListsForSwitcher.map((l) => (
+                          <SwitcherRow
+                            key={l.id}
+                            icon={<span className="text-base leading-none">{l.emoji}</span>}
+                            label={l.name}
+                            count={l.recipes?.length || 0}
+                            active={selectedList?.id === l.id}
+                            onClick={() => switchToList(l)}
+                          />
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setListSwitcherOpen(false); setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
+                        >
+                          <Plus size={14} />
+                          <span>New recipe list</span>
+                        </button>
+                      </>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ) : <div />}
+
           <div className="relative" ref={moreMenuRef}>
             <button onClick={() => setMoreMenuOpen(!moreMenuOpen)}
               className="p-2 hover:bg-muted rounded-full transition-colors">
@@ -5085,6 +6978,10 @@ export const Pantry: React.FC = () => {
             onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
             selectedMealId={homeCookingSelectedMealId}
             onSelectMeal={setHomeCookingSelectedMealId}
+            // On desktop the page-level Restaurants/Recipes tabs already
+            // own the chrome — drop HomeCookingTab's local header so we
+            // don't render duplicate titles + back arrows.
+            hideHeader={!phoneMode && homeCookingSelectedMealId === null}
           />
         ) : showTrips ? (
           <TripsTab
@@ -5106,21 +7003,13 @@ export const Pantry: React.FC = () => {
             autoCreate={createTripFromList}
             onAutoCreateHandled={() => setCreateTripFromList(false)}
           />
-        ) : showHomeCooking ? (
-          <HomeCookingTab
-            meals={homeMeals}
-            onCreateMeal={createHomeMeal}
-            onUpdateMeal={updateHomeMeal}
-            onDeleteMeal={deleteHomeMeal}
-            onOpenModal={openHomeMealModal}
-            onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
-            selectedMealId={homeCookingSelectedMealId}
-            onSelectMeal={setHomeCookingSelectedMealId}
-          />
         ) : phoneMode && !showAllRated ? (
-          // Phone redesign: card grid with Lists / Recipes tabs. Tapping
-          // Wishlist or "Your canvas" routes back into the existing list /
-          // rated views; tapping a recipe opens the home meal modal.
+          // Phone-only card landing. Tapping Wishlist, "Your canvas", or
+          // "All Recipes" routes back into the existing list / rated /
+          // cookbook views. The "+ New" cards on each tab open the
+          // create-list sheet seeded with the right kind so a custom
+          // list lands on the correct tab. Desktop skips this and goes
+          // straight to the rated-list view (with on-page list switcher).
           <PhonePantryHome
             lists={lists}
             ratedCount={regularRatingsCount}
@@ -5131,8 +7020,13 @@ export const Pantry: React.FC = () => {
               .slice(0, 3)}
             wishlistCount={regularWishlist.length}
             homeMeals={homeMeals}
-            onOpenList={setSelectedList}
-            onOpenWishlist={() =>
+            tab={pantryTab}
+            onTabChange={setPantryTab}
+            onOpenList={(list) => {
+              setSelectedList(list);
+              navigate(`/pantry?list=${encodeURIComponent(list.id)}`);
+            }}
+            onOpenWishlist={() => {
               setSelectedList({
                 id: '__wishlist__',
                 name: 'Wishlist',
@@ -5140,17 +7034,19 @@ export const Pantry: React.FC = () => {
                 restaurantIds: [],
                 wishlistIds: regularWishlist.map((w) => w.restaurantId),
                 createdAt: 0,
-              } as CustomList)
-            }
+              } as CustomList);
+              navigate('/pantry?list=__wishlist__');
+            }}
             onOpenRated={() => setShowAllRated(true)}
-            onCreateList={() => setCreateSheetOpen(true)}
-            onOpenMeal={(meal) => openHomeMealModal(meal)}
+            onCreateRestaurantList={() => { setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
+            onOpenAllRecipes={() => { setShowHomeCooking(true); navigate('/pantry?view=home-cooking'); }}
+            onCreateRecipeList={() => { setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
           />
         ) : (
           <>
-            {/* When we entered the rated view from the phone redesign,
+            {/* When we entered the rated view from the card landing,
                  surface a back button so the user can return to the cards. */}
-            {phoneMode && showAllRated && (
+            {showAllRated && (
               <button
                 onClick={() => setShowAllRated(false)}
                 className="flex items-center gap-1 text-sm text-on-surface/55 hover:text-on-surface mb-3 -ml-1 px-1 py-1"
@@ -5159,118 +7055,244 @@ export const Pantry: React.FC = () => {
               </button>
             )}
 
-            {/* ── Always-visible main search bar ── */}
-            <div className="mb-4">
-              <div className="relative">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
-                <input
-                  type="text"
-                  value={mainSearchQuery}
-                  onChange={(e) => setMainSearchQuery(e.target.value)}
-                  placeholder="Search by name, cuisine, location..."
-                  className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
-                />
-                {mainSearchQuery && (
+            {/* ── Page chrome ──
+                Phone keeps the existing stack of three rows (search bar
+                → filter pills → summary). Desktop folds everything into
+                a single editorial toolbar below a thin divider line:
+                  ┌──────────────────────────────────────────────────┐
+                  │ [🔍 Search this list]  •  [Filters] [City] [..] │
+                  │                                  63 places · 8.0│
+                  │                                            ⊞ ▦ │
+                  └──────────────────────────────────────────────────┘
+                The pills inherit a single muted token ("chip") look so
+                the row reads as one cluster instead of five floating
+                buttons in random colors. */}
+            {phoneMode ? (
+              <>
+                {/* Top action row — mirrors the per-list ListView so
+                    the rated overview gets the same Add affordance.
+                    Tapping opens the SearchPopup in 'rate-new' mode,
+                    matching the desktop header's Add Rating CTA. */}
+                <div className="flex items-center justify-end mb-3">
                   <button
-                    onClick={() => setMainSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
-                    aria-label="Clear search"
+                    type="button"
+                    onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
                   >
-                    <X size={14} />
+                    <Plus size={15} strokeWidth={2.5} />
+                    <span>Add Rating</span>
                   </button>
+                </div>
+
+                <div className="mb-4">
+                  <div className="relative">
+                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={mainSearchQuery}
+                      onChange={(e) => setMainSearchQuery(e.target.value)}
+                      placeholder="Search by name, cuisine, location..."
+                      className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+                    />
+                    {mainSearchQuery && (
+                      <button
+                        onClick={() => setMainSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                        aria-label="Clear search"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <FilterPill onClick={() => { setFiltersOpen(true); closeAllDropdowns(); }}
+                    icon={<SlidersHorizontal size={12} />} label="Filters" active={activeFilterCount > 0}
+                    badge={activeFilterCount > 0 ? activeFilterCount : undefined} />
+                  <FilterPill onClick={() => setCityDropdownOpen(true)}
+                    icon={<MapPin size={11} />}
+                    label={cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}
+                    active={cityFilter.length > 0}
+                    onClear={cityFilter.length > 0 ? () => setCityFilter([]) : undefined} />
+                  <FilterPill onClick={() => setCuisineDropdownOpen(true)}
+                    label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
+                    active={cuisineFilter.length > 0}
+                    onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
+                  <FilterPill onClick={() => setPriceDropdownOpen(true)}
+                    label={priceFilter || 'Price'} active={!!priceFilter}
+                    onClear={priceFilter ? () => setPriceFilter(null) : undefined} />
+                  <FilterPill onClick={() => setSortDropdownOpen(true)}
+                    icon={<ArrowUpDown size={11} />}
+                    label={sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}
+                    active={sortBy !== 'highest' && sortBy !== 'recent'}
+                    onClear={(sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined} />
+                  {hasActiveFilters && (
+                    <button onClick={handleResetFilters}
+                      className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+                      <X size={10} /><span>Clear</span>
+                    </button>
+                  )}
+                </div>
+
+                {regularRatingsCount > 0 && (
+                  <div className="flex items-center gap-4 px-1 mb-3">
+                    <p className="text-xs text-on-surface/40">
+                      <span className="font-bold text-on-surface">{filteredRatings.length}</span>
+                      {filteredRatings.length !== regularRatingsCount && ` of ${regularRatingsCount}`} rated
+                    </p>
+                    {filteredRatings.length > 0 && (
+                      <p className="text-xs text-on-surface/40">
+                        Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span>/10
+                      </p>
+                    )}
+                  </div>
                 )}
-              </div>
-            </div>
+              </>
+            ) : (
+              <div className="mb-5 pb-4 border-b border-on-surface/[0.06]">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                  {/* Primary action: search this list */}
+                  <button
+                    type="button"
+                    onClick={activateRatedScope}
+                    className={cn(
+                      'inline-flex items-center gap-2 h-8 px-3.5 rounded-full transition-colors text-[13px] font-semibold flex-shrink-0',
+                      mainSearchQuery
+                        ? 'bg-primary/[0.10] text-primary hover:bg-primary/[0.14]'
+                        : 'bg-on-surface/[0.05] text-on-surface/75 hover:bg-on-surface/[0.08] hover:text-on-surface',
+                    )}
+                    aria-label="Search this list"
+                  >
+                    <Search size={13} />
+                    <span>Search this list</span>
+                    {mainSearchQuery && (
+                      <span className="inline-flex items-center gap-1 ml-0.5 px-1.5 py-0.5 rounded-full bg-primary/15 text-[11px] font-bold">
+                        <span className="truncate max-w-[100px]">"{mainSearchQuery}"</span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setMainSearchQuery(''); setScopedSearch(null); } }}
+                          aria-label="Clear list search"
+                          className="text-primary/70 hover:text-primary"
+                        >
+                          <X size={11} />
+                        </span>
+                      </span>
+                    )}
+                  </button>
 
-            {/* The horizontal list-pill row that used to live here is gone.
-                Desktop list navigation moved into the sidebar's "My Lists"
-                tray; phone mode never showed this row anyway because the
-                PhonePantryHome card grid is the entry point. */}
+                  {/* Visual divider between primary action and filter cluster */}
+                  <span className="w-px h-5 bg-on-surface/[0.10] flex-shrink-0 mx-1" aria-hidden="true" />
 
-            {/* ── Filter bar ── */}
-            <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-              {/* Filters button — always first */}
-              <button
-                onClick={() => { setFiltersOpen(true); closeAllDropdowns(); }}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  activeFilterCount > 0
-                    ? "bg-primary/10 text-primary border-primary/20"
-                    : "bg-on-surface/5 text-on-surface/50 border-transparent"
-                )}
-              >
-                <SlidersHorizontal size={12} />
-                <span>Filters</span>
-                {activeFilterCount > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-primary text-white text-[9px] font-bold flex items-center justify-center">{activeFilterCount}</span>
-                )}
-              </button>
+                  {/* Filter cluster — Filters opens the full sheet;
+                      City / Cuisine / Price / Sort each drop an
+                      anchored popover under the pill instead of
+                      sliding a bottom sheet up. */}
+                  <FilterPill onClick={() => { setFiltersOpen(true); }}
+                    icon={<SlidersHorizontal size={12} />} label="Filters" active={activeFilterCount > 0}
+                    badge={activeFilterCount > 0 ? activeFilterCount : undefined} />
+                  <AnchoredPill
+                    pill={{
+                      icon: <MapPin size={11} />,
+                      label: cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City',
+                      active: cityFilter.length > 0,
+                      onClear: cityFilter.length > 0 ? () => setCityFilter([]) : undefined,
+                    }}
+                    popoverWidth="w-[280px]"
+                  >
+                    {() => (
+                      <SearchableMultiSelect
+                        placeholder="Search cities..."
+                        options={allCities}
+                        selected={cityFilter}
+                        onToggle={toggleCityFilter}
+                      />
+                    )}
+                  </AnchoredPill>
+                  <AnchoredPill
+                    pill={{
+                      label: cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine',
+                      active: cuisineFilter.length > 0,
+                      onClear: cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined,
+                    }}
+                    popoverWidth="w-[280px]"
+                  >
+                    {() => (
+                      <SearchableMultiSelect
+                        placeholder="Search cuisines..."
+                        options={allCuisines}
+                        selected={cuisineFilter}
+                        onToggle={toggleCuisineFilter}
+                      />
+                    )}
+                  </AnchoredPill>
+                  <AnchoredPill
+                    pill={{
+                      label: priceFilter || 'Price',
+                      active: !!priceFilter,
+                      onClear: priceFilter ? () => setPriceFilter(null) : undefined,
+                    }}
+                    popoverWidth="w-[240px]"
+                  >
+                    {(close) => (
+                      <PricePickerContent
+                        value={priceFilter}
+                        onChange={(v) => { setPriceFilter(v); close(); }}
+                      />
+                    )}
+                  </AnchoredPill>
+                  <AnchoredPill
+                    pill={{
+                      icon: <ArrowUpDown size={11} />,
+                      label: sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort',
+                      active: sortBy !== 'highest' && sortBy !== 'recent',
+                      onClear: (sortBy !== 'highest' && sortBy !== 'recent') ? () => setSortBy('highest') : undefined,
+                    }}
+                    popoverWidth="w-[240px]"
+                  >
+                    {(close) => (
+                      <SortPickerContent
+                        value={sortBy}
+                        options={[
+                          ['recent', 'Recent'],
+                          ['highest', 'Highest Score'],
+                          ['lowest', 'Lowest Score'],
+                          ['added', 'Date Added'],
+                          ['custom', 'Custom Order'],
+                        ]}
+                        onChange={(v) => { handleSortBy(v as typeof sortBy); close(); }}
+                      />
+                    )}
+                  </AnchoredPill>
+                  {hasActiveFilters && (
+                    <button
+                      onClick={handleResetFilters}
+                      className="inline-flex items-center gap-1 h-8 px-3 rounded-full text-[12px] font-semibold text-red-500/80 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                    >
+                      <X size={11} /><span>Clear all</span>
+                    </button>
+                  )}
 
-              {/* Quick: City → opens full page sheet */}
-              <button
-                onClick={() => setCityDropdownOpen(true)}
-                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  cityFilter.length > 0 ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-              >
-                <MapPin size={11} />
-                <span>{cityFilter.length > 0 ? `City (${cityFilter.length})` : 'City'}</span>
-                {cityFilter.length > 0 ? <span onClick={(e) => { e.stopPropagation(); setCityFilter([]); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
-              </button>
-
-              {/* Quick: Cuisine → opens full page sheet */}
-              <button
-                onClick={() => setCuisineDropdownOpen(true)}
-                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  cuisineFilter.length > 0 ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-              >
-                <span>{cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}</span>
-                {cuisineFilter.length > 0 ? <span onClick={(e) => { e.stopPropagation(); setCuisineFilter([]); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
-              </button>
-
-              {/* Quick: Price → opens small bottom sheet */}
-              <button
-                onClick={() => setPriceDropdownOpen(true)}
-                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  priceFilter ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-              >
-                <span>{priceFilter || 'Price'}</span>
-                {priceFilter ? <span onClick={(e) => { e.stopPropagation(); setPriceFilter(null); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
-              </button>
-
-              {/* Quick: Sort → opens small bottom sheet */}
-              <button
-                onClick={() => setSortDropdownOpen(true)}
-                className={cn("flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border flex-shrink-0",
-                  sortBy !== 'highest' && sortBy !== 'recent' ? "bg-primary/10 text-primary border-primary/20" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-              >
-                <ArrowUpDown size={11} />
-                <span>{sortBy !== 'highest' && sortBy !== 'recent' ? sortLabels[sortBy] : 'Sort'}</span>
-                {sortBy !== 'highest' && sortBy !== 'recent' ? <span onClick={(e) => { e.stopPropagation(); setSortBy('highest'); }} className="ml-0.5"><X size={10} /></span> : <ChevronDown size={10} />}
-              </button>
-
-              {/* Clear all */}
-              {hasActiveFilters && (
-                <button onClick={handleResetFilters}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
-                  <X size={10} /><span>Clear</span>
-                </button>
-              )}
-            </div>
-
-            {/* ── Summary bar ── */}
-            {regularRatingsCount > 0 && (
-              <div className="flex items-center gap-4 px-1 mb-3">
-                <p className="text-xs text-on-surface/40">
-                  <span className="font-bold text-on-surface">{filteredRatings.length}</span>
-                  {filteredRatings.length !== regularRatingsCount && ` of ${regularRatingsCount}`} rated
-                </p>
-                {filteredRatings.length > 0 && (
-                  <p className="text-xs text-on-surface/40">
-                    Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span>/10
-                  </p>
-                )}
-                <div className="ml-auto flex items-center gap-2">
-                  <ViewModeToggle mode={effectiveViewMode} onChange={setViewMode} />
+                  {/* Right side: live result count + avg score + view toggle */}
+                  <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+                    {regularRatingsCount > 0 && (
+                      <p className="text-[12px] text-on-surface/50 whitespace-nowrap tabular-nums">
+                        <span className="font-bold text-on-surface">{filteredRatings.length}</span>
+                        {filteredRatings.length !== regularRatingsCount && (
+                          <span className="text-on-surface/35"> / {regularRatingsCount}</span>
+                        )}
+                        {filteredRatings.length > 0 && (
+                          <>
+                            <span className="text-on-surface/25 mx-1.5">·</span>
+                            <span>Avg <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span></span>
+                          </>
+                        )}
+                      </p>
+                    )}
+                    <ViewModeToggle mode={effectiveViewMode} onChange={setViewMode} />
+                  </div>
                 </div>
               </div>
             )}
@@ -5290,7 +7312,7 @@ export const Pantry: React.FC = () => {
               <div className="space-y-5">
                 {/* Rated section */}
                 {filteredRatings.length > 0 ? (
-                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6" : "divide-y divide-on-surface/[0.06]"}>
+                  <div className={(sortBy !== 'custom' && effectiveViewMode === 'grid') ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-3 gap-y-6 items-start" : "divide-y divide-on-surface/[0.06]"}>
                     {filteredRatings.map((r, idx) => {
                       const inLists = getListsForRestaurant(r.restaurantId);
                       const isCustom = sortBy === 'custom';
@@ -5390,13 +7412,91 @@ export const Pantry: React.FC = () => {
         onReset={handleResetFilters}
       />
 
+      {/* Spotlight-style search popup — opened by the desktop header's
+          Add Rating button (PageAddAction override above). In
+          add-to-list mode it surfaces your rated restaurants up top
+          with checkboxes so you can batch-add several at once via the
+          Done button; search results stay single-pick (each one drops
+          into the rating modal). */}
+      <SearchPopup
+        open={searchPopupOpen}
+        onClose={() => setSearchPopupOpen(false)}
+        title={searchPopupMode === 'add-to-list' && currentList
+          ? (currentList.id === '__wishlist__' ? 'Add to Wishlist' : `Add to ${currentList.name}`)
+          : undefined}
+        placeholder={searchPopupMode === 'add-to-list'
+          ? 'Pick rated places or search for a new one…'
+          : 'Search for a restaurant…'}
+        ratedRestaurants={searchPopupMode === 'add-to-list'
+          ? ratings.filter((r) => r.cuisine !== 'Hotel Breakfast')
+          : undefined}
+        excludeIds={searchPopupMode === 'add-to-list' && currentList
+          ? new Set([
+              ...currentList.restaurantIds,
+              ...(currentList.wishlistIds || []),
+            ])
+          : undefined}
+        multiSelectRated={searchPopupMode === 'add-to-list' && !!currentList && currentList.id !== '__wishlist__'}
+        onCommitRated={(picked) => {
+          if (!currentList || currentList.id === '__wishlist__') return;
+          // Add every picked restaurant to the list. No rating modal
+          // since these are already rated. Cache meta on each so rows
+          // render instantly without an extra fetch.
+          picked.forEach((rating) => {
+            cacheRestaurantMeta({
+              id: rating.restaurantId, name: rating.name, image: rating.image,
+              cuisine: rating.cuisine, price: rating.price, address: rating.address,
+            });
+            addToList(currentList.id, rating.restaurantId);
+          });
+          setSearchPopupOpen(false);
+        }}
+        onPickRated={(rating) => {
+          // Single-select fallback path (e.g. wishlist context). Adds
+          // and closes immediately — no rating modal needed.
+          if (!currentList) return;
+          if (currentList.id === '__wishlist__') {
+            setSearchPopupOpen(false);
+            return;
+          }
+          cacheRestaurantMeta({
+            id: rating.restaurantId, name: rating.name, image: rating.image,
+            cuisine: rating.cuisine, price: rating.price, address: rating.address,
+          });
+          addToList(currentList.id, rating.restaurantId);
+          setSearchPopupOpen(false);
+        }}
+        onPickPlace={(place) => {
+          const meta: RestaurantMeta = {
+            id: place.id, name: place.name, image: place.photoUrl || '',
+            cuisine: getCuisineLabel(place.types || []),
+            price: '',
+            address: place.fullAddress || place.address,
+          };
+          setSearchPopupOpen(false);
+          if (searchPopupMode === 'add-to-list' && currentList && currentList.id !== '__wishlist__') {
+            // Add to the list immediately and open the rating modal so
+            // the user can score it. The cache write makes the row show
+            // up without waiting for the rating to be saved.
+            cacheRestaurantMeta(meta);
+            addToList(currentList.id, place.id);
+          }
+          openAddRestaurantModal(meta);
+        }}
+      />
+
       {/* Create list bottom sheet */}
       <CreateListSheet
         open={createSheetOpen}
         onClose={() => setCreateSheetOpen(false)}
-        onCreate={(name, emoji, type) => createList(name, emoji, type)}
+        onCreate={(name, emoji, type) => {
+          createList(name, emoji, type);
+          // Land the user on the matching tab so the new list is visible.
+          setPantryTab(type === 'home-cooking' ? 'recipes' : 'restaurants');
+        }}
         existingListNames={lists.map((l) => l.name)}
         onCreateTrip={() => { setShowTrips(true); setCreateTripFromList(true); }}
+        kind={createSheetKind}
       />
 
       {/* City picker — full page sheet */}
