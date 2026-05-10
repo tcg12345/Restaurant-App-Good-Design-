@@ -1617,12 +1617,75 @@ const ListDetailView: React.FC<{
     setWishlistSort('recent');
   };
 
+  // ── Recipe-list filter state ─────────────────────────────────────
+  // Mirrors the All Recipes (HomeCookingTab) filter shape: Cuisine /
+  // Difficulty / Time / Sort. Lives on ListView so it resets when the
+  // user closes the list. Restaurant lists ignore these — the gate
+  // around the filter UI keeps things tidy.
+  const [recipeFiltersOpen, setRecipeFiltersOpen] = useState(false);
+  const [recipeCuisineFilter, setRecipeCuisineFilter] = useState<string[]>([]);
+  const [recipeDifficultyFilter, setRecipeDifficultyFilter] = useState<Array<'Easy' | 'Medium' | 'Hard'>>([]);
+  const [recipeTimeFilter, setRecipeTimeFilter] = useState<'fast' | 'medium' | 'slow' | null>(null);
+  const [recipeSortBy, setRecipeSortBy] = useState<'recent' | 'highest' | 'lowest' | 'quickest'>('recent');
+  const recipeSortLabels: Record<typeof recipeSortBy, string> = {
+    recent: 'Recent', highest: 'Highest', lowest: 'Lowest', quickest: 'Quickest',
+  };
+  const recipeTimeLabel = (t: typeof recipeTimeFilter) =>
+    t === 'fast' ? '<30 min' : t === 'medium' ? '30–60 min' : t === 'slow' ? '>60 min' : 'Time';
+  const recipeActiveFilterCount =
+    (recipeCuisineFilter.length > 0 ? 1 : 0) +
+    (recipeDifficultyFilter.length > 0 ? 1 : 0) +
+    (recipeTimeFilter ? 1 : 0);
+  const resetRecipeFilters = () => {
+    setRecipeCuisineFilter([]);
+    setRecipeDifficultyFilter([]);
+    setRecipeTimeFilter(null);
+    setRecipeSortBy('recent');
+  };
+
   const recipes = getRecipes(list.id);
+  const allRecipeCuisines = useMemo(() => {
+    const set = new Set<string>();
+    recipes.forEach((r) => { if (r.cuisine) set.add(r.cuisine); });
+    return Array.from(set).sort();
+  }, [recipes]);
   const filteredRecipes = useMemo(() => {
-    if (!searchQuery.trim()) return recipes;
-    const q = searchQuery.toLowerCase();
-    return recipes.filter((r) => r.title.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q) || r.tags.some((t) => t.toLowerCase().includes(q)));
-  }, [recipes, searchQuery]);
+    let out = recipes;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      out = out.filter((r) =>
+        r.title.toLowerCase().includes(q) ||
+        r.cuisine.toLowerCase().includes(q) ||
+        r.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    }
+    if (recipeCuisineFilter.length > 0) {
+      out = out.filter((r) => r.cuisine && recipeCuisineFilter.includes(r.cuisine));
+    }
+    if (recipeDifficultyFilter.length > 0) {
+      out = out.filter((r) => r.difficulty && recipeDifficultyFilter.includes(r.difficulty));
+    }
+    if (recipeTimeFilter) {
+      out = out.filter((r) => {
+        const total = (r.prepTime ?? 0) + (r.cookTime ?? 0);
+        if (recipeTimeFilter === 'fast') return total < 30;
+        if (recipeTimeFilter === 'medium') return total >= 30 && total <= 60;
+        return total > 60;
+      });
+    }
+    const sorted = [...out];
+    sorted.sort((a, b) => {
+      switch (recipeSortBy) {
+        case 'highest': return b.score - a.score;
+        case 'lowest': return a.score - b.score;
+        case 'quickest':
+          return ((a.prepTime ?? 0) + (a.cookTime ?? 0)) - ((b.prepTime ?? 0) + (b.cookTime ?? 0));
+        case 'recent':
+        default: return b.createdAt - a.createdAt;
+      }
+    });
+    return sorted;
+  }, [recipes, searchQuery, recipeCuisineFilter, recipeDifficultyFilter, recipeTimeFilter, recipeSortBy]);
 
   const ratedRestaurantsRaw = list.restaurantIds.map((id) => {
     const info = getRestaurantInfo(id);
@@ -2185,6 +2248,44 @@ const ListDetailView: React.FC<{
         </div>
       )}
 
+      {/* ── Phone-only filter pill row for recipe lists ────────────────
+          Mirrors the All Recipes (HomeCookingTab) chrome on desktop:
+          Filters / Cuisine / Difficulty / Time / Sort. Each pill opens
+          the unified RecipeFilterSheet bottom sheet that already
+          handles every section. */}
+      {phoneMode && isHomeCooking && totalCount > 0 && (
+        <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            icon={<SlidersHorizontal size={12} />} label="Filters"
+            active={recipeActiveFilterCount > 0}
+            badge={recipeActiveFilterCount > 0 ? recipeActiveFilterCount : undefined} />
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            label={recipeCuisineFilter.length > 0 ? `Cuisine (${recipeCuisineFilter.length})` : 'Cuisine'}
+            active={recipeCuisineFilter.length > 0}
+            onClear={recipeCuisineFilter.length > 0 ? () => setRecipeCuisineFilter([]) : undefined} />
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            label={recipeDifficultyFilter.length > 0 ? `Difficulty (${recipeDifficultyFilter.length})` : 'Difficulty'}
+            active={recipeDifficultyFilter.length > 0}
+            onClear={recipeDifficultyFilter.length > 0 ? () => setRecipeDifficultyFilter([]) : undefined} />
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            icon={<Clock size={11} />}
+            label={recipeTimeFilter ? recipeTimeLabel(recipeTimeFilter) : 'Time'}
+            active={!!recipeTimeFilter}
+            onClear={recipeTimeFilter ? () => setRecipeTimeFilter(null) : undefined} />
+          <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+            icon={<ArrowUpDown size={11} />}
+            label={recipeSortBy !== 'recent' ? recipeSortLabels[recipeSortBy] : 'Sort'}
+            active={recipeSortBy !== 'recent'}
+            onClear={recipeSortBy !== 'recent' ? () => setRecipeSortBy('recent') : undefined} />
+          {(recipeActiveFilterCount > 0 || recipeSortBy !== 'recent') && (
+            <button onClick={resetRecipeFilters}
+              className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+              <X size={10} /><span>Clear</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {isHomeCooking ? (
         /* ── Home Cooking: Recipe list ── */
         recipes.length === 0 ? (
@@ -2373,17 +2474,11 @@ const ListDetailView: React.FC<{
               )}
             </div>
           )}
-          {/* Add more button — hidden in the synthetic Wishlist view
-              (the heart icons across the app are how you add to the
-              wishlist). On desktop the dashed footer is also dropped:
-              the desktop header's "Add Rating" CTA opens a SearchPopup
-              that adds straight into the current list. */}
-          {!isWishlistView && phoneMode && (
-            <button onClick={handlePlusClick}
-              className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border-2 border-dashed border-on-surface/12 text-on-surface/35 hover:border-primary hover:text-primary transition-all">
-              <Plus size={16} /><span className="text-sm font-semibold">{isHotelBreakfast ? 'Add Hotel' : 'Add Restaurants'}</span>
-            </button>
-          )}
+          {/* The dashed "Add Restaurants" / "Add Hotel" footer that
+              used to sit here is gone — the prominent top Add button
+              in the phone header now covers that affordance, and
+              keeping a duplicate at the bottom just clutters the
+              list. Desktop never had this footer. */}
         </div>
       )}
 
@@ -2411,6 +2506,24 @@ const ListDetailView: React.FC<{
           allCities={wishlistAllCities}
           onReset={resetWishlistFilters}
           activeCount={wishlistActiveFilterCount}
+        />
+      )}
+
+      {isHomeCooking && (
+        <RecipeFilterSheet
+          open={recipeFiltersOpen}
+          onClose={() => setRecipeFiltersOpen(false)}
+          sortBy={recipeSortBy}
+          onSortBy={(v) => setRecipeSortBy(v as typeof recipeSortBy)}
+          cuisineFilter={recipeCuisineFilter}
+          onCuisineFilter={setRecipeCuisineFilter}
+          difficultyFilter={recipeDifficultyFilter}
+          onDifficultyFilter={setRecipeDifficultyFilter}
+          timeFilter={recipeTimeFilter}
+          onTimeFilter={setRecipeTimeFilter}
+          allCuisines={allRecipeCuisines}
+          onReset={resetRecipeFilters}
+          activeCount={recipeActiveFilterCount}
         />
       )}
 
@@ -4294,7 +4407,6 @@ const HomeCookingTab: React.FC<{
   const { user } = useAuth();
   const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'quickest'>('recent');
   // Recipe filters — these are recipe-specific and mirror the
   // restaurant filter shape (Cuisine / Difficulty / Time / Sort).
@@ -5193,58 +5305,85 @@ const HomeCookingTab: React.FC<{
         </div>
       ) : (
         <>
-          <div className="flex items-center gap-3 mb-6">
-            <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
+          {/* Phone top bar — back arrow + prominent Add Recipe. The
+              standalone search-icon toggle and the cluttered title row
+              with chef-hat / count are gone; the always-visible search
+              input below covers search, and the page header in the
+              parent already names the view. */}
+          <div className="flex items-center gap-2 mb-3">
+            <button onClick={onBack} aria-label="Back" className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
               <ArrowLeft size={20} />
             </button>
-            <ChefHat size={22} className="text-emerald-600" />
-            <div className="flex-1 min-w-0">
-              <h2 className="font-serif font-bold text-xl">Home Cooking</h2>
-              <p className="text-xs text-on-surface/40">{meals.length} meal{meals.length !== 1 ? 's' : ''} logged</p>
+            <button
+              type="button"
+              onClick={() => onOpenModal()}
+              className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex-shrink-0"
+            >
+              <Plus size={15} strokeWidth={2.5} />
+              <span>Add Recipe</span>
+            </button>
+          </div>
+
+          {/* Always-visible search input — same look as every other
+              list view on phone. */}
+          <div className="mb-4">
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name, cuisine, location..."
+                className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
-            <button onClick={() => setSearchOpen(!searchOpen)}
-              className={cn("p-2 rounded-full transition-colors", searchOpen ? "text-primary bg-primary/10" : "text-on-surface/40 hover:text-on-surface")}>
-              <Search size={18} />
-            </button>
-            <button onClick={() => onOpenModal()}
-              className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full transition-colors" title="Log a meal">
-              <Plus size={20} />
-            </button>
           </div>
 
-          {/* Phone-only inline search toggle */}
-          <AnimatePresence>
-            {searchOpen && (
-              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden mb-3">
-                <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
-                  <input
-                    type="text"
-                    placeholder="Search meals or dishes..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    autoFocus
-                    className="w-full pl-9 pr-4 py-2.5 text-sm bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 transition-all"
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Phone-only sort pills */}
-          <div className="flex gap-2 mb-4">
-            {(['recent', 'highest'] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setSortBy(s)}
-                className={cn("px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-                  sortBy === s ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-on-surface/5 text-on-surface/50 border-transparent")}
-              >
-                {s === 'recent' ? 'Recent' : 'Highest Rated'}
-              </button>
-            ))}
-          </div>
+          {/* Filter pill row — mirrors the desktop toolbar's recipe
+              filters (Filters / Cuisine / Difficulty / Time / Sort).
+              Each pill opens the unified RecipeFilterSheet bottom
+              sheet that already covers every section. */}
+          {meals.length > 0 && (
+            <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                icon={<SlidersHorizontal size={12} />} label="Filters"
+                active={recipeActiveFilterCount > 0}
+                badge={recipeActiveFilterCount > 0 ? recipeActiveFilterCount : undefined} />
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                label={cuisineFilter.length > 0 ? `Cuisine (${cuisineFilter.length})` : 'Cuisine'}
+                active={cuisineFilter.length > 0}
+                onClear={cuisineFilter.length > 0 ? () => setCuisineFilter([]) : undefined} />
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                label={difficultyFilter.length > 0 ? `Difficulty (${difficultyFilter.length})` : 'Difficulty'}
+                active={difficultyFilter.length > 0}
+                onClear={difficultyFilter.length > 0 ? () => setDifficultyFilter([]) : undefined} />
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                icon={<Clock size={11} />}
+                label={timeFilter ? timeLabel(timeFilter) : 'Time'}
+                active={!!timeFilter}
+                onClear={timeFilter ? () => setTimeFilter(null) : undefined} />
+              <FilterPill onClick={() => setRecipeFiltersOpen(true)}
+                icon={<ArrowUpDown size={11} />}
+                label={sortBy !== 'recent' ? recipeSortLabels[sortBy] : 'Sort'}
+                active={sortBy !== 'recent'}
+                onClear={sortBy !== 'recent' ? () => setSortBy('recent') : undefined} />
+              {(recipeActiveFilterCount > 0 || sortBy !== 'recent') && (
+                <button onClick={resetRecipeFilters}
+                  className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+                  <X size={10} /><span>Clear</span>
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -6930,6 +7069,21 @@ export const Pantry: React.FC = () => {
                 buttons in random colors. */}
             {phoneMode ? (
               <>
+                {/* Top action row — mirrors the per-list ListView so
+                    the rated overview gets the same Add affordance.
+                    Tapping opens the SearchPopup in 'rate-new' mode,
+                    matching the desktop header's Add Rating CTA. */}
+                <div className="flex items-center justify-end mb-3">
+                  <button
+                    type="button"
+                    onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
+                  >
+                    <Plus size={15} strokeWidth={2.5} />
+                    <span>Add Rating</span>
+                  </button>
+                </div>
+
                 <div className="mb-4">
                   <div className="relative">
                     <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
