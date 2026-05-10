@@ -1535,7 +1535,6 @@ const ListDetailView: React.FC<{
   const { setScopedSearch, scopedSearch, bumpFocus } = usePageSearch();
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [hotelModalOpen, setHotelModalOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const pendingListRatingRef = useRef<{ restaurantId: string; openedAt: number } | null>(null);
 
   // Watch for the global rating being updated after we opened the modal for a list-specific rating
@@ -1897,32 +1896,35 @@ const ListDetailView: React.FC<{
   return (
     <div>
       {/* ── Phone-only top bar ─────────────────────────────────────────
-          Back arrow, search-icon toggle, and (for deletable lists) a
-          trash icon. Desktop drops this entire row — Pantry's tab pill
-          handles navigation, the toolbar below handles search, and
-          delete moves to the More menu (⋯). */}
+          Back arrow, prominent Add button, and (for deletable lists) a
+          trash icon. The standalone search-icon toggle is gone — phone
+          now mounts an always-visible search input below this row,
+          matching the All Rated layout. Desktop drops this entire row
+          — Pantry's tab pill handles navigation, the toolbar below
+          handles search, and delete moves to the More menu (⋯). */}
       {phoneMode && (
-        <div className="flex items-center justify-end gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3">
           <button
             onClick={onBack}
             aria-label="Back"
-            className="p-2 -ml-2 mr-auto text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
+            className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
           >
             <ArrowLeft size={20} />
           </button>
           <button
             type="button"
-            onClick={() => setSearchOpen((o) => !o)}
-            aria-label={searchOpen ? 'Close search' : `Search ${list.name}`}
-            title={searchOpen ? 'Close search' : `Search ${list.name}`}
+            onClick={handlePlusClick}
             className={cn(
-              'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
-              searchOpen
-                ? 'bg-on-surface/[0.08] text-on-surface'
-                : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
+              'ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold transition-colors flex-shrink-0',
+              isHomeCooking
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                : 'bg-primary text-white hover:bg-primary/90',
             )}
           >
-            <Search size={17} />
+            <Plus size={15} strokeWidth={2.5} />
+            <span>
+              {isHomeCooking ? 'Add Recipe' : isHotelBreakfast ? 'Add Hotel' : 'Add Rating'}
+            </span>
           </button>
           {!isWishlistView && (
             <button
@@ -1930,7 +1932,7 @@ const ListDetailView: React.FC<{
               onClick={() => setConfirmDeleteList(true)}
               aria-label="Delete list"
               title="Delete list"
-              className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface/40 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+              className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/40 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
             >
               <Trash2 size={16} />
             </button>
@@ -2100,46 +2102,32 @@ const ListDetailView: React.FC<{
         </div>
       )}
 
-      {/* Collapsible search input — phone only. Desktop uses the
-          header-scoped search button above instead. */}
-      <AnimatePresence initial={false}>
-        {searchOpen && phoneMode && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="overflow-hidden mb-4"
-          >
-            <div className="relative max-w-2xl">
-              <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/35 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={
-                  isHomeCooking
-                    ? 'Search your recipes...'
-                    : isWishlistView
-                      ? 'Search your wishlist...'
-                      : `Search ${list.name.toLowerCase()}...`
-                }
-                autoFocus
-                className="w-full bg-on-surface/[0.04] hover:bg-on-surface/[0.06] focus:bg-on-surface/[0.06] rounded-full py-2.5 pl-11 pr-10 text-sm font-medium text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  aria-label="Clear search"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/35 hover:text-on-surface/70 transition-colors"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Always-visible search input — phone only. Mirrors the All
+          Rated phone layout so every list reads the same. Desktop uses
+          the header-scoped "Search this list" button instead. */}
+      {phoneMode && (
+        <div className="mb-4">
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, cuisine, location..."
+              className="w-full bg-on-surface/[0.04] rounded-xl py-2.5 pl-9 pr-9 text-sm font-medium text-on-surface placeholder:text-on-surface/35 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-on-surface/[0.06] transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/60 transition-colors"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Delete list confirmation */}
       <AnimatePresence>
@@ -2156,73 +2144,44 @@ const ListDetailView: React.FC<{
         )}
       </AnimatePresence>
 
-      {/* ── Phone-only filter pill row + view toggle ──────────────────
-          Filters pill opens the full sheet. "All" clears every active
-          quick filter. Each subsequent pill toggles a city / price /
-          cuisine filter — counts come from the actual list. Desktop
-          uses the unified toolbar above instead. */}
-      {phoneMode && (isWishlistView ? wishlistedRestaurantsRaw.length > 0 : totalCount > 0) && (
-        <div className="flex items-center gap-2 mb-5 -mx-1 px-1 overflow-x-auto scrollbar-hide pb-1">
-          {isWishlistView && (
-            <>
-              <button
-                onClick={() => setWishlistFilterOpen(true)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold border transition-colors flex-shrink-0',
-                  wishlistActiveFilterCount > 0
-                    ? 'border-primary/30 bg-primary/[0.06] text-primary'
-                    : 'border-on-surface/[0.08] text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
-                )}
-              >
-                <SlidersHorizontal size={12} />
-                Filters
-                {wishlistActiveFilterCount > 0 && (
-                  <span className="ml-0.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold">{wishlistActiveFilterCount}</span>
-                )}
-              </button>
-
-              <span className="w-px h-4 bg-on-surface/[0.08] mx-1 flex-shrink-0" />
-
-              {/* "All" pill — solid when no quick filter is active */}
-              <button
-                onClick={resetWishlistFilters}
-                className={cn(
-                  'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors flex-shrink-0',
-                  wishlistActiveFilterCount === 0
-                    ? 'bg-on-surface text-surface'
-                    : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
-                )}
-              >
-                All
-                <span className={cn('text-[11px] tabular-nums', wishlistActiveFilterCount === 0 ? 'text-surface/65' : 'text-on-surface/40')}>
-                  {wishlistedRestaurantsRaw.length}
-                </span>
-              </button>
-
-              {quickFilterPills.map((pill) => (
-                <button
-                  key={pill.key}
-                  onClick={pill.onClick}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors flex-shrink-0',
-                    pill.active
-                      ? 'bg-on-surface text-surface'
-                      : 'text-on-surface/65 hover:text-on-surface hover:bg-on-surface/[0.04]',
-                  )}
-                >
-                  {pill.label}
-                  <span className={cn('text-[11px] tabular-nums', pill.active ? 'text-surface/65' : 'text-on-surface/40')}>
-                    {pill.count}
-                  </span>
-                </button>
-              ))}
-            </>
+      {/* ── Phone-only filter pill row ─────────────────────────────────
+          Same chrome as the All Rated phone view: Filters / City /
+          Cuisine / Price / Sort. Each pill opens the combined filter
+          bottom sheet (Sort + Price + Cuisine + City sections), so
+          phone users get the same filter surface as desktop without
+          juggling four separate sheets. Recipe lists skip this row —
+          they have their own filter chrome inside the home-cooking
+          branch below. */}
+      {phoneMode && !isHomeCooking && totalCount > 0 && (
+        <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            icon={<SlidersHorizontal size={12} />} label="Filters"
+            active={wishlistActiveFilterCount > 0}
+            badge={wishlistActiveFilterCount > 0 ? wishlistActiveFilterCount : undefined} />
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            icon={<MapPin size={11} />}
+            label={wishlistCityFilter.length > 0 ? `City (${wishlistCityFilter.length})` : 'City'}
+            active={wishlistCityFilter.length > 0}
+            onClear={wishlistCityFilter.length > 0 ? () => setWishlistCityFilter([]) : undefined} />
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            label={wishlistCuisineFilter.length > 0 ? `Cuisine (${wishlistCuisineFilter.length})` : 'Cuisine'}
+            active={wishlistCuisineFilter.length > 0}
+            onClear={wishlistCuisineFilter.length > 0 ? () => setWishlistCuisineFilter([]) : undefined} />
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            label={wishlistPriceFilter || 'Price'}
+            active={!!wishlistPriceFilter}
+            onClear={wishlistPriceFilter ? () => setWishlistPriceFilter(null) : undefined} />
+          <FilterPill onClick={() => setWishlistFilterOpen(true)}
+            icon={<ArrowUpDown size={11} />}
+            label={wishlistSort !== 'recent' ? wlSortLabels[wishlistSort] : 'Sort'}
+            active={wishlistSort !== 'recent'}
+            onClear={wishlistSort !== 'recent' ? () => setWishlistSort('recent') : undefined} />
+          {(wishlistActiveFilterCount > 0 || wishlistSort !== 'recent') && (
+            <button onClick={resetWishlistFilters}
+              className="flex items-center gap-1 px-3 h-8 rounded-full text-xs font-semibold text-red-400 hover:text-red-500 transition-all flex-shrink-0">
+              <X size={10} /><span>Clear</span>
+            </button>
           )}
-
-          {/* The view toggle that used to live here is gone — the
-              desktop toolbar above carries the only one now, and on
-              phone effectiveViewMode is forced to 'list' anyway, so a
-              second toggle here was either duplicate or dead UI. */}
         </div>
       )}
 
