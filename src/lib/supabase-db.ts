@@ -82,22 +82,27 @@ export async function saveUserData(userId: string, data: UserAppData): Promise<b
   if (!supabaseConfigured || !userId) return false;
 
   try {
+    // Only include chats/chats_read in the upsert when caller provided them.
+    // Otherwise we'd silently wipe out conversations whenever ListsContext
+    // reconciles ratings/lists without touching chat state.
+    const payload: Record<string, unknown> = {
+      user_id: userId,
+      ratings: data.ratings,
+      lists: data.lists,
+      wishlist: data.wishlist,
+      restaurant_meta: data.restaurantMeta,
+      recent_views: data.recentViews || [],
+      trips: data.trips || [],
+      home_meals: data.homeMeals || [],
+      updated_at: new Date().toISOString(),
+    };
+    if (data.chats !== undefined) payload.chats = data.chats;
+    if (data.chatsRead !== undefined) payload.chats_read = data.chatsRead;
+
     // Try saving with trips; fall back without if column doesn't exist
     let { error } = await supabase
       .from('user_app_data')
-      .upsert({
-        user_id: userId,
-        ratings: data.ratings,
-        lists: data.lists,
-        wishlist: data.wishlist,
-        restaurant_meta: data.restaurantMeta,
-        recent_views: data.recentViews || [],
-        trips: data.trips || [],
-        home_meals: data.homeMeals || [],
-        chats: data.chats || [],
-        chats_read: data.chatsRead || {},
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
+      .upsert(payload, { onConflict: 'user_id' });
 
     if (error) {
       // Retry without newer columns
