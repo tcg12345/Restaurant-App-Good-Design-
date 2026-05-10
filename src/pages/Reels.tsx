@@ -973,10 +973,15 @@ export const Reels: React.FC = () => {
   // open calls so opening one always closes the other. The raw close
   // callbacks (closeCommentsSheet / closePostCommentsSheet) are still
   // passed unmodified — the user can dismiss either pane independently.
+  //
+  // Tapping the same featured card twice toggles the panel closed; tapping
+  // a different card swaps the panel to that restaurant. Functional setter
+  // so we don't have to add restaurantPanelSnapshot to the useCallback deps
+  // and recreate this function on every panel state change.
   const openRestaurantPanel = useCallback((snap: RestaurantPanelSnapshot) => {
     closeCommentsSheet();
     closePostCommentsSheet();
-    setRestaurantPanelSnapshot(snap);
+    setRestaurantPanelSnapshot((current) => (current && current.id === snap.id ? null : snap));
   }, [closeCommentsSheet, closePostCommentsSheet]);
 
   const openReelComments = useCallback((reelId: string) => {
