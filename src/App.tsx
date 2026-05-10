@@ -13,6 +13,7 @@ import { Circle } from './pages/Circle';
 import { Search } from './pages/Search';
 import { SearchMain } from './pages/SearchMain';
 import { Reels } from './pages/Reels';
+import { Activity } from './pages/Activity';
 import { RestaurantDetail } from './pages/RestaurantDetail';
 import { Onboarding } from './pages/Onboarding';
 import { BottomNav } from './components/BottomNav';
@@ -73,7 +74,7 @@ const AppContent: React.FC = () => {
   const location = useLocation();
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
-  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/');
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity');
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
@@ -153,6 +154,10 @@ const AppContent: React.FC = () => {
           <Route path="/search" element={<Search />} />
           <Route path="/search/main" element={<SearchMain />} />
           <Route path="/reels" element={<Reels />} />
+          <Route path="/activity" element={<Activity />} />
+          <Route path="/activity/saved" element={<Activity />} />
+          <Route path="/activity/likes" element={<Activity />} />
+          <Route path="/activity/comments" element={<Activity />} />
           <Route path="/experts" element={<Experts />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/pantry" element={<Pantry />} />

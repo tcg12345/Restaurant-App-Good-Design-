@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon,
+  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -735,6 +735,21 @@ export const Profile: React.FC = () => {
                       </button>
                     </div>
                     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettingsOpen(false);
+                          navigate('/activity');
+                        }}
+                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
+                      >
+                        <Sparkles size={18} className="text-on-surface/40" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">Your Activity</p>
+                          <p className="text-[11px] text-on-surface/35">Saves, likes, and comments</p>
+                        </div>
+                        <ChevronRight size={16} className="text-on-surface/20" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => {

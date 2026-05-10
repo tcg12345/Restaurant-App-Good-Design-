@@ -605,3 +605,26 @@ export async function deletePostComment(commentId: string): Promise<boolean> {
   if (error) { console.warn('[Posts] delete comment failed:', error.message); return false; }
   return true;
 }
+
+/** Distinct post ids the given user has commented on, newest comment first. */
+export async function listPostIdsCommentedByUser(userId: string): Promise<string[]> {
+  if (!supabaseConfigured || !userId) return [];
+  const { data, error } = await supabase
+    .from('post_comments')
+    .select('post_id, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.warn('[Posts] listPostIdsCommentedByUser failed:', error.message);
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const row of (data || []) as Array<{ post_id: string }>) {
+    if (row.post_id && !seen.has(row.post_id)) {
+      seen.add(row.post_id);
+      out.push(row.post_id);
+    }
+  }
+  return out;
+}
