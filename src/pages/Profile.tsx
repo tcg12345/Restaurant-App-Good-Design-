@@ -86,7 +86,7 @@ const TopRatedCard: React.FC<{
           </span>
         </div>
         <span className={cn(
-          'font-serif font-bold tabular-nums text-[18px] leading-none flex-shrink-0',
+          'font-serif font-bold tabular-nums text-[28px] leading-none flex-shrink-0',
           scoreColor(numericScore(rating.score)),
         )}>
           {formatScore(rating.score)}
