@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
-  LayoutGrid, List as ListIcon, Upload,
+  LayoutGrid, List as ListIcon, Upload, Bookmark,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -60,15 +60,19 @@ function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string
 }
 
 /* ── TopRatedCard ──
-   Stone-gradient card used in the Profile TOP tab. Hero variant fills the
-   row with a wider aspect; default variant fits a 2-col grid as a square.
-   Rank chip top-left, score chip top-right, faint cuisine label centered,
-   name + meta stacked at the bottom. Photos override the gradient. */
+   Portrait card used in the Profile TOP tab's horizontal Top-10 strips.
+   White rank chip top-left, color-coded score chip top-right, a faint
+   mono label centered behind the meta, and serif name + sub-line at
+   the bottom. The center label and bottom meta can be overridden so
+   the same card adapts to the slice (cuisine list → city center, etc). */
 const TopRatedCard: React.FC<{
   rank: number;
   rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string; image?: string };
-  hero?: boolean;
-}> = ({ rank, rating, hero }) => {
+  /** Mono uppercase label shown center-card behind the meta. Defaults to cuisine, falls back to name. */
+  centerLabel?: string;
+  /** Bottom sub-line under the name. Defaults to cuisine · price · city. */
+  metaText?: string;
+}> = ({ rank, rating, centerLabel, metaText }) => {
   const city = cityFromAddress(rating.address || '');
   const score = rating.score;
   const scoreCls = score >= 8
@@ -76,15 +80,15 @@ const TopRatedCard: React.FC<{
     : score >= 5
       ? 'bg-amber-600 text-white'
       : 'bg-red-500 text-white';
-  const cuisineLabel = (rating.cuisine || rating.name).toUpperCase();
+  const resolvedCenter = (centerLabel ?? rating.cuisine ?? rating.name).toUpperCase();
+  const resolvedMeta = metaText ?? [rating.cuisine, rating.price, city].filter(Boolean).join(' · ');
 
   return (
     <Link
       to={`/restaurant/${rating.restaurantId}`}
       className={cn(
-        'relative block overflow-hidden rounded-2xl ring-1 ring-on-surface/[0.06] shadow-sm group bg-gradient-to-br',
+        'relative block w-44 aspect-[5/9] flex-shrink-0 snap-start overflow-hidden rounded-2xl ring-1 ring-on-surface/[0.06] shadow-sm group bg-gradient-to-br',
         TOP_RATED_GRADIENT,
-        hero ? 'aspect-[16/10]' : 'aspect-square',
       )}
     >
       {rating.image && (
@@ -97,28 +101,21 @@ const TopRatedCard: React.FC<{
       )}
       {!rating.image && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <span className={cn(
-            'font-mono uppercase tracking-[0.18em] text-white/30 text-center px-4',
-            hero ? 'text-[15px]' : 'text-[12px]',
-          )}>
-            {cuisineLabel}
+          <span className="font-mono uppercase tracking-[0.18em] text-white/30 text-center px-4 text-[12px]">
+            {resolvedCenter}
           </span>
         </div>
       )}
 
       {/* Rank chip — white pill, top-left */}
-      <span className={cn(
-        'absolute top-2.5 left-2.5 inline-flex items-center justify-center rounded-lg bg-white text-on-surface font-bold tabular-nums shadow-sm',
-        hero ? 'min-w-[36px] h-9 px-2 text-[15px]' : 'min-w-[30px] h-7 px-1.5 text-[13px]',
-      )}>
+      <span className="absolute top-2.5 left-2.5 inline-flex items-center justify-center rounded-lg bg-white text-on-surface font-bold tabular-nums shadow-sm min-w-[30px] h-7 px-1.5 text-[13px]">
         {rank}
       </span>
 
       {/* Score chip — colored, top-right */}
       <span className={cn(
-        'absolute top-2.5 right-2.5 inline-flex items-center justify-center rounded-lg font-bold tabular-nums shadow-sm',
+        'absolute top-2.5 right-2.5 inline-flex items-center justify-center rounded-lg font-bold tabular-nums shadow-sm min-w-[42px] h-7 px-1.5 text-[13.5px]',
         scoreCls,
-        hero ? 'min-w-[52px] h-9 px-2 text-[16px]' : 'min-w-[42px] h-7 px-1.5 text-[13.5px]',
       )}>
         {formatScore(rating.score)}
       </span>
@@ -126,23 +123,177 @@ const TopRatedCard: React.FC<{
       {/* Bottom legibility wash */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
 
-      <div className={cn('absolute inset-x-0 bottom-0', hero ? 'p-4' : 'p-3')}>
-        <p className={cn(
-          'font-serif font-bold text-white drop-shadow leading-[1.1] line-clamp-2',
-          hero ? 'text-[22px]' : 'text-[16px]',
-        )}>
+      <div className="absolute inset-x-0 bottom-0 p-3">
+        <p className="font-serif font-bold text-white drop-shadow leading-[1.1] line-clamp-2 text-[16px]">
           {rating.name}
         </p>
-        <p className={cn(
-          'text-white/85 truncate mt-1',
-          hero ? 'text-[13px]' : 'text-[11.5px]',
-        )}>
-          {[rating.cuisine, rating.price, city].filter(Boolean).join(' · ')}
+        <p className="text-white/85 truncate mt-1 text-[11.5px]">
+          {resolvedMeta}
         </p>
       </div>
     </Link>
   );
 };
+
+/* ── GuideCard ──
+   Recommended-guide tile used in the Profile TOP tab. Cover with a
+   GUIDE chip + bookmark, place count footer, then title + author row
+   sit below the card. Author avatars are simple initial circles. */
+type Guide = {
+  id: string;
+  title: string;
+  authorName: string;
+  authorHandle: string;
+  authorInitials: string;
+  placeCount: number;
+  cuisineLabel: string;
+  coverGradient: string;
+  bgImage?: string;
+};
+
+const GuideCard: React.FC<{ guide: Guide }> = ({ guide }) => (
+  <Link
+    to="/discover"
+    className="flex-shrink-0 snap-start w-[260px] group"
+  >
+    <div className={cn(
+      'relative w-full aspect-[4/3] rounded-2xl overflow-hidden ring-1 ring-on-surface/[0.06] shadow-sm bg-gradient-to-br',
+      guide.coverGradient,
+    )}>
+      {guide.bgImage && (
+        <img
+          src={guide.bgImage}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+          referrerPolicy="no-referrer"
+        />
+      )}
+      {!guide.bgImage && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="font-mono uppercase tracking-[0.18em] text-white/25 text-[12px]">
+            {guide.cuisineLabel}
+          </span>
+        </div>
+      )}
+
+      {/* GUIDE badge top-left */}
+      <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-lg bg-white px-2 h-7 text-on-surface text-[11px] font-bold tracking-wider">
+        <ListIcon size={12} />
+        GUIDE
+      </span>
+
+      {/* Bookmark top-right */}
+      <button
+        type="button"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        aria-label="Save guide"
+        className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-black/35 backdrop-blur flex items-center justify-center text-white hover:bg-black/55 transition-colors"
+      >
+        <Bookmark size={14} className="fill-white" />
+      </button>
+
+      {/* Bottom wash + place count */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+      <div className="absolute bottom-2.5 left-3 inline-flex items-center gap-1 text-white text-[12.5px] font-semibold">
+        <MapPin size={12} />
+        {guide.placeCount} places
+      </div>
+    </div>
+
+    <p className="mt-3 font-serif font-bold text-on-surface text-[16px] leading-tight line-clamp-2">
+      {guide.title}
+    </p>
+    <div className="mt-2 flex items-center gap-2">
+      <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+        <span className="text-[11px] font-bold text-primary">{guide.authorInitials}</span>
+      </div>
+      <p className="text-[12px] text-on-surface/55 truncate">
+        <span className="font-semibold text-on-surface/75">{guide.authorName}</span>
+        <span className="text-on-surface/40"> · @{guide.authorHandle}</span>
+      </p>
+    </div>
+  </Link>
+);
+
+/* ── Top10Section ──
+   Section header (title + subtitle + See all) followed by a
+   horizontally scrolling strip of TopRatedCards. Kept inline so the
+   Profile page can repeat it for each slice (overall, per cuisine,
+   per city). */
+const Top10Section: React.FC<{
+  title: React.ReactNode;
+  subtitle: string;
+  onSeeAll?: () => void;
+  children: React.ReactNode;
+}> = ({ title, subtitle, onSeeAll, children }) => (
+  <section>
+    <div className="px-5 flex items-start justify-between gap-3 mb-3">
+      <div className="min-w-0">
+        <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight">{title}</h3>
+        <p className="text-[12.5px] text-on-surface/45 mt-0.5">{subtitle}</p>
+      </div>
+      {onSeeAll && (
+        <button
+          type="button"
+          onClick={onSeeAll}
+          className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface mt-1 flex-shrink-0"
+        >
+          See all <ChevronRight size={14} />
+        </button>
+      )}
+    </div>
+    <div className="flex gap-3 overflow-x-auto px-5 pb-1.5 scrollbar-hide snap-x snap-mandatory">
+      {children}
+    </div>
+  </section>
+);
+
+/* ── Mock recommended guides ──
+   Placeholder guides "curated by people you follow" until the real
+   guides feature is built. Each guide gets a distinct gradient and a
+   plausible author so the strip reads as a populated feed, not chrome. */
+const MOCK_GUIDES: Guide[] = [
+  {
+    id: 'mg-nyc-italian',
+    title: 'NYC Italian Hall of Fame',
+    authorName: 'Carmen Russo',
+    authorHandle: 'forkful',
+    authorInitials: 'CR',
+    placeCount: 22,
+    cuisineLabel: 'GUIDE COVER',
+    coverGradient: 'from-stone-700 via-stone-800 to-stone-950',
+  },
+  {
+    id: 'mg-paris-budget',
+    title: 'Paris on a budget',
+    authorName: 'Léa Bernard',
+    authorHandle: 'leabparis',
+    authorInitials: 'LB',
+    placeCount: 24,
+    cuisineLabel: 'GUIDE COVER',
+    coverGradient: 'from-zinc-700 via-zinc-800 to-stone-950',
+  },
+  {
+    id: 'mg-tokyo-ramen',
+    title: "Tokyo's hidden ramen gems",
+    authorName: 'Aiko Tanaka',
+    authorHandle: 'aiko_eats',
+    authorInitials: 'AT',
+    placeCount: 18,
+    cuisineLabel: 'GUIDE COVER',
+    coverGradient: 'from-neutral-700 via-neutral-800 to-stone-950',
+  },
+  {
+    id: 'mg-london-sundayroast',
+    title: 'Best Sunday roast in London',
+    authorName: 'Oliver West',
+    authorHandle: 'oliveats',
+    authorInitials: 'OW',
+    placeCount: 11,
+    cuisineLabel: 'GUIDE COVER',
+    coverGradient: 'from-stone-800 via-stone-900 to-zinc-950',
+  },
+];
 
 /* ── EmptyTabState ──
    Friendly empty placeholder for any tab with no items. Matches the
@@ -389,8 +540,52 @@ export const Profile: React.FC = () => {
       .slice(0, 6);
   }, [ratings]);
 
-  const topRated = useMemo(() => {
-    return [...ratings].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)).slice(0, 8);
+  /** Top-N highest scoring ratings, used by every TOP-tab slice. */
+  const topOverall = useMemo(() => {
+    return [...ratings]
+      .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+      .slice(0, 10);
+  }, [ratings]);
+
+  /** Per-cuisine slices — only kept when there's enough data to fill a
+   *  meaningful Top 10 (4+ entries). Sorted by total count desc so the
+   *  user's most-rated cuisines surface first. */
+  const topByCuisine = useMemo(() => {
+    const grouped = new Map<string, typeof ratings>();
+    ratings.forEach((r) => {
+      if (!r.cuisine) return;
+      const arr = grouped.get(r.cuisine) ?? [];
+      arr.push(r);
+      grouped.set(r.cuisine, arr);
+    });
+    return Array.from(grouped.entries())
+      .filter(([, items]) => items.length >= 4)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([cuisine, items]) => {
+        const sorted = [...items].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)).slice(0, 10);
+        const avg = items.reduce((s, r) => s + (Number(r.score) || 0), 0) / items.length;
+        return { cuisine, items: sorted, total: items.length, avg };
+      });
+  }, [ratings]);
+
+  /** Per-city slices, same shape and 4+ threshold as cuisine. */
+  const topByCity = useMemo(() => {
+    const grouped = new Map<string, typeof ratings>();
+    ratings.forEach((r) => {
+      const city = cityFromAddress(r.address || '');
+      if (!city) return;
+      const arr = grouped.get(city) ?? [];
+      arr.push(r);
+      grouped.set(city, arr);
+    });
+    return Array.from(grouped.entries())
+      .filter(([, items]) => items.length >= 4)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([city, items]) => {
+        const sorted = [...items].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)).slice(0, 10);
+        const avg = items.reduce((s, r) => s + (Number(r.score) || 0), 0) / items.length;
+        return { city, items: sorted, total: items.length, avg };
+      });
   }, [ratings]);
 
   const recentRatings = useMemo(() => {
@@ -605,7 +800,7 @@ export const Profile: React.FC = () => {
       {/* ── Tab content ───────────────────────────────────────────────── */}
       <main className="px-5 pt-5">
         {activeTab === 'top' && (
-          topRated.length === 0 ? (
+          topOverall.length === 0 ? (
             <EmptyTabState
               icon={<Star size={32} className="text-on-surface/15" />}
               title="No rated restaurants yet"
@@ -614,15 +809,82 @@ export const Profile: React.FC = () => {
               onCta={() => navigate('/')}
             />
           ) : (
-            <div className="space-y-3">
-              <TopRatedCard rank={1} rating={topRated[0]} hero />
-              {topRated.length > 1 && (
-                <div className="grid grid-cols-2 gap-3">
-                  {topRated.slice(1).map((r, i) => (
-                    <TopRatedCard key={r.restaurantId} rank={i + 2} rating={r} />
+            // Full-bleed strips: negative margin cancels the `main` pad
+            // so cards run edge-to-edge during horizontal scroll.
+            <div className="-mx-5 space-y-7">
+              <Top10Section
+                title="Top 10"
+                subtitle="Your highest scores, all-time"
+                onSeeAll={goToMyRatings}
+              >
+                {topOverall.map((r, i) => (
+                  <TopRatedCard key={r.restaurantId} rank={i + 1} rating={r} />
+                ))}
+              </Top10Section>
+
+              {topByCuisine.map(({ cuisine, items, total, avg }) => (
+                <Top10Section
+                  key={`cuisine-${cuisine}`}
+                  title={<>Top 10 · <span className="text-on-surface/70">{cuisine}</span></>}
+                  subtitle={`${total} place${total === 1 ? '' : 's'} · ${avg.toFixed(1)} avg`}
+                  onSeeAll={goToMyRatings}
+                >
+                  {items.map((r, i) => {
+                    const cityLabel = cityFromAddress(r.address || '');
+                    return (
+                      <TopRatedCard
+                        key={r.restaurantId}
+                        rank={i + 1}
+                        rating={r}
+                        centerLabel={(cityLabel || cuisine).toUpperCase()}
+                        metaText={[cityLabel, r.price].filter(Boolean).join(' · ')}
+                      />
+                    );
+                  })}
+                </Top10Section>
+              ))}
+
+              {topByCity.map(({ city, items, total, avg }) => (
+                <Top10Section
+                  key={`city-${city}`}
+                  title={<>Top 10 in <span className="text-on-surface/70">{city}</span></>}
+                  subtitle={`${total} place${total === 1 ? '' : 's'} · ${avg.toFixed(1)} avg`}
+                  onSeeAll={goToMyRatings}
+                >
+                  {items.map((r, i) => (
+                    <TopRatedCard
+                      key={r.restaurantId}
+                      rank={i + 1}
+                      rating={r}
+                      centerLabel={(r.cuisine || city).toUpperCase()}
+                      metaText={[r.cuisine, r.price].filter(Boolean).join(' · ')}
+                    />
+                  ))}
+                </Top10Section>
+              ))}
+
+              {/* Recommended guides — mock for now; "Explore" routes to
+                  Discover where real guides live. */}
+              <section>
+                <div className="px-5 flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight">Recommended guides</h3>
+                    <p className="text-[12.5px] text-on-surface/45 mt-0.5">Curated by people you follow</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/discover')}
+                    className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface mt-1 flex-shrink-0"
+                  >
+                    Explore <ChevronRight size={14} />
+                  </button>
+                </div>
+                <div className="flex gap-4 overflow-x-auto px-5 pb-2 scrollbar-hide snap-x snap-mandatory">
+                  {MOCK_GUIDES.map((g) => (
+                    <GuideCard key={g.id} guide={g} />
                   ))}
                 </div>
-              )}
+              </section>
             </div>
           )
         )}
