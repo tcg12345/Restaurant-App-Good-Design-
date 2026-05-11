@@ -1011,11 +1011,16 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16]"
-              style={{ height: '85%' }}
+              className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative"
+              style={{ height: '92%' }}
             >
-              <div className="pt-2 pb-1 flex justify-center flex-shrink-0">
-                <span className="w-10 h-1 rounded-full bg-on-surface/15" />
+              {/* Drag-handle pill — absolute so it overlays the hero map
+                  at the top of the sheet rather than sitting on its own
+                  white strip above the map. on-surface/30 stays visible
+                  against both the light cartography and the cream
+                  surface beneath. */}
+              <div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 z-30">
+                <span className="block w-10 h-1 rounded-full bg-on-surface/30" />
               </div>
               <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
             </motion.div>

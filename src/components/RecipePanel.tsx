@@ -722,7 +722,7 @@ const RecipePanelBody: React.FC<{
     <>
       {/* Compact static header — no hero image, no scroll-collapse. Two
           rows: title + close, then a small meta line. */}
-      <div className="flex-shrink-0 border-b border-on-surface/[0.07] bg-surface/95 backdrop-blur sticky top-0 z-10 px-5 pt-4 pb-3">
+      <div className="flex-shrink-0 border-b border-on-surface/[0.07] bg-surface/95 backdrop-blur sticky top-0 z-10 px-5 pt-5 pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <h2 className="font-serif font-bold text-on-surface text-[18px] leading-[1.15] tracking-tight line-clamp-2">
@@ -950,11 +950,14 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, cur
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16]"
-              style={{ height: '88%' }}
+              className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative"
+              style={{ height: '92%' }}
             >
-              <div className="pt-2 pb-1 flex justify-center flex-shrink-0">
-                <span className="w-10 h-1 rounded-full bg-on-surface/15" />
+              {/* Drag-handle pill — absolute so it tucks into the top
+                  edge of the compact header instead of taking its own
+                  row. */}
+              <div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 z-30">
+                <span className="block w-10 h-1 rounded-full bg-on-surface/30" />
               </div>
               <RecipePanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
             </motion.div>
