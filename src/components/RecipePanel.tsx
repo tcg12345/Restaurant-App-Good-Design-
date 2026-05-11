@@ -863,6 +863,7 @@ const RecipePanelBody: React.FC<{
                     scale: servingsScale,
                     onScaleChange: setServingsScale,
                   } : undefined}
+                  compact
                 />
               </section>
             )}
@@ -879,7 +880,7 @@ const RecipePanelBody: React.FC<{
                     {steps.length} {steps.length === 1 ? 'step' : 'steps'}
                   </span>
                 </div>
-                <RecipeDirectionsList steps={steps} recipeKey={recipeKey} />
+                <RecipeDirectionsList steps={steps} recipeKey={recipeKey} compact />
               </section>
             )}
 

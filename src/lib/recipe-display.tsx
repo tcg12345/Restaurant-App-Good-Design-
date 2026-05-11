@@ -323,6 +323,10 @@ interface RecipeIngredientListProps {
     scale: number;
     onScaleChange: (scale: number) => void;
   };
+  /** Compact density: tighter row padding, smaller Manrope type, and
+   *  dotted dividers between rows. Used by the in-feed RecipePanel
+   *  where vertical space is constrained. */
+  compact?: boolean;
 }
 
 /**
@@ -330,7 +334,7 @@ interface RecipeIngredientListProps {
  * card — uses thin dividers to separate rows. Checkbox state lives in
  * RecipesContext so it survives in-session navigation.
  */
-export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ recipeKey, ingredients, servings }) => {
+export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ recipeKey, ingredients, servings, compact }) => {
   const { getCheckedIngredients, toggleIngredientCheck } = useRecipes();
   const checked = getCheckedIngredients(recipeKey);
   const ratio = servings?.scale ?? 1;
@@ -375,15 +379,23 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
         </div>
       )}
 
-      <ul className="divide-y divide-on-surface/[0.06]">
+      <ul className={cn(
+        compact
+          // Dotted hairline between rows in the compact variant.
+          ? '[&>li+li]:border-t [&>li+li]:border-dotted [&>li+li]:border-on-surface/[0.18]'
+          : 'divide-y divide-on-surface/[0.06]',
+      )}>
         {ingredients.map((ing, i) => {
           const isChecked = checked.has(i);
           const scaledAmount = ing.amount ? scaleQuantity(ing.amount, ratio) : '';
           return (
             <li key={i}>
               <label className={cn(
-                "flex items-center gap-4 py-3.5 cursor-pointer group transition-opacity",
-                isChecked && "opacity-40",
+                'flex items-center gap-4 cursor-pointer group transition-opacity',
+                // Compact: ~9px y-padding → ~38px row at 13px body. Default
+                // keeps the existing breathing room.
+                compact ? 'py-[9px]' : 'py-3.5',
+                isChecked && 'opacity-40',
               )}>
                 {/* Checkbox column — fixed width so the rows align. */}
                 <span className="flex items-center flex-shrink-0">
@@ -394,34 +406,41 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
                     className="sr-only peer"
                   />
                   <span className={cn(
-                    "w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center transition-all",
+                    'rounded-md border-2 flex items-center justify-center transition-all',
+                    compact ? 'w-[20px] h-[20px]' : 'w-[22px] h-[22px]',
                     isChecked
-                      ? "bg-emerald-500 border-emerald-500 text-white"
-                      : "border-on-surface/20 group-hover:border-on-surface/40",
+                      ? 'bg-emerald-500 border-emerald-500 text-white'
+                      : 'border-on-surface/20 group-hover:border-on-surface/40',
                   )}>
-                    {isChecked && <Check size={14} strokeWidth={3} />}
+                    {isChecked && <Check size={compact ? 12 : 14} strokeWidth={3} />}
                   </span>
                 </span>
                 {/* Amount + unit column — bold number, muted unit, fixed
                     min-width so every row's name starts at the same
                     horizontal position. */}
-                <span className={cn(
-                  "flex-shrink-0 min-w-[64px] text-[15px] tabular-nums leading-snug",
-                  isChecked && "line-through",
-                )}>
+                <span
+                  className={cn(
+                    'flex-shrink-0 min-w-[64px] tabular-nums leading-snug font-sans',
+                    isChecked && 'line-through',
+                  )}
+                  style={compact ? { fontSize: '12.5px' } : undefined}
+                >
                   {scaledAmount && (
-                    <span className="font-bold text-on-surface">{scaledAmount}</span>
+                    <span className={cn('font-bold text-on-surface', !compact && 'text-[15px]')}>{scaledAmount}</span>
                   )}
                   {ing.unit && (
-                    <span className="text-on-surface/50 font-normal ml-1">{ing.unit}</span>
+                    <span className={cn('text-on-surface/50 font-normal ml-1', !compact && 'text-[15px]')}>{ing.unit}</span>
                   )}
                 </span>
                 {/* Name column — regular weight, slightly muted so the
                     quantity reads as the primary on each row. */}
-                <span className={cn(
-                  "flex-1 min-w-0 text-[15px] text-on-surface/80 leading-snug",
-                  isChecked && "line-through",
-                )}>
+                <span
+                  className={cn(
+                    'flex-1 min-w-0 text-on-surface/80 leading-snug font-sans',
+                    compact ? 'text-[13px]' : 'text-[15px]',
+                    isChecked && 'line-through',
+                  )}
+                >
                   {ing.name}
                 </span>
               </label>
@@ -446,7 +465,12 @@ export const RecipeDirectionsList: React.FC<{
    *  survives in-session navigation. Without a key the list renders
    *  statically (current behavior for callers that haven't opted in). */
   recipeKey?: string;
-}> = ({ steps, recipeKey }) => {
+  /** Compact density: Newsreader 18px clay-red step number anchored
+   *  to the top-left, Manrope 13px body. Used by the in-feed
+   *  RecipePanel where the standard 30px serif numeral feels
+   *  oversized against the narrow column. */
+  compact?: boolean;
+}> = ({ steps, recipeKey, compact }) => {
   const { getCollapsedSteps, toggleStepCollapse } = useRecipes();
   const collapsed = recipeKey ? getCollapsedSteps(recipeKey) : null;
   const interactive = !!recipeKey;
@@ -471,16 +495,26 @@ export const RecipeDirectionsList: React.FC<{
                 'first:pt-0 last:pb-0',
               )}
             >
-              <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5">
-                {/* Zero-padded serif step number in clay — editorial accent
-                    that anchors each step. Subtly scales down in the
-                    collapsed state so the row reads as a quiet bookmark
-                    for the step you've finished. */}
+              <div className={cn(
+                'grid grid-cols-[auto_minmax(0,1fr)]',
+                compact ? 'gap-x-3' : 'gap-x-5',
+              )}>
+                {/* Zero-padded serif step number — editorial accent that
+                    anchors each step. In compact mode it sits in
+                    Newsreader 18px / #b1442b, top-aligned slightly above
+                    the body baseline. In the default variant it's a
+                    larger 30px clay numeral. */}
                 <motion.div
                   aria-hidden
                   animate={{ scale: isCollapsed ? 0.78 : 1 }}
                   transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                  className="font-serif font-bold text-[30px] leading-none text-primary/85 tabular-nums select-none origin-left"
+                  className={cn(
+                    'font-bold leading-none tabular-nums select-none origin-left',
+                    compact
+                      ? "text-[18px] [font-family:'Newsreader',serif]"
+                      : 'font-serif text-[30px] text-primary/85',
+                  )}
+                  style={compact ? { color: '#b1442b' } : undefined}
                 >
                   {String(i + 1).padStart(2, '0')}
                 </motion.div>
@@ -497,12 +531,20 @@ export const RecipeDirectionsList: React.FC<{
                       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
                       className="overflow-hidden"
                     >
-                      <p className="text-[15px] leading-[1.75] text-on-surface/85 whitespace-pre-wrap pt-1">
+                      <p className={cn(
+                        'text-on-surface/85 whitespace-pre-wrap font-sans',
+                        // pt-0 in compact mode so the Newsreader numeral
+                        // sits slightly higher than the body baseline,
+                        // matching the editorial reference.
+                        compact
+                          ? 'text-[13px] leading-[1.7]'
+                          : 'text-[15px] leading-[1.75] pt-1',
+                      )}>
                         {step}
                       </p>
                       {timerMinutes !== null && (
                         <div
-                          className="mt-3"
+                          className={cn(compact ? 'mt-2.5' : 'mt-3')}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <StepTimer minutes={timerMinutes} />
