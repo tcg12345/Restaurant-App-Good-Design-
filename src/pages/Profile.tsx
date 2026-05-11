@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
-  LayoutGrid, List as ListIcon, Upload, Bookmark,
+  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -287,6 +287,253 @@ const EmptyTabState: React.FC<{
   </div>
 );
 
+/* ── Top-list customization ────────────────────────────────────────────
+   The TOP tab seeds itself with auto-generated strips (Top 10 overall +
+   one per cuisine and city with 4+ ratings). Users can hide any of those
+   and add their own slices (e.g. by price tier, tag, or "would return").
+   We persist two deltas in localStorage rather than the full set of
+   configs so the page keeps reacting to new ratings — a freshly-eligible
+   cuisine still shows up automatically. */
+
+type TopListConfig =
+  | { type: 'overall' }
+  | { type: 'cuisine'; value: string }
+  | { type: 'city'; value: string }
+  | { type: 'price'; value: string }
+  | { type: 'tag'; value: string }
+  | { type: 'wouldReturn' };
+
+type TopListCustomization = {
+  hidden: string[];
+  custom: TopListConfig[];
+};
+
+const TOP_LIST_KEY = (userId: string | null | undefined) => `gourmad-top-lists-${userId || 'anon'}`;
+const MIN_LIST_SIZE = 4;
+
+const topListKey = (c: TopListConfig): string => {
+  if (c.type === 'overall' || c.type === 'wouldReturn') return c.type;
+  return `${c.type}:${c.value}`;
+};
+
+const topListLabel = (c: TopListConfig): React.ReactNode => {
+  if (c.type === 'overall') return 'Top 10';
+  if (c.type === 'wouldReturn') {
+    return <>Top 10 · <span className="text-on-surface/70">Would return</span></>;
+  }
+  if (c.type === 'city') {
+    return <>Top 10 in <span className="text-on-surface/70">{c.value}</span></>;
+  }
+  return <>Top 10 · <span className="text-on-surface/70">{c.value}</span></>;
+};
+
+const topListPlainLabel = (c: TopListConfig): string => {
+  if (c.type === 'overall') return 'Top 10 overall';
+  if (c.type === 'wouldReturn') return 'Top 10 · Would return';
+  if (c.type === 'city') return `Top 10 in ${c.value}`;
+  return `Top 10 · ${c.value}`;
+};
+
+const topListPredicate = (c: TopListConfig) => (r: { cuisine?: string; price?: string; address?: string; tags?: string[]; wouldReturn?: boolean }): boolean => {
+  switch (c.type) {
+    case 'overall': return true;
+    case 'cuisine': return r.cuisine === c.value;
+    case 'city': return cityFromAddress(r.address || '') === c.value;
+    case 'price': return r.price === c.value;
+    case 'tag': return Array.isArray(r.tags) && r.tags.includes(c.value);
+    case 'wouldReturn': return r.wouldReturn === true;
+  }
+};
+
+const topListMetaText = (
+  c: TopListConfig,
+  r: { cuisine?: string; price?: string; address?: string },
+): string | undefined => {
+  const city = cityFromAddress(r.address || '');
+  switch (c.type) {
+    case 'overall':
+    case 'wouldReturn':
+    case 'tag':
+      return undefined; // default cuisine · price · city
+    case 'cuisine':
+      return [city, r.price].filter(Boolean).join(' · ');
+    case 'city':
+      return [r.cuisine, r.price].filter(Boolean).join(' · ');
+    case 'price':
+      return [r.cuisine, city].filter(Boolean).join(' · ');
+  }
+};
+
+function loadCustomization(userId: string | null | undefined): TopListCustomization {
+  try {
+    const raw = localStorage.getItem(TOP_LIST_KEY(userId));
+    if (!raw) return { hidden: [], custom: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
+      custom: Array.isArray(parsed.custom) ? parsed.custom : [],
+    };
+  } catch {
+    return { hidden: [], custom: [] };
+  }
+}
+
+function saveCustomization(userId: string | null | undefined, c: TopListCustomization) {
+  try {
+    localStorage.setItem(TOP_LIST_KEY(userId), JSON.stringify(c));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+/* ── EditTopListsSheet ──
+   Two-section editor: current visible lists with delete buttons, then
+   a category picker (cuisine/city/price/tag/status) that surfaces every
+   value with MIN_LIST_SIZE+ matching ratings the user hasn't already
+   added. Adding a hidden auto-list un-hides it; adding a fresh slice
+   pushes onto the custom list. */
+const EditTopListsSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  visibleLists: TopListConfig[];
+  addableByCategory: Record<'cuisine' | 'city' | 'price' | 'tag' | 'status', Array<{ config: TopListConfig; label: string; count: number }>>;
+  onDelete: (c: TopListConfig) => void;
+  onAdd: (c: TopListConfig) => void;
+}> = ({ open, onClose, visibleLists, addableByCategory, onDelete, onAdd }) => {
+  const { phoneMode } = useSettings();
+  const [category, setCategory] = useState<'cuisine' | 'city' | 'price' | 'tag' | 'status'>('cuisine');
+
+  useEffect(() => { if (open) setCategory('cuisine'); }, [open]);
+
+  const tabs: Array<{ key: typeof category; label: string }> = [
+    { key: 'cuisine', label: 'Cuisine' },
+    { key: 'city', label: 'City' },
+    { key: 'price', label: 'Price' },
+    { key: 'tag', label: 'Tag' },
+    { key: 'status', label: 'Status' },
+  ];
+
+  const addable = addableByCategory[category] || [];
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+          className={cn(
+            'fixed inset-0 z-[70]',
+            phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md flex items-start justify-center pt-[12vh] px-4',
+          )}
+          onClick={onClose}
+        >
+          <motion.div
+            {...(phoneMode
+              ? { initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' }, transition: { type: 'spring' as const, damping: 28, stiffness: 300 } }
+              : {
+                  initial: { opacity: 0, scale: 0.94, y: -12 },
+                  animate: { opacity: 1, scale: 1, y: 0 },
+                  exit: { opacity: 0, scale: 0.96, y: -8 },
+                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                })}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className={cn(
+              'bg-surface flex flex-col overflow-hidden',
+              phoneMode
+                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl max-h-[85vh]'
+                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
+            )}
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className={cn(
+              'flex items-center justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-3 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4 border-b border-on-surface/[0.06]',
+            )}>
+              <div>
+                <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>Edit top lists</h3>
+                <p className="text-[11.5px] text-on-surface/45 mt-0.5">Remove auto-picked lists or add your own slices.</p>
+              </div>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/10 transition-colors">
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+              {/* Current lists */}
+              <section>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-2.5">Your lists</p>
+                {visibleLists.length === 0 ? (
+                  <p className="text-[13px] text-on-surface/45">No lists yet. Add one below.</p>
+                ) : (
+                  <ul className="rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] divide-y divide-on-surface/[0.06]">
+                    {visibleLists.map((c) => (
+                      <li key={topListKey(c)} className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-[13.5px] font-medium text-on-surface/80 truncate">{topListPlainLabel(c)}</span>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(c)}
+                          aria-label={`Remove ${topListPlainLabel(c)}`}
+                          className="w-7 h-7 rounded-full bg-on-surface/[0.06] hover:bg-rose-100 text-on-surface/45 hover:text-rose-600 flex items-center justify-center transition-colors flex-shrink-0"
+                        >
+                          <X size={13} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              {/* Add a list */}
+              <section>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-2.5">Add a list</p>
+
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {tabs.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => setCategory(t.key)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors border',
+                        category === t.key
+                          ? 'bg-primary text-white border-primary'
+                          : 'bg-on-surface/[0.04] border-on-surface/[0.08] text-on-surface/55 hover:bg-on-surface/[0.08]',
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {addable.length === 0 ? (
+                  <p className="text-[12.5px] text-on-surface/45 px-1">
+                    Nothing eligible here yet — categories need at least {MIN_LIST_SIZE} rated restaurants to qualify.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {addable.map(({ config, label, count }) => (
+                      <button
+                        key={topListKey(config)}
+                        type="button"
+                        onClick={() => onAdd(config)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-on-surface/[0.04] border border-on-surface/[0.08] hover:bg-primary/[0.08] hover:border-primary/30 hover:text-primary text-[12px] font-semibold text-on-surface/75 transition-colors"
+                      >
+                        <Plus size={12} strokeWidth={2.6} />
+                        {label}
+                        <span className="text-on-surface/35 font-medium">· {count}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
@@ -327,6 +574,12 @@ export const Profile: React.FC = () => {
   };
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
   const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'rated'>('top');
+  const [editListsOpen, setEditListsOpen] = useState(false);
+  const [customization, setCustomization] = useState<TopListCustomization>({ hidden: [], custom: [] });
+  // Load the persisted customization once we know who the user is.
+  useEffect(() => { setCustomization(loadCustomization(user?.id)); }, [user?.id]);
+  // Persist on every change.
+  useEffect(() => { saveCustomization(user?.id, customization); }, [user?.id, customization]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
   // Create menu — single button under the action row that opens a small
@@ -508,53 +761,118 @@ export const Profile: React.FC = () => {
       .slice(0, 6);
   }, [ratings]);
 
-  /** Top-N highest scoring ratings, used by every TOP-tab slice. */
-  const topOverall = useMemo(() => {
-    return [...ratings]
-      .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
-      .slice(0, 10);
+  /** Counts per (cuisine / city / price / tag / wouldReturn) — used both
+   *  to seed auto-generated lists and to gate which slices the user can
+   *  add from the editor (must have MIN_LIST_SIZE+ matches). */
+  const categoryCounts = useMemo(() => {
+    const cuisine = new Map<string, number>();
+    const city = new Map<string, number>();
+    const price = new Map<string, number>();
+    const tag = new Map<string, number>();
+    let wouldReturn = 0;
+    ratings.forEach((r) => {
+      if (r.cuisine) cuisine.set(r.cuisine, (cuisine.get(r.cuisine) || 0) + 1);
+      const c = cityFromAddress(r.address || '');
+      if (c) city.set(c, (city.get(c) || 0) + 1);
+      if (r.price) price.set(r.price, (price.get(r.price) || 0) + 1);
+      if (Array.isArray(r.tags)) r.tags.forEach((t) => { if (t) tag.set(t, (tag.get(t) || 0) + 1); });
+      if (r.wouldReturn) wouldReturn += 1;
+    });
+    return { cuisine, city, price, tag, wouldReturn };
   }, [ratings]);
 
-  /** Per-cuisine slices — only kept when there's enough data to fill a
-   *  meaningful Top 10 (4+ entries). Sorted by total count desc so the
-   *  user's most-rated cuisines surface first. */
-  const topByCuisine = useMemo(() => {
-    const grouped = new Map<string, typeof ratings>();
-    ratings.forEach((r) => {
-      if (!r.cuisine) return;
-      const arr = grouped.get(r.cuisine) ?? [];
-      arr.push(r);
-      grouped.set(r.cuisine, arr);
-    });
-    return Array.from(grouped.entries())
-      .filter(([, items]) => items.length >= 4)
-      .sort((a, b) => b[1].length - a[1].length)
-      .map(([cuisine, items]) => {
-        const sorted = [...items].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)).slice(0, 10);
-        const avg = items.reduce((s, r) => s + (Number(r.score) || 0), 0) / items.length;
-        return { cuisine, items: sorted, total: items.length, avg };
-      });
-  }, [ratings]);
+  /** Auto-seeded configs: overall + any cuisine / city above the
+   *  threshold, sorted by count desc so the heaviest categories lead. */
+  const autoConfigs = useMemo<TopListConfig[]>(() => {
+    const out: TopListConfig[] = [{ type: 'overall' }];
+    Array.from(categoryCounts.cuisine.entries())
+      .filter(([, n]) => n >= MIN_LIST_SIZE)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([value]) => out.push({ type: 'cuisine', value }));
+    Array.from(categoryCounts.city.entries())
+      .filter(([, n]) => n >= MIN_LIST_SIZE)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([value]) => out.push({ type: 'city', value }));
+    return out;
+  }, [categoryCounts]);
 
-  /** Per-city slices, same shape and 4+ threshold as cuisine. */
-  const topByCity = useMemo(() => {
-    const grouped = new Map<string, typeof ratings>();
-    ratings.forEach((r) => {
-      const city = cityFromAddress(r.address || '');
-      if (!city) return;
-      const arr = grouped.get(city) ?? [];
-      arr.push(r);
-      grouped.set(city, arr);
-    });
-    return Array.from(grouped.entries())
-      .filter(([, items]) => items.length >= 4)
-      .sort((a, b) => b[1].length - a[1].length)
-      .map(([city, items]) => {
-        const sorted = [...items].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)).slice(0, 10);
-        const avg = items.reduce((s, r) => s + (Number(r.score) || 0), 0) / items.length;
-        return { city, items: sorted, total: items.length, avg };
-      });
-  }, [ratings]);
+  /** Final ordered configs after applying user deltas: auto minus
+   *  hidden, then any custom additions that aren't already covered. */
+  const visibleConfigs = useMemo<TopListConfig[]>(() => {
+    const hidden = new Set(customization.hidden);
+    const auto = autoConfigs.filter((c) => !hidden.has(topListKey(c)));
+    const autoKeys = new Set(auto.map(topListKey));
+    const custom = customization.custom.filter((c) => !autoKeys.has(topListKey(c)));
+    return [...auto, ...custom];
+  }, [autoConfigs, customization]);
+
+  /** For each visible config: resolved title, subtitle, and the top-10
+   *  ratings that match its predicate. Filters out empty slices. */
+  const visibleLists = useMemo(() => {
+    return visibleConfigs
+      .map((config) => {
+        const matching = ratings.filter(topListPredicate(config));
+        const items = [...matching]
+          .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+          .slice(0, 10);
+        const total = matching.length;
+        const avg = total > 0 ? matching.reduce((s, r) => s + (Number(r.score) || 0), 0) / total : 0;
+        return { config, items, total, avg };
+      })
+      .filter(({ items }) => items.length > 0);
+  }, [ratings, visibleConfigs]);
+
+  /** Categories the user can still add to the strip set — every value
+   *  with MIN_LIST_SIZE+ ratings that isn't already on screen. */
+  const addableByCategory = useMemo(() => {
+    const visibleKeys = new Set(visibleConfigs.map(topListKey));
+    const buildFromMap = (
+      m: Map<string, number>,
+      type: 'cuisine' | 'city' | 'price' | 'tag',
+    ) => Array.from(m.entries())
+      .filter(([, n]) => n >= MIN_LIST_SIZE)
+      .map(([value, count]) => ({ config: { type, value } as TopListConfig, label: value, count }))
+      .filter(({ config }) => !visibleKeys.has(topListKey(config)))
+      .sort((a, b) => b.count - a.count);
+
+    const status: Array<{ config: TopListConfig; label: string; count: number }> = [];
+    if (categoryCounts.wouldReturn >= MIN_LIST_SIZE && !visibleKeys.has('wouldReturn')) {
+      status.push({ config: { type: 'wouldReturn' }, label: 'Would return', count: categoryCounts.wouldReturn });
+    }
+    // Overall is always present in autoConfigs unless explicitly hidden;
+    // expose it from the editor too so a hidden overall can be restored.
+    if (!visibleKeys.has('overall') && ratings.length >= MIN_LIST_SIZE) {
+      status.unshift({ config: { type: 'overall' }, label: 'All-time overall', count: ratings.length });
+    }
+
+    return {
+      cuisine: buildFromMap(categoryCounts.cuisine, 'cuisine'),
+      city: buildFromMap(categoryCounts.city, 'city'),
+      price: buildFromMap(categoryCounts.price, 'price'),
+      tag: buildFromMap(categoryCounts.tag, 'tag'),
+      status,
+    };
+  }, [categoryCounts, visibleConfigs, ratings.length]);
+
+  const deleteList = (c: TopListConfig) => {
+    const key = topListKey(c);
+    const isAuto = autoConfigs.some((a) => topListKey(a) === key);
+    setCustomization((prev) => ({
+      hidden: isAuto && !prev.hidden.includes(key) ? [...prev.hidden, key] : prev.hidden,
+      custom: prev.custom.filter((cc) => topListKey(cc) !== key),
+    }));
+  };
+
+  const addList = (c: TopListConfig) => {
+    const key = topListKey(c);
+    const isAuto = autoConfigs.some((a) => topListKey(a) === key);
+    setCustomization((prev) => ({
+      hidden: prev.hidden.filter((h) => h !== key), // un-hide if it was hidden
+      custom: isAuto || prev.custom.some((cc) => topListKey(cc) === key)
+        ? prev.custom
+        : [...prev.custom, c],
+    }));
+  };
 
   const recentRatings = useMemo(() => {
     return [...ratings].sort((a, b) => ratingRecencyIso(b).localeCompare(ratingRecencyIso(a))).slice(0, 6);
@@ -768,7 +1086,7 @@ export const Profile: React.FC = () => {
       {/* ── Tab content ───────────────────────────────────────────────── */}
       <main className="px-5 pt-5">
         {activeTab === 'top' && (
-          topOverall.length === 0 ? (
+          ratings.length === 0 ? (
             <EmptyTabState
               icon={<Star size={32} className="text-on-surface/15" />}
               title="No rated restaurants yet"
@@ -780,42 +1098,15 @@ export const Profile: React.FC = () => {
             // Full-bleed strips: negative margin cancels the `main` pad
             // so cards run edge-to-edge during horizontal scroll.
             <div className="-mx-5 space-y-7">
-              <Top10Section
-                title="Top 10"
-                subtitle="Your highest scores, all-time"
-                onSeeAll={goToMyRatings}
-              >
-                {topOverall.map((r, i) => (
-                  <TopRatedCard key={r.restaurantId} rank={i + 1} rating={r} />
-                ))}
-              </Top10Section>
-
-              {topByCuisine.map(({ cuisine, items, total, avg }) => (
+              {visibleLists.map(({ config, items, total, avg }) => (
                 <Top10Section
-                  key={`cuisine-${cuisine}`}
-                  title={<>Top 10 · <span className="text-on-surface/70">{cuisine}</span></>}
-                  subtitle={`${total} place${total === 1 ? '' : 's'} · ${avg.toFixed(1)} avg`}
-                  onSeeAll={goToMyRatings}
-                >
-                  {items.map((r, i) => {
-                    const cityLabel = cityFromAddress(r.address || '');
-                    return (
-                      <TopRatedCard
-                        key={r.restaurantId}
-                        rank={i + 1}
-                        rating={r}
-                        metaText={[cityLabel, r.price].filter(Boolean).join(' · ')}
-                      />
-                    );
-                  })}
-                </Top10Section>
-              ))}
-
-              {topByCity.map(({ city, items, total, avg }) => (
-                <Top10Section
-                  key={`city-${city}`}
-                  title={<>Top 10 in <span className="text-on-surface/70">{city}</span></>}
-                  subtitle={`${total} place${total === 1 ? '' : 's'} · ${avg.toFixed(1)} avg`}
+                  key={topListKey(config)}
+                  title={topListLabel(config)}
+                  subtitle={
+                    config.type === 'overall'
+                      ? 'Your highest scores, all-time'
+                      : `${total} place${total === 1 ? '' : 's'} · ${avg.toFixed(1)} avg`
+                  }
                   onSeeAll={goToMyRatings}
                 >
                   {items.map((r, i) => (
@@ -823,11 +1114,23 @@ export const Profile: React.FC = () => {
                       key={r.restaurantId}
                       rank={i + 1}
                       rating={r}
-                      metaText={[r.cuisine, r.price].filter(Boolean).join(' · ')}
+                      metaText={topListMetaText(config, r)}
                     />
                   ))}
                 </Top10Section>
               ))}
+
+              {/* Edit top lists — opens the customization sheet. */}
+              <div className="px-5">
+                <button
+                  type="button"
+                  onClick={() => setEditListsOpen(true)}
+                  className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.08] text-on-surface/70 text-[13px] font-semibold hover:bg-on-surface/[0.07] hover:border-on-surface/[0.15] transition-colors"
+                >
+                  <Pencil size={14} />
+                  Edit top lists
+                </button>
+              </div>
 
               {/* Recommended guides — mock for now; "Explore" routes to
                   Discover where real guides live. */}
@@ -976,6 +1279,15 @@ export const Profile: React.FC = () => {
           )
         )}
       </main>
+
+      <EditTopListsSheet
+        open={editListsOpen}
+        onClose={() => setEditListsOpen(false)}
+        visibleLists={visibleConfigs}
+        addableByCategory={addableByCategory}
+        onDelete={deleteList}
+        onAdd={addList}
+      />
 
       {/* Delete-reel / Delete-post confirmations. Both call into their
           respective contexts and clean up storage objects. */}
