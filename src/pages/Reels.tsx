@@ -915,7 +915,7 @@ export const Reels: React.FC = () => {
     loadPostComments, addPostComment, deletePostComment,
     lastActivePostId, setLastActivePostId,
   } = usePosts();
-  const { phoneMode } = useSettings();
+  const { phoneMode, setHideBottomNav } = useSettings();
   const { showToast } = useToast();
 
   // Tab can be deep-linked via ?kind=explore|recipe. Older deep links
@@ -1012,6 +1012,16 @@ export const Reels: React.FC = () => {
   openCommentsReelIdRef.current = openCommentsReelId;
   const openPostCommentsIdRef = useRef(openPostCommentsId);
   openPostCommentsIdRef.current = openPostCommentsId;
+
+  // Hide the floating BottomNav whenever either feature pane (restaurant
+  // or recipe) is open on the mobile sheet — its presence at the bottom
+  // collides visually with the bottom-anchored sheet handle. Reset on
+  // close + on unmount so other pages don't inherit the hidden state.
+  useEffect(() => {
+    const anyPanelOpen = !!restaurantPanelSnapshot || !!recipePanelSnapshot;
+    setHideBottomNav(anyPanelOpen);
+    return () => setHideBottomNav(false);
+  }, [restaurantPanelSnapshot, recipePanelSnapshot, setHideBottomNav]);
 
   useEffect(() => {
     if (!activeKey) return;
