@@ -76,7 +76,7 @@ const TopRatedCard: React.FC<{
   return (
     <Link
       to={`/restaurant/${rating.restaurantId}`}
-      className="block w-52 flex-shrink-0 snap-start rounded-2xl bg-surface border border-on-surface/[0.08] px-4 py-3.5 hover:border-on-surface/[0.18] hover:shadow-[0_2px_10px_-4px_rgba(0,0,0,0.08)] transition-all"
+      className="block w-52 flex-shrink-0 snap-start rounded-2xl bg-white border border-on-surface/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.03)] px-4 py-3.5 hover:border-on-surface/[0.16] hover:shadow-[0_4px_14px_-4px_rgba(0,0,0,0.08)] transition-all"
     >
       <div className="flex items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-1.5 min-w-0">
