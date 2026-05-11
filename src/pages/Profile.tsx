@@ -3,9 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
-  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil,
+  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useReels } from '../contexts/ReelsContext';
@@ -309,6 +309,11 @@ type TopListConfig =
 type TopListCustomization = {
   hidden: string[];
   custom: TopListConfig[];
+  /** User-preferred display order, list keys in the desired sequence.
+   *  Any visible keys not present fall to the end in their natural
+   *  (auto + custom) order — so freshly-eligible auto lists slot in
+   *  predictably without erasing the user's choices. */
+  order: string[];
 };
 
 const TOP_LIST_KEY = (userId: string | null | undefined) => `gourmad-top-lists-${userId || 'anon'}`;
@@ -365,14 +370,15 @@ const topListMetaText = (
 function loadCustomization(userId: string | null | undefined): TopListCustomization {
   try {
     const raw = localStorage.getItem(TOP_LIST_KEY(userId));
-    if (!raw) return { hidden: [], custom: [] };
+    if (!raw) return { hidden: [], custom: [], order: [] };
     const parsed = JSON.parse(raw);
     return {
       hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
       custom: Array.isArray(parsed.custom) ? parsed.custom : [],
+      order: Array.isArray(parsed.order) ? parsed.order : [],
     };
   } catch {
-    return { hidden: [], custom: [] };
+    return { hidden: [], custom: [], order: [] };
   }
 }
 
@@ -397,7 +403,8 @@ const EditTopListsSheet: React.FC<{
   addableByCategory: Record<'cuisine' | 'city' | 'price' | 'tag' | 'status', Array<{ config: TopListConfig; label: string; count: number }>>;
   onDelete: (c: TopListConfig) => void;
   onAdd: (c: TopListConfig) => void;
-}> = ({ open, onClose, visibleLists, addableByCategory, onDelete, onAdd }) => {
+  onReorder: (configs: TopListConfig[]) => void;
+}> = ({ open, onClose, visibleLists, addableByCategory, onDelete, onAdd, onReorder }) => {
   const { phoneMode } = useSettings();
   const [category, setCategory] = useState<'cuisine' | 'city' | 'price' | 'tag' | 'status'>('cuisine');
 
@@ -457,27 +464,53 @@ const EditTopListsSheet: React.FC<{
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-              {/* Current lists */}
+              {/* Current lists — Reorder.Group so the user can drag any
+                  row to a new spot. Drag handle on the left, X on the
+                  right. The whole row is the drag affordance so touch
+                  reorder feels natural on phones. */}
               <section>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-2.5">Your lists</p>
+                <div className="flex items-baseline justify-between mb-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Your lists</p>
+                  {visibleLists.length > 1 && (
+                    <p className="text-[10.5px] text-on-surface/35">Drag to reorder</p>
+                  )}
+                </div>
                 {visibleLists.length === 0 ? (
                   <p className="text-[13px] text-on-surface/45">No lists yet. Add one below.</p>
                 ) : (
-                  <ul className="rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] divide-y divide-on-surface/[0.06]">
+                  <Reorder.Group
+                    axis="y"
+                    values={visibleLists}
+                    onReorder={onReorder}
+                    className="space-y-1.5"
+                  >
                     {visibleLists.map((c) => (
-                      <li key={topListKey(c)} className="flex items-center justify-between px-4 py-2.5">
-                        <span className="text-[13.5px] font-medium text-on-surface/80 truncate">{topListPlainLabel(c)}</span>
+                      <Reorder.Item
+                        key={topListKey(c)}
+                        value={c}
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-on-surface/[0.04] border border-on-surface/[0.06] cursor-grab active:cursor-grabbing select-none"
+                        whileDrag={{
+                          scale: 1.02,
+                          boxShadow: '0 6px 20px -8px rgba(0,0,0,0.18)',
+                          zIndex: 10,
+                        }}
+                      >
+                        <GripVertical size={15} className="text-on-surface/30 flex-shrink-0" />
+                        <span className="flex-1 min-w-0 text-[13.5px] font-medium text-on-surface/80 truncate">
+                          {topListPlainLabel(c)}
+                        </span>
                         <button
                           type="button"
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={() => onDelete(c)}
                           aria-label={`Remove ${topListPlainLabel(c)}`}
                           className="w-7 h-7 rounded-full bg-on-surface/[0.06] hover:bg-rose-100 text-on-surface/45 hover:text-rose-600 flex items-center justify-center transition-colors flex-shrink-0"
                         >
                           <X size={13} />
                         </button>
-                      </li>
+                      </Reorder.Item>
                     ))}
-                  </ul>
+                  </Reorder.Group>
                 )}
               </section>
 
@@ -795,13 +828,27 @@ export const Profile: React.FC = () => {
   }, [categoryCounts]);
 
   /** Final ordered configs after applying user deltas: auto minus
-   *  hidden, then any custom additions that aren't already covered. */
+   *  hidden, then any custom additions that aren't already covered.
+   *  Sorted by the user's preferred order; anything missing from
+   *  `order` (e.g. a freshly eligible auto cuisine) falls to the end
+   *  in its natural position. */
   const visibleConfigs = useMemo<TopListConfig[]>(() => {
     const hidden = new Set(customization.hidden);
     const auto = autoConfigs.filter((c) => !hidden.has(topListKey(c)));
     const autoKeys = new Set(auto.map(topListKey));
     const custom = customization.custom.filter((c) => !autoKeys.has(topListKey(c)));
-    return [...auto, ...custom];
+    const all = [...auto, ...custom];
+
+    if (customization.order.length === 0) return all;
+    const orderIdx = new Map(customization.order.map((k, i) => [k, i]));
+    return [...all].sort((a, b) => {
+      const ai = orderIdx.get(topListKey(a));
+      const bi = orderIdx.get(topListKey(b));
+      if (ai != null && bi != null) return ai - bi;
+      if (ai != null) return -1;
+      if (bi != null) return 1;
+      return 0; // both unknown — preserve natural auto/custom order
+    });
   }, [autoConfigs, customization]);
 
   /** For each visible config: resolved title, subtitle, and the top-10
@@ -858,6 +905,7 @@ export const Profile: React.FC = () => {
     setCustomization((prev) => ({
       hidden: isAuto && !prev.hidden.includes(key) ? [...prev.hidden, key] : prev.hidden,
       custom: prev.custom.filter((cc) => topListKey(cc) !== key),
+      order: prev.order.filter((k) => k !== key),
     }));
   };
 
@@ -869,7 +917,16 @@ export const Profile: React.FC = () => {
       custom: isAuto || prev.custom.some((cc) => topListKey(cc) === key)
         ? prev.custom
         : [...prev.custom, c],
+      order: prev.order,
     }));
+  };
+
+  /** Persist a drag-induced reorder. We store every visible key so
+   *  future renders don't fall back to the natural order for some
+   *  lists and the user's order for others. */
+  const reorderLists = (configs: TopListConfig[]) => {
+    const nextOrder = configs.map(topListKey);
+    setCustomization((prev) => ({ ...prev, order: nextOrder }));
   };
 
   const recentRatings = useMemo(() => {
@@ -1282,6 +1339,7 @@ export const Profile: React.FC = () => {
         addableByCategory={addableByCategory}
         onDelete={deleteList}
         onAdd={addList}
+        onReorder={reorderLists}
       />
 
       {/* Delete-reel / Delete-post confirmations. Both call into their
