@@ -968,11 +968,34 @@ export const Reels: React.FC = () => {
   const activeReelId = activeKey?.startsWith('reel-') ? activeKey.slice(5) : null;
   const activePostId = activeKey?.startsWith('post-') ? activeKey.slice(5) : null;
 
-  // Reset the active item when the tab changes. If the user was last on
-  // a post (and that post still appears in this tab), prefer it over the
-  // first slide — that's what restores their position after navigating
-  // to a featured-attachment detail page and clicking back.
+  // ── Per-tab "last seen" feed-item key.
+  //
+  // The user expects tab-switching to be a stack-of-pages, not a
+  // single-position cursor: scroll to reel #7 on Explore, hop to
+  // Recipes and scroll to recipe #3, hop back to Explore and you're
+  // returned to reel #7. We track the last-active key per tab in
+  // component state (resets when /reels unmounts). The first visit
+  // to a tab — including the very first Recipes view — falls
+  // through to "top of the feed". The cross-mount PostsContext
+  // lastActivePostId pointer remains a secondary fallback so
+  // returning from /restaurant/X back to /reels still lands you on
+  // the post you were on (mostly useful on the Explore tab).
+  const [lastKeyByTab, setLastKeyByTab] = useState<Record<FeedKind, string | null>>({
+    explore: null,
+    recipe: null,
+  });
+
   useEffect(() => {
+    // First try the per-tab saved key. Drop it if the underlying item
+    // is gone (deleted / no longer visible to this viewer).
+    const saved = lastKeyByTab[kind];
+    if (saved && feedItems.some((f) => f.key === saved)) {
+      setActiveKey(saved);
+      return;
+    }
+    // Cross-mount post pointer — useful for returning from a featured
+    // attachment detail page. Only meaningful on the explore tab
+    // since recipe-only filters won't carry every post.
     if (lastActivePostId) {
       const match = feedItems.find((f) => f.kind === 'post' && f.post.id === lastActivePostId);
       if (match) {
@@ -984,9 +1007,13 @@ export const Reels: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, feedItems.length]);
 
-  // Mirror the activeKey into PostsContext so the next mount can restore
-  // the same post. When the active item is a reel we leave the saved
-  // value untouched — it's specifically a "last post" pointer.
+  // Mirror the activeKey into per-tab state whenever it changes, and
+  // into PostsContext's cross-mount pointer for posts.
+  useEffect(() => {
+    if (!activeKey) return;
+    setLastKeyByTab((prev) => (prev[kind] === activeKey ? prev : { ...prev, [kind]: activeKey }));
+  }, [activeKey, kind]);
+
   useEffect(() => {
     if (activePostId) setLastActivePostId(activePostId);
   }, [activePostId, setLastActivePostId]);
@@ -1101,12 +1128,14 @@ export const Reels: React.FC = () => {
     }
   }, [activeKey, allReels, recipeReels, allPosts, openCommentsSheet, openPostCommentsSheet, closeCommentsSheet, closePostCommentsSheet]);
 
-  // After the feed renders for the first time with a saved active post,
-  // scroll the snap container so that post is the visible slide. We use
-  // a layout effect so the scroll happens before the user sees slide 0.
+  // After the feed renders with a restored active key, scroll the snap
+  // container so that item is the visible slide. Works for both reels
+  // and posts now that per-tab restoration applies to either kind.
+  // useLayoutEffect so the scroll happens before paint and there's no
+  // flash of slide 0.
   const restoredKeyRef = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (!activeKey || !activeKey.startsWith('post-')) return;
+    if (!activeKey) return;
     if (restoredKeyRef.current === activeKey) return;
     const root = containerRef.current;
     if (!root) return;
