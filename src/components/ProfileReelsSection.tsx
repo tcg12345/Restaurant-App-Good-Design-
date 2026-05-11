@@ -59,7 +59,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
 
   const handleClick = (p: Post) => {
     if (onTileClick) { onTileClick(p); return; }
-    navigate('/reels?kind=post');
+    navigate(`/r/post-${p.id}`);
   };
 
   return (
@@ -209,7 +209,7 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
 
   const handleClick = (r: Reel) => {
     if (onTileClick) { onTileClick(r); return; }
-    navigate(`/reels?kind=${r.kind}`);
+    navigate(`/r/reel-${r.id}`);
   };
 
   return (

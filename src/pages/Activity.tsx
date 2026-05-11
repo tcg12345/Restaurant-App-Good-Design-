@@ -314,17 +314,15 @@ export const Activity: React.FC = () => {
   // or isn't currently in the loaded list.
   const commentedCount = commentedReelIds.length + commentedPostIds.length;
 
-  /* ── Click handler: deep-link into /reels and let the page restore the
-        active item. For posts we use the existing lastActivePostId hook
-        (PostsContext) which the Reels page already reads on mount. For
-        reels we fall back to navigating to /reels — the user lands at
-        the top and scrolls. */
+  /* ── Click handler: open the focused single-item viewer. Same Reels
+        component, but routed to /r/:focusKey so it shows just this item
+        first with a back arrow and no bottom nav. */
   const handleReelTap = (r: Reel) => {
-    navigate(`/reels?kind=${r.kind === 'recipe' ? 'recipe' : 'explore'}`);
+    navigate(`/r/reel-${r.id}`);
   };
   const handlePostTap = (p: Post) => {
     setLastActivePostId(p.id);
-    navigate('/reels');
+    navigate(`/r/post-${p.id}`);
   };
 
   /* ── Build the unified list for the active tab ── */

@@ -860,7 +860,7 @@ const ChatView: React.FC<{
                           reel={msg.sharedReel}
                           isMe={isMe}
                           hasTextAbove={false}
-                          onClick={() => navigate(`/reels?kind=${msg.sharedReel!.kind}`)}
+                          onClick={() => navigate(`/r/reel-${msg.sharedReel!.reelId}`)}
                         />
                       )}
                       {msg.sharedPost && (
@@ -868,7 +868,7 @@ const ChatView: React.FC<{
                           post={msg.sharedPost}
                           isMe={isMe}
                           hasTextAbove={false}
-                          onClick={() => navigate('/reels')}
+                          onClick={() => navigate(`/r/post-${msg.sharedPost!.postId}`)}
                         />
                       )}
                     </div>

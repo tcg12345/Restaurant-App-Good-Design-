@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause } from 'lucide-react';
+import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -899,6 +899,13 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
 export const Reels: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  // When mounted under /r/:focusKey the page acts as a focused viewer
+  // for a single reel/post — full feed and full functionality, but
+  // scrolled to the target item and chromeless (no bottom nav, back
+  // arrow overlay top-left). The key matches the FeedItem.key format
+  // used elsewhere (`reel-<id>` or `post-<id>`).
+  const { focusKey } = useParams<{ focusKey?: string }>();
+  const focused = !!focusKey;
   const {
     reels: allReels, recipeReels, loading: reelsLoading,
     toggleLike, toggleSave, deleteReel, openAddReelModal,
@@ -986,6 +993,17 @@ export const Reels: React.FC = () => {
   });
 
   useEffect(() => {
+    // Focused mode wins: if the URL points at a specific feed item
+    // and that item is in this tab's feed, jump straight to it. If it
+    // isn't here (e.g. a recipe reel viewed on the explore tab), try
+    // flipping the tab — otherwise fall through to the normal restore.
+    if (focused && focusKey) {
+      const match = feedItems.find((f) => f.key === focusKey);
+      if (match) {
+        setActiveKey(focusKey);
+        return;
+      }
+    }
     // First try the per-tab saved key. Drop it if the underlying item
     // is gone (deleted / no longer visible to this viewer).
     const saved = lastKeyByTab[kind];
@@ -1005,7 +1023,33 @@ export const Reels: React.FC = () => {
     }
     setActiveKey(feedItems[0]?.key ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, feedItems.length]);
+  }, [kind, feedItems.length, focusKey, focused]);
+
+  // If the focused item is a recipe reel that doesn't appear on the
+  // current tab (e.g. it's not also in Explore for some reason), flip
+  // the tab once the feeds are populated so it can find the item. We
+  // only do this once per focus to avoid bouncing back if the user
+  // intentionally switches tabs after landing.
+  const flippedForFocusRef = useRef(false);
+  useEffect(() => {
+    if (!focused || !focusKey) { flippedForFocusRef.current = false; return; }
+    if (flippedForFocusRef.current) return;
+    if (feedItems.some((f) => f.key === focusKey)) return;
+    if (focusKey.startsWith('reel-')) {
+      const id = focusKey.slice('reel-'.length);
+      const r = allReels.find((rr) => rr.id === id);
+      if (r && r.kind === 'recipe' && kind !== 'recipe') {
+        flippedForFocusRef.current = true;
+        setKind('recipe');
+      } else if (r && r.kind !== 'recipe' && kind !== 'explore') {
+        flippedForFocusRef.current = true;
+        setKind('explore');
+      }
+    } else if (focusKey.startsWith('post-') && kind !== 'explore') {
+      flippedForFocusRef.current = true;
+      setKind('explore');
+    }
+  }, [focused, focusKey, feedItems, allReels, kind]);
 
   // Mirror the activeKey into per-tab state whenever it changes, and
   // into PostsContext's cross-mount pointer for posts.
@@ -1044,11 +1088,12 @@ export const Reels: React.FC = () => {
   // or recipe) is open on the mobile sheet — its presence at the bottom
   // collides visually with the bottom-anchored sheet handle. Reset on
   // close + on unmount so other pages don't inherit the hidden state.
+  // In focused mode (/r/:key) the nav stays hidden the whole time.
   useEffect(() => {
     const anyPanelOpen = !!restaurantPanelSnapshot || !!recipePanelSnapshot;
-    setHideBottomNav(anyPanelOpen);
+    setHideBottomNav(focused || anyPanelOpen);
     return () => setHideBottomNav(false);
-  }, [restaurantPanelSnapshot, recipePanelSnapshot, setHideBottomNav]);
+  }, [focused, restaurantPanelSnapshot, recipePanelSnapshot, setHideBottomNav]);
 
   useEffect(() => {
     if (!activeKey) return;
@@ -1509,6 +1554,16 @@ export const Reels: React.FC = () => {
       // into the reel — the reel is height-driven, so the smaller the
       // vertical padding, the bigger the reel ends up.
       <div className="relative h-screen w-full bg-surface overflow-hidden flex items-center justify-center gap-4 px-6 py-3">
+        {focused && (
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+            className="fixed top-4 left-4 z-50 w-10 h-10 rounded-full bg-on-surface/[0.08] backdrop-blur text-on-surface flex items-center justify-center hover:bg-on-surface/[0.14] active:scale-95 transition-all"
+          >
+            <ArrowLeft size={18} strokeWidth={2.4} />
+          </button>
+        )}
         {/* Reel column — full available height; aspect ratio drives width.
             9/16 matches the native reels video ratio and Instagram's desktop
             reels column, so the frame reads as a proper short-form video
@@ -1606,6 +1661,16 @@ export const Reels: React.FC = () => {
   return (
     <div className="relative h-screen w-full bg-black overflow-hidden">
       <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
+      {focused && (
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+          className="fixed top-3 left-3 z-50 w-10 h-10 rounded-full bg-black/55 backdrop-blur text-white flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all"
+        >
+          <ArrowLeft size={18} strokeWidth={2.4} />
+        </button>
+      )}
       {renderFeed({})}
       {/* Restaurant sheet — mobile counterpart of the desktop panel. Slides
           up from the bottom over the feed. */}
