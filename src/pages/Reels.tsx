@@ -1000,42 +1000,49 @@ export const Reels: React.FC = () => {
       : null;
     const post = isPost ? (allPosts.find((p) => p.id === id) || null) : null;
 
-    // Restaurant panel auto-switch / close.
-    if (restaurantPanelSnapshotRef.current) {
-      let next: RestaurantPanelSnapshot | null = null;
-      if (reel && reel.kind === 'restaurant' && reel.restaurant) {
-        next = reel.restaurant;
+    // ── Restaurant / recipe panel auto-switch ──
+    // The two panels share a single "feature pane" — whichever kind the
+    // new active reel/post features, that's what the panel shows. So
+    // scrolling from a restaurant-featured reel to a recipe-featured
+    // reel with the panel already open swaps the contents (and the
+    // panel kind) rather than closing and reopening. If the new item
+    // has no featured attachment at all, the pane closes.
+    const anyPanelOpen = !!restaurantPanelSnapshotRef.current || !!recipePanelSnapshotRef.current;
+    if (anyPanelOpen) {
+      // Resolve what the active item features, preferring the reel's
+      // declared kind (or the post's first slide for posts).
+      let nextRestaurant: RestaurantPanelSnapshot | null = null;
+      let nextRecipe: RecipePanelSnapshot | null = null;
+      if (reel) {
+        if (reel.kind === 'restaurant' && reel.restaurant) nextRestaurant = reel.restaurant;
+        else if (reel.kind === 'recipe' && reel.recipe) nextRecipe = { authorId: reel.authorId, recipe: reel.recipe };
       } else if (post) {
         const first = post.items[0];
         if (first && first.attachedKind === 'restaurant' && first.restaurant) {
-          next = first.restaurant;
+          nextRestaurant = first.restaurant;
+        } else if (first && first.attachedKind === 'recipe' && first.recipe) {
+          nextRecipe = { authorId: post.userId, recipe: first.recipe };
         }
       }
-      if ((next?.id ?? null) !== (restaurantPanelSnapshotRef.current?.id ?? null)) {
-        setRestaurantPanelSnapshot(next);
-      }
-    }
 
-    // Recipe panel auto-switch / close — same rule, but pulls authorId
-    // from the active reel / post (RecipePanel needs it to fetch the
-    // full home-meal record).
-    if (recipePanelSnapshotRef.current) {
-      let next: RecipePanelSnapshot | null = null;
-      if (reel && reel.kind === 'recipe' && reel.recipe) {
-        next = { authorId: reel.authorId, recipe: reel.recipe };
-      } else if (post) {
-        const first = post.items[0];
-        if (first && first.attachedKind === 'recipe' && first.recipe) {
-          next = { authorId: post.userId, recipe: first.recipe };
-        }
-      }
-      const cur = recipePanelSnapshotRef.current;
-      const sameRecipe = next
-        && cur
-        && next.recipe.id === cur.recipe.id
-        && next.authorId === cur.authorId;
-      if (!sameRecipe) {
-        setRecipePanelSnapshot(next);
+      const curR = restaurantPanelSnapshotRef.current;
+      const curC = recipePanelSnapshotRef.current;
+
+      // Apply transitions, only writing state when something actually
+      // changes (so we don't churn the panel mounts every frame).
+      if (nextRestaurant) {
+        if (curC) setRecipePanelSnapshot(null);
+        if (curR?.id !== nextRestaurant.id) setRestaurantPanelSnapshot(nextRestaurant);
+      } else if (nextRecipe) {
+        if (curR) setRestaurantPanelSnapshot(null);
+        const sameRecipe = curC
+          && curC.recipe.id === nextRecipe.recipe.id
+          && curC.authorId === nextRecipe.authorId;
+        if (!sameRecipe) setRecipePanelSnapshot(nextRecipe);
+      } else {
+        // New item features neither — close whichever pane is open.
+        if (curR) setRestaurantPanelSnapshot(null);
+        if (curC) setRecipePanelSnapshot(null);
       }
     }
 
