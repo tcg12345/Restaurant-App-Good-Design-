@@ -29,14 +29,26 @@ export async function loadUserData(userId: string): Promise<UserAppData | null> 
   if (!supabaseConfigured || !userId) return null;
 
   try {
-    // Try loading with trips column first; fall back without it if column doesn't exist yet
+    // Try loading with newest columns first; fall back without them if the
+    // schema hasn't been migrated yet.
     let { data, error } = await supabase
       .from('user_app_data')
-      .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals')
+      .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals, chats, chats_read')
       .eq('user_id', userId)
       .single();
 
-    // If the trips column doesn't exist yet, retry without it
+    // Retry without chats columns if they don't exist yet
+    if (error && !data && error.code !== 'PGRST116') {
+      const retry = await supabase
+        .from('user_app_data')
+        .select('ratings, lists, wishlist, restaurant_meta, recent_views, trips, home_meals')
+        .eq('user_id', userId)
+        .single();
+      data = retry.data as typeof data;
+      error = retry.error;
+    }
+
+    // Final fallback without trips/home_meals either
     if (error && !data && error.code !== 'PGRST116') {
       const fallback = await supabase
         .from('user_app_data')

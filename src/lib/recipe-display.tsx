@@ -323,6 +323,10 @@ interface RecipeIngredientListProps {
     scale: number;
     onScaleChange: (scale: number) => void;
   };
+  /** Compact density: tighter row padding, smaller Manrope type, and
+   *  dotted dividers between rows. Used by the in-feed RecipePanel
+   *  where vertical space is constrained. */
+  compact?: boolean;
 }
 
 /**
@@ -330,7 +334,7 @@ interface RecipeIngredientListProps {
  * card — uses thin dividers to separate rows. Checkbox state lives in
  * RecipesContext so it survives in-session navigation.
  */
-export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ recipeKey, ingredients, servings }) => {
+export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ recipeKey, ingredients, servings, compact }) => {
   const { getCheckedIngredients, toggleIngredientCheck } = useRecipes();
   const checked = getCheckedIngredients(recipeKey);
   const ratio = servings?.scale ?? 1;
@@ -375,17 +379,26 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
         </div>
       )}
 
-      <ul className="divide-y divide-on-surface/[0.06]">
+      <ul className={cn(
+        compact
+          // Dotted hairline between rows in the compact variant.
+          ? '[&>li+li]:border-t [&>li+li]:border-dotted [&>li+li]:border-on-surface/[0.18]'
+          : 'divide-y divide-on-surface/[0.06]',
+      )}>
         {ingredients.map((ing, i) => {
           const isChecked = checked.has(i);
           const scaledAmount = ing.amount ? scaleQuantity(ing.amount, ratio) : '';
           return (
             <li key={i}>
               <label className={cn(
-                "flex items-baseline gap-3.5 py-3.5 cursor-pointer group transition-opacity",
-                isChecked && "opacity-40",
+                'flex items-center gap-4 cursor-pointer group transition-opacity',
+                // Compact: ~9px y-padding → ~38px row at 13px body. Default
+                // keeps the existing breathing room.
+                compact ? 'py-[9px]' : 'py-3.5',
+                isChecked && 'opacity-40',
               )}>
-                <span className="flex items-center flex-shrink-0 translate-y-[3px]">
+                {/* Checkbox column — fixed width so the rows align. */}
+                <span className="flex items-center flex-shrink-0">
                   <input
                     type="checkbox"
                     checked={isChecked}
@@ -393,25 +406,42 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
                     className="sr-only peer"
                   />
                   <span className={cn(
-                    "w-[20px] h-[20px] rounded border-2 flex items-center justify-center transition-all",
+                    'rounded-md border-2 flex items-center justify-center transition-all',
+                    compact ? 'w-[20px] h-[20px]' : 'w-[22px] h-[22px]',
                     isChecked
-                      ? "bg-emerald-500 border-emerald-500 text-white"
-                      : "border-on-surface/20 group-hover:border-on-surface/40",
+                      ? 'bg-emerald-500 border-emerald-500 text-white'
+                      : 'border-on-surface/20 group-hover:border-on-surface/40',
                   )}>
-                    {isChecked && <Check size={13} strokeWidth={3} />}
+                    {isChecked && <Check size={compact ? 12 : 14} strokeWidth={3} />}
                   </span>
                 </span>
-                <span className={cn(
-                  "flex-1 text-[15px] leading-[1.75] text-on-surface/80",
-                  isChecked && "line-through",
-                )}>
-                  {(scaledAmount || ing.unit) && (
-                    <span className="font-semibold text-on-surface tabular-nums">
-                      {scaledAmount}{ing.unit ? ` ${ing.unit}` : ''}
-                      {ing.name ? ' ' : ''}
-                    </span>
+                {/* Amount + unit column — bold number, muted unit, fixed
+                    min-width so every row's name starts at the same
+                    horizontal position. */}
+                <span
+                  className={cn(
+                    'flex-shrink-0 min-w-[64px] tabular-nums leading-snug font-sans',
+                    isChecked && 'line-through',
                   )}
-                  <span className="text-on-surface/70">{ing.name}</span>
+                  style={compact ? { fontSize: '12.5px' } : undefined}
+                >
+                  {scaledAmount && (
+                    <span className={cn('font-bold text-on-surface', !compact && 'text-[15px]')}>{scaledAmount}</span>
+                  )}
+                  {ing.unit && (
+                    <span className={cn('text-on-surface/50 font-normal ml-1', !compact && 'text-[15px]')}>{ing.unit}</span>
+                  )}
+                </span>
+                {/* Name column — regular weight, slightly muted so the
+                    quantity reads as the primary on each row. */}
+                <span
+                  className={cn(
+                    'flex-1 min-w-0 text-on-surface/80 leading-snug font-sans',
+                    compact ? 'text-[13px]' : 'text-[15px]',
+                    isChecked && 'line-through',
+                  )}
+                >
+                  {ing.name}
                 </span>
               </label>
             </li>
@@ -427,30 +457,111 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
  * by hairline dividers. No card per step. Auto-injects a StepTimer when the
  * step text contains a recognised duration.
  */
-export const RecipeDirectionsList: React.FC<{ steps: string[] }> = ({ steps }) => {
+export const RecipeDirectionsList: React.FC<{
+  steps: string[];
+  /** When provided, each step is tap-to-collapse: tapping the row
+   *  shrinks the body + timer away to leave just the number, in a
+   *  smooth height animation. State lives in RecipesContext so it
+   *  survives in-session navigation. Without a key the list renders
+   *  statically (current behavior for callers that haven't opted in). */
+  recipeKey?: string;
+  /** Compact density: Newsreader 18px clay-red step number anchored
+   *  to the top-left, Manrope 13px body. Used by the in-feed
+   *  RecipePanel where the standard 30px serif numeral feels
+   *  oversized against the narrow column. */
+  compact?: boolean;
+}> = ({ steps, recipeKey, compact }) => {
+  const { getCollapsedSteps, toggleStepCollapse } = useRecipes();
+  const collapsed = recipeKey ? getCollapsedSteps(recipeKey) : null;
+  const interactive = !!recipeKey;
   if (steps.length === 0) return null;
   return (
     <ol className="divide-y divide-on-surface/[0.06]">
       {steps.map((step, i) => {
         const timerMinutes = extractStepMinutes(step);
+        const isCollapsed = collapsed?.has(i) ?? false;
         return (
-          <li key={i} className="py-6 first:pt-0 last:pb-0">
-            <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-2.5">
-              <div
-                aria-hidden
-                className="font-serif font-bold text-[34px] leading-none text-on-surface/20 tabular-nums pt-1 select-none"
-              >
-                {i + 1}
-              </div>
-              <p className="text-[16px] leading-[1.75] text-on-surface/85 whitespace-pre-wrap">
-                {step}
-              </p>
-              {timerMinutes !== null && (
-                <div className="col-start-2">
-                  <StepTimer minutes={timerMinutes} />
-                </div>
+          <li key={i}>
+            <button
+              type="button"
+              disabled={!interactive}
+              onClick={() => recipeKey && toggleStepCollapse(recipeKey, i)}
+              aria-pressed={interactive ? isCollapsed : undefined}
+              aria-label={interactive ? (isCollapsed ? `Expand step ${i + 1}` : `Collapse step ${i + 1}`) : undefined}
+              className={cn(
+                'w-full text-left transition-[padding,opacity] duration-200',
+                interactive ? 'cursor-pointer' : 'cursor-default',
+                // Collapsed rows stay tight; expanded rows breathe more
+                // generously in the compact variant since the editorial
+                // density was too cramped against the dividers.
+                isCollapsed
+                  ? 'py-2.5 opacity-50'
+                  : compact
+                    ? 'py-7'
+                    : 'py-5',
+                'first:pt-0 last:pb-0',
               )}
-            </div>
+            >
+              <div className={cn(
+                'grid grid-cols-[auto_minmax(0,1fr)]',
+                compact ? 'gap-x-3' : 'gap-x-5',
+              )}>
+                {/* Zero-padded serif step number — editorial accent that
+                    anchors each step. In compact mode it sits in
+                    Newsreader 18px / #b1442b, top-aligned slightly above
+                    the body baseline. In the default variant it's a
+                    larger 30px clay numeral. */}
+                <motion.div
+                  aria-hidden
+                  animate={{ scale: isCollapsed ? 0.78 : 1 }}
+                  transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                  className={cn(
+                    'font-bold leading-none tabular-nums select-none origin-left',
+                    compact
+                      ? "text-[18px] [font-family:'Newsreader',serif]"
+                      : 'font-serif text-[30px] text-primary/85',
+                  )}
+                  style={compact ? { color: '#b1442b' } : undefined}
+                >
+                  {String(i + 1).padStart(2, '0')}
+                </motion.div>
+                {/* Body + optional timer collapse together via a single
+                    height-animated container. Wrapped in AnimatePresence
+                    so it cleanly mounts/unmounts. */}
+                <AnimatePresence initial={false}>
+                  {!isCollapsed && (
+                    <motion.div
+                      key="body"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <p className={cn(
+                        'text-on-surface/85 whitespace-pre-wrap font-sans',
+                        // pt-0 in compact mode so the Newsreader numeral
+                        // sits slightly higher than the body baseline,
+                        // matching the editorial reference.
+                        compact
+                          ? 'text-[13px] leading-[1.7]'
+                          : 'text-[15px] leading-[1.75] pt-1',
+                      )}>
+                        {step}
+                      </p>
+                      {timerMinutes !== null && (
+                        <div
+                          className={cn(compact ? 'mt-2.5' : 'mt-3')}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <StepTimer minutes={timerMinutes} />
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </button>
           </li>
         );
       })}

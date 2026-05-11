@@ -539,3 +539,27 @@ export async function deleteComment(commentId: string): Promise<boolean> {
   }
   return true;
 }
+
+/** Distinct reel ids the given user has commented on, newest comment first.
+ *  Used by the Activity page to render "reels you've commented on". */
+export async function listReelIdsCommentedByUser(userId: string): Promise<string[]> {
+  if (!supabaseConfigured || !userId) return [];
+  const { data, error } = await supabase
+    .from('reel_comments')
+    .select('reel_id, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.warn('[Reels] listReelIdsCommentedByUser failed:', error.message);
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const row of (data || []) as Array<{ reel_id: string }>) {
+    if (row.reel_id && !seen.has(row.reel_id)) {
+      seen.add(row.reel_id);
+      out.push(row.reel_id);
+    }
+  }
+  return out;
+}

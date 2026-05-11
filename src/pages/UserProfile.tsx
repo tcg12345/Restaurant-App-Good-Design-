@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, ChefHat, UtensilsCrossed, Crown, Heart } from 'lucide-react';
+import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, ChefHat, UtensilsCrossed, Crown, Heart, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -17,7 +17,7 @@ import {
   type UserProfile as UserProfileType, type CommunityRating, type CommunityPhoto,
 } from '../lib/supabase-community';
 import type { HomeMeal } from '../contexts/ListsContext';
-import { getMealCoverUrl } from '../lib/recipe-display';
+import { getMealCoverUrl, formatDuration } from '../lib/recipe-display';
 import mapboxgl from 'mapbox-gl';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { searchPlacesByText, type PlaceResult } from '../lib/places';
@@ -62,6 +62,12 @@ export const UserProfile: React.FC = () => {
 
   // Expanded review
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Which content tab is active under this user's profile —
+  // restaurants (rated places + wishlist) vs. recipes (their public
+  // home meals). Defaults to restaurants since that's the primary
+  // surface for most users.
+  const [viewTab, setViewTab] = useState<'restaurants' | 'recipes'>('restaurants');
 
   // Search & filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -571,6 +577,43 @@ export const UserProfile: React.FC = () => {
               </div>
             )}
 
+            {/* Tab switcher — Restaurants vs Recipes. Mirrors the
+                "see what they've rated / what they've cooked" split
+                so each surface has its own filter + list rather than
+                stacking them on a long scroll. Counts shown so the
+                user can tell which tab has anything in it. */}
+            <div className="flex gap-1 mb-4 p-1 rounded-full bg-on-surface/[0.05]">
+              {([
+                { value: 'restaurants', label: 'Restaurants', count: userRatings.length },
+                { value: 'recipes', label: 'Recipes', count: publicHomeMeals.length },
+              ] as const).map((opt) => {
+                const active = viewTab === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setViewTab(opt.value)}
+                    className={cn(
+                      'flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-full text-[13px] font-bold transition-colors',
+                      active
+                        ? 'bg-on-surface text-surface shadow-sm'
+                        : 'text-on-surface/60 hover:text-on-surface',
+                    )}
+                  >
+                    {opt.label}
+                    <span className={cn(
+                      'text-[11px] tabular-nums font-semibold',
+                      active ? 'text-surface/65' : 'text-on-surface/35',
+                    )}>
+                      {opt.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {viewTab === 'restaurants' && (
+              <>
             {/* Search bar + filters button */}
             <div className="flex gap-2 mb-3">
               <div className="relative flex-1">
@@ -756,44 +799,74 @@ export const UserProfile: React.FC = () => {
               )}
             </ul>
             )}
+              </>
+            )}
 
-            {/* Home Cooking section — flat divider rows */}
-            {canView && publicHomeMeals.length > 0 && (
-              <section className="mb-5 mt-4 -mx-3">
-                <div className="flex items-center gap-2 mb-2 px-3">
-                  <ChefHat size={14} className="text-emerald-600" />
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-on-surface/50">Home Cooking ({publicHomeMeals.length})</h3>
-                </div>
-                <ul>
-                  {publicHomeMeals.map((meal) => {
-                    const coverUrl = getMealCoverUrl(meal);
-                    return (
-                      <li key={meal.id} className="border-b border-on-surface/[0.06]">
-                        <div className="flex items-center gap-3.5 px-3 py-3.5 active:bg-on-surface/[0.02] transition-colors">
-                          <div className="w-14 h-14 rounded-lg overflow-hidden bg-emerald-50/70 flex-shrink-0 flex items-center justify-center">
-                            {coverUrl ? (
-                              <img src={coverUrl} alt={meal.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            ) : (
-                              <ChefHat size={18} className="text-emerald-500/60" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-serif font-bold text-[15px] truncate leading-snug">{meal.name}</h4>
-                            <p className="text-[12px] text-on-surface/45 truncate mt-1">
-                              {new Date(meal.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                              {meal.dishes.length > 0 && (
-                                <> · <UtensilsCrossed size={10} className="inline -mt-0.5" /> {meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</>
-                              )}
-                            </p>
-                            {meal.description && <p className="text-[11px] text-on-surface/35 italic mt-0.5 line-clamp-1">&ldquo;{meal.description}&rdquo;</p>}
-                          </div>
-                          <span className={cn("text-2xl font-serif font-bold leading-none tabular-nums flex-shrink-0", scoreColor(meal.score))}>{meal.score.toFixed(1)}</span>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
+            {viewTab === 'recipes' && canView && (
+              <>
+                <p className="text-[10px] text-on-surface/35 font-bold uppercase tracking-widest mb-3">
+                  {publicHomeMeals.length} {publicHomeMeals.length === 1 ? 'recipe' : 'recipes'}
+                </p>
+                {publicHomeMeals.length === 0 ? (
+                  <div className="text-center py-16 px-8">
+                    <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-3 text-emerald-500">
+                      <ChefHat size={22} strokeWidth={1.8} />
+                    </div>
+                    <p className="text-sm text-on-surface/45">No public recipes yet</p>
+                    <p className="text-xs text-on-surface/30 mt-1">When this user shares a meal, it'll show up here.</p>
+                  </div>
+                ) : (
+                  /* Pantry-style flat row list — title + meta + ingredient
+                     preview on the left, score chip on the right. Hairline
+                     dividers, no card chrome. Tapping a row jumps into the
+                     full /meal page; the recipe panel pattern only fires
+                     from inside the reels feed. */
+                  <ul className="-mx-3 pb-20 divide-y divide-on-surface/[0.06]">
+                    {publicHomeMeals.map((meal) => {
+                      const totalTime = (meal.prepTime ?? 0) + (meal.cookTime ?? 0);
+                      const ingredientPreview = (meal.ingredients ?? []).slice(0, 6);
+                      return (
+                        <li key={meal.id}>
+                          <Link
+                            to={`/meal/${encodeURIComponent(profile?.user_id || '')}/${encodeURIComponent(meal.id)}`}
+                            className="block w-full px-3 py-4 hover:bg-on-surface/[0.02] active:scale-[0.99] transition-transform"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1 text-on-surface">{meal.name}</h3>
+                              <span className={cn('text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 tabular-nums', scoreColor(meal.score))}>
+                                {meal.score > 0 ? meal.score.toFixed(1) : '—'}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
+                              {meal.cuisine && <span>{meal.cuisine}</span>}
+                              {meal.cuisine && totalTime > 0 && <span className="text-on-surface/25">·</span>}
+                              {totalTime > 0 ? (
+                                <>
+                                  <Clock size={11} />
+                                  <span>{formatDuration(totalTime)}</span>
+                                  {meal.difficulty && <><span className="text-on-surface/25">·</span><span>{meal.difficulty}</span></>}
+                                </>
+                              ) : meal.difficulty ? (
+                                <span>{meal.difficulty}</span>
+                              ) : meal.dishes.length > 0 ? (
+                                <span>{meal.dishes.length} dish{meal.dishes.length !== 1 ? 'es' : ''}</span>
+                              ) : null}
+                            </div>
+                            {ingredientPreview.length > 0 ? (
+                              <p className="text-[12px] text-on-surface/50 mt-1.5 leading-snug line-clamp-2">
+                                {ingredientPreview.map((i) => i.name).filter(Boolean).join(', ')}
+                                {(meal.ingredients?.length ?? 0) > 6 ? '…' : ''}
+                              </p>
+                            ) : meal.description ? (
+                              <p className="text-[12px] text-on-surface/40 italic mt-1.5 line-clamp-2">"{meal.description}"</p>
+                            ) : null}
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
             )}
 
             {/* Floating map button */}

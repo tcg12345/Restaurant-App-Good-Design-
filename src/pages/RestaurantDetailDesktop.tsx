@@ -21,6 +21,7 @@ import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useTravelTimes, formatTravelTime } from '../lib/directions';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
+import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { Link } from 'react-router-dom';
 
 /** Parse hours array to find next opening time when currently closed */
@@ -1319,6 +1320,16 @@ export const RestaurantDetailDesktop: React.FC = () => {
             </ul>
           </section>
         )}
+
+        {/* ── Featured In — horizontal strip of reels/posts featuring this
+            restaurant. Filler content for now; titles adapt to the
+            restaurant name. ── */}
+        <RestaurantFeaturedReels
+          restaurantId={place.id}
+          restaurantName={place.name}
+          size="md"
+          className="mb-12"
+        />
 
         {/* ── Hours — accordion inside a subtle container. ── */}
         {place.hours.length > 0 && (

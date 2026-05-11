@@ -2,9 +2,10 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon,
+  Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
+  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useReels } from '../contexts/ReelsContext';
@@ -31,10 +32,19 @@ function numericScore(s: unknown): number {
 
 function cityFromAddress(address: string): string | null {
   if (!address) return null;
-  const parts = address.split(',').map((p) => p.trim());
-  if (parts.length >= 2) return parts[parts.length - 1];
-  return parts[0] || null;
+  const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  // Heuristic: in "<street>, <city>, <state-or-country>" the city is the
+  // middle part; in "<street>, <city>" it's the last. Pick accordingly so
+  // we don't render "CT" or "USA" as the place label.
+  if (parts.length >= 3) return parts[parts.length - 2];
+  return parts[parts.length - 1];
 }
+
+/** Single neutral gradient behind cards with no photo. Kept identical
+ *  across every card so the section reads as a calm row rather than a
+ *  bag of colored tiles. */
+const TOP_RATED_GRADIENT = 'from-stone-700 via-stone-800 to-stone-950';
 
 /** ISO string for sorting by recency; never throws (missing/invalid → empty). */
 function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string {
@@ -49,6 +59,512 @@ function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string
   return '';
 }
 
+/* ── TopRatedCard ──
+   Text-only minimalist tile used in the Profile TOP tab. # + rank
+   on the left, score-colored decimal on the right, serif name and
+   meta sub-line below. Subtle border lifts on hover so the strip
+   doesn't feel like detached chrome. */
+const TopRatedCard: React.FC<{
+  rank: number;
+  rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string; image?: string };
+  /** Bottom sub-line under the name. Defaults to cuisine · price · city. */
+  metaText?: string;
+}> = ({ rank, rating, metaText }) => {
+  const city = cityFromAddress(rating.address || '');
+  const resolvedMeta = metaText ?? [rating.cuisine, rating.price, city].filter(Boolean).join(' · ');
+
+  return (
+    <Link
+      to={`/restaurant/${rating.restaurantId}`}
+      className="block w-52 flex-shrink-0 snap-start rounded-2xl bg-white border border-on-surface/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.03)] px-4 py-3.5 hover:border-on-surface/[0.16] hover:shadow-[0_4px_14px_-4px_rgba(0,0,0,0.08)] transition-all"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="flex items-baseline gap-1.5 min-w-0">
+          <span className="text-[13px] font-medium text-on-surface/30 leading-none">#</span>
+          <span className="font-serif font-bold text-on-surface text-[26px] leading-none tabular-nums">
+            {rank}
+          </span>
+        </div>
+        <span className={cn(
+          'font-serif font-bold tabular-nums text-[28px] leading-none flex-shrink-0',
+          scoreColor(numericScore(rating.score)),
+        )}>
+          {formatScore(rating.score)}
+        </span>
+      </div>
+
+      <p className="font-serif font-bold text-on-surface text-[16px] leading-tight line-clamp-1 mt-3">
+        {rating.name}
+      </p>
+      <p className="text-[12px] text-on-surface/45 truncate mt-1">
+        {resolvedMeta}
+      </p>
+    </Link>
+  );
+};
+
+/* ── GuideCard ──
+   Recommended-guide tile used in the Profile TOP tab. Cover with a
+   GUIDE chip + bookmark, place count footer, then title + author row
+   sit below the card. Author avatars are simple initial circles. */
+type Guide = {
+  id: string;
+  title: string;
+  authorName: string;
+  authorHandle: string;
+  authorInitials: string;
+  placeCount: number;
+  cuisineLabel: string;
+  coverGradient: string;
+  bgImage?: string;
+};
+
+const GuideCard: React.FC<{ guide: Guide }> = ({ guide }) => (
+  <Link
+    to="/discover"
+    className="flex-shrink-0 snap-start w-[260px] group"
+  >
+    <div className={cn(
+      'relative w-full aspect-[4/3] rounded-2xl overflow-hidden ring-1 ring-on-surface/[0.06] shadow-sm bg-gradient-to-br',
+      guide.coverGradient,
+    )}>
+      {guide.bgImage && (
+        <img
+          src={guide.bgImage}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+          referrerPolicy="no-referrer"
+        />
+      )}
+      {!guide.bgImage && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="font-mono uppercase tracking-[0.18em] text-white/25 text-[12px]">
+            {guide.cuisineLabel}
+          </span>
+        </div>
+      )}
+
+      {/* GUIDE badge top-left */}
+      <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-lg bg-white px-2 h-7 text-on-surface text-[11px] font-bold tracking-wider">
+        <ListIcon size={12} />
+        GUIDE
+      </span>
+
+      {/* Bookmark top-right */}
+      <button
+        type="button"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        aria-label="Save guide"
+        className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full bg-black/35 backdrop-blur flex items-center justify-center text-white hover:bg-black/55 transition-colors"
+      >
+        <Bookmark size={14} className="fill-white" />
+      </button>
+
+      {/* Bottom wash + place count */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+      <div className="absolute bottom-2.5 left-3 inline-flex items-center gap-1 text-white text-[12.5px] font-semibold">
+        <MapPin size={12} />
+        {guide.placeCount} places
+      </div>
+    </div>
+
+    <p className="mt-3 font-serif font-bold text-on-surface text-[16px] leading-tight line-clamp-2">
+      {guide.title}
+    </p>
+    <div className="mt-2 flex items-center gap-2">
+      <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+        <span className="text-[11px] font-bold text-primary">{guide.authorInitials}</span>
+      </div>
+      <p className="text-[12px] text-on-surface/55 truncate">
+        <span className="font-semibold text-on-surface/75">{guide.authorName}</span>
+        <span className="text-on-surface/40"> · @{guide.authorHandle}</span>
+      </p>
+    </div>
+  </Link>
+);
+
+/* ── Top10Section ──
+   Section header (title + subtitle + See all) followed by a
+   horizontally scrolling strip of TopRatedCards. Kept inline so the
+   Profile page can repeat it for each slice (overall, per cuisine,
+   per city). */
+const Top10Section: React.FC<{
+  name: string;
+  total: number;
+  avg: number;
+  onSeeAll?: () => void;
+  children: React.ReactNode;
+}> = ({ name, total, avg, onSeeAll, children }) => (
+  <section>
+    <div className="px-5 flex items-baseline justify-between gap-3 mb-3">
+      <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight min-w-0 truncate">
+        {name}
+        <span className="text-on-surface/45 font-normal ml-1.5">
+          · {total} place{total === 1 ? '' : 's'} · {avg.toFixed(1)} avg
+        </span>
+      </h3>
+      {onSeeAll && (
+        <button
+          type="button"
+          onClick={onSeeAll}
+          className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface flex-shrink-0"
+        >
+          See all <ChevronRight size={14} />
+        </button>
+      )}
+    </div>
+    <div className="flex gap-3 overflow-x-auto px-5 pb-1.5 scrollbar-hide snap-x snap-mandatory">
+      {children}
+    </div>
+  </section>
+);
+
+/* ── Mock recommended guides ──
+   Placeholder guides "curated by people you follow" until the real
+   guides feature is built. Each guide gets a distinct gradient and a
+   plausible author so the strip reads as a populated feed, not chrome. */
+const MOCK_GUIDES: Guide[] = [
+  {
+    id: 'mg-nyc-italian',
+    title: 'NYC Italian Hall of Fame',
+    authorName: 'Carmen Russo',
+    authorHandle: 'forkful',
+    authorInitials: 'CR',
+    placeCount: 22,
+    cuisineLabel: 'GUIDE COVER',
+    coverGradient: 'from-stone-700 via-stone-800 to-stone-950',
+  },
+  {
+    id: 'mg-paris-budget',
+    title: 'Paris on a budget',
+    authorName: 'Léa Bernard',
+    authorHandle: 'leabparis',
+    authorInitials: 'LB',
+    placeCount: 24,
+    cuisineLabel: 'GUIDE COVER',
+    coverGradient: 'from-zinc-700 via-zinc-800 to-stone-950',
+  },
+  {
+    id: 'mg-tokyo-ramen',
+    title: "Tokyo's hidden ramen gems",
+    authorName: 'Aiko Tanaka',
+    authorHandle: 'aiko_eats',
+    authorInitials: 'AT',
+    placeCount: 18,
+    cuisineLabel: 'GUIDE COVER',
+    coverGradient: 'from-neutral-700 via-neutral-800 to-stone-950',
+  },
+  {
+    id: 'mg-london-sundayroast',
+    title: 'Best Sunday roast in London',
+    authorName: 'Oliver West',
+    authorHandle: 'oliveats',
+    authorInitials: 'OW',
+    placeCount: 11,
+    cuisineLabel: 'GUIDE COVER',
+    coverGradient: 'from-stone-800 via-stone-900 to-zinc-950',
+  },
+];
+
+/* ── EmptyTabState ──
+   Friendly empty placeholder for any tab with no items. Matches the
+   surface tone so it never feels like an error state. */
+const EmptyTabState: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  ctaLabel: string;
+  onCta: () => void;
+}> = ({ icon, title, subtitle, ctaLabel, onCta }) => (
+  <div className="text-center py-12 rounded-2xl border border-dashed border-on-surface/10">
+    <div className="mb-3 flex justify-center">{icon}</div>
+    <p className="text-sm font-semibold text-on-surface/55">{title}</p>
+    <p className="text-xs text-on-surface/35 mt-1 max-w-xs mx-auto">{subtitle}</p>
+    <button
+      type="button"
+      onClick={onCta}
+      className="mt-4 px-5 py-2.5 rounded-full bg-primary text-white text-xs font-semibold"
+    >
+      {ctaLabel}
+    </button>
+  </div>
+);
+
+/* ── Top-list customization ────────────────────────────────────────────
+   The TOP tab seeds itself with auto-generated strips (Top 10 overall +
+   one per cuisine and city with 4+ ratings). Users can hide any of those
+   and add their own slices (e.g. by price tier, tag, or "would return").
+   We persist two deltas in localStorage rather than the full set of
+   configs so the page keeps reacting to new ratings — a freshly-eligible
+   cuisine still shows up automatically. */
+
+type TopListConfig =
+  | { type: 'overall' }
+  | { type: 'cuisine'; value: string }
+  | { type: 'city'; value: string }
+  | { type: 'price'; value: string }
+  | { type: 'tag'; value: string }
+  | { type: 'wouldReturn' };
+
+type TopListCustomization = {
+  hidden: string[];
+  custom: TopListConfig[];
+  /** User-preferred display order, list keys in the desired sequence.
+   *  Any visible keys not present fall to the end in their natural
+   *  (auto + custom) order — so freshly-eligible auto lists slot in
+   *  predictably without erasing the user's choices. */
+  order: string[];
+};
+
+const TOP_LIST_KEY = (userId: string | null | undefined) => `gourmad-top-lists-${userId || 'anon'}`;
+const MIN_LIST_SIZE = 4;
+
+const topListKey = (c: TopListConfig): string => {
+  if (c.type === 'overall' || c.type === 'wouldReturn') return c.type;
+  return `${c.type}:${c.value}`;
+};
+
+const topListLabel = (c: TopListConfig): string => {
+  if (c.type === 'overall') return 'Overall';
+  if (c.type === 'wouldReturn') return 'Would return';
+  return c.value;
+};
+
+const topListPlainLabel = (c: TopListConfig): string => {
+  if (c.type === 'overall') return 'Top 10 overall';
+  if (c.type === 'wouldReturn') return 'Top 10 · Would return';
+  if (c.type === 'city') return `Top 10 in ${c.value}`;
+  return `Top 10 · ${c.value}`;
+};
+
+const topListPredicate = (c: TopListConfig) => (r: { cuisine?: string; price?: string; address?: string; tags?: string[]; wouldReturn?: boolean }): boolean => {
+  switch (c.type) {
+    case 'overall': return true;
+    case 'cuisine': return r.cuisine === c.value;
+    case 'city': return cityFromAddress(r.address || '') === c.value;
+    case 'price': return r.price === c.value;
+    case 'tag': return Array.isArray(r.tags) && r.tags.includes(c.value);
+    case 'wouldReturn': return r.wouldReturn === true;
+  }
+};
+
+const topListMetaText = (
+  c: TopListConfig,
+  r: { cuisine?: string; price?: string; address?: string },
+): string | undefined => {
+  const city = cityFromAddress(r.address || '');
+  switch (c.type) {
+    case 'overall':
+    case 'wouldReturn':
+    case 'tag':
+      return undefined; // default cuisine · price · city
+    case 'cuisine':
+      return [city, r.price].filter(Boolean).join(' · ');
+    case 'city':
+      return [r.cuisine, r.price].filter(Boolean).join(' · ');
+    case 'price':
+      return [r.cuisine, city].filter(Boolean).join(' · ');
+  }
+};
+
+function loadCustomization(userId: string | null | undefined): TopListCustomization {
+  try {
+    const raw = localStorage.getItem(TOP_LIST_KEY(userId));
+    if (!raw) return { hidden: [], custom: [], order: [] };
+    const parsed = JSON.parse(raw);
+    return {
+      hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
+      custom: Array.isArray(parsed.custom) ? parsed.custom : [],
+      order: Array.isArray(parsed.order) ? parsed.order : [],
+    };
+  } catch {
+    return { hidden: [], custom: [], order: [] };
+  }
+}
+
+function saveCustomization(userId: string | null | undefined, c: TopListCustomization) {
+  try {
+    localStorage.setItem(TOP_LIST_KEY(userId), JSON.stringify(c));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+/* ── EditTopListsSheet ──
+   Two-section editor: current visible lists with delete buttons, then
+   a category picker (cuisine/city/price/tag/status) that surfaces every
+   value with MIN_LIST_SIZE+ matching ratings the user hasn't already
+   added. Adding a hidden auto-list un-hides it; adding a fresh slice
+   pushes onto the custom list. */
+const EditTopListsSheet: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  visibleLists: TopListConfig[];
+  addableByCategory: Record<'cuisine' | 'city' | 'price' | 'tag' | 'status', Array<{ config: TopListConfig; label: string; count: number }>>;
+  onDelete: (c: TopListConfig) => void;
+  onAdd: (c: TopListConfig) => void;
+  onReorder: (configs: TopListConfig[]) => void;
+}> = ({ open, onClose, visibleLists, addableByCategory, onDelete, onAdd, onReorder }) => {
+  const { phoneMode } = useSettings();
+  const [category, setCategory] = useState<'cuisine' | 'city' | 'price' | 'tag' | 'status'>('cuisine');
+
+  useEffect(() => { if (open) setCategory('cuisine'); }, [open]);
+
+  const tabs: Array<{ key: typeof category; label: string }> = [
+    { key: 'cuisine', label: 'Cuisine' },
+    { key: 'city', label: 'City' },
+    { key: 'price', label: 'Price' },
+    { key: 'tag', label: 'Tag' },
+    { key: 'status', label: 'Status' },
+  ];
+
+  const addable = addableByCategory[category] || [];
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
+          className={cn(
+            'fixed inset-0 z-[70]',
+            phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md flex items-start justify-center pt-[12vh] px-4',
+          )}
+          onClick={onClose}
+        >
+          <motion.div
+            {...(phoneMode
+              ? { initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' }, transition: { type: 'spring' as const, damping: 28, stiffness: 300 } }
+              : {
+                  initial: { opacity: 0, scale: 0.94, y: -12 },
+                  animate: { opacity: 1, scale: 1, y: 0 },
+                  exit: { opacity: 0, scale: 0.96, y: -8 },
+                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                })}
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className={cn(
+              'bg-surface flex flex-col overflow-hidden',
+              phoneMode
+                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl max-h-[85vh]'
+                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
+            )}
+          >
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            <div className={cn(
+              'flex items-center justify-between flex-shrink-0',
+              phoneMode ? 'px-5 pt-3 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4 border-b border-on-surface/[0.06]',
+            )}>
+              <div>
+                <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>Edit top lists</h3>
+                <p className="text-[11.5px] text-on-surface/45 mt-0.5">Remove auto-picked lists or add your own slices.</p>
+              </div>
+              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/10 transition-colors">
+                <X size={16} className="text-on-surface/60" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+              {/* Current lists — Reorder.Group so the user can drag any
+                  row to a new spot. Drag handle on the left, X on the
+                  right. The whole row is the drag affordance so touch
+                  reorder feels natural on phones. */}
+              <section>
+                <div className="flex items-baseline justify-between mb-2.5">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Your lists</p>
+                  {visibleLists.length > 1 && (
+                    <p className="text-[10.5px] text-on-surface/35">Drag to reorder</p>
+                  )}
+                </div>
+                {visibleLists.length === 0 ? (
+                  <p className="text-[13px] text-on-surface/45">No lists yet. Add one below.</p>
+                ) : (
+                  <Reorder.Group
+                    axis="y"
+                    values={visibleLists}
+                    onReorder={onReorder}
+                    className="space-y-1.5"
+                  >
+                    {visibleLists.map((c) => (
+                      <Reorder.Item
+                        key={topListKey(c)}
+                        value={c}
+                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-on-surface/[0.04] border border-on-surface/[0.06] cursor-grab active:cursor-grabbing select-none"
+                        whileDrag={{
+                          scale: 1.02,
+                          boxShadow: '0 6px 20px -8px rgba(0,0,0,0.18)',
+                          zIndex: 10,
+                        }}
+                      >
+                        <GripVertical size={15} className="text-on-surface/30 flex-shrink-0" />
+                        <span className="flex-1 min-w-0 text-[13.5px] font-medium text-on-surface/80 truncate">
+                          {topListPlainLabel(c)}
+                        </span>
+                        <button
+                          type="button"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={() => onDelete(c)}
+                          aria-label={`Remove ${topListPlainLabel(c)}`}
+                          className="w-7 h-7 rounded-full bg-on-surface/[0.06] hover:bg-rose-100 text-on-surface/45 hover:text-rose-600 flex items-center justify-center transition-colors flex-shrink-0"
+                        >
+                          <X size={13} />
+                        </button>
+                      </Reorder.Item>
+                    ))}
+                  </Reorder.Group>
+                )}
+              </section>
+
+              {/* Add a list */}
+              <section>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-2.5">Add a list</p>
+
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {tabs.map((t) => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => setCategory(t.key)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors border',
+                        category === t.key
+                          ? 'bg-primary text-white border-primary'
+                          : 'bg-on-surface/[0.04] border-on-surface/[0.08] text-on-surface/55 hover:bg-on-surface/[0.08]',
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {addable.length === 0 ? (
+                  <p className="text-[12.5px] text-on-surface/45 px-1">
+                    Nothing eligible here yet — categories need at least {MIN_LIST_SIZE} rated restaurants to qualify.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {addable.map(({ config, label, count }) => (
+                      <button
+                        key={topListKey(config)}
+                        type="button"
+                        onClick={() => onAdd(config)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-on-surface/[0.04] border border-on-surface/[0.08] hover:bg-primary/[0.08] hover:border-primary/30 hover:text-primary text-[12px] font-semibold text-on-surface/75 transition-colors"
+                      >
+                        <Plus size={12} strokeWidth={2.6} />
+                        {label}
+                        <span className="text-on-surface/35 font-medium">· {count}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
@@ -56,7 +572,6 @@ export const Profile: React.FC = () => {
   const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
-  const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
 
   // Reels and posts authored by the signed-in user. Both come from their
   // respective contexts (loaded once at mount), filtered locally.
@@ -89,6 +604,13 @@ export const Profile: React.FC = () => {
     if (!ok) alert("Couldn't delete that post. Try again.");
   };
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
+  const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'rated'>('top');
+  const [editListsOpen, setEditListsOpen] = useState(false);
+  const [customization, setCustomization] = useState<TopListCustomization>({ hidden: [], custom: [], order: [] });
+  // Load the persisted customization once we know who the user is.
+  useEffect(() => { setCustomization(loadCustomization(user?.id)); }, [user?.id]);
+  // Persist on every change.
+  useEffect(() => { saveCustomization(user?.id, customization); }, [user?.id, customization]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
   // Create menu — single button under the action row that opens a small
@@ -259,13 +781,6 @@ export const Profile: React.FC = () => {
   const bio = profile?.bio || '';
   const publicProfilePath = `/user/${encodeURIComponent(username)}`;
 
-  const avgScore = useMemo(() => {
-    if (!ratings.length) return null;
-    const nums = ratings.map((r) => r.score).filter((s): s is number => typeof s === 'number' && Number.isFinite(s));
-    if (!nums.length) return null;
-    return nums.reduce((a, s) => a + s, 0) / nums.length;
-  }, [ratings]);
-
   const cuisineStats = useMemo(() => {
     const map = new Map<string, number>();
     ratings.forEach((r) => {
@@ -277,18 +792,142 @@ export const Profile: React.FC = () => {
       .slice(0, 6);
   }, [ratings]);
 
-  const uniqueCities = useMemo(() => {
-    const s = new Set<string>();
+  /** Counts per (cuisine / city / price / tag / wouldReturn) — used both
+   *  to seed auto-generated lists and to gate which slices the user can
+   *  add from the editor (must have MIN_LIST_SIZE+ matches). */
+  const categoryCounts = useMemo(() => {
+    const cuisine = new Map<string, number>();
+    const city = new Map<string, number>();
+    const price = new Map<string, number>();
+    const tag = new Map<string, number>();
+    let wouldReturn = 0;
     ratings.forEach((r) => {
+      if (r.cuisine) cuisine.set(r.cuisine, (cuisine.get(r.cuisine) || 0) + 1);
       const c = cityFromAddress(r.address || '');
-      if (c) s.add(c);
+      if (c) city.set(c, (city.get(c) || 0) + 1);
+      if (r.price) price.set(r.price, (price.get(r.price) || 0) + 1);
+      if (Array.isArray(r.tags)) r.tags.forEach((t) => { if (t) tag.set(t, (tag.get(t) || 0) + 1); });
+      if (r.wouldReturn) wouldReturn += 1;
     });
-    return s.size;
+    return { cuisine, city, price, tag, wouldReturn };
   }, [ratings]);
 
-  const topRated = useMemo(() => {
-    return [...ratings].sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0)).slice(0, 8);
-  }, [ratings]);
+  /** Auto-seeded configs: overall + any cuisine / city above the
+   *  threshold, sorted by count desc so the heaviest categories lead. */
+  const autoConfigs = useMemo<TopListConfig[]>(() => {
+    const out: TopListConfig[] = [{ type: 'overall' }];
+    Array.from(categoryCounts.cuisine.entries())
+      .filter(([, n]) => n >= MIN_LIST_SIZE)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([value]) => out.push({ type: 'cuisine', value }));
+    Array.from(categoryCounts.city.entries())
+      .filter(([, n]) => n >= MIN_LIST_SIZE)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([value]) => out.push({ type: 'city', value }));
+    return out;
+  }, [categoryCounts]);
+
+  /** Final ordered configs after applying user deltas: auto minus
+   *  hidden, then any custom additions that aren't already covered.
+   *  Sorted by the user's preferred order; anything missing from
+   *  `order` (e.g. a freshly eligible auto cuisine) falls to the end
+   *  in its natural position. */
+  const visibleConfigs = useMemo<TopListConfig[]>(() => {
+    const hidden = new Set(customization.hidden);
+    const auto = autoConfigs.filter((c) => !hidden.has(topListKey(c)));
+    const autoKeys = new Set(auto.map(topListKey));
+    const custom = customization.custom.filter((c) => !autoKeys.has(topListKey(c)));
+    const all = [...auto, ...custom];
+
+    if (customization.order.length === 0) return all;
+    const orderIdx = new Map(customization.order.map((k, i) => [k, i]));
+    return [...all].sort((a, b) => {
+      const ai = orderIdx.get(topListKey(a));
+      const bi = orderIdx.get(topListKey(b));
+      if (ai != null && bi != null) return ai - bi;
+      if (ai != null) return -1;
+      if (bi != null) return 1;
+      return 0; // both unknown — preserve natural auto/custom order
+    });
+  }, [autoConfigs, customization]);
+
+  /** For each visible config: resolved title, subtitle, and the top-10
+   *  ratings that match its predicate. Filters out empty slices. */
+  const visibleLists = useMemo(() => {
+    return visibleConfigs
+      .map((config) => {
+        const matching = ratings.filter(topListPredicate(config));
+        const items = [...matching]
+          .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+          .slice(0, 10);
+        const total = matching.length;
+        const avg = total > 0 ? matching.reduce((s, r) => s + (Number(r.score) || 0), 0) / total : 0;
+        return { config, items, total, avg };
+      })
+      .filter(({ items }) => items.length > 0);
+  }, [ratings, visibleConfigs]);
+
+  /** Categories the user can still add to the strip set — every value
+   *  with MIN_LIST_SIZE+ ratings that isn't already on screen. */
+  const addableByCategory = useMemo(() => {
+    const visibleKeys = new Set(visibleConfigs.map(topListKey));
+    const buildFromMap = (
+      m: Map<string, number>,
+      type: 'cuisine' | 'city' | 'price' | 'tag',
+    ) => Array.from(m.entries())
+      .filter(([, n]) => n >= MIN_LIST_SIZE)
+      .map(([value, count]) => ({ config: { type, value } as TopListConfig, label: value, count }))
+      .filter(({ config }) => !visibleKeys.has(topListKey(config)))
+      .sort((a, b) => b.count - a.count);
+
+    const status: Array<{ config: TopListConfig; label: string; count: number }> = [];
+    if (categoryCounts.wouldReturn >= MIN_LIST_SIZE && !visibleKeys.has('wouldReturn')) {
+      status.push({ config: { type: 'wouldReturn' }, label: 'Would return', count: categoryCounts.wouldReturn });
+    }
+    // Overall is always present in autoConfigs unless explicitly hidden;
+    // expose it from the editor too so a hidden overall can be restored.
+    if (!visibleKeys.has('overall') && ratings.length >= MIN_LIST_SIZE) {
+      status.unshift({ config: { type: 'overall' }, label: 'All-time overall', count: ratings.length });
+    }
+
+    return {
+      cuisine: buildFromMap(categoryCounts.cuisine, 'cuisine'),
+      city: buildFromMap(categoryCounts.city, 'city'),
+      price: buildFromMap(categoryCounts.price, 'price'),
+      tag: buildFromMap(categoryCounts.tag, 'tag'),
+      status,
+    };
+  }, [categoryCounts, visibleConfigs, ratings.length]);
+
+  const deleteList = (c: TopListConfig) => {
+    const key = topListKey(c);
+    const isAuto = autoConfigs.some((a) => topListKey(a) === key);
+    setCustomization((prev) => ({
+      hidden: isAuto && !prev.hidden.includes(key) ? [...prev.hidden, key] : prev.hidden,
+      custom: prev.custom.filter((cc) => topListKey(cc) !== key),
+      order: prev.order.filter((k) => k !== key),
+    }));
+  };
+
+  const addList = (c: TopListConfig) => {
+    const key = topListKey(c);
+    const isAuto = autoConfigs.some((a) => topListKey(a) === key);
+    setCustomization((prev) => ({
+      hidden: prev.hidden.filter((h) => h !== key), // un-hide if it was hidden
+      custom: isAuto || prev.custom.some((cc) => topListKey(cc) === key)
+        ? prev.custom
+        : [...prev.custom, c],
+      order: prev.order,
+    }));
+  };
+
+  /** Persist a drag-induced reorder. We store every visible key so
+   *  future renders don't fall back to the natural order for some
+   *  lists and the user's order for others. */
+  const reorderLists = (configs: TopListConfig[]) => {
+    const nextOrder = configs.map(topListKey);
+    setCustomization((prev) => ({ ...prev, order: nextOrder }));
+  };
 
   const recentRatings = useMemo(() => {
     return [...ratings].sort((a, b) => ratingRecencyIso(b).localeCompare(ratingRecencyIso(a))).slice(0, 6);
@@ -302,352 +941,406 @@ export const Profile: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
+      {pendingRequestCount > 0 && (
+        <div className="mx-5 mt-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
+          <span className="text-xs font-semibold text-amber-900">
+            {pendingRequestCount} friend request{pendingRequestCount !== 1 ? 's' : ''} waiting
+          </span>
+          <Heart size={14} className="text-amber-700 flex-shrink-0" />
+        </div>
+      )}
 
-      <div className="relative">
-        <div className="relative px-5 pt-6 pb-5">
-          {pendingRequestCount > 0 && (
-            <div className="w-full mb-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
-              <span className="text-xs font-semibold text-amber-900">
-                {pendingRequestCount} friend request{pendingRequestCount !== 1 ? 's' : ''} waiting
-              </span>
-              <Heart size={14} className="text-amber-700 flex-shrink-0" />
+      {/* ── Profile header ────────────────────────────────────────────── */}
+      <div className="px-5 pt-6 pb-5">
+        {/* Avatar + horizontal stats row */}
+        <div className="flex items-center gap-5">
+          <div className="relative flex-shrink-0">
+            <div className="w-[92px] h-[92px] rounded-full bg-gradient-to-br from-primary/30 to-primary/15 flex items-center justify-center">
+              <span className="text-[42px] font-serif font-bold text-primary leading-none">{displayName.charAt(0).toUpperCase()}</span>
             </div>
-          )}
-
-          <div className="flex items-start gap-4">
-            {/* Avatar */}
-            <div className="relative flex-shrink-0">
-              <div className="w-20 h-20 rounded-full ring-[3px] ring-white shadow-lg bg-gradient-to-br from-primary/25 to-primary/10 flex items-center justify-center">
-                <span className="text-3xl font-serif font-bold text-primary">{displayName.charAt(0).toUpperCase()}</span>
-              </div>
-              {profile?.is_expert && (
-                <div className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-amber-400 border-2 border-white flex items-center justify-center">
-                  <Crown size={12} className="text-white" />
-                </div>
-              )}
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 min-w-0 pt-1">
-              <h2 className="text-xl font-serif font-bold text-on-surface tracking-tight truncate">{displayName}</h2>
-              <p className="text-sm text-on-surface/40">@{username}</p>
-
-              <div className="flex items-center gap-4 mt-2.5">
-                <div className="text-center">
-                  <span className="text-base font-bold text-on-surface">{followers}</span>
-                  <span className="text-[10px] text-on-surface/40 ml-1">followers</span>
-                </div>
-                <div className="text-center">
-                  <span className="text-base font-bold text-on-surface">{following}</span>
-                  <span className="text-[10px] text-on-surface/40 ml-1">following</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {bio && <p className="text-sm text-on-surface/55 mt-3 leading-relaxed">{bio}</p>}
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-2 mt-4">
-            <button
-              type="button"
-              onClick={openEditProfile}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-on-surface/[0.06] text-on-surface/70 text-xs font-semibold border border-on-surface/8 hover:bg-on-surface/10 transition-colors"
-            >
-              <Edit3 size={14} />
-              Edit profile
-            </button>
-            <Link
-              to={publicProfilePath}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-on-surface/[0.06] text-on-surface/70 text-xs font-semibold border border-on-surface/8 hover:bg-on-surface/10 transition-colors"
-            >
-              <ExternalLink size={13} />
-              View public
-            </Link>
-            <button
-              type="button"
-              onClick={openSettings}
-              className="p-2.5 rounded-xl bg-on-surface/[0.06] border border-on-surface/8 text-on-surface/45 hover:bg-on-surface/10 transition-colors"
-              aria-label="Settings"
-            >
-              <Settings size={16} />
-            </button>
-          </div>
-
-          {/* Single Create button — opens a popover with Post and Reel
-              choices (same pattern as the desktop sidebar). */}
-          <div ref={createWrapRef} className="relative mt-2">
-            <button
-              type="button"
-              onClick={() => setCreateMenuOpen((o) => !o)}
-              aria-haspopup="menu"
-              aria-expanded={createMenuOpen}
-              className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors"
-            >
-              <Plus
-                size={14}
-                strokeWidth={2.5}
-                className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')}
-              />
-              Create
-            </button>
-
-            <AnimatePresence>
-              {createMenuOpen && (
-                <motion.div
-                  role="menu"
-                  initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                  transition={{ duration: 0.14, ease: 'easeOut' }}
-                  className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
-                  >
-                    <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                      <ImageIcon size={16} strokeWidth={2.2} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[14px] font-bold leading-tight">Post</span>
-                      <span className="block text-[12px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
-                    </span>
-                  </button>
-                  <div className="border-t border-on-surface/[0.06]" />
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
-                  >
-                    <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
-                      <Film size={16} strokeWidth={2.2} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[14px] font-bold leading-tight">Reel</span>
-                      <span className="block text-[12px] text-on-surface/50 leading-tight">Single short video</span>
-                    </span>
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Badges */}
-          <div className="flex flex-wrap gap-1.5 mt-3">
             {profile?.is_expert && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/70 text-[10px] font-bold text-amber-800">
-                <Star size={9} className="fill-amber-500 text-amber-500" />
-                Expert{expertPickCount > 0 && ` · ${expertPickCount} picks`}
-              </span>
+              <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-amber-400 ring-[3px] ring-surface flex items-center justify-center">
+                <Crown size={13} className="text-white" />
+              </div>
             )}
-            <span
-              className={cn(
-                'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border',
-                profile?.is_public
-                  ? 'bg-emerald-50/60 border-emerald-200/50 text-emerald-700'
-                  : 'bg-on-surface/[0.03] border-on-surface/8 text-on-surface/40',
-              )}
-            >
-              {profile?.is_public ? <Globe size={9} /> : <EyeOff size={9} />}
-              {profile?.is_public ? 'Public' : 'Private'}
-            </span>
-            {memberSince && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-on-surface/[0.03] border border-on-surface/8 text-[10px] text-on-surface/40">
-                Since {memberSince}
-              </span>
-            )}
+          </div>
+
+          <div className="flex-1 grid grid-cols-3 gap-2">
+            <button type="button" onClick={goToMyRatings} className="flex flex-col items-center text-center">
+              <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums">{ratings.length}</span>
+              <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">rated</span>
+            </button>
+            <button type="button" onClick={() => navigate('/circle')} className="flex flex-col items-center text-center">
+              <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums">{followers}</span>
+              <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">followers</span>
+            </button>
+            <button type="button" onClick={() => navigate('/circle')} className="flex flex-col items-center text-center">
+              <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums">{following}</span>
+              <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">following</span>
+            </button>
           </div>
         </div>
 
-        {/* Stats row — open, card-less, inside the same gradient region so there is no seam */}
-        <div className="relative px-5 pt-3 pb-12">
-          <div className="flex items-start justify-between gap-3">
-            {[
-              { value: String(ratings.length), label: 'Rated' },
-              { value: avgScore != null ? avgScore.toFixed(1) : '—', label: 'Avg score' },
-              { value: String(wishlist.length), label: 'Wishlist' },
-              { value: uniqueCities ? String(uniqueCities) : '—', label: 'Cities' },
-            ].map((stat) => (
-              <div key={stat.label} className="flex-1 min-w-0">
-                <p className="text-[32px] font-serif font-bold text-on-surface leading-none tabular-nums">{stat.value}</p>
-                <p className="text-[12px] font-medium text-on-surface/45 mt-2 truncate">{stat.label}</p>
-              </div>
-            ))}
-          </div>
+        {/* Name + handle */}
+        <div className="mt-5 flex items-baseline gap-2 flex-wrap">
+          <h1 className="text-[26px] font-serif font-bold text-on-surface leading-none tracking-tight">{displayName}</h1>
+          <span className="text-[15px] text-on-surface/40">@{username}</span>
+        </div>
+
+        {/* Public + joined */}
+        <div className="flex items-center gap-2 mt-2.5">
+          <span className={cn(
+            'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border',
+            profile?.is_public
+              ? 'bg-emerald-50/70 border-emerald-200/60 text-emerald-700'
+              : 'bg-on-surface/[0.04] border-on-surface/8 text-on-surface/45',
+          )}>
+            {profile?.is_public ? <Globe size={11} /> : <EyeOff size={11} />}
+            {profile?.is_public ? 'Public' : 'Private'}
+          </span>
+          {profile?.is_expert && (
+            <>
+              <span className="text-on-surface/25 text-xs">·</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/70 text-[11px] font-semibold text-amber-800">
+                <Star size={10} className="fill-amber-500 text-amber-500" />
+                Expert{expertPickCount > 0 && ` · ${expertPickCount}`}
+              </span>
+            </>
+          )}
+          {memberSince && (
+            <>
+              <span className="text-on-surface/25 text-xs">·</span>
+              <span className="text-[12px] text-on-surface/45">Joined {memberSince}</span>
+            </>
+          )}
+        </div>
+
+        {bio && <p className="text-[13.5px] text-on-surface/65 mt-3 leading-relaxed">{bio}</p>}
+
+        {/* Action row */}
+        <div ref={createWrapRef} className="relative flex items-center gap-2 mt-4">
+          <button
+            type="button"
+            onClick={() => setCreateMenuOpen((o) => !o)}
+            aria-haspopup="menu"
+            aria-expanded={createMenuOpen}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-primary text-white text-[13px] font-bold hover:bg-primary/90 transition-colors"
+          >
+            <Plus
+              size={15}
+              strokeWidth={2.5}
+              className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')}
+            />
+            Create
+          </button>
+          <button
+            type="button"
+            onClick={openEditProfile}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-on-surface/[0.06] text-on-surface/80 text-[13px] font-bold border border-on-surface/8 hover:bg-on-surface/10 transition-colors"
+          >
+            <Edit3 size={14} />
+            Edit
+          </button>
+          <Link
+            to={publicProfilePath}
+            className="w-10 h-10 inline-flex items-center justify-center rounded-xl bg-on-surface/[0.06] border border-on-surface/8 text-on-surface/55 hover:bg-on-surface/10 transition-colors"
+            aria-label="View public profile"
+          >
+            <Upload size={15} />
+          </Link>
+          <button
+            type="button"
+            onClick={openSettings}
+            className="w-10 h-10 inline-flex items-center justify-center rounded-xl bg-on-surface/[0.06] border border-on-surface/8 text-on-surface/55 hover:bg-on-surface/10 transition-colors"
+            aria-label="Settings"
+          >
+            <Settings size={15} />
+          </button>
+
+          <AnimatePresence>
+            {createMenuOpen && (
+              <motion.div
+                role="menu"
+                initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="absolute left-0 top-[calc(100%+0.25rem)] w-52 z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                >
+                  <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                    <ImageIcon size={16} strokeWidth={2.2} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-bold leading-tight">Post</span>
+                    <span className="block text-[11px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
+                  </span>
+                </button>
+                <div className="border-t border-on-surface/[0.06]" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                >
+                  <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
+                    <Film size={16} strokeWidth={2.2} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-bold leading-tight">Reel</span>
+                    <span className="block text-[11px] text-on-surface/50 leading-tight">Single short video</span>
+                  </span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      <main className="px-5 space-y-10">
-        {/* Top Rated — immersive full-bleed hero cards */}
-        {topRated.length > 0 && (
-          <section className="-mx-5">
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-4 px-5">Top Rated</h3>
-            <div className="flex gap-4 overflow-x-auto pb-2 px-5 scrollbar-hide snap-x snap-mandatory">
-              {topRated.slice(0, 8).map((r) => (
-                <Link
-                  key={r.restaurantId}
-                  to={`/restaurant/${r.restaurantId}`}
-                  className="flex-shrink-0 snap-start group"
+      {/* ── Tab bar ───────────────────────────────────────────────────── */}
+      <div className="border-t border-on-surface/[0.08]">
+        <div className="grid grid-cols-4">
+          {([
+            ['top', Star, 'TOP'],
+            ['posts', LayoutGrid, 'POSTS'],
+            ['reels', Film, 'REELS'],
+            ['rated', ListIcon, 'RATED'],
+          ] as const).map(([key, Icon, label]) => {
+            const isActive = activeTab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTab(key)}
+                className={cn(
+                  'relative py-3.5 flex flex-col items-center justify-center gap-1.5 transition-colors',
+                  isActive ? 'text-on-surface' : 'text-on-surface/30',
+                )}
+              >
+                <Icon size={18} className={cn(isActive && key === 'top' && 'fill-on-surface')} />
+                <span className={cn(
+                  'text-[10px] font-bold tracking-[0.18em]',
+                  isActive ? 'text-on-surface' : 'text-on-surface/40',
+                )}>
+                  {label}
+                </span>
+                {isActive && (
+                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-full bg-on-surface" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Tab content ───────────────────────────────────────────────── */}
+      <main className="px-5 pt-5">
+        {activeTab === 'top' && (
+          ratings.length === 0 ? (
+            <EmptyTabState
+              icon={<Star size={32} className="text-on-surface/15" />}
+              title="No rated restaurants yet"
+              subtitle="Rate restaurants to see your top picks here."
+              ctaLabel="Open map"
+              onCta={() => navigate('/')}
+            />
+          ) : (
+            // Full-bleed strips: negative margin cancels the `main` pad
+            // so cards run edge-to-edge during horizontal scroll.
+            <div className="-mx-5 space-y-7">
+              {visibleLists.map(({ config, items, total, avg }) => (
+                <Top10Section
+                  key={topListKey(config)}
+                  name={topListLabel(config)}
+                  total={total}
+                  avg={avg}
+                  onSeeAll={goToMyRatings}
                 >
-                  <div className="relative w-56 aspect-[3/4] rounded-3xl overflow-hidden bg-on-surface/[0.05] shadow-sm">
-                    {r.image ? (
-                      <img
-                        src={r.image}
-                        alt={r.name}
-                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center bg-on-surface/[0.05] text-on-surface/20 font-serif text-6xl font-bold">
-                        {r.name.charAt(0)}
-                      </div>
-                    )}
-                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/35 to-transparent pointer-events-none" />
-                    <div className="absolute inset-x-0 bottom-0 p-4">
-                      <p className="text-white text-base font-bold leading-tight drop-shadow-sm line-clamp-2">{r.name}</p>
-                      <div className="flex items-center gap-1 mt-1.5">
-                        <Star size={12} className="fill-white text-white" />
-                        <span className="text-white/95 text-xs font-semibold tabular-nums">{formatScore(r.score)}</span>
-                        <span className="text-white/60 text-xs">/ 10</span>
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* My Posts — multi-item carousels. Compact tile shows the first
-            item's media; a layered chip indicates multi-item posts. */}
-        <ProfilePostsSection
-          posts={myPosts}
-          isOwn
-          onEdit={(id) => openEditPostModal(id)}
-          onDelete={(id) => setConfirmDeletePostId(id)}
-          onToggleVisibility={(id, next) => setPostVisibility(id, next)}
-          trailing={
-            myPosts.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => navigate('/reels?kind=post')}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
-              >
-                Open feed
-                <ChevronRight size={13} />
-              </button>
-            ) : null
-          }
-        />
-
-        {/* My Reels — compact 3-up grid (max 6 visible, see-all to expand). */}
-        <ProfileReelsSection
-          reels={myReels}
-          isOwn
-          onEdit={(id) => openEditReelModal(id)}
-          onDelete={(id) => setConfirmDeleteReelId(id)}
-          onToggleVisibility={(id, next) => setReelVisibility(id, next)}
-          trailing={
-            myReels.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => navigate('/reels')}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
-              >
-                Open feed
-                <ChevronRight size={13} />
-              </button>
-            ) : null
-          }
-        />
-
-        {/* Recent — clean divided list, with a See all link routing to the Map's My Ratings mode */}
-        {recentRatings.length > 0 && (
-          <section>
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Recent</h3>
-            <ul className="divide-y divide-on-surface/[0.06]">
-              {recentRatings.map((r) => (
-                <li key={r.restaurantId}>
-                  <Link
-                    to={`/restaurant/${r.restaurantId}`}
-                    className="flex items-center gap-4 py-3.5 group"
-                  >
-                    <div className="w-14 h-14 rounded-2xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
-                      {r.image ? (
-                        <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-                          <MapPin size={16} />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{r.name}</p>
-                      <p className="text-[11px] text-on-surface/40 mt-0.5">
-                        {r.visitDate
-                          ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                          : ''}
-                        {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
-                      </p>
-                    </div>
-                    <span className={cn('text-lg font-serif font-bold flex-shrink-0', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-4 flex justify-center">
-              <button
-                type="button"
-                onClick={goToMyRatings}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
-              >
-                See all ratings
-                <ChevronRight size={13} />
-              </button>
-            </div>
-          </section>
-        )}
-
-        {/* Cuisine breakdown */}
-        {cuisineStats.length > 0 && (
-          <section>
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-4">Cuisine breakdown</h3>
-            <div className="space-y-3">
-              {cuisineStats.map(([name, count]) => (
-                <div key={name} className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-on-surface/70 w-20 truncate">{name}</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-on-surface/[0.06] overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-primary/70"
-                      style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
+                  {items.map((r, i) => (
+                    <TopRatedCard
+                      key={r.restaurantId}
+                      rank={i + 1}
+                      rating={r}
+                      metaText={topListMetaText(config, r)}
                     />
-                  </div>
-                  <span className="text-[11px] text-on-surface/35 tabular-nums w-6 text-right">{count}</span>
-                </div>
+                  ))}
+                </Top10Section>
               ))}
+
+              {/* Edit top lists — opens the customization sheet. */}
+              <div className="px-5">
+                <button
+                  type="button"
+                  onClick={() => setEditListsOpen(true)}
+                  className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.08] text-on-surface/70 text-[13px] font-semibold hover:bg-on-surface/[0.07] hover:border-on-surface/[0.15] transition-colors"
+                >
+                  <Pencil size={14} />
+                  Edit top lists
+                </button>
+              </div>
+
+              {/* Recommended guides — mock for now; "Explore" routes to
+                  Discover where real guides live. */}
+              <section>
+                <div className="px-5 flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight">Recommended guides</h3>
+                    <p className="text-[12.5px] text-on-surface/45 mt-0.5">Curated by people you follow</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/discover')}
+                    className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface mt-1 flex-shrink-0"
+                  >
+                    Explore <ChevronRight size={14} />
+                  </button>
+                </div>
+                <div className="flex gap-4 overflow-x-auto px-5 pb-2 scrollbar-hide snap-x snap-mandatory">
+                  {MOCK_GUIDES.map((g) => (
+                    <GuideCard key={g.id} guide={g} />
+                  ))}
+                </div>
+              </section>
             </div>
-          </section>
+          )
         )}
 
-        {ratings.length === 0 && wishlist.length === 0 && (
-          <div className="text-center py-14 rounded-2xl border border-dashed border-on-surface/10">
-            <MapPin size={32} className="mx-auto text-on-surface/15 mb-3" />
-            <p className="text-sm font-medium text-on-surface/50">Start exploring</p>
-            <p className="text-xs text-on-surface/30 mt-1 max-w-xs mx-auto">Rate restaurants and build lists to see your stats here.</p>
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="mt-4 px-5 py-2.5 rounded-full bg-primary text-white text-xs font-semibold"
-            >
-              Open map
-            </button>
-          </div>
+        {activeTab === 'posts' && (
+          myPosts.length === 0 ? (
+            <EmptyTabState
+              icon={<LayoutGrid size={32} className="text-on-surface/15" />}
+              title="No posts yet"
+              subtitle="Share photos and videos from your favorite spots."
+              ctaLabel="Create a post"
+              onCta={() => openAddPostModal()}
+            />
+          ) : (
+            <ProfilePostsSection
+              posts={myPosts}
+              isOwn
+              onEdit={(id) => openEditPostModal(id)}
+              onDelete={(id) => setConfirmDeletePostId(id)}
+              onToggleVisibility={(id, next) => setPostVisibility(id, next)}
+              hideHeader
+            />
+          )
+        )}
+
+        {activeTab === 'reels' && (
+          myReels.length === 0 ? (
+            <EmptyTabState
+              icon={<Film size={32} className="text-on-surface/15" />}
+              title="No reels yet"
+              subtitle="Share short videos of your favorite places and recipes."
+              ctaLabel="Create a reel"
+              onCta={() => openAddReelModal()}
+            />
+          ) : (
+            <ProfileReelsSection
+              reels={myReels}
+              isOwn
+              onEdit={(id) => openEditReelModal(id)}
+              onDelete={(id) => setConfirmDeleteReelId(id)}
+              onToggleVisibility={(id, next) => setReelVisibility(id, next)}
+              hideHeader
+            />
+          )
+        )}
+
+        {activeTab === 'rated' && (
+          ratings.length === 0 ? (
+            <EmptyTabState
+              icon={<ListIcon size={32} className="text-on-surface/15" />}
+              title="No ratings yet"
+              subtitle="Rate restaurants to see your cuisine breakdown and history."
+              ctaLabel="Open map"
+              onCta={() => navigate('/')}
+            />
+          ) : (
+            <div className="space-y-7">
+              {cuisineStats.length > 0 && (
+                <section>
+                  <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-4">Cuisine breakdown</h3>
+                  <div className="space-y-3.5">
+                    {cuisineStats.map(([name, count]) => (
+                      <div key={name} className="flex items-center gap-3">
+                        <span className="text-[13px] font-medium text-on-surface/75 w-24 truncate">{name}</span>
+                        <div className="flex-1 h-1.5 rounded-full bg-on-surface/[0.06] overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-primary/70"
+                            style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[12px] text-on-surface/40 tabular-nums w-6 text-right">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {recentRatings.length > 0 && (
+                <section>
+                  <div className="flex items-baseline justify-between mb-2">
+                    <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Recent</h3>
+                    <button
+                      type="button"
+                      onClick={goToMyRatings}
+                      className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
+                    >
+                      See all <ChevronRight size={12} />
+                    </button>
+                  </div>
+                  <ul className="divide-y divide-on-surface/[0.06]">
+                    {recentRatings.map((r) => (
+                      <li key={r.restaurantId}>
+                        <Link
+                          to={`/restaurant/${r.restaurantId}`}
+                          className="flex items-center gap-3.5 py-3 group"
+                        >
+                          <div className="w-11 h-11 rounded-xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
+                            {r.image ? (
+                              <img src={r.image} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <MapPin size={15} className="text-on-surface/30" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[14px] font-serif font-bold truncate leading-tight">{r.name}</p>
+                            <p className="text-[11.5px] text-on-surface/45 mt-0.5">
+                              {r.visitDate
+                                ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                : ''}
+                              {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
+                            </p>
+                          </div>
+                          <span className={cn('text-[16px] font-serif font-bold flex-shrink-0 tabular-nums', scoreColor(numericScore(r.score)))}>
+                            {formatScore(r.score)}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+          )
         )}
       </main>
+
+      <EditTopListsSheet
+        open={editListsOpen}
+        onClose={() => setEditListsOpen(false)}
+        visibleLists={visibleConfigs}
+        addableByCategory={addableByCategory}
+        onDelete={deleteList}
+        onAdd={addList}
+        onReorder={reorderLists}
+      />
 
       {/* Delete-reel / Delete-post confirmations. Both call into their
           respective contexts and clean up storage objects. */}
@@ -735,6 +1428,21 @@ export const Profile: React.FC = () => {
                       </button>
                     </div>
                     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettingsOpen(false);
+                          navigate('/activity');
+                        }}
+                        className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl hover:bg-on-surface/3 transition-colors text-left"
+                      >
+                        <Sparkles size={18} className="text-on-surface/40" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">Your Activity</p>
+                          <p className="text-[11px] text-on-surface/35">Saves, likes, and comments</p>
+                        </div>
+                        <ChevronRight size={16} className="text-on-surface/20" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => {

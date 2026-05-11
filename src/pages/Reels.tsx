@@ -1,6 +1,6 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal } from 'lucide-react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -10,6 +10,8 @@ import { useToast } from '../contexts/ToastContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { type SharedReel, type SharedPost, type SharePayload } from '../contexts/ChatContext';
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
+import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
+import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -103,14 +105,6 @@ const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment
         </span>
         <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">Share</span>
       </button>
-
-      <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ repeat: Infinity, duration: 8, ease: 'linear' }}
-        className="w-11 h-11 rounded-full bg-gradient-to-br from-amber-200 via-amber-500 to-stone-900 ring-2 ring-white/40 flex items-center justify-center"
-      >
-        <span className="w-3 h-3 rounded-full bg-white/90" />
-      </motion.div>
     </div>
   );
 };
@@ -203,47 +197,105 @@ interface ReelSlideProps {
 
 const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Second video element behind the foreground — same source rendered with
+  // object-cover + heavy blur so phone screens taller than 9:16 letterbox
+  // into a soft, color-matched backdrop instead of black bars.
+  const backdropRef = useRef<HTMLVideoElement>(null);
   const { phoneMode } = useSettings();
   const hasCollapsibleContent = !!reel.caption
     || (reel.kind === 'restaurant' && !!reel.restaurant)
     || (reel.kind === 'recipe' && !!reel.recipe);
   const [infoOpen, setInfoOpen] = useState(true);
+  // Brief play/pause feedback overlay — flashes a centered icon when the
+  // user taps the video to toggle, then fades out after ~700ms. The
+  // icon shown matches the action that just happened (pause icon when
+  // pausing, play icon when resuming).
+  const [tapIndicator, setTapIndicator] = useState<'play' | 'pause' | null>(null);
+  const tapTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const el = videoRef.current;
+    const bg = backdropRef.current;
     if (!el) return;
     if (active) {
       el.muted = muted;
       el.play().catch(() => { /* autoplay may be blocked until user gesture */ });
+      if (bg) {
+        bg.muted = true; // backdrop is always silent
+        bg.play().catch(() => { /* see above */ });
+      }
     } else {
       el.pause();
       el.currentTime = 0;
+      if (bg) {
+        bg.pause();
+        bg.currentTime = 0;
+      }
     }
   }, [active, muted]);
 
+  // Clear any in-flight tap-feedback timeout when this slide unmounts
+  // (e.g. user scrolls past mid-flash).
+  useEffect(() => () => {
+    if (tapTimeoutRef.current != null) window.clearTimeout(tapTimeoutRef.current);
+  }, []);
+
+  const showTapIndicator = (kind: 'play' | 'pause') => {
+    if (tapTimeoutRef.current != null) window.clearTimeout(tapTimeoutRef.current);
+    setTapIndicator(kind);
+    tapTimeoutRef.current = window.setTimeout(() => setTapIndicator(null), 650);
+  };
+
   const onTapVideo = () => {
     const el = videoRef.current;
+    const bg = backdropRef.current;
     if (!el) return;
-    if (el.paused) el.play().catch(() => {});
-    else el.pause();
+    if (el.paused) {
+      el.play().catch(() => {});
+      if (bg) bg.play().catch(() => {});
+      showTapIndicator('play');
+    } else {
+      el.pause();
+      if (bg) bg.pause();
+      showTapIndicator('pause');
+    }
   };
 
   return (
     <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
-      {/* Video / gradient placeholder */}
+      {/* Video / gradient placeholder. The foreground video uses
+          object-contain so it preserves its native 9:16 aspect on any
+          screen size — on tall phones (19:9, 20:9, ...) that means
+          letterboxing top/bottom. We fill that letterbox with a
+          blurred + scaled copy of the same source so the dead space
+          reads as a soft color extension of the reel rather than
+          black bars. */}
       <div className="absolute inset-0">
         {reel.videoUrl ? (
-          <video
-            ref={videoRef}
-            src={reel.videoUrl}
-            poster={reel.posterUrl}
-            playsInline
-            loop
-            muted={muted}
-            preload="metadata"
-            onClick={onTapVideo}
-            className="w-full h-full object-cover"
-          />
+          <>
+            <video
+              ref={backdropRef}
+              src={reel.videoUrl}
+              playsInline
+              loop
+              muted
+              preload="metadata"
+              aria-hidden
+              tabIndex={-1}
+              className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 pointer-events-none"
+            />
+            <video
+              ref={videoRef}
+              src={reel.videoUrl}
+              poster={reel.posterUrl}
+              playsInline
+              loop
+              muted={muted}
+              preload="metadata"
+              onClick={onTapVideo}
+              className="absolute inset-0 w-full h-full object-contain"
+            />
+          </>
         ) : (
           <div className={cn('w-full h-full bg-gradient-to-b flex items-center justify-center', reel.bgGradient)}>
             {reel.bgLabel && (
@@ -258,6 +310,31 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       {/* Gradient overlays for text legibility */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/55 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/75 via-black/30 to-transparent z-10" />
+
+      {/* Tap-to-toggle feedback — flashes a centered play/pause icon for
+          ~650ms whenever the user toggles playback by tapping the video.
+          pointer-events-none so a quick double tap still routes to the
+          underlying video click handler. */}
+      <AnimatePresence>
+        {tapIndicator && (
+          <motion.div
+            key={`${tapIndicator}-${Date.now()}`}
+            initial={{ opacity: 0, scale: 0.7 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.25 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
+          >
+            <div className="w-[88px] h-[88px] rounded-full bg-black/55 backdrop-blur flex items-center justify-center shadow-lg">
+              {tapIndicator === 'play' ? (
+                <Play size={40} className="text-white fill-white ml-1.5" strokeWidth={1.5} />
+              ) : (
+                <Pause size={40} className="text-white fill-white" strokeWidth={1.5} />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Owner-only delete button (top-right area, below the mute pill) */}
       {isMine && !hideOwnerDelete && (
@@ -298,7 +375,7 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
         aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
         className={cn(
           'absolute inset-x-0 bottom-0 z-20 px-4 pt-10',
-          phoneMode ? 'pb-28' : 'pb-5',
+          phoneMode ? 'pb-20' : 'pb-5',
           hasCollapsibleContent && 'cursor-pointer',
         )}
       >
@@ -822,6 +899,13 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
 export const Reels: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  // When mounted under /r/:focusKey the page acts as a focused viewer
+  // for a single reel/post — full feed and full functionality, but
+  // scrolled to the target item and chromeless (no bottom nav, back
+  // arrow overlay top-left). The key matches the FeedItem.key format
+  // used elsewhere (`reel-<id>` or `post-<id>`).
+  const { focusKey } = useParams<{ focusKey?: string }>();
+  const focused = !!focusKey;
   const {
     reels: allReels, recipeReels, loading: reelsLoading,
     toggleLike, toggleSave, deleteReel, openAddReelModal,
@@ -838,7 +922,7 @@ export const Reels: React.FC = () => {
     loadPostComments, addPostComment, deletePostComment,
     lastActivePostId, setLastActivePostId,
   } = usePosts();
-  const { phoneMode } = useSettings();
+  const { phoneMode, setHideBottomNav } = useSettings();
   const { showToast } = useToast();
 
   // Tab can be deep-linked via ?kind=explore|recipe. Older deep links
@@ -856,6 +940,14 @@ export const Reels: React.FC = () => {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
+  // Tapping a featured-restaurant card on a reel/post opens this side panel
+  // instead of navigating to /restaurant/:id. Set to the restaurant snapshot
+  // attached to the card so the panel can render immediately while it fetches
+  // community/friend/expert data.
+  const [restaurantPanelSnapshot, setRestaurantPanelSnapshot] = useState<RestaurantPanelSnapshot | null>(null);
+  // Same idea for the featured-recipe card. The snapshot carries authorId +
+  // ReelRecipeSnapshot; the panel resolves the full meal record lazily.
+  const [recipePanelSnapshot, setRecipePanelSnapshot] = useState<RecipePanelSnapshot | null>(null);
 
   const loading = reelsLoading || postsLoading;
 
@@ -883,11 +975,45 @@ export const Reels: React.FC = () => {
   const activeReelId = activeKey?.startsWith('reel-') ? activeKey.slice(5) : null;
   const activePostId = activeKey?.startsWith('post-') ? activeKey.slice(5) : null;
 
-  // Reset the active item when the tab changes. If the user was last on
-  // a post (and that post still appears in this tab), prefer it over the
-  // first slide — that's what restores their position after navigating
-  // to a featured-attachment detail page and clicking back.
+  // ── Per-tab "last seen" feed-item key.
+  //
+  // The user expects tab-switching to be a stack-of-pages, not a
+  // single-position cursor: scroll to reel #7 on Explore, hop to
+  // Recipes and scroll to recipe #3, hop back to Explore and you're
+  // returned to reel #7. We track the last-active key per tab in
+  // component state (resets when /reels unmounts). The first visit
+  // to a tab — including the very first Recipes view — falls
+  // through to "top of the feed". The cross-mount PostsContext
+  // lastActivePostId pointer remains a secondary fallback so
+  // returning from /restaurant/X back to /reels still lands you on
+  // the post you were on (mostly useful on the Explore tab).
+  const [lastKeyByTab, setLastKeyByTab] = useState<Record<FeedKind, string | null>>({
+    explore: null,
+    recipe: null,
+  });
+
   useEffect(() => {
+    // Focused mode wins: if the URL points at a specific feed item
+    // and that item is in this tab's feed, jump straight to it. If it
+    // isn't here (e.g. a recipe reel viewed on the explore tab), try
+    // flipping the tab — otherwise fall through to the normal restore.
+    if (focused && focusKey) {
+      const match = feedItems.find((f) => f.key === focusKey);
+      if (match) {
+        setActiveKey(focusKey);
+        return;
+      }
+    }
+    // First try the per-tab saved key. Drop it if the underlying item
+    // is gone (deleted / no longer visible to this viewer).
+    const saved = lastKeyByTab[kind];
+    if (saved && feedItems.some((f) => f.key === saved)) {
+      setActiveKey(saved);
+      return;
+    }
+    // Cross-mount post pointer — useful for returning from a featured
+    // attachment detail page. Only meaningful on the explore tab
+    // since recipe-only filters won't carry every post.
     if (lastActivePostId) {
       const match = feedItems.find((f) => f.kind === 'post' && f.post.id === lastActivePostId);
       if (match) {
@@ -897,21 +1023,164 @@ export const Reels: React.FC = () => {
     }
     setActiveKey(feedItems[0]?.key ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, feedItems.length]);
+  }, [kind, feedItems.length, focusKey, focused]);
 
-  // Mirror the activeKey into PostsContext so the next mount can restore
-  // the same post. When the active item is a reel we leave the saved
-  // value untouched — it's specifically a "last post" pointer.
+  // If the focused item is a recipe reel that doesn't appear on the
+  // current tab (e.g. it's not also in Explore for some reason), flip
+  // the tab once the feeds are populated so it can find the item. We
+  // only do this once per focus to avoid bouncing back if the user
+  // intentionally switches tabs after landing.
+  const flippedForFocusRef = useRef(false);
+  useEffect(() => {
+    if (!focused || !focusKey) { flippedForFocusRef.current = false; return; }
+    if (flippedForFocusRef.current) return;
+    if (feedItems.some((f) => f.key === focusKey)) return;
+    if (focusKey.startsWith('reel-')) {
+      const id = focusKey.slice('reel-'.length);
+      const r = allReels.find((rr) => rr.id === id);
+      if (r && r.kind === 'recipe' && kind !== 'recipe') {
+        flippedForFocusRef.current = true;
+        setKind('recipe');
+      } else if (r && r.kind !== 'recipe' && kind !== 'explore') {
+        flippedForFocusRef.current = true;
+        setKind('explore');
+      }
+    } else if (focusKey.startsWith('post-') && kind !== 'explore') {
+      flippedForFocusRef.current = true;
+      setKind('explore');
+    }
+  }, [focused, focusKey, feedItems, allReels, kind]);
+
+  // Mirror the activeKey into per-tab state whenever it changes, and
+  // into PostsContext's cross-mount pointer for posts.
+  useEffect(() => {
+    if (!activeKey) return;
+    setLastKeyByTab((prev) => (prev[kind] === activeKey ? prev : { ...prev, [kind]: activeKey }));
+  }, [activeKey, kind]);
+
   useEffect(() => {
     if (activePostId) setLastActivePostId(activePostId);
   }, [activePostId, setLastActivePostId]);
 
-  // After the feed renders for the first time with a saved active post,
-  // scroll the snap container so that post is the visible slide. We use
-  // a layout effect so the scroll happens before the user sees slide 0.
+  // ── Side-panel auto-sync as the user scrolls between feed items ──
+  //
+  // When activeKey changes (user scrolls to a new reel/post) we want any
+  // open side pane to follow:
+  //   • Restaurant panel: swap to the new item's featured restaurant. For
+  //     posts the source is the first slide's attachment. If the new item
+  //     has no featured restaurant the panel just closes.
+  //   • Comments: always swap to the new item's comments (per spec —
+  //     comments stuck on a previous reel were confusing).
+  //
+  // We read the current open-state through refs so the effect only fires
+  // on activeKey changes — including the open-state in deps would loop
+  // every time we update it from inside.
+  const restaurantPanelSnapshotRef = useRef(restaurantPanelSnapshot);
+  restaurantPanelSnapshotRef.current = restaurantPanelSnapshot;
+  const recipePanelSnapshotRef = useRef(recipePanelSnapshot);
+  recipePanelSnapshotRef.current = recipePanelSnapshot;
+  const openCommentsReelIdRef = useRef(openCommentsReelId);
+  openCommentsReelIdRef.current = openCommentsReelId;
+  const openPostCommentsIdRef = useRef(openPostCommentsId);
+  openPostCommentsIdRef.current = openPostCommentsId;
+
+  // Hide the floating BottomNav whenever either feature pane (restaurant
+  // or recipe) is open on the mobile sheet — its presence at the bottom
+  // collides visually with the bottom-anchored sheet handle. Reset on
+  // close + on unmount so other pages don't inherit the hidden state.
+  // In focused mode (/r/:key) the nav stays hidden the whole time.
+  useEffect(() => {
+    const anyPanelOpen = !!restaurantPanelSnapshot || !!recipePanelSnapshot;
+    setHideBottomNav(focused || anyPanelOpen);
+    return () => setHideBottomNav(false);
+  }, [focused, restaurantPanelSnapshot, recipePanelSnapshot, setHideBottomNav]);
+
+  useEffect(() => {
+    if (!activeKey) return;
+    const isReel = activeKey.startsWith('reel-');
+    const isPost = activeKey.startsWith('post-');
+    const id = isReel || isPost ? activeKey.slice(5) : null;
+    if (!id) return;
+
+    // Locate the underlying record. Reels live in either the all-reels or
+    // recipe-only list depending on the current tab.
+    const reel = isReel
+      ? (allReels.find((r) => r.id === id) || recipeReels.find((r) => r.id === id) || null)
+      : null;
+    const post = isPost ? (allPosts.find((p) => p.id === id) || null) : null;
+
+    // ── Restaurant / recipe panel auto-switch ──
+    // The two panels share a single "feature pane" — whichever kind the
+    // new active reel/post features, that's what the panel shows. So
+    // scrolling from a restaurant-featured reel to a recipe-featured
+    // reel with the panel already open swaps the contents (and the
+    // panel kind) rather than closing and reopening. If the new item
+    // has no featured attachment at all, the pane closes.
+    const anyPanelOpen = !!restaurantPanelSnapshotRef.current || !!recipePanelSnapshotRef.current;
+    if (anyPanelOpen) {
+      // Resolve what the active item features, preferring the reel's
+      // declared kind (or the post's first slide for posts).
+      let nextRestaurant: RestaurantPanelSnapshot | null = null;
+      let nextRecipe: RecipePanelSnapshot | null = null;
+      if (reel) {
+        if (reel.kind === 'restaurant' && reel.restaurant) nextRestaurant = reel.restaurant;
+        else if (reel.kind === 'recipe' && reel.recipe) nextRecipe = { authorId: reel.authorId, recipe: reel.recipe };
+      } else if (post) {
+        const first = post.items[0];
+        if (first && first.attachedKind === 'restaurant' && first.restaurant) {
+          nextRestaurant = first.restaurant;
+        } else if (first && first.attachedKind === 'recipe' && first.recipe) {
+          nextRecipe = { authorId: post.userId, recipe: first.recipe };
+        }
+      }
+
+      const curR = restaurantPanelSnapshotRef.current;
+      const curC = recipePanelSnapshotRef.current;
+
+      // Apply transitions, only writing state when something actually
+      // changes (so we don't churn the panel mounts every frame).
+      if (nextRestaurant) {
+        if (curC) setRecipePanelSnapshot(null);
+        if (curR?.id !== nextRestaurant.id) setRestaurantPanelSnapshot(nextRestaurant);
+      } else if (nextRecipe) {
+        if (curR) setRestaurantPanelSnapshot(null);
+        const sameRecipe = curC
+          && curC.recipe.id === nextRecipe.recipe.id
+          && curC.authorId === nextRecipe.authorId;
+        if (!sameRecipe) setRecipePanelSnapshot(nextRecipe);
+      } else {
+        // New item features neither — close whichever pane is open.
+        if (curR) setRestaurantPanelSnapshot(null);
+        if (curC) setRecipePanelSnapshot(null);
+      }
+    }
+
+    // Comments auto-switch. If comments are open they always follow the
+    // active item — swapping kinds (reel↔post) when crossing item types.
+    const commentsAreOpen = !!openCommentsReelIdRef.current || !!openPostCommentsIdRef.current;
+    if (commentsAreOpen) {
+      if (reel) {
+        if (openCommentsReelIdRef.current !== reel.id) {
+          if (openPostCommentsIdRef.current) closePostCommentsSheet();
+          openCommentsSheet(reel.id);
+        }
+      } else if (post) {
+        if (openPostCommentsIdRef.current !== post.id) {
+          if (openCommentsReelIdRef.current) closeCommentsSheet();
+          openPostCommentsSheet(post.id);
+        }
+      }
+    }
+  }, [activeKey, allReels, recipeReels, allPosts, openCommentsSheet, openPostCommentsSheet, closeCommentsSheet, closePostCommentsSheet]);
+
+  // After the feed renders with a restored active key, scroll the snap
+  // container so that item is the visible slide. Works for both reels
+  // and posts now that per-tab restoration applies to either kind.
+  // useLayoutEffect so the scroll happens before paint and there's no
+  // flash of slide 0.
   const restoredKeyRef = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (!activeKey || !activeKey.startsWith('post-')) return;
+    if (!activeKey) return;
     if (restoredKeyRef.current === activeKey) return;
     const root = containerRef.current;
     if (!root) return;
@@ -962,17 +1231,52 @@ export const Reels: React.FC = () => {
   }, []);
   const showDesktopFrame = isDesktop && !phoneMode;
 
+  // ── Mutual exclusion between the side panes (restaurant / recipe /
+  // comments): only one can be visible at a time. Wrap the open calls so
+  // opening any one always closes the other two. Tapping the same
+  // featured card twice toggles its panel closed; tapping a different
+  // card swaps to it. Functional setters so we don't have to add the
+  // panel snapshots to the useCallback deps.
+  const openRestaurantPanel = useCallback((snap: RestaurantPanelSnapshot) => {
+    closeCommentsSheet();
+    closePostCommentsSheet();
+    setRecipePanelSnapshot(null);
+    setRestaurantPanelSnapshot((current) => (current && current.id === snap.id ? null : snap));
+  }, [closeCommentsSheet, closePostCommentsSheet]);
+
+  const openRecipePanel = useCallback((snap: RecipePanelSnapshot) => {
+    closeCommentsSheet();
+    closePostCommentsSheet();
+    setRestaurantPanelSnapshot(null);
+    setRecipePanelSnapshot((current) => (
+      current && current.recipe.id === snap.recipe.id && current.authorId === snap.authorId
+        ? null
+        : snap
+    ));
+  }, [closeCommentsSheet, closePostCommentsSheet]);
+
+  const openReelComments = useCallback((reelId: string) => {
+    setRestaurantPanelSnapshot(null);
+    setRecipePanelSnapshot(null);
+    openCommentsSheet(reelId);
+  }, [openCommentsSheet]);
+
+  const openPostComments = useCallback((postId: string) => {
+    setRestaurantPanelSnapshot(null);
+    setRecipePanelSnapshot(null);
+    openPostCommentsSheet(postId);
+  }, [openPostCommentsSheet]);
+
   const handleCardClick = (reel: Reel) => {
     if (reel.kind === 'restaurant' && reel.restaurant) {
-      navigate(`/restaurant/${reel.restaurant.id}`);
+      openRestaurantPanel(reel.restaurant);
       return;
     }
     if (reel.kind === 'recipe' && reel.recipe) {
-      // Recipes attached to reels come from the author's Home Cooking
-      // list (homeMeals), not the cloud recipes table — so we route to
-      // /meal/:userId/:mealId, which is the read view that knows how
-      // to load home-meal entries.
-      navigate(`/meal/${encodeURIComponent(reel.authorId)}/${encodeURIComponent(reel.recipe.id)}`);
+      // Same in-feed-panel pattern for recipes — opens RecipePanel
+      // instead of navigating to /meal/:userId/:mealId. The panel
+      // resolves the full home-meal record lazily.
+      openRecipePanel({ authorId: reel.authorId, recipe: reel.recipe });
     }
   };
 
@@ -1057,14 +1361,15 @@ export const Reels: React.FC = () => {
     else showToast("Couldn't delete post");
   };
 
-  // Per-item attachment click — routes to the right detail page.
-  // Recipes attached to a post are home-meal entries owned by the post's
-  // author, so they live under /meal/:userId/:mealId, not /recipe/:id.
+  // Per-item attachment click — restaurants open the in-feed side panel;
+  // recipes still navigate to the home-meal read view (/meal/:userId/:mealId,
+  // not /recipe/:id, because attached recipes are home-meal entries owned
+  // by the post's author).
   const handlePostItemClick = (postUserId: string, item: PostItemRow) => {
     if (item.attachedKind === 'restaurant' && item.restaurant) {
-      navigate(`/restaurant/${item.restaurant.id}`);
+      openRestaurantPanel(item.restaurant);
     } else if (item.attachedKind === 'recipe' && item.recipe) {
-      navigate(`/meal/${encodeURIComponent(postUserId)}/${encodeURIComponent(item.recipe.id)}`);
+      openRecipePanel({ authorId: postUserId, recipe: item.recipe });
     }
   };
 
@@ -1140,7 +1445,7 @@ export const Reels: React.FC = () => {
                     if (!currentUserId) { showToast('Sign in to save reels'); return; }
                     toggleSave(item.reel.id);
                   }}
-                  onComment={() => openCommentsSheet(item.reel.id)}
+                  onComment={() => openReelComments(item.reel.id)}
                   onShare={() => handleShare(item.reel)}
                   onCardClick={() => handleCardClick(item.reel)}
                   onDelete={() => setConfirmDeleteId(item.reel.id)}
@@ -1161,7 +1466,7 @@ export const Reels: React.FC = () => {
                     if (!currentUserId) { showToast('Sign in to save posts'); return; }
                     togglePostSave(item.post.id);
                   }}
-                  onComment={() => openPostCommentsSheet(item.post.id)}
+                  onComment={() => openPostComments(item.post.id)}
                   onShare={() => handleSharePost(item.post)}
                   onItemAttachmentClick={(postItem) => handlePostItemClick(item.post.userId, postItem)}
                   onDelete={() => setConfirmDeletePostId(item.post.id)}
@@ -1249,10 +1554,23 @@ export const Reels: React.FC = () => {
       // into the reel — the reel is height-driven, so the smaller the
       // vertical padding, the bigger the reel ends up.
       <div className="relative h-screen w-full bg-surface overflow-hidden flex items-center justify-center gap-4 px-6 py-3">
-        {/* Reel column — full available height; aspect ratio drives width. */}
+        {focused && (
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+            className="absolute top-4 left-4 z-50 w-10 h-10 rounded-full bg-on-surface/[0.08] backdrop-blur text-on-surface flex items-center justify-center hover:bg-on-surface/[0.14] active:scale-95 transition-all"
+          >
+            <ArrowLeft size={18} strokeWidth={2.4} />
+          </button>
+        )}
+        {/* Reel column — full available height; aspect ratio drives width.
+            9/16 matches the native reels video ratio and Instagram's desktop
+            reels column, so the frame reads as a proper short-form video
+            surface instead of a too-narrow phone shape. */}
         <div
-          className="relative h-full bg-black rounded-[36px] overflow-hidden shadow-xl border border-on-surface/[0.08]"
-          style={{ aspectRatio: '9 / 19.5' }}
+          className="relative h-full bg-black rounded-[22px] overflow-hidden shadow-xl border border-on-surface/[0.08]"
+          style={{ aspectRatio: '9 / 16' }}
         >
           <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
           {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true })}
@@ -1273,7 +1591,7 @@ export const Reels: React.FC = () => {
                 if (!currentUserId) { showToast('Sign in to save reels'); return; }
                 toggleSave(activeReel.id);
               }}
-              onComment={() => openCommentsSheet(activeReel.id)}
+              onComment={() => openReelComments(activeReel.id)}
               onShare={() => handleShare(activeReel)}
               onDelete={() => setConfirmDeleteId(activeReel.id)}
             />
@@ -1292,7 +1610,7 @@ export const Reels: React.FC = () => {
                 if (!currentUserId) { showToast('Sign in to save posts'); return; }
                 togglePostSave(activePost.id);
               }}
-              onComment={() => openPostCommentsSheet(activePost.id)}
+              onComment={() => openPostComments(activePost.id)}
               onShare={() => handleSharePost(activePost)}
               onDelete={() => setConfirmDeletePostId(activePost.id)}
             />
@@ -1306,6 +1624,26 @@ export const Reels: React.FC = () => {
           loadComments={commentsLoad}
           addComment={commentsAdd}
           deleteComment={commentsDelete}
+          currentUserId={currentUserId}
+        />
+
+        {/* Restaurant side panel — opens when a featured-place card is tapped
+            on a reel or post. Sits to the right of the action rail, mirrors
+            the comments panel's animation + chrome. */}
+        <RestaurantPanel
+          variant="panel"
+          snapshot={restaurantPanelSnapshot}
+          onClose={() => setRestaurantPanelSnapshot(null)}
+          currentUserId={currentUserId}
+        />
+
+        {/* Recipe side panel — sibling of the restaurant panel; opens when
+            a featured-recipe card is tapped. Mutual-exclusion logic
+            guarantees only one of the two is ever mounted at a time. */}
+        <RecipePanel
+          variant="panel"
+          snapshot={recipePanelSnapshot}
+          onClose={() => setRecipePanelSnapshot(null)}
           currentUserId={currentUserId}
         />
 
@@ -1323,7 +1661,32 @@ export const Reels: React.FC = () => {
   return (
     <div className="relative h-screen w-full bg-black overflow-hidden">
       <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
+      {focused && (
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+          className="fixed top-3 left-3 z-50 w-10 h-10 rounded-full bg-black/55 backdrop-blur text-white flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all"
+        >
+          <ArrowLeft size={18} strokeWidth={2.4} />
+        </button>
+      )}
       {renderFeed({})}
+      {/* Restaurant sheet — mobile counterpart of the desktop panel. Slides
+          up from the bottom over the feed. */}
+      <RestaurantPanel
+        variant="sheet"
+        snapshot={restaurantPanelSnapshot}
+        onClose={() => setRestaurantPanelSnapshot(null)}
+        currentUserId={currentUserId}
+      />
+      {/* Recipe sheet — mobile counterpart of the recipe panel. */}
+      <RecipePanel
+        variant="sheet"
+        snapshot={recipePanelSnapshot}
+        onClose={() => setRecipePanelSnapshot(null)}
+        currentUserId={currentUserId}
+      />
       <ShareDialog
         open={!!sharePayload}
         payload={sharePayload}

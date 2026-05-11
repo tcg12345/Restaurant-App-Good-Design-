@@ -27,6 +27,9 @@ interface ProfileReelsSectionProps {
   onToggleVisibility?: (reelId: string, nextIsPublic: boolean) => void;
   /** Optional — overrides the default "My Reels" / "Reels" title. */
   title?: string;
+  /** When true, omit the section header (count + title) entirely.
+   *  Used by the Profile page where the tab itself serves as the heading. */
+  hideHeader?: boolean;
   /** Optional CTA shown next to the title (e.g. "Open feed"). */
   trailing?: React.ReactNode;
 }
@@ -41,11 +44,12 @@ interface ProfilePostsSectionProps {
   onEdit?: (postId: string) => void;
   onToggleVisibility?: (postId: string, nextIsPublic: boolean) => void;
   title?: string;
+  hideHeader?: boolean;
   trailing?: React.ReactNode;
 }
 
 export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
-  posts, isOwn = false, onTileClick, onDelete, onEdit, onToggleVisibility, title, trailing,
+  posts, isOwn = false, onTileClick, onDelete, onEdit, onToggleVisibility, title, hideHeader = false, trailing,
 }) => {
   const navigate = useNavigate();
   const [showAll, setShowAll] = useState(false);
@@ -55,19 +59,21 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
 
   const handleClick = (p: Post) => {
     if (onTileClick) { onTileClick(p); return; }
-    navigate('/reels?kind=post');
+    navigate(`/r/post-${p.id}`);
   };
 
   return (
     <section>
-      <div className="flex items-baseline justify-between mb-3">
-        <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
-          {title ?? (isOwn ? 'My Posts' : 'Posts')}
-          <span className="text-on-surface/30 font-medium ml-1.5">{posts.length}</span>
-        </h3>
-        {trailing}
-      </div>
-      <div className="grid grid-cols-3 gap-1 max-w-md">
+      {!hideHeader && (
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
+            {title ?? (isOwn ? 'My Posts' : 'Posts')}
+            <span className="text-on-surface/30 font-medium ml-1.5">{posts.length}</span>
+          </h3>
+          {trailing}
+        </div>
+      )}
+      <div className="grid grid-cols-3 gap-2.5 max-w-2xl">
         {visible.map((p) => {
           const cover = p.items[0];
           // First item drives the tile preview.
@@ -76,7 +82,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
               <button
                 type="button"
                 onClick={() => handleClick(p)}
-                className="block w-full aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] relative"
+                className="block w-full aspect-square rounded-2xl overflow-hidden bg-on-surface/[0.05] relative ring-1 ring-on-surface/[0.06] shadow-sm hover:shadow-md transition-shadow"
                 aria-label={p.caption || 'Open post'}
               >
                 {cover?.mediaType === 'video' && cover.mediaUrl ? (
@@ -86,21 +92,35 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
                 ) : (
                   <div className={cn('absolute inset-0 bg-gradient-to-b', cover?.bgGradient || 'from-stone-800 to-stone-900')} />
                 )}
+                {/* Bottom legibility wash + caption so the tile reads as content,
+                    not chrome. Hidden when there's no caption to avoid an empty
+                    dark band. */}
+                {p.caption && (
+                  <>
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
+                    <div className="absolute inset-x-0 bottom-0 px-2.5 pb-2.5">
+                      <p className="font-serif italic text-white text-[12px] leading-tight line-clamp-2 drop-shadow">
+                        {p.caption}
+                      </p>
+                    </div>
+                  </>
+                )}
                 {/* Multi-item indicator (top-right corner) */}
                 {p.items.length > 1 && (
-                  <span className="absolute top-1.5 right-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-black/55 text-white">
+                  <span className="absolute top-2 right-2 inline-flex items-center gap-0.5 px-1.5 h-[22px] rounded-full bg-black/55 backdrop-blur text-white text-[10px] font-bold tabular-nums">
                     <Layers size={11} />
+                    {p.items.length}
                   </span>
                 )}
                 {/* Likes pill */}
-                <div className="absolute top-1.5 left-1.5 flex items-center gap-0.5 bg-black/45 backdrop-blur rounded-full px-1.5 h-5 text-white text-[9px] font-bold">
-                  <Heart size={9} className="fill-white" />
+                <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/45 backdrop-blur rounded-full px-2 h-[22px] text-white text-[10px] font-bold">
+                  <Heart size={10} className="fill-white" />
                   <span className="tabular-nums">{p.likesCount}</span>
                 </div>
                 {/* Private chip */}
                 {!p.isPublic && (
-                  <div className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 bg-black/55 backdrop-blur rounded-full px-1.5 h-5 text-white text-[9px] font-bold">
-                    <Lock size={8} />
+                  <div className="absolute bottom-2 right-2 inline-flex items-center gap-0.5 bg-black/55 backdrop-blur rounded-full px-1.5 h-[22px] text-white text-[10px] font-bold">
+                    <Lock size={9} />
                   </div>
                 )}
               </button>
@@ -109,40 +129,40 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
                 // delete affordance is obvious. Shifts down on multi-item
                 // posts so it doesn't collide with the Layers chip.
                 <div className={cn(
-                  'absolute right-1.5 flex items-center gap-1',
-                  p.items.length > 1 ? 'top-7' : 'top-1.5',
+                  'absolute right-2 flex items-center gap-1',
+                  p.items.length > 1 ? 'top-[34px]' : 'top-2',
                 )}>
                   {onEdit && (
                     <button
                       type="button"
                       onClick={() => onEdit(p.id)}
-                      className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
+                      className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
                       aria-label="Edit post"
                       title="Edit post"
                     >
-                      <Pencil size={11} />
+                      <Pencil size={13} />
                     </button>
                   )}
                   {onToggleVisibility && (
                     <button
                       type="button"
                       onClick={() => onToggleVisibility(p.id, !p.isPublic)}
-                      className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
+                      className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
                       aria-label={p.isPublic ? 'Make private' : 'Make public'}
                       title={p.isPublic ? 'Public — tap to make followers-only' : 'Followers only — tap to make public'}
                     >
-                      {p.isPublic ? <Globe size={11} /> : <Lock size={11} />}
+                      {p.isPublic ? <Globe size={13} /> : <Lock size={13} />}
                     </button>
                   )}
                   {onDelete && (
                     <button
                       type="button"
                       onClick={() => onDelete(p.id)}
-                      className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
+                      className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
                       aria-label="Delete post"
                       title="Delete post"
                     >
-                      <Trash2 size={11} />
+                      <Trash2 size={13} />
                     </button>
                   )}
                 </div>
@@ -152,7 +172,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
         })}
       </div>
       {posts.length > VISIBLE_LIMIT && (
-        <div className="mt-2.5 max-w-md">
+        <div className="mt-3 max-w-2xl">
           {showAll ? (
             <button type="button" onClick={() => setShowAll(false)} className="text-[12px] font-semibold text-on-surface/45 hover:text-on-surface/65">Show less</button>
           ) : (
@@ -177,6 +197,7 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
   onEdit,
   onToggleVisibility,
   title,
+  hideHeader = false,
   trailing,
 }) => {
   const navigate = useNavigate();
@@ -188,25 +209,27 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
 
   const handleClick = (r: Reel) => {
     if (onTileClick) { onTileClick(r); return; }
-    navigate(`/reels?kind=${r.kind}`);
+    navigate(`/r/reel-${r.id}`);
   };
 
   return (
     <section>
-      <div className="flex items-baseline justify-between mb-3">
-        <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
-          {title ?? (isOwn ? 'My Reels' : 'Reels')}
-          <span className="text-on-surface/30 font-medium ml-1.5">{reels.length}</span>
-        </h3>
-        {trailing}
-      </div>
-      <div className="grid grid-cols-3 gap-1 max-w-md">
+      {!hideHeader && (
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
+            {title ?? (isOwn ? 'My Reels' : 'Reels')}
+            <span className="text-on-surface/30 font-medium ml-1.5">{reels.length}</span>
+          </h3>
+          {trailing}
+        </div>
+      )}
+      <div className="grid grid-cols-3 gap-2.5 max-w-2xl">
         {visible.map((r) => (
           <div key={r.id} className="relative group">
             <button
               type="button"
               onClick={() => handleClick(r)}
-              className="block w-full aspect-[9/14] rounded-xl overflow-hidden bg-on-surface/[0.05] relative"
+              className="block w-full aspect-[9/14] rounded-2xl overflow-hidden bg-on-surface/[0.05] relative ring-1 ring-on-surface/[0.06] shadow-sm hover:shadow-md transition-shadow"
               aria-label={r.caption || 'Open reel'}
             >
               {r.videoUrl ? (
@@ -221,63 +244,63 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
                 <div className={cn('absolute inset-0 bg-gradient-to-b', r.bgGradient || 'from-stone-800 to-stone-900')} />
               )}
               {/* Bottom gradient + meta */}
-              <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none" />
-              <div className="absolute inset-x-0 bottom-0 p-1.5">
-                <div className="flex items-center gap-0.5 text-white text-[8px] font-bold mb-0.5">
-                  <Film size={8} />
+              <div className="absolute inset-x-0 bottom-0 h-[58%] bg-gradient-to-t from-black/85 via-black/30 to-transparent pointer-events-none" />
+              <div className="absolute inset-x-0 bottom-0 p-2.5">
+                <div className="flex items-center gap-1 text-white text-[10px] font-bold mb-1">
+                  <Film size={10} />
                   <span className="uppercase tracking-wider">{r.kind === 'restaurant' ? 'Place' : 'Recipe'}</span>
                 </div>
-                <p className="text-white text-[10px] font-bold leading-tight line-clamp-2 drop-shadow-sm">
+                <p className="font-serif font-bold text-white text-[13px] leading-[1.15] line-clamp-2 drop-shadow-sm">
                   {r.kind === 'restaurant' ? r.restaurant?.name : r.recipe?.title}
                 </p>
               </div>
               {/* Likes pill (top-left) */}
-              <div className="absolute top-1.5 left-1.5 flex items-center gap-0.5 bg-black/45 backdrop-blur rounded-full px-1.5 h-5 text-white text-[9px] font-bold">
-                <Heart size={9} className="fill-white" />
+              <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/45 backdrop-blur rounded-full px-2 h-[22px] text-white text-[10px] font-bold">
+                <Heart size={10} className="fill-white" />
                 <span className="tabular-nums">{r.likes}</span>
               </div>
               {/* Private chip (bottom-right). Only when followers-only. */}
               {!r.isPublic && (
-                <div className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 bg-black/55 backdrop-blur rounded-full px-1.5 h-5 text-white text-[9px] font-bold">
-                  <Lock size={8} />
+                <div className="absolute bottom-2 right-2 inline-flex items-center gap-0.5 bg-black/55 backdrop-blur rounded-full px-1.5 h-[22px] text-white text-[10px] font-bold">
+                  <Lock size={9} />
                 </div>
               )}
             </button>
             {/* Owner controls — privacy + delete. Always visible so the
                 delete affordance is obvious on both touch and desktop. */}
             {isOwn && (
-              <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+              <div className="absolute top-2 right-2 flex items-center gap-1">
                 {onEdit && (
                   <button
                     type="button"
                     onClick={() => onEdit(r.id)}
-                    className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
+                    className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
                     aria-label="Edit reel"
                     title="Edit reel"
                   >
-                    <Pencil size={11} />
+                    <Pencil size={13} />
                   </button>
                 )}
                 {onToggleVisibility && (
                   <button
                     type="button"
                     onClick={() => onToggleVisibility(r.id, !r.isPublic)}
-                    className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
+                    className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-black/70"
                     aria-label={r.isPublic ? 'Make private' : 'Make public'}
                     title={r.isPublic ? 'Public — tap to make followers-only' : 'Followers only — tap to make public'}
                   >
-                    {r.isPublic ? <Globe size={11} /> : <Lock size={11} />}
+                    {r.isPublic ? <Globe size={13} /> : <Lock size={13} />}
                   </button>
                 )}
                 {onDelete && (
                   <button
                     type="button"
                     onClick={() => onDelete(r.id)}
-                    className="w-6 h-6 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600"
+                    className="w-7 h-7 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white hover:bg-rose-600"
                     aria-label="Delete reel"
                     title="Delete reel"
                   >
-                    <Trash2 size={11} />
+                    <Trash2 size={13} />
                   </button>
                 )}
               </div>
@@ -287,7 +310,7 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
       </div>
       {/* Expand / collapse — only when there's something to expand. */}
       {reels.length > VISIBLE_LIMIT && (
-        <div className="mt-2.5 max-w-md">
+        <div className="mt-3 max-w-2xl">
           {showAll ? (
             <button
               type="button"

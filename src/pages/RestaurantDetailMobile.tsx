@@ -22,6 +22,7 @@ import { useTravelTimes, formatTravelTime } from '../lib/directions';
 import { Link } from 'react-router-dom';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
+import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 
 /** Parse hours array to find next opening time when currently closed */
 function getNextOpenTime(hours: string[]): string {
@@ -1472,6 +1473,17 @@ export const RestaurantDetailMobile: React.FC = () => {
             </ul>
           </section>
         )}
+
+        {/* ── Featured In — horizontal strip of reels/posts that include
+            this restaurant. Filler cards for now while reels populate;
+            titles interpolate the restaurant name so the section reads
+            as authored content rather than chrome. ── */}
+        <RestaurantFeaturedReels
+          restaurantId={place.id}
+          restaurantName={place.name}
+          size="md"
+          className="mb-10"
+        />
 
         {/* ── Hours — flat accordion on the page surface. Mono eyebrow,
             then a compact trigger row with today's status, expanding
