@@ -672,7 +672,7 @@ export const Profile: React.FC = () => {
             onClick={() => setCreateMenuOpen((o) => !o)}
             aria-haspopup="menu"
             aria-expanded={createMenuOpen}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl text-primary text-[13px] font-bold hover:bg-primary/[0.06] transition-colors"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-primary text-white text-[13px] font-bold hover:bg-primary/90 transition-colors"
           >
             <Plus
               size={15}
