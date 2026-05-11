@@ -421,19 +421,21 @@ const RestaurantPanelBody: React.FC<{
   return (
     <>
       {/* Header — map hero (or fallback photo/gradient) that collapses on
-          scroll. Three stacked layers inside a height-animated outer
-          container: media (map / image / gradient) which fades out, an
-          expanded title that slides up + fades, and a compact title that
-          fades in centered between the heart/close pills. */}
+          scroll. The OUTER wrapper changes height to drive the layout
+          effect, but the media layer inside is pinned to a fixed 204px
+          height so Mapbox's ResizeObserver doesn't fire on every frame
+          (resizing the canvas every scroll tick is what caused the
+          glitchy collapse — the parent shrinks, the media clips
+          smoothly underneath). */}
       <motion.div
         className="relative flex-shrink-0 w-full bg-cream-2 overflow-hidden"
-        style={{ height: heroHeight }}
+        style={{ height: heroHeight, willChange: 'height' }}
       >
-        {/* Media layer — map (preferred) / image / gradient. Mounted as a
-            direct child of the hero with explicit inline width + height so
-            Mapbox can bootstrap its canvas size correctly: Tailwind's
-            `inset-0` alone leaves the canvas at 0×0 in some browsers, which
-            silently prevents tiles from loading even after CSS is applied. */}
+        {/* Media layer — map (preferred) / image / gradient. Pinned to
+            the top with a fixed 204px height so its size never changes
+            as the outer shrinks. The outer's overflow-hidden clips the
+            bottom of the media as the hero collapses. Mapbox only
+            sees one canvas resize (on mount). */}
         {hasMap ? (
           <motion.div
             key={`${snapshot.id}-${lat}-${lng}`}
@@ -445,21 +447,21 @@ const RestaurantPanelBody: React.FC<{
             // page where the interactive map lives.
             // The saturate filter quiets the cartography slightly so it
             // reads as warm gray rather than bright pastel.
-            className="absolute inset-0 [&_.mapboxgl-ctrl-bottom-left]:hidden [&_.mapboxgl-ctrl-bottom-right]:hidden"
-            style={{ width: '100%', height: '100%', opacity: mediaOpacity, filter: 'saturate(0.55)' }}
+            className="absolute inset-x-0 top-0 [&_.mapboxgl-ctrl-bottom-left]:hidden [&_.mapboxgl-ctrl-bottom-right]:hidden"
+            style={{ width: '100%', height: 204, opacity: mediaOpacity, filter: 'saturate(0.55)' }}
           />
         ) : snapshot.image ? (
           <motion.img
             src={snapshot.image}
             alt=""
-            className="absolute inset-0 w-full h-full object-cover"
-            style={{ opacity: mediaOpacity }}
+            className="absolute inset-x-0 top-0 w-full object-cover"
+            style={{ height: 204, opacity: mediaOpacity }}
             referrerPolicy="no-referrer"
           />
         ) : (
           <motion.div
-            className="absolute inset-0 bg-gradient-to-br from-clay/30 to-olive/20 flex items-center justify-center text-on-surface/30"
-            style={{ opacity: mediaOpacity }}
+            className="absolute inset-x-0 top-0 bg-gradient-to-br from-clay/30 to-olive/20 flex items-center justify-center text-on-surface/30"
+            style={{ height: 204, opacity: mediaOpacity }}
           >
             <ImageOff size={28} />
           </motion.div>
@@ -543,7 +545,11 @@ const RestaurantPanelBody: React.FC<{
       </motion.div>
 
       {/* Scrollable body — scrollRef drives the hero collapse above. */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6">
+      <div
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6"
+        style={{ overscrollBehavior: 'contain' }}
+      >
         {/* Action row — Directions / Call / Website */}
         <div className="grid grid-cols-3 gap-2">
           <ActionButton
