@@ -197,6 +197,10 @@ interface ReelSlideProps {
 
 const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Second video element behind the foreground — same source rendered with
+  // object-cover + heavy blur so phone screens taller than 9:16 letterbox
+  // into a soft, color-matched backdrop instead of black bars.
+  const backdropRef = useRef<HTMLVideoElement>(null);
   const { phoneMode } = useSettings();
   const hasCollapsibleContent = !!reel.caption
     || (reel.kind === 'restaurant' && !!reel.restaurant)
@@ -211,13 +215,22 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
 
   useEffect(() => {
     const el = videoRef.current;
+    const bg = backdropRef.current;
     if (!el) return;
     if (active) {
       el.muted = muted;
       el.play().catch(() => { /* autoplay may be blocked until user gesture */ });
+      if (bg) {
+        bg.muted = true; // backdrop is always silent
+        bg.play().catch(() => { /* see above */ });
+      }
     } else {
       el.pause();
       el.currentTime = 0;
+      if (bg) {
+        bg.pause();
+        bg.currentTime = 0;
+      }
     }
   }, [active, muted]);
 
@@ -235,32 +248,54 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
 
   const onTapVideo = () => {
     const el = videoRef.current;
+    const bg = backdropRef.current;
     if (!el) return;
     if (el.paused) {
       el.play().catch(() => {});
+      if (bg) bg.play().catch(() => {});
       showTapIndicator('play');
     } else {
       el.pause();
+      if (bg) bg.pause();
       showTapIndicator('pause');
     }
   };
 
   return (
     <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
-      {/* Video / gradient placeholder */}
+      {/* Video / gradient placeholder. The foreground video uses
+          object-contain so it preserves its native 9:16 aspect on any
+          screen size — on tall phones (19:9, 20:9, ...) that means
+          letterboxing top/bottom. We fill that letterbox with a
+          blurred + scaled copy of the same source so the dead space
+          reads as a soft color extension of the reel rather than
+          black bars. */}
       <div className="absolute inset-0">
         {reel.videoUrl ? (
-          <video
-            ref={videoRef}
-            src={reel.videoUrl}
-            poster={reel.posterUrl}
-            playsInline
-            loop
-            muted={muted}
-            preload="metadata"
-            onClick={onTapVideo}
-            className="w-full h-full object-cover"
-          />
+          <>
+            <video
+              ref={backdropRef}
+              src={reel.videoUrl}
+              playsInline
+              loop
+              muted
+              preload="metadata"
+              aria-hidden
+              tabIndex={-1}
+              className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 pointer-events-none"
+            />
+            <video
+              ref={videoRef}
+              src={reel.videoUrl}
+              poster={reel.posterUrl}
+              playsInline
+              loop
+              muted={muted}
+              preload="metadata"
+              onClick={onTapVideo}
+              className="absolute inset-0 w-full h-full object-contain"
+            />
+          </>
         ) : (
           <div className={cn('w-full h-full bg-gradient-to-b flex items-center justify-center', reel.bgGradient)}>
             {reel.bgLabel && (

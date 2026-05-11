@@ -173,6 +173,10 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
 
   if (!shouldRenderMedia || !item.mediaUrl) return placeholder;
 
+  // Photos and videos on posts show in their native aspect ratio
+  // (object-contain) — letterboxed against the slide's black background
+  // when they don't match 9:16. Cropping lost the top/bottom of square
+  // and landscape shots, which is the main format people upload.
   if (item.mediaType === 'video') {
     return (
       <video
@@ -182,7 +186,7 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
         loop
         muted={muted}
         preload="metadata"
-        className="absolute inset-0 w-full h-full object-cover"
+        className="absolute inset-0 w-full h-full object-contain"
       />
     );
   }
@@ -192,7 +196,7 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
       alt=""
       loading="lazy"
       decoding="async"
-      className="absolute inset-0 w-full h-full object-cover"
+      className="absolute inset-0 w-full h-full object-contain"
     />
   );
 };
