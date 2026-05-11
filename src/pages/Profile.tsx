@@ -60,19 +60,16 @@ function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string
 }
 
 /* ── TopRatedCard ──
-   Portrait card used in the Profile TOP tab's horizontal Top-10 strips.
-   White rank chip top-left, color-coded score chip top-right, a faint
-   mono label centered behind the meta, and serif name + sub-line at
-   the bottom. The center label and bottom meta can be overridden so
-   the same card adapts to the slice (cuisine list → city center, etc). */
+   Compact tile used in the Profile TOP tab's horizontal Top-10 strips.
+   Photo when available, otherwise a flat surface — no dark gradient or
+   filler text. Rank chip on the left, color-coded score on the right,
+   serif name + cuisine · price · city in a single row below. */
 const TopRatedCard: React.FC<{
   rank: number;
   rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string; image?: string };
-  /** Mono uppercase label shown center-card behind the meta. Defaults to cuisine, falls back to name. */
-  centerLabel?: string;
   /** Bottom sub-line under the name. Defaults to cuisine · price · city. */
   metaText?: string;
-}> = ({ rank, rating, centerLabel, metaText }) => {
+}> = ({ rank, rating, metaText }) => {
   const city = cityFromAddress(rating.address || '');
   const score = rating.score;
   const scoreCls = score >= 8
@@ -80,54 +77,46 @@ const TopRatedCard: React.FC<{
     : score >= 5
       ? 'bg-amber-600 text-white'
       : 'bg-red-500 text-white';
-  const resolvedCenter = (centerLabel ?? rating.cuisine ?? rating.name).toUpperCase();
   const resolvedMeta = metaText ?? [rating.cuisine, rating.price, city].filter(Boolean).join(' · ');
 
   return (
     <Link
       to={`/restaurant/${rating.restaurantId}`}
-      className={cn(
-        'relative block w-44 aspect-[5/9] flex-shrink-0 snap-start overflow-hidden rounded-2xl ring-1 ring-on-surface/[0.06] shadow-sm group bg-gradient-to-br',
-        TOP_RATED_GRADIENT,
-      )}
+      className="block w-44 flex-shrink-0 snap-start group"
     >
-      {rating.image && (
-        <img
-          src={rating.image}
-          alt={rating.name}
-          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-          referrerPolicy="no-referrer"
-        />
-      )}
-      {!rating.image && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <span className="font-mono uppercase tracking-[0.18em] text-white/30 text-center px-4 text-[12px]">
-            {resolvedCenter}
-          </span>
-        </div>
-      )}
+      {/* Photo / placeholder — square thumb, only big enough to read
+          the rank and score chips. */}
+      <div className="relative w-full aspect-square overflow-hidden rounded-2xl bg-on-surface/[0.05] ring-1 ring-on-surface/[0.06]">
+        {rating.image && (
+          <img
+            src={rating.image}
+            alt={rating.name}
+            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+            referrerPolicy="no-referrer"
+          />
+        )}
 
-      {/* Rank chip — white pill, top-left */}
-      <span className="absolute top-2.5 left-2.5 inline-flex items-center justify-center rounded-lg bg-white text-on-surface font-bold tabular-nums shadow-sm min-w-[30px] h-7 px-1.5 text-[13px]">
-        {rank}
-      </span>
+        {/* Rank chip — white pill, top-left */}
+        <span className="absolute top-2 left-2 inline-flex items-center justify-center rounded-lg bg-white text-on-surface font-bold tabular-nums shadow-sm min-w-[28px] h-7 px-1.5 text-[13px]">
+          {rank}
+        </span>
 
-      {/* Score chip — colored, top-right */}
-      <span className={cn(
-        'absolute top-2.5 right-2.5 inline-flex items-center justify-center rounded-lg font-bold tabular-nums shadow-sm min-w-[42px] h-7 px-1.5 text-[13.5px]',
-        scoreCls,
-      )}>
-        {formatScore(rating.score)}
-      </span>
+        {/* Score chip — colored, top-right */}
+        <span className={cn(
+          'absolute top-2 right-2 inline-flex items-center justify-center rounded-lg font-bold tabular-nums shadow-sm min-w-[40px] h-7 px-1.5 text-[13.5px]',
+          scoreCls,
+        )}>
+          {formatScore(rating.score)}
+        </span>
+      </div>
 
-      {/* Bottom legibility wash */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
-
-      <div className="absolute inset-x-0 bottom-0 p-3">
-        <p className="font-serif font-bold text-white drop-shadow leading-[1.1] line-clamp-2 text-[16px]">
+      {/* Name + meta — outside the photo so the card collapses to its
+          natural height with no empty interior. */}
+      <div className="pt-2 px-0.5">
+        <p className="font-serif font-bold text-on-surface text-[14.5px] leading-tight line-clamp-1">
           {rating.name}
         </p>
-        <p className="text-white/85 truncate mt-1 text-[11.5px]">
+        <p className="text-[11.5px] text-on-surface/50 truncate mt-0.5">
           {resolvedMeta}
         </p>
       </div>
@@ -836,7 +825,6 @@ export const Profile: React.FC = () => {
                         key={r.restaurantId}
                         rank={i + 1}
                         rating={r}
-                        centerLabel={(cityLabel || cuisine).toUpperCase()}
                         metaText={[cityLabel, r.price].filter(Boolean).join(' · ')}
                       />
                     );
@@ -856,7 +844,6 @@ export const Profile: React.FC = () => {
                       key={r.restaurantId}
                       rank={i + 1}
                       rating={r}
-                      centerLabel={(r.cuisine || city).toUpperCase()}
                       metaText={[r.cuisine, r.price].filter(Boolean).join(' · ')}
                     />
                   ))}
