@@ -60,10 +60,10 @@ function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string
 }
 
 /* ── TopRatedCard ──
-   Compact tile used in the Profile TOP tab's horizontal Top-10 strips.
-   Photo when available, otherwise a flat surface — no dark gradient or
-   filler text. Rank chip on the left, color-coded score on the right,
-   serif name + cuisine · price · city in a single row below. */
+   Text-only minimalist tile used in the Profile TOP tab. # + rank
+   on the left, score-colored decimal on the right, serif name and
+   meta sub-line below. Subtle border lifts on hover so the strip
+   doesn't feel like detached chrome. */
 const TopRatedCard: React.FC<{
   rank: number;
   rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string; image?: string };
@@ -71,55 +71,34 @@ const TopRatedCard: React.FC<{
   metaText?: string;
 }> = ({ rank, rating, metaText }) => {
   const city = cityFromAddress(rating.address || '');
-  const score = rating.score;
-  const scoreCls = score >= 8
-    ? 'bg-emerald-700 text-white'
-    : score >= 5
-      ? 'bg-amber-600 text-white'
-      : 'bg-red-500 text-white';
   const resolvedMeta = metaText ?? [rating.cuisine, rating.price, city].filter(Boolean).join(' · ');
 
   return (
     <Link
       to={`/restaurant/${rating.restaurantId}`}
-      className="block w-44 flex-shrink-0 snap-start group"
+      className="block w-52 flex-shrink-0 snap-start rounded-2xl bg-surface border border-on-surface/[0.08] px-4 py-3.5 hover:border-on-surface/[0.18] hover:shadow-[0_2px_10px_-4px_rgba(0,0,0,0.08)] transition-all"
     >
-      {/* Photo / placeholder — square thumb, only big enough to read
-          the rank and score chips. */}
-      <div className="relative w-full aspect-square overflow-hidden rounded-2xl bg-on-surface/[0.05] ring-1 ring-on-surface/[0.06]">
-        {rating.image && (
-          <img
-            src={rating.image}
-            alt={rating.name}
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-            referrerPolicy="no-referrer"
-          />
-        )}
-
-        {/* Rank chip — white pill, top-left */}
-        <span className="absolute top-2 left-2 inline-flex items-center justify-center rounded-lg bg-white text-on-surface font-bold tabular-nums shadow-sm min-w-[28px] h-7 px-1.5 text-[13px]">
-          {rank}
-        </span>
-
-        {/* Score chip — colored, top-right */}
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="flex items-baseline gap-1.5 min-w-0">
+          <span className="text-[13px] font-medium text-on-surface/30 leading-none">#</span>
+          <span className="font-serif font-bold text-on-surface text-[26px] leading-none tabular-nums">
+            {rank}
+          </span>
+        </div>
         <span className={cn(
-          'absolute top-2 right-2 inline-flex items-center justify-center rounded-lg font-bold tabular-nums shadow-sm min-w-[40px] h-7 px-1.5 text-[13.5px]',
-          scoreCls,
+          'font-serif font-bold tabular-nums text-[18px] leading-none flex-shrink-0',
+          scoreColor(numericScore(rating.score)),
         )}>
           {formatScore(rating.score)}
         </span>
       </div>
 
-      {/* Name + meta — outside the photo so the card collapses to its
-          natural height with no empty interior. */}
-      <div className="pt-2 px-0.5">
-        <p className="font-serif font-bold text-on-surface text-[14.5px] leading-tight line-clamp-1">
-          {rating.name}
-        </p>
-        <p className="text-[11.5px] text-on-surface/50 truncate mt-0.5">
-          {resolvedMeta}
-        </p>
-      </div>
+      <p className="font-serif font-bold text-on-surface text-[16px] leading-tight line-clamp-1 mt-3">
+        {rating.name}
+      </p>
+      <p className="text-[12px] text-on-surface/45 truncate mt-1">
+        {resolvedMeta}
+      </p>
     </Link>
   );
 };
