@@ -606,7 +606,7 @@ export const Profile: React.FC = () => {
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
   const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'rated'>('top');
   const [editListsOpen, setEditListsOpen] = useState(false);
-  const [customization, setCustomization] = useState<TopListCustomization>({ hidden: [], custom: [] });
+  const [customization, setCustomization] = useState<TopListCustomization>({ hidden: [], custom: [], order: [] });
   // Load the persisted customization once we know who the user is.
   useEffect(() => { setCustomization(loadCustomization(user?.id)); }, [user?.id]);
   // Persist on every change.
