@@ -189,22 +189,25 @@ const GuideCard: React.FC<{ guide: Guide }> = ({ guide }) => (
    Profile page can repeat it for each slice (overall, per cuisine,
    per city). */
 const Top10Section: React.FC<{
-  title: React.ReactNode;
-  subtitle: string;
+  name: string;
+  total: number;
+  avg: number;
   onSeeAll?: () => void;
   children: React.ReactNode;
-}> = ({ title, subtitle, onSeeAll, children }) => (
+}> = ({ name, total, avg, onSeeAll, children }) => (
   <section>
-    <div className="px-5 flex items-start justify-between gap-3 mb-3">
-      <div className="min-w-0">
-        <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight">{title}</h3>
-        <p className="text-[12.5px] text-on-surface/45 mt-0.5">{subtitle}</p>
-      </div>
+    <div className="px-5 flex items-baseline justify-between gap-3 mb-3">
+      <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight min-w-0 truncate">
+        {name}
+        <span className="text-on-surface/45 font-normal ml-1.5">
+          · {total} place{total === 1 ? '' : 's'} · {avg.toFixed(1)} avg
+        </span>
+      </h3>
       {onSeeAll && (
         <button
           type="button"
           onClick={onSeeAll}
-          className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface mt-1 flex-shrink-0"
+          className="inline-flex items-center gap-0.5 text-[13px] font-semibold text-on-surface/65 hover:text-on-surface flex-shrink-0"
         >
           See all <ChevronRight size={14} />
         </button>
@@ -316,15 +319,10 @@ const topListKey = (c: TopListConfig): string => {
   return `${c.type}:${c.value}`;
 };
 
-const topListLabel = (c: TopListConfig): React.ReactNode => {
-  if (c.type === 'overall') return 'Top 10';
-  if (c.type === 'wouldReturn') {
-    return <>Top 10 · <span className="text-on-surface/70">Would return</span></>;
-  }
-  if (c.type === 'city') {
-    return <>Top 10 in <span className="text-on-surface/70">{c.value}</span></>;
-  }
-  return <>Top 10 · <span className="text-on-surface/70">{c.value}</span></>;
+const topListLabel = (c: TopListConfig): string => {
+  if (c.type === 'overall') return 'Overall';
+  if (c.type === 'wouldReturn') return 'Would return';
+  return c.value;
 };
 
 const topListPlainLabel = (c: TopListConfig): string => {
@@ -1101,12 +1099,9 @@ export const Profile: React.FC = () => {
               {visibleLists.map(({ config, items, total, avg }) => (
                 <Top10Section
                   key={topListKey(config)}
-                  title={topListLabel(config)}
-                  subtitle={
-                    config.type === 'overall'
-                      ? 'Your highest scores, all-time'
-                      : `${total} place${total === 1 ? '' : 's'} · ${avg.toFixed(1)} avg`
-                  }
+                  name={topListLabel(config)}
+                  total={total}
+                  avg={avg}
                   onSeeAll={goToMyRatings}
                 >
                   {items.map((r, i) => (
