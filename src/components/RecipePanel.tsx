@@ -17,10 +17,11 @@
  * fetched lazily via getPublicHomeMealById.
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
 import {
-  X, ArrowUpRight, Clock, Flame, ChefHat, Loader2, BookmarkPlus, Bookmark, Star, Send,
+  X, ArrowUpRight, Clock, Flame, ChefHat, Loader2, Bookmark, Star, Send, Plus, Check,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
@@ -37,7 +38,7 @@ import {
   type HomeMealReview,
 } from '../lib/supabase-home-meal-reviews';
 import type { ReelRecipeSnapshot } from '../lib/supabase-reels';
-import { useLists, type HomeMeal } from '../contexts/ListsContext';
+import { useLists, type HomeMeal, type Recipe } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
 import {
   RecipeIngredientList,
@@ -356,6 +357,155 @@ const ReviewsSection: React.FC<{
   );
 };
 
+/* ── Save-to-list modal ───────────────────────────────────────────────
+   A portaled overlay that lets the viewer drop the recipe into any of
+   their existing home-cooking lists OR a special "My Recipes" pseudo-
+   list that maps to the flat homeMeals collection. Multi-select: tap
+   to toggle add/remove. New lists can be created inline. */
+
+interface SaveTarget {
+  /** A real list id when targeting a custom list; '__my_recipes__' for
+   *  the flat homeMeals pseudo-list. */
+  id: string;
+  emoji: string;
+  name: string;
+  count: number;
+  inIt: boolean;
+}
+
+const SaveToListModal: React.FC<{
+  targets: SaveTarget[];
+  onToggle: (id: string) => void;
+  onCreate: (name: string) => void;
+  onClose: () => void;
+}> = ({ targets, onToggle, onCreate, onClose }) => {
+  const [newListMode, setNewListMode] = useState(false);
+  const [newListName, setNewListName] = useState('');
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-[60] bg-black/45 backdrop-blur-sm flex items-center justify-center px-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.96, y: 14 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.96, y: 14 }}
+        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-surface rounded-3xl max-w-md w-full max-h-[85vh] flex flex-col ring-1 ring-on-surface/[0.14] shadow-xl overflow-hidden"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-on-surface/[0.07] flex-shrink-0">
+          <div>
+            <h2 className="font-serif font-bold text-on-surface text-[18px] leading-tight">Save to a list</h2>
+            <p className="text-[11px] text-on-surface/55 mt-0.5">Pick where this recipe should live</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 rounded-full hover:bg-on-surface/[0.07] flex items-center justify-center text-on-surface/65 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body — list of save targets */}
+        <div className="flex-1 overflow-y-auto px-2 py-2">
+          <ul>
+            {targets.map((t) => (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  onClick={() => onToggle(t.id)}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl hover:bg-on-surface/[0.04] active:bg-on-surface/[0.06] text-left transition-colors"
+                >
+                  <span className="w-10 h-10 rounded-2xl bg-on-surface/[0.05] flex items-center justify-center text-[20px] flex-shrink-0">
+                    {t.emoji}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[14px] font-bold text-on-surface truncate">{t.name}</p>
+                    <p className="text-[11px] text-on-surface/45 mt-0.5">
+                      {t.count} {t.count === 1 ? 'recipe' : 'recipes'}
+                    </p>
+                  </div>
+                  <span className={cn(
+                    'w-6 h-6 rounded-md flex items-center justify-center border-2 transition-colors flex-shrink-0',
+                    t.inIt
+                      ? 'bg-emerald-500 border-emerald-500 text-white'
+                      : 'border-on-surface/25',
+                  )}>
+                    {t.inIt && <Check size={14} strokeWidth={3} />}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Footer — inline create new list */}
+        {newListMode ? (
+          <div className="px-4 py-3 border-t border-on-surface/[0.07] flex items-center gap-2 flex-shrink-0">
+            <input
+              type="text"
+              value={newListName}
+              onChange={(e) => setNewListName(e.target.value)}
+              placeholder="List name"
+              autoFocus
+              maxLength={40}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newListName.trim()) {
+                  onCreate(newListName.trim());
+                  setNewListName('');
+                  setNewListMode(false);
+                } else if (e.key === 'Escape') {
+                  setNewListMode(false);
+                  setNewListName('');
+                }
+              }}
+              className="flex-1 h-10 px-3.5 rounded-full bg-on-surface/[0.05] text-[14px] text-on-surface placeholder:text-on-surface/40 focus:outline-none focus:bg-on-surface/[0.08] focus:ring-2 focus:ring-on-surface/10 transition-colors"
+            />
+            <button
+              type="button"
+              onClick={() => { setNewListMode(false); setNewListName(''); }}
+              className="h-10 px-3 rounded-full text-[13px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!newListName.trim()) return;
+                onCreate(newListName.trim());
+                setNewListName('');
+                setNewListMode(false);
+              }}
+              disabled={!newListName.trim()}
+              className="h-10 px-4 rounded-full bg-on-surface text-surface text-[13px] font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-on-surface/90 transition-colors"
+            >
+              Add
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setNewListMode(true)}
+            className="w-full flex items-center justify-center gap-2 py-3.5 border-t border-on-surface/[0.07] hover:bg-on-surface/[0.03] text-on-surface text-[14px] font-semibold transition-colors flex-shrink-0"
+          >
+            <Plus size={16} />
+            Create new list
+          </button>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+};
+
 /* ── Body ─────────────────────────────────────────────────────────────── */
 
 const RecipePanelBody: React.FC<{
@@ -364,7 +514,7 @@ const RecipePanelBody: React.FC<{
   currentUserId: string | null;
 }> = ({ snapshot, onClose, currentUserId }) => {
   const { authorId, recipe } = snapshot;
-  const { homeMeals, createHomeMeal } = useLists();
+  const { homeMeals, createHomeMeal, lists, createList, addRecipe, removeRecipe } = useLists();
   const { showToast } = useToast();
 
   const [meal, setMeal] = useState<FriendHomeMeal | null>(null);
@@ -395,22 +545,74 @@ const RecipePanelBody: React.FC<{
   // Reset the scaler when the snapshot changes (different recipe).
   useEffect(() => { setServingsScale(1); }, [recipe.id, authorId]);
 
-  /* ── Save-to-my-recipes. We detect "already saved" by checking the
-        user's own homeMeals for one whose name matches AND whose
-        description holds our origin tag. createHomeMeal stores
-        meta in the description so this round-trips. */
+  /* ── Save-to-list flow.
+        Tapping the Save button opens a modal that lets the viewer
+        drop the recipe into either their flat "My Recipes" pool
+        (homeMeals) or any of their home-cooking-typed custom lists.
+        Membership is tracked by recipe title — when the viewer copies
+        a meal to a list it's stored as a Recipe with the same title,
+        so we can re-detect "already there" on subsequent opens.
+
+        For the homeMeals copy we additionally embed an [from @author]
+        tag in the description so it round-trips identically. */
   const ORIGIN_TAG = `[from @${author?.username || authorId}]`;
-  const alreadySaved = useMemo(() => {
+  const isOwnMeal = currentUserId === authorId;
+
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  // When the viewer creates a new list from inside the modal we need
+  // to add the recipe to it once the lists state updates — createList
+  // returns void, so we watch the lists array for a list with the
+  // pending name and add to it the next render.
+  const [pendingNewListName, setPendingNewListName] = useState<string | null>(null);
+
+  const recipeTitle = meal?.name || recipe.title;
+
+  const recipeLists = useMemo(
+    () => lists.filter((l) => l.type === 'home-cooking'),
+    [lists],
+  );
+
+  const isInMyRecipes = useMemo(() => {
     if (!meal) return false;
     return homeMeals.some(
       (m) => m.name === meal.name && (m.description || '').includes(ORIGIN_TAG),
     );
   }, [homeMeals, meal, ORIGIN_TAG]);
 
-  const isOwnMeal = currentUserId === authorId;
+  const isInList = (listId: string): boolean => {
+    const list = recipeLists.find((l) => l.id === listId);
+    if (!list?.recipes) return false;
+    return list.recipes.some((r) => r.title === recipeTitle);
+  };
 
-  const handleSave = () => {
-    if (!meal || alreadySaved || isOwnMeal) return;
+  const totalSavedCount = useMemo(() => {
+    let n = isInMyRecipes ? 1 : 0;
+    for (const l of recipeLists) if (isInList(l.id)) n += 1;
+    return n;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipeLists, isInMyRecipes, recipeTitle]);
+
+  const buildRecipeCopy = (): Recipe => ({
+    id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: recipeTitle,
+    description: (meal?.description || '').replace(ORIGIN_TAG, '').trim(),
+    coverPhoto: meal?.coverPhoto || meal?.photos?.[0]?.url || recipe.image || '',
+    prepTime: meal?.prepTime ?? recipe.prepTime ?? 0,
+    cookTime: meal?.cookTime ?? recipe.cookTime ?? 0,
+    servings: meal?.servings ?? recipe.servings ?? 0,
+    difficulty: meal?.difficulty || recipe.difficulty || 'Easy',
+    cuisine: meal?.cuisine || '',
+    ingredients: meal?.ingredients || [],
+    steps: meal?.steps || [],
+    photos: meal?.photos || [],
+    tags: meal?.tags || [],
+    score: 0,
+    isPrivate: true,
+    createdAt: Date.now(),
+  });
+
+  const saveToMyRecipes = () => {
+    if (!meal) return;
     const description = meal.description
       ? `${meal.description}\n\n${ORIGIN_TAG}`
       : ORIGIN_TAG;
@@ -434,8 +636,76 @@ const RecipePanelBody: React.FC<{
       steps: meal.steps,
     };
     createHomeMeal(copy);
-    showToast('Saved to your recipes');
   };
+
+  const toggleSaveTarget = (id: string) => {
+    if (!meal) return;
+    if (id === '__my_recipes__') {
+      if (isInMyRecipes) {
+        // No "remove from homeMeals" API surfaces a name-only lookup
+        // cleanly; leave the existing copy in place (it's editable in
+        // Pantry) and just no-op the off-toggle.
+        showToast('Already in your recipes');
+        return;
+      }
+      saveToMyRecipes();
+      showToast('Saved to your recipes');
+      return;
+    }
+    const list = recipeLists.find((l) => l.id === id);
+    if (!list) return;
+    if (isInList(id)) {
+      const existing = list.recipes?.find((r) => r.title === recipeTitle);
+      if (existing) {
+        removeRecipe(id, existing.id);
+        showToast(`Removed from ${list.name}`);
+      }
+    } else {
+      addRecipe(id, buildRecipeCopy());
+      showToast(`Saved to ${list.name}`);
+    }
+  };
+
+  const handleCreateAndSave = (name: string) => {
+    createList(name, '📋', 'home-cooking');
+    setPendingNewListName(name);
+  };
+
+  useEffect(() => {
+    if (!pendingNewListName) return;
+    const newList = lists.find(
+      (l) => l.name === pendingNewListName && l.type === 'home-cooking',
+    );
+    if (!newList) return;
+    if (!isInList(newList.id) && meal) {
+      addRecipe(newList.id, buildRecipeCopy());
+      showToast(`Saved to ${newList.name}`);
+    }
+    setPendingNewListName(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingNewListName, lists]);
+
+  const saveTargets: SaveTarget[] = useMemo(() => {
+    const list: SaveTarget[] = [];
+    list.push({
+      id: '__my_recipes__',
+      emoji: '🍳',
+      name: 'My Recipes',
+      count: homeMeals.length,
+      inIt: isInMyRecipes,
+    });
+    for (const l of recipeLists) {
+      list.push({
+        id: l.id,
+        emoji: l.emoji || '📋',
+        name: l.name,
+        count: l.recipes?.length || 0,
+        inIt: isInList(l.id),
+      });
+    }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipeLists, homeMeals.length, isInMyRecipes, recipeTitle]);
 
   /* ── Derived display strings */
   const totalTime = (recipe.prepTime || 0) + (recipe.cookTime || 0);
@@ -542,22 +812,28 @@ const RecipePanelBody: React.FC<{
         )}
 
         {/* Save button — pinned high so it's discoverable; turns into a
-            "Saved" pill once the user has copied this recipe to their
-            own collection. Hidden if the user is the author. */}
+            modal-driven save flow lets the viewer drop this recipe
+            into any number of their recipe lists. Hidden if the
+            viewer is the author. */}
         {!isOwnMeal && (
           <button
             type="button"
-            onClick={handleSave}
-            disabled={alreadySaved || !meal}
+            onClick={() => setSaveModalOpen(true)}
+            disabled={!meal}
             className={cn(
-              'w-full inline-flex items-center justify-center gap-1.5 h-11 rounded-full text-[13px] font-bold transition-colors',
-              alreadySaved
-                ? 'bg-emerald-100 text-emerald-800 cursor-default'
+              'w-full inline-flex items-center justify-center gap-1.5 h-11 rounded-full text-[13px] font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+              totalSavedCount > 0
+                ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
                 : 'bg-on-surface/[0.06] text-on-surface hover:bg-on-surface/[0.1]',
             )}
           >
-            {alreadySaved ? <Bookmark size={14} className="fill-emerald-700" /> : <BookmarkPlus size={14} />}
-            {alreadySaved ? 'Saved to your recipes' : 'Save to your recipes'}
+            <Bookmark
+              size={14}
+              className={cn(totalSavedCount > 0 && 'fill-emerald-700')}
+            />
+            {totalSavedCount > 0
+              ? `Saved · ${totalSavedCount} list${totalSavedCount === 1 ? '' : 's'}`
+              : 'Save to a list'}
           </button>
         )}
 
@@ -633,6 +909,22 @@ const RecipePanelBody: React.FC<{
           <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
         </Link>
       </div>
+
+      {/* Save-to-list picker — portaled to document.body so the
+          fixed-position overlay escapes the panel's transform
+          stacking context (otherwise it would be clipped to the
+          380px panel column). */}
+      <AnimatePresence>
+        {saveModalOpen && createPortal(
+          <SaveToListModal
+            targets={saveTargets}
+            onToggle={toggleSaveTarget}
+            onCreate={handleCreateAndSave}
+            onClose={() => setSaveModalOpen(false)}
+          />,
+          document.body,
+        )}
+      </AnimatePresence>
     </>
   );
 };
