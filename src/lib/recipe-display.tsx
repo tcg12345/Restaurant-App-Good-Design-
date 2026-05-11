@@ -382,10 +382,11 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
           return (
             <li key={i}>
               <label className={cn(
-                "flex items-baseline gap-3.5 py-3.5 cursor-pointer group transition-opacity",
+                "flex items-center gap-4 py-3.5 cursor-pointer group transition-opacity",
                 isChecked && "opacity-40",
               )}>
-                <span className="flex items-center flex-shrink-0 translate-y-[3px]">
+                {/* Checkbox column — fixed width so the rows align. */}
+                <span className="flex items-center flex-shrink-0">
                   <input
                     type="checkbox"
                     checked={isChecked}
@@ -393,25 +394,35 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
                     className="sr-only peer"
                   />
                   <span className={cn(
-                    "w-[20px] h-[20px] rounded border-2 flex items-center justify-center transition-all",
+                    "w-[22px] h-[22px] rounded-md border-2 flex items-center justify-center transition-all",
                     isChecked
                       ? "bg-emerald-500 border-emerald-500 text-white"
                       : "border-on-surface/20 group-hover:border-on-surface/40",
                   )}>
-                    {isChecked && <Check size={13} strokeWidth={3} />}
+                    {isChecked && <Check size={14} strokeWidth={3} />}
                   </span>
                 </span>
+                {/* Amount + unit column — bold number, muted unit, fixed
+                    min-width so every row's name starts at the same
+                    horizontal position. */}
                 <span className={cn(
-                  "flex-1 text-[15px] leading-[1.75] text-on-surface/80",
+                  "flex-shrink-0 min-w-[64px] text-[15px] tabular-nums leading-snug",
                   isChecked && "line-through",
                 )}>
-                  {(scaledAmount || ing.unit) && (
-                    <span className="font-semibold text-on-surface tabular-nums">
-                      {scaledAmount}{ing.unit ? ` ${ing.unit}` : ''}
-                      {ing.name ? ' ' : ''}
-                    </span>
+                  {scaledAmount && (
+                    <span className="font-bold text-on-surface">{scaledAmount}</span>
                   )}
-                  <span className="text-on-surface/70">{ing.name}</span>
+                  {ing.unit && (
+                    <span className="text-on-surface/50 font-normal ml-1">{ing.unit}</span>
+                  )}
+                </span>
+                {/* Name column — regular weight, slightly muted so the
+                    quantity reads as the primary on each row. */}
+                <span className={cn(
+                  "flex-1 min-w-0 text-[15px] text-on-surface/80 leading-snug",
+                  isChecked && "line-through",
+                )}>
+                  {ing.name}
                 </span>
               </label>
             </li>
