@@ -105,14 +105,6 @@ const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment
         </span>
         <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">Share</span>
       </button>
-
-      <motion.div
-        animate={{ rotate: 360 }}
-        transition={{ repeat: Infinity, duration: 8, ease: 'linear' }}
-        className="w-11 h-11 rounded-full bg-gradient-to-br from-amber-200 via-amber-500 to-stone-900 ring-2 ring-white/40 flex items-center justify-center"
-      >
-        <span className="w-3 h-3 rounded-full bg-white/90" />
-      </motion.div>
     </div>
   );
 };
