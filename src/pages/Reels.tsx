@@ -348,7 +348,7 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
         aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
         className={cn(
           'absolute inset-x-0 bottom-0 z-20 px-4 pt-10',
-          phoneMode ? 'pb-28' : 'pb-5',
+          phoneMode ? 'pb-20' : 'pb-5',
           hasCollapsibleContent && 'cursor-pointer',
         )}
       >
