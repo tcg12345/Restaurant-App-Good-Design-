@@ -61,6 +61,13 @@ interface RecipesContextValue {
   toggleIngredientCheck: (recipeKey: string, idx: number) => void;
   clearIngredientChecks: (recipeKey: string) => void;
 
+  // Same shape for step collapse: tapping a step in the directions list
+  // collapses it down to just its number; tapping again expands. State
+  // is in-memory so it survives in-session navigation but resets on
+  // hard refresh.
+  getCollapsedSteps: (recipeKey: string) => ReadonlySet<number>;
+  toggleStepCollapse: (recipeKey: string, idx: number) => void;
+
   // Loading
   loading: boolean;
 }
@@ -93,6 +100,7 @@ function saveToStorage(key: string, value: unknown) {
 // Stable empty-set sentinel so getCheckedIngredients returns referential
 // equality across renders for recipes with no checks yet.
 const EMPTY_INGREDIENT_SET: ReadonlySet<number> = new Set<number>();
+const EMPTY_STEP_SET: ReadonlySet<number> = new Set<number>();
 
 const RecipesContext = createContext<RecipesContextValue | null>(null);
 
@@ -118,6 +126,7 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
   // Transient ingredient checkbox state — preserved across navigation
   // within a session, never written to storage.
   const [checkedIngredients, setCheckedIngredients] = useState<Record<string, Set<number>>>({});
+  const [collapsedSteps, setCollapsedSteps] = useState<Record<string, Set<number>>>({});
 
   // ── Load user's recipes from cloud on sign-in ──
   useEffect(() => {
@@ -266,6 +275,21 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
   }, []);
 
+  const getCollapsedSteps = useCallback(
+    (recipeKey: string): ReadonlySet<number> => collapsedSteps[recipeKey] ?? EMPTY_STEP_SET,
+    [collapsedSteps],
+  );
+
+  const toggleStepCollapse = useCallback((recipeKey: string, idx: number) => {
+    setCollapsedSteps((prev) => {
+      const current = prev[recipeKey] ?? new Set<number>();
+      const next = new Set(current);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return { ...prev, [recipeKey]: next };
+    });
+  }, []);
+
   const clearIngredientChecks = useCallback((recipeKey: string) => {
     setCheckedIngredients((prev) => {
       if (!(recipeKey in prev)) return prev;
@@ -284,6 +308,7 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
     getReviewsForRecipe, getMyReviews, upsertReview, deleteReview: deleteReviewFn,
     recipeModalOpen, recipeModalData, openRecipeModal, closeRecipeModal,
     getCheckedIngredients, toggleIngredientCheck, clearIngredientChecks,
+    getCollapsedSteps, toggleStepCollapse,
     loading,
   };
 

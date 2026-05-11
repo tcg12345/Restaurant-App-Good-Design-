@@ -879,7 +879,7 @@ const RecipePanelBody: React.FC<{
                     {steps.length} {steps.length === 1 ? 'step' : 'steps'}
                   </span>
                 </div>
-                <RecipeDirectionsList steps={steps} />
+                <RecipeDirectionsList steps={steps} recipeKey={recipeKey} />
               </section>
             )}
 

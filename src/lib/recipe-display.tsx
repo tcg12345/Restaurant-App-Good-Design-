@@ -438,33 +438,81 @@ export const RecipeIngredientList: React.FC<RecipeIngredientListProps> = ({ reci
  * by hairline dividers. No card per step. Auto-injects a StepTimer when the
  * step text contains a recognised duration.
  */
-export const RecipeDirectionsList: React.FC<{ steps: string[] }> = ({ steps }) => {
+export const RecipeDirectionsList: React.FC<{
+  steps: string[];
+  /** When provided, each step is tap-to-collapse: tapping the row
+   *  shrinks the body + timer away to leave just the number, in a
+   *  smooth height animation. State lives in RecipesContext so it
+   *  survives in-session navigation. Without a key the list renders
+   *  statically (current behavior for callers that haven't opted in). */
+  recipeKey?: string;
+}> = ({ steps, recipeKey }) => {
+  const { getCollapsedSteps, toggleStepCollapse } = useRecipes();
+  const collapsed = recipeKey ? getCollapsedSteps(recipeKey) : null;
+  const interactive = !!recipeKey;
   if (steps.length === 0) return null;
   return (
     <ol className="divide-y divide-on-surface/[0.06]">
       {steps.map((step, i) => {
         const timerMinutes = extractStepMinutes(step);
+        const isCollapsed = collapsed?.has(i) ?? false;
         return (
-          <li key={i} className="py-5 first:pt-0 last:pb-0">
-            <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-2.5">
-              {/* Zero-padded serif step number in clay — editorial accent
-                  that anchors each step. Decorative-only (the <ol>
-                  carries the real semantics). */}
-              <div
-                aria-hidden
-                className="font-serif font-bold text-[30px] leading-none text-primary/85 tabular-nums select-none"
-              >
-                {String(i + 1).padStart(2, '0')}
-              </div>
-              <p className="text-[15px] leading-[1.75] text-on-surface/85 whitespace-pre-wrap pt-1">
-                {step}
-              </p>
-              {timerMinutes !== null && (
-                <div className="col-start-2">
-                  <StepTimer minutes={timerMinutes} />
-                </div>
+          <li key={i}>
+            <button
+              type="button"
+              disabled={!interactive}
+              onClick={() => recipeKey && toggleStepCollapse(recipeKey, i)}
+              aria-pressed={interactive ? isCollapsed : undefined}
+              aria-label={interactive ? (isCollapsed ? `Expand step ${i + 1}` : `Collapse step ${i + 1}`) : undefined}
+              className={cn(
+                'w-full text-left transition-[padding,opacity] duration-200',
+                interactive ? 'cursor-pointer' : 'cursor-default',
+                isCollapsed ? 'py-2.5 opacity-50' : 'py-5',
+                'first:pt-0 last:pb-0',
               )}
-            </div>
+            >
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5">
+                {/* Zero-padded serif step number in clay — editorial accent
+                    that anchors each step. Subtly scales down in the
+                    collapsed state so the row reads as a quiet bookmark
+                    for the step you've finished. */}
+                <motion.div
+                  aria-hidden
+                  animate={{ scale: isCollapsed ? 0.78 : 1 }}
+                  transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                  className="font-serif font-bold text-[30px] leading-none text-primary/85 tabular-nums select-none origin-left"
+                >
+                  {String(i + 1).padStart(2, '0')}
+                </motion.div>
+                {/* Body + optional timer collapse together via a single
+                    height-animated container. Wrapped in AnimatePresence
+                    so it cleanly mounts/unmounts. */}
+                <AnimatePresence initial={false}>
+                  {!isCollapsed && (
+                    <motion.div
+                      key="body"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <p className="text-[15px] leading-[1.75] text-on-surface/85 whitespace-pre-wrap pt-1">
+                        {step}
+                      </p>
+                      {timerMinutes !== null && (
+                        <div
+                          className="mt-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <StepTimer minutes={timerMinutes} />
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </button>
           </li>
         );
       })}
