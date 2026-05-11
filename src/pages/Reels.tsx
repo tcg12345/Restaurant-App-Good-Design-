@@ -1485,7 +1485,7 @@ export const Reels: React.FC = () => {
             reels column, so the frame reads as a proper short-form video
             surface instead of a too-narrow phone shape. */}
         <div
-          className="relative h-full bg-black rounded-[36px] overflow-hidden shadow-xl border border-on-surface/[0.08]"
+          className="relative h-full bg-black rounded-[22px] overflow-hidden shadow-xl border border-on-surface/[0.08]"
           style={{ aspectRatio: '9 / 16' }}
         >
           <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
