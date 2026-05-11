@@ -682,21 +682,18 @@ export const Profile: React.FC = () => {
             <div className="space-y-7">
               {cuisineStats.length > 0 && (
                 <section>
-                  <div className="flex items-baseline justify-between mb-3">
-                    <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">By Cuisine</h3>
-                    <span className="text-[11px] text-on-surface/35">{cuisineStats.length} categories</span>
-                  </div>
-                  <div className="rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] divide-y divide-on-surface/[0.06]">
+                  <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-4">Cuisine breakdown</h3>
+                  <div className="space-y-3.5">
                     {cuisineStats.map(([name, count]) => (
-                      <div key={name} className="flex items-center gap-3 px-4 py-2.5">
-                        <span className="text-[13.5px] font-medium text-on-surface/80 w-24 truncate">{name}</span>
-                        <div className="flex-1 h-[3px] rounded-full bg-on-surface/[0.08] overflow-hidden">
+                      <div key={name} className="flex items-center gap-3">
+                        <span className="text-[13px] font-medium text-on-surface/75 w-24 truncate">{name}</span>
+                        <div className="flex-1 h-1.5 rounded-full bg-on-surface/[0.06] overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-on-surface/40"
+                            className="h-full rounded-full bg-primary/70"
                             style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
                           />
                         </div>
-                        <span className="text-[12px] font-semibold text-on-surface/55 tabular-nums w-6 text-right">{count}</span>
+                        <span className="text-[12px] text-on-surface/40 tabular-nums w-6 text-right">{count}</span>
                       </div>
                     ))}
                   </div>
