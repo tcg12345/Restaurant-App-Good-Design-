@@ -42,9 +42,27 @@ import { useToast } from '../contexts/ToastContext';
 import {
   RecipeIngredientList,
   RecipeDirectionsList,
-  RecipeReviewList,
   formatDuration,
 } from '../lib/recipe-display';
+
+/** Stable per-user avatar color so review rows read as varied without
+ *  needing a real avatar URL. Hashes the user id to one of a small
+ *  warm palette. */
+const REVIEW_AVATAR_COLORS = [
+  'bg-clay',
+  'bg-amber-600',
+  'bg-emerald-700',
+  'bg-indigo-700',
+  'bg-rose-700',
+  'bg-teal-700',
+  'bg-violet-700',
+  'bg-orange-700',
+];
+function avatarColorForUser(userId: string): string {
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) h = ((h << 5) - h + userId.charCodeAt(i)) | 0;
+  return REVIEW_AVATAR_COLORS[Math.abs(h) % REVIEW_AVATAR_COLORS.length];
+}
 
 /* ── Snapshot the panel accepts ──────────────────────────────────────── */
 export interface RecipePanelSnapshot {
@@ -209,16 +227,22 @@ const ReviewsSection: React.FC<{
 
   return (
     <section>
-      <div className="flex items-baseline justify-between mb-3">
-        <h3 className="font-serif font-bold text-on-surface text-[15px]">Reviews</h3>
-        {summary && (
-          <span className="text-[12px] text-on-surface/55 inline-flex items-center gap-1.5">
-            <span className="font-bold tabular-nums text-amber-600">{summary.avg.toFixed(1)}</span>
-            <Star size={11} className="fill-amber-400 text-amber-400" />
-            <span className="text-on-surface/45 tabular-nums">· {summary.count}</span>
+      <h3 className="font-serif font-bold text-on-surface text-[18px] mb-3">Reviews</h3>
+
+      {/* Subtle summary pill — average score, filled-stars rendering, count
+          text. Reads as a quiet header for the list rather than a
+          chip wedged into the section title. */}
+      {summary && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-on-surface/[0.05] mb-4">
+          <span className="font-serif font-bold text-on-surface text-[20px] leading-none tabular-nums">
+            {summary.avg.toFixed(1)}
           </span>
-        )}
-      </div>
+          <StarRating value={Math.round(summary.avg)} size={16} />
+          <span className="text-[13px] text-on-surface/55">
+            {summary.count} {summary.count === 1 ? 'review' : 'reviews'}
+          </span>
+        </div>
+      )}
 
       {/* Form — only shown to non-author signed-in viewers */}
       {currentUserId && !isAuthor && (
@@ -270,7 +294,10 @@ const ReviewsSection: React.FC<{
         <p className="text-[12px] text-on-surface/55 mb-4 italic">You can't rate your own recipe.</p>
       )}
 
-      {/* List */}
+      {/* List — editorial review rows: circular avatar with initials on
+          the left, name + stars on a shared baseline, italic serif
+          quote underneath. Stars right-aligned so the rating reads
+          against the rail. */}
       {loading ? (
         <div className="flex items-center justify-center py-4 text-on-surface/45">
           <Loader2 size={16} className="animate-spin" />
@@ -281,18 +308,39 @@ const ReviewsSection: React.FC<{
         </p>
       ) : (
         <>
-          <RecipeReviewList
-            reviews={visibleReviews.map((r) => ({
-              id: r.id,
-              userId: r.userId,
-              rating: r.rating,
-              notes: r.notes,
-              createdAt: r.createdAt,
-            }))}
-            profiles={profiles}
-            currentUserId={currentUserId ?? undefined}
-            renderRating={(n) => <StarRating value={n} size={13} />}
-          />
+          <ul className="space-y-4">
+            {visibleReviews.map((r) => {
+              const profile = profiles[r.userId];
+              const name = profile?.display_name
+                || profile?.username
+                || (r.userId === currentUserId ? 'You' : 'Anonymous');
+              const initials = (profile?.display_name || profile?.username || r.userId)
+                .slice(0, 2)
+                .toUpperCase();
+              const avatarColor = avatarColorForUser(r.userId);
+              return (
+                <li key={r.id} className="flex items-start gap-3">
+                  <span className={cn(
+                    'w-9 h-9 rounded-full flex items-center justify-center text-white text-[12px] font-bold flex-shrink-0',
+                    avatarColor,
+                  )}>
+                    {initials}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[14px] font-bold text-on-surface truncate">{name}</span>
+                      <StarRating value={r.rating} size={13} />
+                    </div>
+                    {r.notes && (
+                      <p className="font-serif italic text-on-surface/65 text-[14px] leading-snug mt-1">
+                        "{r.notes}"
+                      </p>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
           {reviews.length > 3 && (
             <button
               type="button"
@@ -525,7 +573,12 @@ const RecipePanelBody: React.FC<{
                 state syncs with the full /meal page (RecipesContext key). */}
             {ingredients.length > 0 && (
               <section>
-                <h3 className="font-serif font-bold text-on-surface text-[15px] mb-3">Ingredients</h3>
+                <div className="flex items-baseline justify-between mb-3">
+                  <h3 className="font-serif font-bold text-on-surface text-[18px]">Ingredients</h3>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 tabular-nums">
+                    {ingredients.length} {ingredients.length === 1 ? 'item' : 'items'}
+                  </span>
+                </div>
                 <RecipeIngredientList
                   recipeKey={recipeKey}
                   ingredients={ingredients}
@@ -539,10 +592,17 @@ const RecipePanelBody: React.FC<{
             )}
 
             {/* Method — RecipeDirectionsList parses minute durations from
-                the step text and renders an inline StepTimer. */}
+                the step text and renders an inline StepTimer. Header
+                gets a right-aligned "N STEPS" counter in mono caps so
+                the section reads with editorial chrome. */}
             {steps.length > 0 && (
               <section>
-                <h3 className="font-serif font-bold text-on-surface text-[15px] mb-3">Method</h3>
+                <div className="flex items-baseline justify-between mb-3">
+                  <h3 className="font-serif font-bold text-on-surface text-[18px]">Method</h3>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 tabular-nums">
+                    {steps.length} {steps.length === 1 ? 'step' : 'steps'}
+                  </span>
+                </div>
                 <RecipeDirectionsList steps={steps} />
               </section>
             )}

@@ -445,15 +445,18 @@ export const RecipeDirectionsList: React.FC<{ steps: string[] }> = ({ steps }) =
       {steps.map((step, i) => {
         const timerMinutes = extractStepMinutes(step);
         return (
-          <li key={i} className="py-6 first:pt-0 last:pb-0">
+          <li key={i} className="py-5 first:pt-0 last:pb-0">
             <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-2.5">
+              {/* Zero-padded serif step number in clay — editorial accent
+                  that anchors each step. Decorative-only (the <ol>
+                  carries the real semantics). */}
               <div
                 aria-hidden
-                className="font-serif font-bold text-[34px] leading-none text-on-surface/20 tabular-nums pt-1 select-none"
+                className="font-serif font-bold text-[30px] leading-none text-primary/85 tabular-nums select-none"
               >
-                {i + 1}
+                {String(i + 1).padStart(2, '0')}
               </div>
-              <p className="text-[16px] leading-[1.75] text-on-surface/85 whitespace-pre-wrap">
+              <p className="text-[15px] leading-[1.75] text-on-surface/85 whitespace-pre-wrap pt-1">
                 {step}
               </p>
               {timerMinutes !== null && (
