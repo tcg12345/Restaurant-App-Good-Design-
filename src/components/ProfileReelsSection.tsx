@@ -27,6 +27,9 @@ interface ProfileReelsSectionProps {
   onToggleVisibility?: (reelId: string, nextIsPublic: boolean) => void;
   /** Optional — overrides the default "My Reels" / "Reels" title. */
   title?: string;
+  /** When true, omit the section header (count + title) entirely.
+   *  Used by the Profile page where the tab itself serves as the heading. */
+  hideHeader?: boolean;
   /** Optional CTA shown next to the title (e.g. "Open feed"). */
   trailing?: React.ReactNode;
 }
@@ -41,11 +44,12 @@ interface ProfilePostsSectionProps {
   onEdit?: (postId: string) => void;
   onToggleVisibility?: (postId: string, nextIsPublic: boolean) => void;
   title?: string;
+  hideHeader?: boolean;
   trailing?: React.ReactNode;
 }
 
 export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
-  posts, isOwn = false, onTileClick, onDelete, onEdit, onToggleVisibility, title, trailing,
+  posts, isOwn = false, onTileClick, onDelete, onEdit, onToggleVisibility, title, hideHeader = false, trailing,
 }) => {
   const navigate = useNavigate();
   const [showAll, setShowAll] = useState(false);
@@ -60,13 +64,15 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
 
   return (
     <section>
-      <div className="flex items-baseline justify-between mb-3">
-        <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
-          {title ?? (isOwn ? 'My Posts' : 'Posts')}
-          <span className="text-on-surface/30 font-medium ml-1.5">{posts.length}</span>
-        </h3>
-        {trailing}
-      </div>
+      {!hideHeader && (
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
+            {title ?? (isOwn ? 'My Posts' : 'Posts')}
+            <span className="text-on-surface/30 font-medium ml-1.5">{posts.length}</span>
+          </h3>
+          {trailing}
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-2.5 max-w-2xl">
         {visible.map((p) => {
           const cover = p.items[0];
@@ -191,6 +197,7 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
   onEdit,
   onToggleVisibility,
   title,
+  hideHeader = false,
   trailing,
 }) => {
   const navigate = useNavigate();
@@ -207,13 +214,15 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
 
   return (
     <section>
-      <div className="flex items-baseline justify-between mb-3">
-        <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
-          {title ?? (isOwn ? 'My Reels' : 'Reels')}
-          <span className="text-on-surface/30 font-medium ml-1.5">{reels.length}</span>
-        </h3>
-        {trailing}
-      </div>
+      {!hideHeader && (
+        <div className="flex items-baseline justify-between mb-3">
+          <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40">
+            {title ?? (isOwn ? 'My Reels' : 'Reels')}
+            <span className="text-on-surface/30 font-medium ml-1.5">{reels.length}</span>
+          </h3>
+          {trailing}
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-2.5 max-w-2xl">
         {visible.map((r) => (
           <div key={r.id} className="relative group">

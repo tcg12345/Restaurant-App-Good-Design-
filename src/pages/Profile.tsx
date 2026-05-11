@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
-  Star, MapPin, Heart, ExternalLink, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
+  Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
+  LayoutGrid, List as ListIcon, Upload,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -43,7 +44,7 @@ function cityFromAddress(address: string): string | null {
 /** Single neutral gradient behind cards with no photo. Kept identical
  *  across every card so the section reads as a calm row rather than a
  *  bag of colored tiles. */
-const TOP_RATED_GRADIENT = 'from-stone-500 via-stone-700 to-stone-900';
+const TOP_RATED_GRADIENT = 'from-stone-700 via-stone-800 to-stone-950';
 
 /** ISO string for sorting by recency; never throws (missing/invalid → empty). */
 function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string {
@@ -58,6 +59,115 @@ function ratingRecencyIso(r: { visitDate?: string; createdAt?: number }): string
   return '';
 }
 
+/* ── TopRatedCard ──
+   Stone-gradient card used in the Profile TOP tab. Hero variant fills the
+   row with a wider aspect; default variant fits a 2-col grid as a square.
+   Rank chip top-left, score chip top-right, faint cuisine label centered,
+   name + meta stacked at the bottom. Photos override the gradient. */
+const TopRatedCard: React.FC<{
+  rank: number;
+  rating: { restaurantId: string; name: string; score: number; cuisine?: string; price?: string; address?: string; image?: string };
+  hero?: boolean;
+}> = ({ rank, rating, hero }) => {
+  const city = cityFromAddress(rating.address || '');
+  const score = rating.score;
+  const scoreCls = score >= 8
+    ? 'bg-emerald-700 text-white'
+    : score >= 5
+      ? 'bg-amber-600 text-white'
+      : 'bg-red-500 text-white';
+  const cuisineLabel = (rating.cuisine || rating.name).toUpperCase();
+
+  return (
+    <Link
+      to={`/restaurant/${rating.restaurantId}`}
+      className={cn(
+        'relative block overflow-hidden rounded-2xl ring-1 ring-on-surface/[0.06] shadow-sm group bg-gradient-to-br',
+        TOP_RATED_GRADIENT,
+        hero ? 'aspect-[16/10]' : 'aspect-square',
+      )}
+    >
+      {rating.image && (
+        <img
+          src={rating.image}
+          alt={rating.name}
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+          referrerPolicy="no-referrer"
+        />
+      )}
+      {!rating.image && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className={cn(
+            'font-mono uppercase tracking-[0.18em] text-white/30 text-center px-4',
+            hero ? 'text-[15px]' : 'text-[12px]',
+          )}>
+            {cuisineLabel}
+          </span>
+        </div>
+      )}
+
+      {/* Rank chip — white pill, top-left */}
+      <span className={cn(
+        'absolute top-2.5 left-2.5 inline-flex items-center justify-center rounded-lg bg-white text-on-surface font-bold tabular-nums shadow-sm',
+        hero ? 'min-w-[36px] h-9 px-2 text-[15px]' : 'min-w-[30px] h-7 px-1.5 text-[13px]',
+      )}>
+        {rank}
+      </span>
+
+      {/* Score chip — colored, top-right */}
+      <span className={cn(
+        'absolute top-2.5 right-2.5 inline-flex items-center justify-center rounded-lg font-bold tabular-nums shadow-sm',
+        scoreCls,
+        hero ? 'min-w-[52px] h-9 px-2 text-[16px]' : 'min-w-[42px] h-7 px-1.5 text-[13.5px]',
+      )}>
+        {formatScore(rating.score)}
+      </span>
+
+      {/* Bottom legibility wash */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
+
+      <div className={cn('absolute inset-x-0 bottom-0', hero ? 'p-4' : 'p-3')}>
+        <p className={cn(
+          'font-serif font-bold text-white drop-shadow leading-[1.1] line-clamp-2',
+          hero ? 'text-[22px]' : 'text-[16px]',
+        )}>
+          {rating.name}
+        </p>
+        <p className={cn(
+          'text-white/85 truncate mt-1',
+          hero ? 'text-[13px]' : 'text-[11.5px]',
+        )}>
+          {[rating.cuisine, rating.price, city].filter(Boolean).join(' · ')}
+        </p>
+      </div>
+    </Link>
+  );
+};
+
+/* ── EmptyTabState ──
+   Friendly empty placeholder for any tab with no items. Matches the
+   surface tone so it never feels like an error state. */
+const EmptyTabState: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  ctaLabel: string;
+  onCta: () => void;
+}> = ({ icon, title, subtitle, ctaLabel, onCta }) => (
+  <div className="text-center py-12 rounded-2xl border border-dashed border-on-surface/10">
+    <div className="mb-3 flex justify-center">{icon}</div>
+    <p className="text-sm font-semibold text-on-surface/55">{title}</p>
+    <p className="text-xs text-on-surface/35 mt-1 max-w-xs mx-auto">{subtitle}</p>
+    <button
+      type="button"
+      onClick={onCta}
+      className="mt-4 px-5 py-2.5 rounded-full bg-primary text-white text-xs font-semibold"
+    >
+      {ctaLabel}
+    </button>
+  </div>
+);
+
 export const Profile: React.FC = () => {
   const navigate = useNavigate();
   const { profile, user, signOut, refreshProfile, pendingRequestCount } = useAuth();
@@ -65,7 +175,6 @@ export const Profile: React.FC = () => {
   const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
-  const wishlist = Array.isArray(listsCtx.wishlist) ? listsCtx.wishlist : [];
 
   // Reels and posts authored by the signed-in user. Both come from their
   // respective contexts (loaded once at mount), filtered locally.
@@ -98,6 +207,7 @@ export const Profile: React.FC = () => {
     if (!ok) alert("Couldn't delete that post. Try again.");
   };
   const { phoneMode, togglePhoneMode, darkMode, toggleDarkMode } = useSettings();
+  const [activeTab, setActiveTab] = useState<'top' | 'posts' | 'reels' | 'rated'>('top');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
   // Create menu — single button under the action row that opens a small
@@ -268,13 +378,6 @@ export const Profile: React.FC = () => {
   const bio = profile?.bio || '';
   const publicProfilePath = `/user/${encodeURIComponent(username)}`;
 
-  const avgScore = useMemo(() => {
-    if (!ratings.length) return null;
-    const nums = ratings.map((r) => r.score).filter((s): s is number => typeof s === 'number' && Number.isFinite(s));
-    if (!nums.length) return null;
-    return nums.reduce((a, s) => a + s, 0) / nums.length;
-  }, [ratings]);
-
   const cuisineStats = useMemo(() => {
     const map = new Map<string, number>();
     ratings.forEach((r) => {
@@ -284,15 +387,6 @@ export const Profile: React.FC = () => {
     return Array.from(map.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6);
-  }, [ratings]);
-
-  const uniqueCities = useMemo(() => {
-    const s = new Set<string>();
-    ratings.forEach((r) => {
-      const c = cityFromAddress(r.address || '');
-      if (c) s.add(c);
-    });
-    return s.size;
   }, [ratings]);
 
   const topRated = useMemo(() => {
@@ -311,380 +405,350 @@ export const Profile: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
+      {pendingRequestCount > 0 && (
+        <div className="mx-5 mt-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
+          <span className="text-xs font-semibold text-amber-900">
+            {pendingRequestCount} friend request{pendingRequestCount !== 1 ? 's' : ''} waiting
+          </span>
+          <Heart size={14} className="text-amber-700 flex-shrink-0" />
+        </div>
+      )}
 
-      <div className="relative">
-        <div className="relative px-5 pt-6 pb-5">
-          {pendingRequestCount > 0 && (
-            <div className="w-full mb-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
-              <span className="text-xs font-semibold text-amber-900">
-                {pendingRequestCount} friend request{pendingRequestCount !== 1 ? 's' : ''} waiting
-              </span>
-              <Heart size={14} className="text-amber-700 flex-shrink-0" />
+      {/* ── Profile header ────────────────────────────────────────────── */}
+      <div className="px-5 pt-6 pb-5">
+        {/* Avatar + horizontal stats row */}
+        <div className="flex items-center gap-5">
+          <div className="relative flex-shrink-0">
+            <div className="w-[92px] h-[92px] rounded-full bg-gradient-to-br from-primary/30 to-primary/15 flex items-center justify-center">
+              <span className="text-[42px] font-serif font-bold text-primary leading-none">{displayName.charAt(0).toUpperCase()}</span>
             </div>
-          )}
-
-          <div className="flex items-start gap-4">
-            {/* Avatar */}
-            <div className="relative flex-shrink-0">
-              <div className="w-20 h-20 rounded-full ring-[3px] ring-white shadow-lg bg-gradient-to-br from-primary/25 to-primary/10 flex items-center justify-center">
-                <span className="text-3xl font-serif font-bold text-primary">{displayName.charAt(0).toUpperCase()}</span>
-              </div>
-              {profile?.is_expert && (
-                <div className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-amber-400 border-2 border-white flex items-center justify-center">
-                  <Crown size={12} className="text-white" />
-                </div>
-              )}
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 min-w-0 pt-1">
-              <h2 className="text-xl font-serif font-bold text-on-surface tracking-tight truncate">{displayName}</h2>
-              <p className="text-sm text-on-surface/40">@{username}</p>
-
-              <div className="flex items-center gap-4 mt-2.5">
-                <div className="text-center">
-                  <span className="text-base font-bold text-on-surface">{followers}</span>
-                  <span className="text-[10px] text-on-surface/40 ml-1">followers</span>
-                </div>
-                <div className="text-center">
-                  <span className="text-base font-bold text-on-surface">{following}</span>
-                  <span className="text-[10px] text-on-surface/40 ml-1">following</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {bio && <p className="text-sm text-on-surface/55 mt-3 leading-relaxed">{bio}</p>}
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-2 mt-4">
-            <button
-              type="button"
-              onClick={openEditProfile}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-on-surface/[0.06] text-on-surface/70 text-xs font-semibold border border-on-surface/8 hover:bg-on-surface/10 transition-colors"
-            >
-              <Edit3 size={14} />
-              Edit profile
-            </button>
-            <Link
-              to={publicProfilePath}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-on-surface/[0.06] text-on-surface/70 text-xs font-semibold border border-on-surface/8 hover:bg-on-surface/10 transition-colors"
-            >
-              <ExternalLink size={13} />
-              View public
-            </Link>
-            <button
-              type="button"
-              onClick={openSettings}
-              className="p-2.5 rounded-xl bg-on-surface/[0.06] border border-on-surface/8 text-on-surface/45 hover:bg-on-surface/10 transition-colors"
-              aria-label="Settings"
-            >
-              <Settings size={16} />
-            </button>
-          </div>
-
-          {/* Single Create button — opens a popover with Post and Reel
-              choices (same pattern as the desktop sidebar). */}
-          <div ref={createWrapRef} className="relative mt-2">
-            <button
-              type="button"
-              onClick={() => setCreateMenuOpen((o) => !o)}
-              aria-haspopup="menu"
-              aria-expanded={createMenuOpen}
-              className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary/90 transition-colors"
-            >
-              <Plus
-                size={14}
-                strokeWidth={2.5}
-                className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')}
-              />
-              Create
-            </button>
-
-            <AnimatePresence>
-              {createMenuOpen && (
-                <motion.div
-                  role="menu"
-                  initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                  transition={{ duration: 0.14, ease: 'easeOut' }}
-                  className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
-                  >
-                    <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
-                      <ImageIcon size={16} strokeWidth={2.2} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[14px] font-bold leading-tight">Post</span>
-                      <span className="block text-[12px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
-                    </span>
-                  </button>
-                  <div className="border-t border-on-surface/[0.06]" />
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
-                  >
-                    <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
-                      <Film size={16} strokeWidth={2.2} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[14px] font-bold leading-tight">Reel</span>
-                      <span className="block text-[12px] text-on-surface/50 leading-tight">Single short video</span>
-                    </span>
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Badges */}
-          <div className="flex flex-wrap gap-1.5 mt-3">
             {profile?.is_expert && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/70 text-[10px] font-bold text-amber-800">
-                <Star size={9} className="fill-amber-500 text-amber-500" />
-                Expert{expertPickCount > 0 && ` · ${expertPickCount} picks`}
-              </span>
+              <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-amber-400 ring-[3px] ring-surface flex items-center justify-center">
+                <Crown size={13} className="text-white" />
+              </div>
             )}
-            <span
-              className={cn(
-                'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border',
-                profile?.is_public
-                  ? 'bg-emerald-50/60 border-emerald-200/50 text-emerald-700'
-                  : 'bg-on-surface/[0.03] border-on-surface/8 text-on-surface/40',
-              )}
-            >
-              {profile?.is_public ? <Globe size={9} /> : <EyeOff size={9} />}
-              {profile?.is_public ? 'Public' : 'Private'}
-            </span>
-            {memberSince && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-on-surface/[0.03] border border-on-surface/8 text-[10px] text-on-surface/40">
-                Since {memberSince}
-              </span>
-            )}
+          </div>
+
+          <div className="flex-1 grid grid-cols-3 gap-2">
+            <button type="button" onClick={goToMyRatings} className="flex flex-col items-center text-center">
+              <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums">{ratings.length}</span>
+              <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">rated</span>
+            </button>
+            <button type="button" onClick={() => navigate('/circle')} className="flex flex-col items-center text-center">
+              <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums">{followers}</span>
+              <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">followers</span>
+            </button>
+            <button type="button" onClick={() => navigate('/circle')} className="flex flex-col items-center text-center">
+              <span className="text-[24px] font-bold text-on-surface leading-none tabular-nums">{following}</span>
+              <span className="text-[12px] text-on-surface/45 mt-1.5 font-medium">following</span>
+            </button>
           </div>
         </div>
 
-        {/* Stats row — open, card-less, inside the same gradient region so there is no seam */}
-        <div className="relative px-5 pt-3 pb-12">
-          <div className="flex items-start justify-between gap-3">
-            {[
-              { value: String(ratings.length), label: 'Rated' },
-              { value: avgScore != null ? avgScore.toFixed(1) : '—', label: 'Avg score' },
-              { value: String(wishlist.length), label: 'Wishlist' },
-              { value: uniqueCities ? String(uniqueCities) : '—', label: 'Cities' },
-            ].map((stat) => (
-              <div key={stat.label} className="flex-1 min-w-0">
-                <p className="text-[32px] font-serif font-bold text-on-surface leading-none tabular-nums">{stat.value}</p>
-                <p className="text-[12px] font-medium text-on-surface/45 mt-2 truncate">{stat.label}</p>
-              </div>
-            ))}
-          </div>
+        {/* Name + handle */}
+        <div className="mt-5 flex items-baseline gap-2 flex-wrap">
+          <h1 className="text-[26px] font-serif font-bold text-on-surface leading-none tracking-tight">{displayName}</h1>
+          <span className="text-[15px] text-on-surface/40">@{username}</span>
+        </div>
+
+        {/* Public + joined */}
+        <div className="flex items-center gap-2 mt-2.5">
+          <span className={cn(
+            'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border',
+            profile?.is_public
+              ? 'bg-emerald-50/70 border-emerald-200/60 text-emerald-700'
+              : 'bg-on-surface/[0.04] border-on-surface/8 text-on-surface/45',
+          )}>
+            {profile?.is_public ? <Globe size={11} /> : <EyeOff size={11} />}
+            {profile?.is_public ? 'Public' : 'Private'}
+          </span>
+          {profile?.is_expert && (
+            <>
+              <span className="text-on-surface/25 text-xs">·</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200/70 text-[11px] font-semibold text-amber-800">
+                <Star size={10} className="fill-amber-500 text-amber-500" />
+                Expert{expertPickCount > 0 && ` · ${expertPickCount}`}
+              </span>
+            </>
+          )}
+          {memberSince && (
+            <>
+              <span className="text-on-surface/25 text-xs">·</span>
+              <span className="text-[12px] text-on-surface/45">Joined {memberSince}</span>
+            </>
+          )}
+        </div>
+
+        {bio && <p className="text-[13.5px] text-on-surface/65 mt-3 leading-relaxed">{bio}</p>}
+
+        {/* Action row */}
+        <div ref={createWrapRef} className="relative flex items-center gap-2 mt-4">
+          <button
+            type="button"
+            onClick={() => setCreateMenuOpen((o) => !o)}
+            aria-haspopup="menu"
+            aria-expanded={createMenuOpen}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl text-primary text-[13px] font-bold hover:bg-primary/[0.06] transition-colors"
+          >
+            <Plus
+              size={15}
+              strokeWidth={2.5}
+              className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')}
+            />
+            Create
+          </button>
+          <button
+            type="button"
+            onClick={openEditProfile}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-on-surface/[0.06] text-on-surface/80 text-[13px] font-bold border border-on-surface/8 hover:bg-on-surface/10 transition-colors"
+          >
+            <Edit3 size={14} />
+            Edit
+          </button>
+          <Link
+            to={publicProfilePath}
+            className="w-10 h-10 inline-flex items-center justify-center rounded-xl bg-on-surface/[0.06] border border-on-surface/8 text-on-surface/55 hover:bg-on-surface/10 transition-colors"
+            aria-label="View public profile"
+          >
+            <Upload size={15} />
+          </Link>
+          <button
+            type="button"
+            onClick={openSettings}
+            className="w-10 h-10 inline-flex items-center justify-center rounded-xl bg-on-surface/[0.06] border border-on-surface/8 text-on-surface/55 hover:bg-on-surface/10 transition-colors"
+            aria-label="Settings"
+          >
+            <Settings size={15} />
+          </button>
+
+          <AnimatePresence>
+            {createMenuOpen && (
+              <motion.div
+                role="menu"
+                initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="absolute left-0 top-[calc(100%+0.25rem)] w-52 z-30 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-xl overflow-hidden"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setCreateMenuOpen(false); openAddPostModal(); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                >
+                  <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                    <ImageIcon size={16} strokeWidth={2.2} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-bold leading-tight">Post</span>
+                    <span className="block text-[11px] text-on-surface/50 leading-tight">Up to 15 photos & videos</span>
+                  </span>
+                </button>
+                <div className="border-t border-on-surface/[0.06]" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setCreateMenuOpen(false); openAddReelModal(); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                >
+                  <span className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface flex items-center justify-center flex-shrink-0">
+                    <Film size={16} strokeWidth={2.2} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-bold leading-tight">Reel</span>
+                    <span className="block text-[11px] text-on-surface/50 leading-tight">Single short video</span>
+                  </span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      <main className="px-5 space-y-10">
-        {/* Top Rated — compact horizontal-scroll cards. Photo (or a single
-            neutral gradient when there isn't one) with a prominent
-            color-coded score chip. The legibility wash extends well up
-            the card so the meta block carries real visual weight and
-            cards don't read as half-empty saturated tiles. */}
-        {topRated.length > 0 && (
-          <section className="-mx-5">
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-3 px-5">Top Rated</h3>
-            <div className="flex gap-3 overflow-x-auto pb-2 px-5 scrollbar-hide snap-x snap-mandatory">
-              {topRated.slice(0, 8).map((r) => {
-                const city = cityFromAddress(r.address);
-                const score = r.score;
-                const scoreCls = score >= 8
-                  ? 'bg-emerald-700 text-white'
-                  : score >= 5
-                    ? 'bg-amber-600 text-white'
-                    : 'bg-red-500 text-white';
-                return (
-                  <Link
-                    key={r.restaurantId}
-                    to={`/restaurant/${r.restaurantId}`}
-                    className="flex-shrink-0 snap-start group"
-                  >
-                    <div className={cn(
-                      'relative w-44 aspect-[5/6] rounded-2xl overflow-hidden shadow-sm ring-1 ring-on-surface/[0.06] group-hover:shadow-md transition-shadow',
-                      'bg-gradient-to-br',
-                      TOP_RATED_GRADIENT,
-                    )}>
-                      {r.image && (
-                        <img
-                          src={r.image}
-                          alt={r.name}
-                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                          referrerPolicy="no-referrer"
-                        />
-                      )}
-                      {/* Score chip top-right — the user's own rating, sized
-                          to read at a glance. */}
-                      <span className={cn(
-                        'absolute top-2.5 right-2.5 inline-flex items-center justify-center min-w-[42px] h-8 px-2 rounded-lg text-[14px] font-bold tabular-nums shadow-sm',
-                        scoreCls,
-                      )}>
-                        {formatScore(r.score)}
-                      </span>
-                      {/* Bottom legibility wash — takes ~70% of the card so
-                          the meta block fills the lower half and there's no
-                          empty colored void above the text. */}
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black/90 via-black/55 to-transparent" />
-                      {/* Stacked meta — slightly larger type so each line
-                          carries weight without the card needing to grow. */}
-                      <div className="absolute inset-x-0 bottom-0 p-3">
-                        <p className="font-serif font-bold text-white text-[15px] leading-[1.15] drop-shadow line-clamp-2">{r.name}</p>
-                        <p className="text-white/90 text-[12px] mt-1 truncate">
-                          {[r.cuisine, r.price].filter(Boolean).join(' · ')}
-                        </p>
-                        {city && (
-                          <div className="flex items-center gap-1 mt-1 text-white/70 text-[11px]">
-                            <MapPin size={10} className="flex-shrink-0" />
-                            <span className="truncate">{city}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* My Posts — multi-item carousels. Compact tile shows the first
-            item's media; a layered chip indicates multi-item posts. */}
-        <ProfilePostsSection
-          posts={myPosts}
-          isOwn
-          onEdit={(id) => openEditPostModal(id)}
-          onDelete={(id) => setConfirmDeletePostId(id)}
-          onToggleVisibility={(id, next) => setPostVisibility(id, next)}
-          trailing={
-            myPosts.length > 0 ? (
+      {/* ── Tab bar ───────────────────────────────────────────────────── */}
+      <div className="border-t border-on-surface/[0.08]">
+        <div className="grid grid-cols-4">
+          {([
+            ['top', Star, 'TOP'],
+            ['posts', LayoutGrid, 'POSTS'],
+            ['reels', Film, 'REELS'],
+            ['rated', ListIcon, 'RATED'],
+          ] as const).map(([key, Icon, label]) => {
+            const isActive = activeTab === key;
+            return (
               <button
+                key={key}
                 type="button"
-                onClick={() => navigate('/reels?kind=post')}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
+                onClick={() => setActiveTab(key)}
+                className={cn(
+                  'relative py-3.5 flex flex-col items-center justify-center gap-1.5 transition-colors',
+                  isActive ? 'text-on-surface' : 'text-on-surface/30',
+                )}
               >
-                Open feed
-                <ChevronRight size={13} />
+                <Icon size={18} className={cn(isActive && key === 'top' && 'fill-on-surface')} />
+                <span className={cn(
+                  'text-[10px] font-bold tracking-[0.18em]',
+                  isActive ? 'text-on-surface' : 'text-on-surface/40',
+                )}>
+                  {label}
+                </span>
+                {isActive && (
+                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-full bg-on-surface" />
+                )}
               </button>
-            ) : null
-          }
-        />
+            );
+          })}
+        </div>
+      </div>
 
-        {/* My Reels — compact 3-up grid (max 6 visible, see-all to expand). */}
-        <ProfileReelsSection
-          reels={myReels}
-          isOwn
-          onEdit={(id) => openEditReelModal(id)}
-          onDelete={(id) => setConfirmDeleteReelId(id)}
-          onToggleVisibility={(id, next) => setReelVisibility(id, next)}
-          trailing={
-            myReels.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => navigate('/reels')}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
-              >
-                Open feed
-                <ChevronRight size={13} />
-              </button>
-            ) : null
-          }
-        />
-
-        {/* Recent — clean divided list, with a See all link routing to the Map's My Ratings mode */}
-        {recentRatings.length > 0 && (
-          <section>
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Recent</h3>
-            <ul className="divide-y divide-on-surface/[0.06]">
-              {recentRatings.map((r) => (
-                <li key={r.restaurantId}>
-                  <Link
-                    to={`/restaurant/${r.restaurantId}`}
-                    className="flex items-center gap-4 py-3.5 group"
-                  >
-                    <div className="w-14 h-14 rounded-2xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
-                      {r.image ? (
-                        <img src={r.image} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-on-surface/20">
-                          <MapPin size={16} />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{r.name}</p>
-                      <p className="text-[11px] text-on-surface/40 mt-0.5">
-                        {r.visitDate
-                          ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                          : ''}
-                        {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
-                      </p>
-                    </div>
-                    <span className={cn('text-lg font-serif font-bold flex-shrink-0', scoreColor(numericScore(r.score)))}>{formatScore(r.score)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-4 flex justify-center">
-              <button
-                type="button"
-                onClick={goToMyRatings}
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary/90 hover:text-primary transition-colors"
-              >
-                See all ratings
-                <ChevronRight size={13} />
-              </button>
-            </div>
-          </section>
-        )}
-
-        {/* Cuisine breakdown */}
-        {cuisineStats.length > 0 && (
-          <section>
-            <h3 className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-4">Cuisine breakdown</h3>
+      {/* ── Tab content ───────────────────────────────────────────────── */}
+      <main className="px-5 pt-5">
+        {activeTab === 'top' && (
+          topRated.length === 0 ? (
+            <EmptyTabState
+              icon={<Star size={32} className="text-on-surface/15" />}
+              title="No rated restaurants yet"
+              subtitle="Rate restaurants to see your top picks here."
+              ctaLabel="Open map"
+              onCta={() => navigate('/')}
+            />
+          ) : (
             <div className="space-y-3">
-              {cuisineStats.map(([name, count]) => (
-                <div key={name} className="flex items-center gap-3">
-                  <span className="text-xs font-semibold text-on-surface/70 w-20 truncate">{name}</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-on-surface/[0.06] overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-primary/70"
-                      style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-[11px] text-on-surface/35 tabular-nums w-6 text-right">{count}</span>
+              <TopRatedCard rank={1} rating={topRated[0]} hero />
+              {topRated.length > 1 && (
+                <div className="grid grid-cols-2 gap-3">
+                  {topRated.slice(1).map((r, i) => (
+                    <TopRatedCard key={r.restaurantId} rank={i + 2} rating={r} />
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          </section>
+          )
         )}
 
-        {ratings.length === 0 && wishlist.length === 0 && (
-          <div className="text-center py-14 rounded-2xl border border-dashed border-on-surface/10">
-            <MapPin size={32} className="mx-auto text-on-surface/15 mb-3" />
-            <p className="text-sm font-medium text-on-surface/50">Start exploring</p>
-            <p className="text-xs text-on-surface/30 mt-1 max-w-xs mx-auto">Rate restaurants and build lists to see your stats here.</p>
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="mt-4 px-5 py-2.5 rounded-full bg-primary text-white text-xs font-semibold"
-            >
-              Open map
-            </button>
-          </div>
+        {activeTab === 'posts' && (
+          myPosts.length === 0 ? (
+            <EmptyTabState
+              icon={<LayoutGrid size={32} className="text-on-surface/15" />}
+              title="No posts yet"
+              subtitle="Share photos and videos from your favorite spots."
+              ctaLabel="Create a post"
+              onCta={() => openAddPostModal()}
+            />
+          ) : (
+            <ProfilePostsSection
+              posts={myPosts}
+              isOwn
+              onEdit={(id) => openEditPostModal(id)}
+              onDelete={(id) => setConfirmDeletePostId(id)}
+              onToggleVisibility={(id, next) => setPostVisibility(id, next)}
+              hideHeader
+            />
+          )
+        )}
+
+        {activeTab === 'reels' && (
+          myReels.length === 0 ? (
+            <EmptyTabState
+              icon={<Film size={32} className="text-on-surface/15" />}
+              title="No reels yet"
+              subtitle="Share short videos of your favorite places and recipes."
+              ctaLabel="Create a reel"
+              onCta={() => openAddReelModal()}
+            />
+          ) : (
+            <ProfileReelsSection
+              reels={myReels}
+              isOwn
+              onEdit={(id) => openEditReelModal(id)}
+              onDelete={(id) => setConfirmDeleteReelId(id)}
+              onToggleVisibility={(id, next) => setReelVisibility(id, next)}
+              hideHeader
+            />
+          )
+        )}
+
+        {activeTab === 'rated' && (
+          ratings.length === 0 ? (
+            <EmptyTabState
+              icon={<ListIcon size={32} className="text-on-surface/15" />}
+              title="No ratings yet"
+              subtitle="Rate restaurants to see your cuisine breakdown and history."
+              ctaLabel="Open map"
+              onCta={() => navigate('/')}
+            />
+          ) : (
+            <div className="space-y-7">
+              {cuisineStats.length > 0 && (
+                <section>
+                  <div className="flex items-baseline justify-between mb-3">
+                    <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">By Cuisine</h3>
+                    <span className="text-[11px] text-on-surface/35">{cuisineStats.length} categories</span>
+                  </div>
+                  <div className="rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] divide-y divide-on-surface/[0.06]">
+                    {cuisineStats.map(([name, count]) => (
+                      <div key={name} className="flex items-center gap-3 px-4 py-2.5">
+                        <span className="text-[13.5px] font-medium text-on-surface/80 w-24 truncate">{name}</span>
+                        <div className="flex-1 h-[3px] rounded-full bg-on-surface/[0.08] overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-on-surface/40"
+                            style={{ width: `${Math.max(8, (count / maxCuisine) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[12px] font-semibold text-on-surface/55 tabular-nums w-6 text-right">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {recentRatings.length > 0 && (
+                <section>
+                  <div className="flex items-baseline justify-between mb-2">
+                    <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Recent</h3>
+                    <button
+                      type="button"
+                      onClick={goToMyRatings}
+                      className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
+                    >
+                      See all <ChevronRight size={12} />
+                    </button>
+                  </div>
+                  <ul className="divide-y divide-on-surface/[0.06]">
+                    {recentRatings.map((r) => (
+                      <li key={r.restaurantId}>
+                        <Link
+                          to={`/restaurant/${r.restaurantId}`}
+                          className="flex items-center gap-3.5 py-3 group"
+                        >
+                          <div className="w-11 h-11 rounded-xl bg-on-surface/[0.05] overflow-hidden flex-shrink-0 flex items-center justify-center">
+                            {r.image ? (
+                              <img src={r.image} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <MapPin size={15} className="text-on-surface/30" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[14px] font-serif font-bold truncate leading-tight">{r.name}</p>
+                            <p className="text-[11.5px] text-on-surface/45 mt-0.5">
+                              {r.visitDate
+                                ? new Date(r.visitDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                : ''}
+                              {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
+                            </p>
+                          </div>
+                          <span className={cn('text-[16px] font-serif font-bold flex-shrink-0 tabular-nums', scoreColor(numericScore(r.score)))}>
+                            {formatScore(r.score)}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
+          )
         )}
       </main>
 
