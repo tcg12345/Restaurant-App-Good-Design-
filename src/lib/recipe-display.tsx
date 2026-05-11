@@ -491,7 +491,14 @@ export const RecipeDirectionsList: React.FC<{
               className={cn(
                 'w-full text-left transition-[padding,opacity] duration-200',
                 interactive ? 'cursor-pointer' : 'cursor-default',
-                isCollapsed ? 'py-2.5 opacity-50' : 'py-5',
+                // Collapsed rows stay tight; expanded rows breathe more
+                // generously in the compact variant since the editorial
+                // density was too cramped against the dividers.
+                isCollapsed
+                  ? 'py-2.5 opacity-50'
+                  : compact
+                    ? 'py-7'
+                    : 'py-5',
                 'first:pt-0 last:pb-0',
               )}
             >
