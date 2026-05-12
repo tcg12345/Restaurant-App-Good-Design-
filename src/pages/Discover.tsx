@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -23,6 +23,7 @@ import {
 } from '../lib/recommendations';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
+import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { SocialFeed } from '../components/SocialFeed';
 import { TopBar } from '../components/TopBar';
 import {
@@ -243,10 +244,14 @@ function placeToCardProps(place: PlaceResult) {
   };
 }
 
-// Module-level cache for tab data (persists across navigations within same session)
+// Module-level cache for tab data (persists across navigations within same session).
+// Cache is session-long: once data is loaded for a tab/mode it stays cached until
+// the page reloads, so returning to the Map page from another tab never triggers
+// an automatic refetch. The userId field guards against showing one user's data
+// to another after a sign-out/sign-in.
 const tabDataCache: {
-  ts: number;
   userId: string | null;
+  tabDataLoaded: boolean;
   myRatings: CommunityRating[];
   friendRatings: CommunityRating[];
   expertRatings: CommunityRating[];
@@ -254,9 +259,46 @@ const tabDataCache: {
   expertProfiles: Record<string, UserProfile>;
   coordsLookedUp: Record<string, boolean>;
   discoverPlaces: PlaceResult[];
-  discoverTs: number;
-} = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverTs: 0 };
-const TAB_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+  discoverLoaded: boolean;
+  hotelPlaces: PlaceResult[];
+  hotelsLoaded: boolean;
+  friendRecipes: FriendHomeMeal[];
+  recipeAuthorProfiles: Record<string, UserProfile>;
+  friendRecipesLoaded: boolean;
+} = { userId: null, tabDataLoaded: false, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverLoaded: false, hotelPlaces: [], hotelsLoaded: false, friendRecipes: [], recipeAuthorProfiles: {}, friendRecipesLoaded: false };
+
+// Module-level cache of Mapbox Directions API results. Keyed by rounded
+// origin → destination so the same anchor + restaurant pair only ever
+// triggers one driving and one walking request per session.
+type RouteLeg = { distanceMeters: number; durationSeconds: number };
+const routeCache = new Map<string, RouteLeg | null>();
+const routeKey = (profile: 'driving' | 'walking', o: { lat: number; lng: number }, d: { lat: number; lng: number }) =>
+  `${profile}:${o.lat.toFixed(4)},${o.lng.toFixed(4)}->${d.lat.toFixed(4)},${d.lng.toFixed(4)}`;
+async function fetchMapboxLeg(
+  profile: 'driving' | 'walking',
+  origin: { lat: number; lng: number },
+  dest: { lat: number; lng: number },
+  token: string,
+): Promise<RouteLeg | null> {
+  const key = routeKey(profile, origin, dest);
+  if (routeCache.has(key)) return routeCache.get(key) ?? null;
+  if (!token) { routeCache.set(key, null); return null; }
+  const coords = `${origin.lng},${origin.lat};${dest.lng},${dest.lat}`;
+  const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coords}?access_token=${token}&overview=false&alternatives=false`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) { routeCache.set(key, null); return null; }
+    const data = await res.json();
+    const r = data?.routes?.[0];
+    if (!r) { routeCache.set(key, null); return null; }
+    const leg: RouteLeg = { distanceMeters: r.distance ?? 0, durationSeconds: r.duration ?? 0 };
+    routeCache.set(key, leg);
+    return leg;
+  } catch {
+    routeCache.set(key, null);
+    return null;
+  }
+}
 
 interface DiscoverProps {
   mode?: 'home' | 'map';
@@ -279,7 +321,48 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const usingDesktopHeader = isWideViewport && !phoneMode;
-  const { openAddRestaurantModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
+  // Map page on desktop replaces the bottom sheet with a resizable left
+  // panel that sits between the nav rail and the map. Width is persisted
+  // to localStorage so the user's preferred split survives reloads.
+  const isDesktopMapMode = mode === 'map' && usingDesktopHeader;
+  const MAP_PANEL_MIN = 320;
+  const MAP_PANEL_MAX = 600;
+  const MAP_PANEL_DEFAULT = 400;
+  const [mapPanelWidth, setMapPanelWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return MAP_PANEL_DEFAULT;
+    const stored = window.localStorage.getItem('mapPanelWidth');
+    const n = stored ? parseInt(stored, 10) : NaN;
+    if (!Number.isFinite(n)) return MAP_PANEL_DEFAULT;
+    return Math.min(MAP_PANEL_MAX, Math.max(MAP_PANEL_MIN, n));
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('mapPanelWidth', String(mapPanelWidth));
+  }, [mapPanelWidth]);
+  const [isResizingPanel, setIsResizingPanel] = useState(false);
+  const startPanelResize = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = mapPanelWidth;
+    setIsResizingPanel(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const next = Math.min(MAP_PANEL_MAX, Math.max(MAP_PANEL_MIN, startWidth + dx));
+      setMapPanelWidth(next);
+    };
+    const onUp = () => {
+      setIsResizingPanel(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, [mapPanelWidth]);
+  const { openAddRestaurantModal, openRatingModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
   const {
     friendRecipes: friendPublishedRecipes,
     expertRecipes: expertPublishedRecipes,
@@ -289,8 +372,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
-  // Data for My Ratings and Friends tabs — initialized from cache if fresh
-  const cacheHit = userId && tabDataCache.userId === userId && (Date.now() - tabDataCache.ts) < TAB_CACHE_TTL;
+  // Data for My Ratings and Friends tabs — initialized from cache if it was
+  // populated for this user earlier in the session. Cache lives until reload.
+  const cacheHit = userId && tabDataCache.userId === userId && tabDataCache.tabDataLoaded;
   const [myRatings, setMyRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.myRatings : []);
   const [friendRatings, setFriendRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.friendRatings : []);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>(cacheHit ? tabDataCache.friendProfiles : {});
@@ -328,14 +412,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         setFriendProfiles(profs);
         setExpertProfiles(expProfs);
       }
-      // Update module-level cache
-      tabDataCache.ts = Date.now();
+      // Update module-level cache (kept for the session — no TTL)
       tabDataCache.userId = userId;
       tabDataCache.myRatings = myR;
       tabDataCache.friendRatings = friendR;
       tabDataCache.expertRatings = expertR;
       tabDataCache.friendProfiles = profs;
       tabDataCache.expertProfiles = expProfs;
+      tabDataCache.tabDataLoaded = true;
       setUserDataReady(true);
     })();
   }, [userId, tabDataLoaded]);
@@ -383,12 +467,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setRatingPrice(null);
     setRatingCities([]);
   };
-  const [hotelPlaces, setHotelPlaces] = useState<PlaceResult[]>([]);
+  const [hotelPlaces, setHotelPlaces] = useState<PlaceResult[]>(() => tabDataCache.hotelPlaces);
   const [hotelsLoading, setHotelsLoading] = useState(false);
   // Recipes mode: friends' public home meals + the meal we're viewing in modal.
-  const [friendRecipes, setFriendRecipes] = useState<FriendHomeMeal[]>([]);
+  const [friendRecipes, setFriendRecipes] = useState<FriendHomeMeal[]>(() => tabDataCache.friendRecipes);
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
-  const [recipeAuthorProfiles, setRecipeAuthorProfiles] = useState<Record<string, UserProfile>>({});
+  const [recipeAuthorProfiles, setRecipeAuthorProfiles] = useState<Record<string, UserProfile>>(() => tabDataCache.recipeAuthorProfiles);
   const hotelMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
@@ -416,9 +500,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
-  const [places, setPlaces] = useState<PlaceResult[]>(() =>
-    (Date.now() - tabDataCache.discoverTs) < TAB_CACHE_TTL ? tabDataCache.discoverPlaces : []
-  );
+  const [places, setPlaces] = useState<PlaceResult[]>(() => tabDataCache.discoverPlaces);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -468,6 +550,41 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationInputRef = useRef<HTMLInputElement>(null);
   const [searchLocationBias, setSearchLocationBias] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Distance anchor: where every card / detail measures from.
+  // - When the user types a location in the location-search box, we lock the
+  //   anchor to that point ("typed override").
+  // - Otherwise the anchor is wherever the map is currently centred so the
+  //   distances stay roughly relevant as the user pans.
+  // - The override is cleared when the user (a) types a new location, (b)
+  //   hits "Search this area" / fetchNearby, or (c) pans the map farther
+  //   than REFERENCE_CLEAR_RADIUS_MILES from the typed point.
+  const REFERENCE_CLEAR_RADIUS_MILES = 15;
+  const [referenceLocation, setReferenceLocation] = useState<{ lat: number; lng: number; name?: string } | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const referenceLocationRef = useRef(referenceLocation);
+  useEffect(() => { referenceLocationRef.current = referenceLocation; }, [referenceLocation]);
+  // The point distances are measured from. Falls back to the live map centre.
+  const distanceOrigin = useMemo(() => {
+    if (referenceLocation) return { lat: referenceLocation.lat, lng: referenceLocation.lng };
+    return mapCenter;
+  }, [referenceLocation, mapCenter]);
+
+  // Human-readable miles. Tiny distances collapse to "<0.1 mi" so we never
+  // render "0.0 mi" for places that share the anchor.
+  const formatDistanceMiles = useCallback((km: number): string => {
+    const mi = km * 0.621371;
+    if (!Number.isFinite(mi)) return '';
+    if (mi < 0.1) return '<0.1 mi';
+    if (mi < 10) return `${mi.toFixed(1)} mi`;
+    return `${Math.round(mi)} mi`;
+  }, []);
+  const distanceFromAnchor = useCallback((lat?: number | null, lng?: number | null): string | null => {
+    if (!distanceOrigin || !Number.isFinite(lat as number) || !Number.isFinite(lng as number)) return null;
+    if ((lat as number) === 0 && (lng as number) === 0) return null;
+    const km = haversineKm({ lat: lat as number, lng: lng as number }, distanceOrigin);
+    return formatDistanceMiles(km);
+  }, [distanceOrigin, formatDistanceMiles]);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   // Becomes true once the Mapbox `load` event has fired so consumers (e.g.
@@ -1372,6 +1489,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // Any explicit "search the map" action exits the focus-only view so
     // normal discover behaviour resumes.
     if (isFocusOnlyRef.current) setIsFocusOnly(false);
+    // NB: callers that represent an explicit user re-search (the
+    // "Search this area" pill, the panel empty-state button, etc.) clear
+    // the typed-location distance anchor themselves. fetchNearby itself
+    // does NOT clear it, because it's also invoked automatically right
+    // after the user picks a location from the location-search dropdown.
     setIsSearching(true);
     setShowSearchHere(false);
     try {
@@ -1395,7 +1517,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // Add expert overlay markers in the visible area
       setTimeout(() => addExpertOverlayRef.current?.(), 100);
       tabDataCache.discoverPlaces = sorted;
-      tabDataCache.discoverTs = Date.now();
+      tabDataCache.discoverLoaded = true;
     } catch (err) {
       console.error('Places search failed:', err);
     } finally {
@@ -1557,6 +1679,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // marker for the restaurant the user came from).
     map.on('load', () => {
       setMapReady(true);
+      // Seed the map-centre state so distance calculations work before the
+      // user pans for the first time.
+      const c0 = map.getCenter();
+      setMapCenter({ lat: c0.lat, lng: c0.lng });
       if (isFocusOnlyRef.current && initialFocus) {
         // Build a PlaceResult from the focus payload so the bottom sheet
         // card has all the info it needs.
@@ -1582,8 +1708,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         setSheetState('peek');
         return;
       }
-      const hasCachedPlaces = tabDataCache.discoverPlaces.length > 0 && (Date.now() - tabDataCache.discoverTs) < TAB_CACHE_TTL;
-      if (hasCachedPlaces) {
+      // Session cache: if we've already loaded discover places earlier in
+      // this session, just paint the markers — don't fire a fresh API call
+      // when the user returns to the Map page from another tab.
+      if (tabDataCache.discoverLoaded) {
         syncMarkers(tabDataCache.discoverPlaces);
         setTimeout(() => addExpertOverlayRef.current?.(), 100);
       } else {
@@ -1593,27 +1721,45 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     // Show "Search this area" button immediately on pan-end — no debounce,
     // we want the pill visible the moment the user stops dragging.
-    map.on('moveend', () => {
+    map.on('moveend', (e) => {
+      // Mapbox fires `moveend` for both human gestures (drag, wheel-zoom,
+      // pinch) and programmatic camera moves (easeTo / flyTo / fitBounds).
+      // Everything below should only fire on real human moves —
+      // otherwise clicking a marker (which programmatically re-centres
+      // the map) would collapse the anchor onto the marker and pop the
+      // "Search this area" pill. Mapbox helps us tell them apart:
+      // `originalEvent` is the underlying DOM event on user moves, and
+      // is null/undefined on programmatic ones.
+      const userInitiated = !!(e as { originalEvent?: unknown })?.originalEvent;
+      if (!userInitiated) return;
+      const c = map.getCenter();
+      setMapCenter({ lat: c.lat, lng: c.lng });
+      const ref = referenceLocationRef.current;
+      if (ref) {
+        const dKm = haversineKm({ lat: c.lat, lng: c.lng }, { lat: ref.lat, lng: ref.lng });
+        if (dKm > REFERENCE_CLEAR_RADIUS_MILES * 1.60934) {
+          setReferenceLocation(null);
+        }
+      }
       if (isFocusOnlyRef.current) return; // no fresh searches in focus-only view
       if (mapModeRef.current !== 'discover' && mapModeRef.current !== 'hotels') return;
-      if (isMarkerSelectedRef.current) return;
       if (fetchTimeoutRef.current) { clearTimeout(fetchTimeoutRef.current); fetchTimeoutRef.current = null; }
       setShowSearchHere(true);
     });
 
-    // Click on map background or drag clears popup
+    // Click on the map background clears the selection. Marker click
+    // handlers call e.stopPropagation(), so a real marker hit never
+    // reaches this listener — meaning any click that does reach it
+    // genuinely came from empty map and should dismiss the detail
+    // panel on the first try.
     const clearPopup = () => {
-      // Skip clearing if a marker was just clicked (set in marker click handlers)
-      if (isMarkerSelectedRef.current) {
-        isMarkerSelectedRef.current = false;
-        return;
-      }
       if (popupRef.current) {
         popupRef.current.remove();
         popupRef.current = null;
       }
       setSelectedMarker(null);
       setSelectedPlace(null);
+      isMarkerSelectedRef.current = false;
     };
     const clearOnDrag = () => {
       if (popupRef.current) {
@@ -1627,16 +1773,36 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     map.on('click', clearPopup);
     map.on('dragstart', clearOnDrag);
 
+    // The desktop sidebar expands on hover and collapses on leave, which
+    // changes the map container's width. Mapbox doesn't track container
+    // size on its own, so watch the container and trigger a resize on
+    // every change — otherwise the canvas keeps its previous size and
+    // leaves a blank strip where the sidebar used to be.
+    const container = mapContainerRef.current;
+    const ro = new ResizeObserver(() => { mapRef.current?.resize(); });
+    ro.observe(container);
+    const onWindowResize = () => { mapRef.current?.resize(); };
+    window.addEventListener('resize', onWindowResize);
+
     return () => {
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+      ro.disconnect();
+      window.removeEventListener('resize', onWindowResize);
       map.remove();
       mapRef.current = null;
       setMapReady(false);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update marker styles when selection changes
+  // Update marker styles when selection changes. We have three different
+  // marker pools (discover places by id, ratings markers in a flat array,
+  // hotels), and each has its own visual language; the discover marker
+  // swaps to a filled primary pin while the ratings markers keep their
+  // score-coloured ring but get an extra primary glow + slight scale so
+  // the picked one is obviously the active one. The map's z-index is
+  // bumped too so the selected pin draws above its neighbours.
   useEffect(() => {
+    // Discover-mode pin markers (id-keyed map)
     Object.entries(markersRef.current).forEach(([id, marker]) => {
       const el = marker.getElement();
       const pin = el.querySelector('.marker-pin') as HTMLElement;
@@ -1654,6 +1820,24 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         svg.setAttribute('stroke', isSelected ? 'white' : 'currentColor');
         svg.setAttribute('fill', isSelected ? 'white' : 'none');
       }
+      el.style.zIndex = isSelected ? '5' : '';
+    });
+    // Ratings markers (myratings / friends / experts) — flat array, each
+    // marker carries data-place-id. The hover handlers on these markers
+    // mutate `transform` on mouseenter/leave, so the selection state
+    // sticks to box-shadow + z-index (which the hover code never touches)
+    // — that way the picked marker stays visually called-out even after
+    // the cursor leaves it.
+    customMarkersRef.current.forEach((marker) => {
+      const el = marker.getElement();
+      const id = el.dataset.placeId;
+      const inner = el.querySelector('.marker-pin') as HTMLElement | null;
+      if (!inner) return;
+      const isSelected = !!id && id === selectedMarker;
+      inner.style.boxShadow = isSelected
+        ? '0 0 0 5px rgba(159, 48, 18, 0.22), 0 6px 16px rgba(0,0,0,0.28)'
+        : '0 2px 10px rgba(0,0,0,0.15)';
+      el.style.zIndex = isSelected ? '10' : '';
     });
   }, [selectedMarker]);
 
@@ -1728,6 +1912,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setLocationResults([]);
     setLocationSearchOpen(false);
     setSearchLocationBias({ lat, lng });
+    // Lock the distance anchor to the typed location so card distances are
+    // measured from where the user actually searched, not the map centre.
+    // Also seed mapCenter to the same point so that — should the anchor
+    // ever be cleared later — the fallback already reflects the area the
+    // user is exploring.
+    setReferenceLocation({ lat, lng, name });
+    setMapCenter({ lat, lng });
     const map = mapRef.current;
     if (map) {
       map.flyTo({ center: [lng, lat], zoom: 14, duration: 1500 });
@@ -1811,6 +2002,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const center = map.getCenter();
       const results = await searchHotels('hotels', center.lat, center.lng);
       setHotelPlaces(results);
+      tabDataCache.hotelPlaces = results;
+      tabDataCache.hotelsLoaded = true;
     } catch (err) {
       console.error('Hotel search failed:', err);
     } finally {
@@ -2024,16 +2217,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     })();
   }, [mapMode, expertRatings, friendRatings]);
 
-  // Fetch hotels when entering hotels mode
+  // Fetch hotels when entering hotels mode — but only the first time in
+  // this session. Returning to the tab after navigating away reuses the
+  // cached results and skips the API call entirely.
   useEffect(() => {
     if (isFocusOnly) return; // focus-only view never pulls extra markers
-    if (mapMode === 'hotels' && hotelPlaces.length === 0) fetchHotels();
+    if (mapMode === 'hotels' && !tabDataCache.hotelsLoaded) fetchHotels();
   }, [mapMode, isFocusOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch friends' public home meals when entering recipes mode. Loads lazily
-  // the first time the tab is opened and refreshes every time it's re-opened.
+  // Fetch friends' public home meals when entering recipes mode. Loads
+  // lazily the first time the tab is opened in a session; subsequent
+  // visits reuse the cached list rather than re-firing the API call.
   useEffect(() => {
     if (mapMode !== 'recipes' || !userId) return;
+    if (tabDataCache.friendRecipesLoaded) return;
     let cancelled = false;
     setFriendRecipesLoading(true);
     (async () => {
@@ -2042,19 +2239,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         const friendIds = friends.map((f) => f.friend_id);
         if (friendIds.length === 0) {
           if (!cancelled) setFriendRecipes([]);
+          tabDataCache.friendRecipes = [];
+          tabDataCache.recipeAuthorProfiles = {};
+          tabDataCache.friendRecipesLoaded = true;
           return;
         }
         const meals = await getFriendsPublicHomeMeals(friendIds);
         if (cancelled) return;
         meals.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
         setFriendRecipes(meals);
+        tabDataCache.friendRecipes = meals;
         // Pull author profiles so we can show names on cards.
         const uniqueAuthors = Array.from(new Set(meals.map((m) => m.userId)));
+        let profiles: Record<string, UserProfile> = {};
         if (uniqueAuthors.length > 0) {
-          const profiles = await getProfilesByIds(uniqueAuthors);
+          profiles = await getProfilesByIds(uniqueAuthors);
           if (cancelled) return;
           setRecipeAuthorProfiles(profiles);
         }
+        tabDataCache.recipeAuthorProfiles = profiles;
+        tabDataCache.friendRecipesLoaded = true;
       } catch (err) {
         console.warn('[Map] friend recipes fetch failed:', err);
       } finally {
@@ -2197,8 +2401,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       }
 
       el.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;`;
+      el.dataset.placeId = r.restaurant_id;
       const inner = document.createElement('div');
-      inner.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:white;border:${borderStyle};box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
+      inner.className = 'marker-pin';
+      inner.dataset.placeId = r.restaurant_id;
+      inner.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:white;border:${borderStyle};box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease, box-shadow 0.2s ease;`;
       inner.innerHTML = iconHtml;
       el.appendChild(inner);
       el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
@@ -2228,8 +2435,766 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
   }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles, isWishlisted, isFocusOnly]);
 
+  // ── Desktop map panel: helpers, derived data, and JSX ──
+  // The panel replaces the bottom-sheet pop-up on wide viewports. It owns
+  // the same modes as the sheet but renders everything in a single-column
+  // list with no thumbnail slots, instead emphasising name + meta + score.
+  // Marker clicks select an inline "detail" view rather than spawning a
+  // floating card over the map.
+  const PANEL_MODE_TABS: Array<{
+    id: 'discover' | 'myratings' | 'friends' | 'experts';
+    label: string;
+    icon: typeof Star;
+  }> = [
+    { id: 'discover', label: 'Discover', icon: Sparkles },
+    { id: 'myratings', label: 'My Ratings', icon: Star },
+    { id: 'friends', label: 'Friends', icon: Users },
+    { id: 'experts', label: 'Experts', icon: Star },
+  ];
+  const activePanelMode = PANEL_MODE_TABS.find((t) => t.id === mapMode) ?? PANEL_MODE_TABS[0];
+
+  // Score → green/amber/red colour bucket used by every list card.
+  const scoreColors = (s: number) => s >= 8
+    ? { bg: 'bg-green-50', border: 'border-green-100', text: 'text-green-700', tint: 'text-green-700/60' }
+    : s >= 5
+      ? { bg: 'bg-amber-50', border: 'border-amber-100', text: 'text-amber-700', tint: 'text-amber-700/60' }
+      : { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-600', tint: 'text-red-600/60' };
+
+  // Optional client-side name filter applied on top of every mode list so
+  // the search input feels alive across tabs (the discover-mode API search
+  // still runs independently via the existing handleSearch effect).
+  const panelTextQ = searchQuery.trim().toLowerCase();
+  const matchesPanelQ = useCallback((name: string) => !panelTextQ || name.toLowerCase().includes(panelTextQ), [panelTextQ]);
+
+  const panelMyRatings = useMemo(() => filteredMyRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredMyRatings, matchesPanelQ]);
+  const panelFriendRatings = useMemo(() => filteredFriendRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredFriendRatings, matchesPanelQ]);
+  const panelExpertRatings = useMemo(() => filteredExpertRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredExpertRatings, matchesPanelQ]);
+  const panelHotelPlaces = useMemo(() => filteredHotelPlaces.filter((p) => matchesPanelQ(p.name)), [filteredHotelPlaces, matchesPanelQ]);
+  const panelDiscoverPlaces = useMemo(() => places.filter((p) => matchesPanelQ(p.name)), [places, matchesPanelQ]);
+  const panelRecipes = useMemo(() => friendRecipes.filter((m) => matchesPanelQ(m.name || '')), [friendRecipes, matchesPanelQ]);
+
+  const panelResultCount =
+    mapMode === 'discover' ? panelDiscoverPlaces.length
+    : mapMode === 'myratings' ? panelMyRatings.length
+    : mapMode === 'friends' ? panelFriendRatings.length
+    : mapMode === 'experts' ? panelExpertRatings.length
+    : mapMode === 'hotels' ? panelHotelPlaces.length
+    : mapMode === 'recipes' ? panelRecipes.length
+    : 0;
+
+  // Click handler shared by every list row: pan the map, light up the
+  // marker, and switch the panel to the inline detail view.
+  const focusPanelPlace = useCallback((place: PlaceResult) => {
+    isMarkerSelectedRef.current = true;
+    setSelectedPlace(place);
+    setSelectedMarker(place.id);
+    setSheetState('peek');
+    const map = mapRef.current;
+    if (map) {
+      // Zoom into the place so the marker is the obvious centre of
+      // attention. Only zoom IN — if the user is already closer than
+      // street level we keep their current zoom rather than yanking
+      // them back out.
+      const targetZoom = Math.max(map.getZoom(), 15.5);
+      map.easeTo({ center: [place.lng, place.lat], zoom: targetZoom, duration: 700 });
+    }
+  }, []);
+  const focusPanelRating = useCallback((r: CommunityRating) => {
+    const place = ratingToPlace(r);
+    if (!place) return;
+    focusPanelPlace(place);
+  }, [focusPanelPlace]);
+
+  // Clear the inline detail and return the panel body to the list.
+  const closePanelDetail = useCallback(() => {
+    setSelectedPlace(null);
+    setSelectedMarker(null);
+    isMarkerSelectedRef.current = false;
+  }, []);
+
+  // Tiny <ItemMeta /> piece used inside every card so cuisine · price ·
+  // city reads consistently across modes. Cuisine is the visual accent —
+  // rendered in a vivid red so it lifts off the rest of the muted meta.
+  const renderItemMetaLine = (cuisine?: string | null, price?: string | null, city?: string | null) => (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 mt-1 text-[12.5px]">
+      {cuisine && <span className="text-primary font-semibold tracking-tight">{cuisine}</span>}
+      {cuisine && price && <span className="text-on-surface/25">·</span>}
+      {price && <span className="text-on-surface/55 font-semibold tabular-nums">{price}</span>}
+      {(cuisine || price) && city && <span className="text-on-surface/25">·</span>}
+      {city && <span className="text-on-surface/50 truncate">{city}</span>}
+    </div>
+  );
+
+  // Tiny hover affordance: a Rate (+) and Wishlist (♥) button pair that
+  // fades in at the bottom-right of every restaurant card. Rendered as a
+  // <div> so the click target around the card can stay a <div role="button">
+  // (nested <button> elements would be invalid HTML).
+  const renderCardHoverActions = (rest: { id: string; name: string; image: string; cuisine: string; price: string; address: string; lat?: number; lng?: number }) => {
+    const fav = isWishlisted(rest.id);
+    return (
+      <div className="absolute bottom-2.5 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 z-10">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); openRatingModal(rest); }}
+          className="w-8 h-8 rounded-full bg-surface border border-on-surface/10 flex items-center justify-center hover:bg-on-surface/[0.05] hover:border-on-surface/20 shadow-sm shadow-on-surface/5 transition-all"
+          aria-label={`Rate ${rest.name}`}
+          title="Rate"
+        >
+          <Plus size={14} className="text-on-surface/75" />
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); toggleWishlist(rest); }}
+          className={cn(
+            "w-8 h-8 rounded-full border flex items-center justify-center transition-all shadow-sm",
+            fav ? "border-red-200 bg-red-50 text-red-500 shadow-red-100/40" : "bg-surface border-on-surface/10 hover:bg-on-surface/[0.05] hover:border-on-surface/20 text-on-surface/75 shadow-on-surface/5",
+          )}
+          aria-label={fav ? `Remove ${rest.name} from wishlist` : `Save ${rest.name} to wishlist`}
+          title={fav ? 'Saved' : 'Save'}
+        >
+          <Heart size={13} className={fav ? "fill-current" : ""} />
+        </button>
+      </div>
+    );
+  };
+
+  // Tiny pill that shows distance under the meta line on every card.
+  const renderDistanceRow = (lat?: number | null, lng?: number | null, extra?: React.ReactNode) => {
+    const dist = distanceFromAnchor(lat, lng);
+    if (!dist && !extra) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-1.5 text-[11.5px]">
+        {dist && (
+          <span className="inline-flex items-center gap-1 text-on-surface/60 font-semibold">
+            <MapPin size={10.5} className="text-on-surface/40" />
+            <span className="tabular-nums">{dist}</span>
+          </span>
+        )}
+        {dist && extra && <span className="text-on-surface/20">·</span>}
+        {extra}
+      </div>
+    );
+  };
+
+  // Score chip — used on every ratings card. Stacked numeric + "/10".
+  const renderScoreChip = (s: number) => {
+    const c = scoreColors(s);
+    return (
+      <div className={cn("flex flex-col items-center justify-center flex-shrink-0 rounded-xl px-2.5 py-1.5 self-start border", c.bg, c.border)}>
+        <span className={cn("text-[16px] font-bold font-serif tabular-nums leading-none", c.text)}>{s.toFixed(1)}</span>
+        <span className={cn("text-[8.5px] font-bold uppercase tracking-wider mt-0.5", c.tint)}>/ 10</span>
+      </div>
+    );
+  };
+
+  const panelEmptyMessage = (() => {
+    if (mapMode === 'myratings') return activeFilterCount > 0 || panelTextQ ? 'No ratings match these filters.' : 'No rated restaurants yet.';
+    if (mapMode === 'friends') return activeFilterCount > 0 || panelTextQ ? 'No friend ratings match these filters.' : 'No friend ratings yet.';
+    if (mapMode === 'experts') return activeFilterCount > 0 || panelTextQ ? 'No expert ratings match these filters.' : 'No expert ratings yet.';
+    if (mapMode === 'hotels') return hotelsLoading ? 'Searching hotels…' : (activeFilterCount > 0 || panelTextQ ? 'No hotels match these filters.' : 'No hotels in this area yet.');
+    if (mapMode === 'recipes') return friendRecipesLoading ? 'Loading recipes…' : 'No recipes from friends yet.';
+    return isSearching ? 'Searching…' : (panelTextQ ? 'No restaurants match your search.' : 'Pan the map and hit "Search this area".');
+  })();
+
+  // Cards: plain text rows separated by hairline dividers. Hover reveals
+  // a Rate + Wishlist button pair anchored to the bottom-right corner.
+  const renderRatingCard = (r: CommunityRating, opts: { extra?: React.ReactNode } = {}) => {
+    const s = Number(r.score) || 0;
+    const city = extractCityState(r.address || '', r.address || '');
+    const selected = selectedMarker === r.restaurant_id;
+    const restData = { id: r.restaurant_id, name: r.restaurant_name, image: r.photo_url || '', cuisine: r.cuisine || '', price: r.price || '', address: r.address || '', lat: r.lat ?? undefined, lng: r.lng ?? undefined };
+    return (
+      <div
+        key={r.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => focusPanelRating(r)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusPanelRating(r); } }}
+        className={cn(
+          "group relative cursor-pointer px-4 py-4 pr-3 transition-colors outline-none focus-visible:bg-on-surface/[0.04]",
+          selected ? "bg-primary/[0.05]" : "hover:bg-on-surface/[0.025]",
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-serif font-bold text-[15.5px] leading-tight text-on-surface truncate">{r.restaurant_name}</h3>
+            {renderItemMetaLine(r.cuisine, r.price, city)}
+            {renderDistanceRow(r.lat, r.lng, opts.extra)}
+          </div>
+          {renderScoreChip(s)}
+        </div>
+        {renderCardHoverActions(restData)}
+      </div>
+    );
+  };
+
+  const renderPlaceCard = (p: PlaceResult) => {
+    const cuisine = getCuisineLabel(p.types);
+    const price = p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '';
+    const city = extractCityState(p.fullAddress || '', p.address || '');
+    const myScore = userRatingMap[p.id];
+    const expertR = expertRatings.find((r) => r.restaurant_id === p.id);
+    const friendCount = friendRatings.filter((r) => r.restaurant_id === p.id).length;
+    const selected = selectedMarker === p.id;
+    const restData = { id: p.id, name: p.name, image: p.photoUrl || '', cuisine, price, address: p.fullAddress || p.address, lat: p.lat, lng: p.lng };
+    const extra = (myScore !== undefined || expertR || friendCount > 0) ? (
+      <span className="inline-flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+        {myScore !== undefined && (
+          <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
+            <Star size={10} className="fill-on-surface/65 text-on-surface/65" /> You rated {myScore.toFixed(1)}
+          </span>
+        )}
+        {expertR && (
+          <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
+            <Star size={10} className="fill-amber-500 text-amber-500" /> Expert pick
+          </span>
+        )}
+        {friendCount > 0 && (
+          <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
+            <Users size={10} /> {friendCount} friend{friendCount === 1 ? '' : 's'}
+          </span>
+        )}
+      </span>
+    ) : undefined;
+    return (
+      <div
+        key={p.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => focusPanelPlace(p)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusPanelPlace(p); } }}
+        className={cn(
+          "group relative cursor-pointer px-4 py-4 pr-3 transition-colors outline-none focus-visible:bg-on-surface/[0.04]",
+          selected ? "bg-primary/[0.05]" : "hover:bg-on-surface/[0.025]",
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-serif font-bold text-[15.5px] leading-tight text-on-surface truncate">{p.name}</h3>
+            {renderItemMetaLine(cuisine, price, city)}
+            {renderDistanceRow(p.lat, p.lng, extra)}
+          </div>
+          {p.rating > 0 && (
+            <div className="flex items-center gap-1 self-start mt-1 flex-shrink-0 text-[12.5px] font-semibold text-on-surface/65">
+              <Star size={12} className="fill-amber-500 text-amber-500" />
+              <span className="tabular-nums">{p.rating.toFixed(1)}</span>
+            </div>
+          )}
+        </div>
+        {renderCardHoverActions(restData)}
+      </div>
+    );
+  };
+
+  const renderHotelCard = (p: PlaceResult) => {
+    const city = extractCityState(p.fullAddress || '', p.address || '');
+    const price = p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '';
+    const selected = selectedMarker === p.id;
+    const restData = { id: p.id, name: p.name, image: p.photoUrl || '', cuisine: 'Hotel', price, address: p.fullAddress || p.address, lat: p.lat, lng: p.lng };
+    const extra = p.rating > 0 ? (
+      <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
+        <Star size={10.5} className="fill-amber-500 text-amber-500" />
+        <span className="tabular-nums">{p.rating.toFixed(1)}</span>
+        {p.userRatingCount > 0 && <span className="text-on-surface/40 font-normal">· {p.userRatingCount.toLocaleString()} reviews</span>}
+      </span>
+    ) : undefined;
+    return (
+      <div
+        key={p.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => focusPanelPlace(p)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusPanelPlace(p); } }}
+        className={cn(
+          "group relative cursor-pointer px-4 py-4 pr-3 transition-colors outline-none focus-visible:bg-on-surface/[0.04]",
+          selected ? "bg-teal-50/70" : "hover:bg-on-surface/[0.025]",
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-serif font-bold text-[15.5px] leading-tight text-on-surface truncate">{p.name}</h3>
+            <div className="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12.5px]">
+              <span className="text-teal-700 font-semibold tracking-tight">Hotel</span>
+              {price && <span className="text-on-surface/25">·</span>}
+              {price && <span className="text-on-surface/55 font-semibold tabular-nums">{price}</span>}
+              {city && <span className="text-on-surface/25">·</span>}
+              {city && <span className="text-on-surface/50 truncate">{city}</span>}
+            </div>
+            {renderDistanceRow(p.lat, p.lng, extra)}
+          </div>
+        </div>
+        {renderCardHoverActions(restData)}
+      </div>
+    );
+  };
+
+  const renderRecipeCard = (m: FriendHomeMeal) => {
+    const author = recipeAuthorProfiles[m.userId];
+    const authorName = author?.display_name || author?.username || 'A friend';
+    return (
+      <div
+        key={m.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => navigate(`/meal/${m.userId}/${m.id}`)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/meal/${m.userId}/${m.id}`); } }}
+        className="cursor-pointer px-4 py-4 transition-colors hover:bg-on-surface/[0.025] outline-none focus-visible:bg-on-surface/[0.04]"
+      >
+        <h3 className="font-serif font-bold text-[15.5px] leading-tight text-on-surface truncate">{m.name || 'Untitled meal'}</h3>
+        <div className="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12.5px] text-on-surface/55">
+          <span>by {authorName}</span>
+          {(m.prepTime || m.cookTime) && (
+            <>
+              <span className="text-on-surface/25">·</span>
+              <span className="inline-flex items-center gap-1"><Clock size={10.5} /> {((m.prepTime || 0) + (m.cookTime || 0))} min</span>
+            </>
+          )}
+          {m.difficulty && (
+            <>
+              <span className="text-on-surface/25">·</span>
+              <span className="capitalize text-on-surface/50">{m.difficulty}</span>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Driving + walking legs for the detail view. Fetched lazily from the
+  // Mapbox Directions API the first time a particular origin → place pair
+  // is opened, then served from the module-level cache for the rest of
+  // the session. The cache is keyed by rounded coords so different
+  // markers in the same building don't each trigger their own request.
+  const [routeLegs, setRouteLegs] = useState<{ driving: RouteLeg | null; walking: RouteLeg | null; loading: boolean } | null>(null);
+  useEffect(() => {
+    if (!isDesktopMapMode || !selectedPlace || !distanceOrigin || !MAPBOX_TOKEN) { setRouteLegs(null); return; }
+    if (!Number.isFinite(selectedPlace.lat) || !Number.isFinite(selectedPlace.lng)) { setRouteLegs(null); return; }
+    const origin = { lat: distanceOrigin.lat, lng: distanceOrigin.lng };
+    const dest = { lat: selectedPlace.lat, lng: selectedPlace.lng };
+    const dKey = routeKey('driving', origin, dest);
+    const wKey = routeKey('walking', origin, dest);
+    if (routeCache.has(dKey) && routeCache.has(wKey)) {
+      setRouteLegs({ driving: routeCache.get(dKey) ?? null, walking: routeCache.get(wKey) ?? null, loading: false });
+      return;
+    }
+    let cancelled = false;
+    setRouteLegs({ driving: null, walking: null, loading: true });
+    Promise.all([
+      fetchMapboxLeg('driving', origin, dest, MAPBOX_TOKEN),
+      fetchMapboxLeg('walking', origin, dest, MAPBOX_TOKEN),
+    ]).then(([driving, walking]) => {
+      if (cancelled) return;
+      setRouteLegs({ driving, walking, loading: false });
+    });
+    return () => { cancelled = true; };
+  }, [isDesktopMapMode, selectedPlace, distanceOrigin]);
+
+  // Pretty "12 min" / "1 h 5 min" formatter for route durations.
+  const formatRouteDuration = (seconds: number): string => {
+    const m = Math.max(1, Math.round(seconds / 60));
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem === 0 ? `${h} h` : `${h} h ${rem} min`;
+  };
+
+  // Inline detail view shown when a marker / list row is selected.
+  // Inline detail view shown when a marker / list row is selected. The
+  // map-page detail reuses the same RestaurantPanelBody that powers the
+  // reel-tap restaurant pop-up, just with the map hero stripped out
+  // (noHero) so it composes cleanly inside the results panel. The map
+  // page's distance + driving + walking strip is injected as the
+  // headSlot so it sits above the popup's standard action row.
+  const renderPanelDetail = (place: PlaceResult) => {
+    const cuisine = getCuisineLabel(place.types);
+    const price = place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '';
+    const fav = isWishlisted(place.id);
+    const restData = {
+      id: place.id,
+      name: place.name,
+      image: place.photoUrl || '',
+      cuisine,
+      price,
+      address: place.fullAddress || place.address || '',
+      lat: place.lat ?? undefined,
+      lng: place.lng ?? undefined,
+    };
+    const distMi = distanceOrigin && Number.isFinite(place.lat) && Number.isFinite(place.lng) && !(place.lat === 0 && place.lng === 0)
+      ? haversineKm({ lat: place.lat, lng: place.lng }, distanceOrigin) * 0.621371
+      : undefined;
+    const snapshot: RestaurantPanelSnapshot = {
+      id: place.id,
+      name: place.name,
+      cuisine,
+      price,
+      address: place.fullAddress || place.address || '',
+      image: place.photoUrl || undefined,
+      score: place.rating > 0 ? place.rating : undefined,
+      distanceMi: distMi,
+    };
+
+    // Distance + driving + walking durations. Rendered as inline meta on
+    // the title row rather than as a separate card so the top of the
+    // panel reads as one tight header block.
+    const dist = distanceFromAnchor(place.lat, place.lng);
+    const driving = routeLegs?.driving;
+    const walking = routeLegs?.walking;
+    const routesLoading = routeLegs?.loading;
+
+    const topChrome = (
+      <div className="px-5 pt-4 pb-4">
+        {/* Back arrow + wishlist heart. Heart is a soft circle that stays
+            visible whether or not the place is saved (the fill carries
+            the state). */}
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={closePanelDetail}
+            className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
+          >
+            <ChevronLeft size={14} />
+            Back to {activePanelMode.label}
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleWishlist(restData)}
+            aria-label={fav ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={fav}
+            className={cn(
+              "w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
+              fav ? "border-red-200 bg-red-50/70 text-red-500" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
+            )}
+            title={fav ? 'Saved' : 'Save'}
+          >
+            <Heart size={15} className={fav ? "fill-current" : ""} />
+          </button>
+        </div>
+
+        {/* Single header block: name + a flowing meta row that carries
+            cuisine, price, distance and the two route durations. */}
+        <h1 className="font-serif font-bold text-[24px] leading-[1.15] tracking-tight text-on-surface mt-3">
+          {place.name}
+        </h1>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[12.5px] text-on-surface/65">
+          {cuisine && <span className="font-semibold text-primary tracking-tight">{cuisine}</span>}
+          {cuisine && price && <span className="text-on-surface/25">·</span>}
+          {price && <span className="font-semibold tabular-nums">{price}</span>}
+          {dist && (
+            <>
+              {(cuisine || price) && <span className="text-on-surface/25">·</span>}
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <MapPin size={11} className="text-on-surface/45" />
+                {dist}
+              </span>
+            </>
+          )}
+          {driving && (
+            <>
+              <span className="text-on-surface/25">·</span>
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <Navigation size={11} className="text-on-surface/45" />
+                {formatRouteDuration(driving.durationSeconds)} drive
+              </span>
+            </>
+          )}
+          {walking && (
+            <>
+              <span className="text-on-surface/25">·</span>
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <Footprints size={11} className="text-on-surface/45" />
+                {formatRouteDuration(walking.durationSeconds)} walk
+              </span>
+            </>
+          )}
+          {routesLoading && !driving && !walking && (
+            <>
+              <span className="text-on-surface/25">·</span>
+              <span className="inline-flex items-center gap-1 text-on-surface/45">
+                <Loader2 size={11} className="animate-spin" />
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+    );
+
+    return (
+      <div className="h-full flex flex-col">
+        <RestaurantPanelBody
+          snapshot={snapshot}
+          onClose={closePanelDetail}
+          currentUserId={userId}
+          noHero
+          topChrome={topChrome}
+        />
+      </div>
+    );
+  };
+
+  const desktopPanel = isDesktopMapMode ? (
+    <motion.aside
+      initial={false}
+      animate={{ width: mapPanelWidth }}
+      transition={isResizingPanel ? { duration: 0 } : { type: 'spring', damping: 30, stiffness: 260, mass: 0.7 }}
+      style={{ width: mapPanelWidth }}
+      className="relative flex-shrink-0 h-screen bg-surface flex flex-col z-20"
+      aria-label="Map results panel"
+    >
+      {/* === HEADER === */}
+      {/* When a place is selected the title row + mode tabs + separator
+          collapse so only the search bar remains. The detail view's
+          own top chrome (back arrow, name, meta row) takes their place
+          and everything beneath shifts up smoothly. */}
+      <div className="flex-shrink-0">
+        <AnimatePresence initial={false}>
+          {!selectedPlace && (
+            <motion.div
+              key="panel-title-row"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="px-5 pt-5 pb-2 flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-serif font-bold text-[20px] text-on-surface leading-tight truncate">
+                    {activePanelMode.label}
+                  </h2>
+                  <p className="text-[11.5px] font-medium text-on-surface/45 mt-0.5 tabular-nums">
+                    {panelResultCount === 0 ? 'No results' : `${panelResultCount} ${panelResultCount === 1 ? 'result' : 'results'}`}
+                    {activeFilterCount > 0 && <span> · {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}</span>}
+                    {referenceLocation?.name && (
+                      <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-px rounded-md bg-primary/[0.08] text-primary text-[10px] font-bold uppercase tracking-wider align-middle">
+                        <MapPin size={9} /> {referenceLocation.name.split(',')[0]}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFilterSheetOpen(true)}
+                  className="relative w-10 h-10 rounded-full border border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-on-surface/[0.04] hover:border-on-surface/15 transition-colors"
+                  aria-label="Filters"
+                  title="Filters"
+                >
+                  <SlidersHorizontal size={15} className="text-on-surface/65" />
+                  {activeFilterCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Search bar — always visible. Its top padding animates so that
+            with the title collapsed it lifts itself off the top edge of
+            the panel by a comfortable amount. */}
+        <motion.div
+          className="px-5 pb-3"
+          animate={{ paddingTop: selectedPlace ? 16 : 8 }}
+          transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+        >
+          <div className="relative">
+            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => {
+                if (mapMode === 'discover') {
+                  preSearchPlacesRef.current = places;
+                  setDiscoverSearchActive(true);
+                }
+              }}
+              placeholder={mapMode === 'discover' ? 'Search this area…' : 'Filter results…'}
+              className="w-full pl-9 pr-9 py-2.5 rounded-full border border-on-surface/10 bg-on-surface/[0.025] text-[13px] font-medium placeholder:text-on-surface/35 focus:outline-none focus:border-primary/40 focus:bg-surface focus:ring-2 focus:ring-primary/10 transition-all"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  if (mapMode === 'discover' && discoverSearchActive) {
+                    setDiscoverSearchActive(false);
+                    if (preSearchPlacesRef.current.length > 0) {
+                      setPlaces(preSearchPlacesRef.current);
+                      syncMarkersRef.current?.(preSearchPlacesRef.current);
+                    }
+                  }
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-on-surface/[0.08] flex items-center justify-center hover:bg-on-surface/[0.15] transition-colors"
+                aria-label="Clear search"
+              >
+                <X size={11} className="text-on-surface/55" />
+              </button>
+            )}
+          </div>
+        </motion.div>
+
+        <AnimatePresence initial={false}>
+          {!selectedPlace && (
+            <motion.div
+              key="panel-mode-tabs"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="px-5 pb-4">
+                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                  {PANEL_MODE_TABS.map((m) => {
+                    const active = mapMode === m.id;
+                    const Icon = m.icon;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => { setMapMode(m.id); closePanelDetail(); }}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-bold transition-all whitespace-nowrap flex-shrink-0",
+                          active
+                            ? "bg-on-surface text-surface shadow-sm shadow-on-surface/15"
+                            : "bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.08] hover:text-on-surface/85",
+                        )}
+                      >
+                        <Icon size={12.5} className={(m.id === 'experts' && active) ? "fill-current" : ""} />
+                        <span>{m.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="h-px bg-gradient-to-r from-transparent via-on-surface/[0.07] to-transparent" />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* === BODY === */}
+      {/* List mode scrolls the outer wrapper; detail mode lets the
+          embedded RestaurantPanelBody own its own scroll so the
+          collapsible "Your rating" / hours / photos sections feel
+          like the reel popup. */}
+      <div className={cn("flex-1 min-h-0", !selectedPlace && "overflow-y-auto overscroll-contain")}>
+        <AnimatePresence mode="wait" initial={false}>
+          {selectedPlace ? (
+            <motion.div
+              key="detail"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="h-full flex flex-col"
+            >
+              {renderPanelDetail(selectedPlace)}
+            </motion.div>
+          ) : (
+            <motion.div
+              key={`list-${mapMode}`}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="pt-1 pb-10"
+            >
+              {panelResultCount === 0 ? (
+                <div className="px-4 py-14 text-center">
+                  <p className="text-[13px] text-on-surface/45 leading-snug">{panelEmptyMessage}</p>
+                  {mapMode === 'discover' && !panelTextQ && !isSearching && (
+                    <button
+                      type="button"
+                      onClick={() => { setReferenceLocation(null); fetchNearby(); }}
+                      className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-bold text-primary hover:text-primary/80 transition-colors"
+                    >
+                      <RefreshCw size={12} /> Search this area
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="divide-y divide-on-surface/[0.06]">
+                  {mapMode === 'myratings' && panelMyRatings.map((r) => renderRatingCard(r))}
+                  {mapMode === 'friends' && panelFriendRatings.map((r) => {
+                    const prof = friendProfiles[r.user_id];
+                    const name = prof?.display_name || 'Friend';
+                    const initial = name.charAt(0).toUpperCase();
+                    return renderRatingCard(r, {
+                      extra: (
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <span className="w-4 h-4 rounded-full bg-primary/10 text-[8.5px] font-bold text-primary flex items-center justify-center flex-shrink-0">{initial}</span>
+                          <span className="text-[11.5px] text-on-surface/55 truncate">{name}</span>
+                        </div>
+                      ),
+                    });
+                  })}
+                  {mapMode === 'experts' && panelExpertRatings.map((r) => {
+                    const expProf = expertProfiles[r.user_id];
+                    const expName = expProf?.display_name || 'Expert';
+                    return renderRatingCard(r, {
+                      extra: (
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <Star size={10} className="fill-amber-500 text-amber-500 flex-shrink-0" />
+                          <span className="text-[11.5px] font-semibold text-amber-700 truncate">{expName}</span>
+                        </div>
+                      ),
+                    });
+                  })}
+                  {mapMode === 'hotels' && panelHotelPlaces.map((p) => renderHotelCard(p))}
+                  {mapMode === 'discover' && panelDiscoverPlaces.map((p) => renderPlaceCard(p))}
+                  {mapMode === 'recipes' && panelRecipes.map((m) => renderRecipeCard(m))}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* === Resize handle (right edge) === */}
+      <button
+        type="button"
+        onPointerDown={startPanelResize}
+        aria-label="Resize results panel"
+        title="Drag to resize"
+        className="group absolute top-0 right-0 h-full w-2 cursor-col-resize z-30 flex items-center justify-center"
+        style={{ touchAction: 'none' }}
+      >
+        <span
+          className={cn(
+            "block w-px h-full bg-on-surface/[0.07] transition-colors",
+            "group-hover:bg-primary/40",
+            isResizingPanel && "bg-primary/70",
+          )}
+        />
+        <span
+          className={cn(
+            "absolute h-14 w-1 rounded-full bg-on-surface/15 transition-all duration-200",
+            "group-hover:bg-primary/60 group-hover:h-20 group-hover:w-1.5",
+            isResizingPanel && "bg-primary h-24 w-1.5 shadow-lg shadow-primary/30",
+          )}
+        />
+      </button>
+    </motion.aside>
+  ) : null;
+
   return (
-    <div className="relative h-screen w-full overflow-hidden bg-muted">
+    <div className={cn(
+      "relative h-screen w-full overflow-hidden bg-muted",
+      // Desktop map mode lays out as a horizontal flex row so the new
+      // results sidebar takes the left strip and the map fills the rest.
+      isDesktopMapMode && "flex",
+    )}>
+      {/* Desktop map results sidebar — draggable width, replaces the
+          bottom sheet pop-up on wide viewports. */}
+      {desktopPanel}
+      {/* On desktop the map + floating chrome live inside an inner
+          flex-1 column so they sit beside the sidebar; on mobile the
+          inner div collapses (`display:contents`) so absolute children
+          still position against the page wrapper as before. */}
+      <div className={isDesktopMapMode ? "relative flex-1 min-w-0 h-full overflow-hidden" : "contents"}>
       {/* Real Mapbox Map — rendered only when this is the Map page */}
       {mode !== 'home' && (
         <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
@@ -2243,7 +3208,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ type: 'spring', damping: 26, stiffness: 380 }}
-            onClick={() => { setShowSearchHere(false); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
+            onClick={() => { setShowSearchHere(false); setReferenceLocation(null); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
             className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2 text-sm font-medium text-on-surface hover:shadow-lg transition-shadow"
           >
             <Search size={15} className={mapMode === 'hotels' ? "text-teal-600" : "text-primary"} />
@@ -2874,9 +3839,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         })()}
       </AnimatePresence>
 
-      {/* Selected Place Card — above bottom sheet */}
+      {/* Selected Place Card — above the bottom sheet. On the desktop
+          map page the side panel renders an inline detail view instead,
+          so this floating card is suppressed for that surface. */}
       <AnimatePresence mode="wait">
-        {selectedPlace && sheetState === 'peek' && (() => {
+        {selectedPlace && sheetState === 'peek' && !isDesktopMapMode && (() => {
           const isRatingsMode = mapMode === 'myratings' || mapMode === 'friends' || mapMode === 'experts';
           const historyIdx = navHistory.indexOf(selectedPlace.id);
           // Arrows can always navigate as long as there's more than one place —
@@ -3134,7 +4101,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         })()}
       </AnimatePresence>
 
-      {/* Bottom Sheet — tri-state: peek / half / full */}
+      {/* Bottom Sheet — tri-state: peek / half / full. Desktop map mode
+          replaces this with the left-side panel rendered above; on every
+          other surface (home page on any width, map page on phone / phone
+          frame preview) the bottom sheet still owns the chrome. */}
+      {!isDesktopMapMode && (
       <motion.div
         ref={sheetRef}
         animate={{ y: getSheetY(sheetState) }}
@@ -3802,28 +4773,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   <Star size={16} className={mapMode === 'experts' ? "text-white fill-white" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">Experts</span>
                 </button>
-
-                <button
-                  onClick={() => setMapMode(mapMode === 'hotels' ? 'discover' : 'hotels')}
-                  className={cn(
-                    "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'hotels' ? "bg-teal-600 border-teal-600 text-white shadow-sm shadow-teal-600/20" : "border-on-surface/10 hover:bg-muted"
-                  )}
-                >
-                  <Building2 size={16} className={mapMode === 'hotels' ? "text-white" : "text-on-surface/50"} />
-                  <span className="text-xs font-bold uppercase tracking-wider">Hotels</span>
-                </button>
-
-                <button
-                  onClick={() => setMapMode(mapMode === 'recipes' ? 'discover' : 'recipes')}
-                  className={cn(
-                    "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'recipes' ? "bg-emerald-600 border-emerald-600 text-white shadow-sm shadow-emerald-600/20" : "border-on-surface/10 hover:bg-muted"
-                  )}
-                >
-                  <ChefHat size={16} className={mapMode === 'recipes' ? "text-white" : "text-on-surface/50"} />
-                  <span className="text-xs font-bold uppercase tracking-wider">Recipes</span>
-                </button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -4290,7 +5239,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         </>
         )}
       </motion.div>
+      )}
 
+      </div>{/* inner map-area wrapper (contents on mobile, flex-1 on desktop) */}
     </div>
   );
 };
