@@ -23,6 +23,7 @@ import {
 } from '../lib/recommendations';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { RestaurantCard } from '../components/RestaurantCard';
+import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { SocialFeed } from '../components/SocialFeed';
 import { TopBar } from '../components/TopBar';
 import {
@@ -2762,207 +2763,133 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   };
 
   // Inline detail view shown when a marker / list row is selected.
+  // Inline detail view shown when a marker / list row is selected. The
+  // map-page detail reuses the same RestaurantPanelBody that powers the
+  // reel-tap restaurant pop-up, just with the map hero stripped out
+  // (noHero) so it composes cleanly inside the results panel. The map
+  // page's distance + driving + walking strip is injected as the
+  // headSlot so it sits above the popup's standard action row.
   const renderPanelDetail = (place: PlaceResult) => {
     const cuisine = getCuisineLabel(place.types);
     const price = place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '';
-    const myR = myRatings.find((r) => r.restaurant_id === place.id);
-    const friendRs = friendRatings.filter((r) => r.restaurant_id === place.id);
-    const expertR = expertRatings.find((r) => r.restaurant_id === place.id);
     const fav = isWishlisted(place.id);
-    const restData = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address };
-    return (
-      <div className="px-5 pt-4 pb-10 space-y-6">
+    const restData = {
+      id: place.id,
+      name: place.name,
+      image: place.photoUrl || '',
+      cuisine,
+      price,
+      address: place.fullAddress || place.address || '',
+      lat: place.lat ?? undefined,
+      lng: place.lng ?? undefined,
+    };
+    const distMi = distanceOrigin && Number.isFinite(place.lat) && Number.isFinite(place.lng) && !(place.lat === 0 && place.lng === 0)
+      ? haversineKm({ lat: place.lat, lng: place.lng }, distanceOrigin) * 0.621371
+      : undefined;
+    const snapshot: RestaurantPanelSnapshot = {
+      id: place.id,
+      name: place.name,
+      cuisine,
+      price,
+      address: place.fullAddress || place.address || '',
+      image: place.photoUrl || undefined,
+      score: place.rating > 0 ? place.rating : undefined,
+      distanceMi: distMi,
+    };
+
+    const topChrome = (
+      <div className="px-5 pt-4 pb-3 flex items-center justify-between gap-3">
         <button
           type="button"
           onClick={closePanelDetail}
-          className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1"
+          className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
         >
           <ChevronLeft size={14} />
           Back to {activePanelMode.label}
         </button>
-
-        <div className="space-y-2">
-          <h1 className="font-serif font-bold text-[26px] leading-[1.15] text-on-surface">{place.name}</h1>
-          {(cuisine || price) && (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-on-surface/65">
-              {cuisine && <span>{cuisine}</span>}
-              {cuisine && price && <span className="text-on-surface/25">·</span>}
-              {price && <span className="font-semibold tabular-nums">{price}</span>}
-            </div>
+        <button
+          type="button"
+          onClick={() => toggleWishlist(restData)}
+          aria-label={fav ? 'Remove from wishlist' : 'Save to wishlist'}
+          aria-pressed={fav}
+          className={cn(
+            "w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
+            fav ? "border-red-200 bg-red-50/70 text-red-500" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
           )}
-          {(place.fullAddress || place.address) && (
-            <div className="flex items-start gap-1.5 text-[13px] text-on-surface/55 pt-0.5">
-              <MapPin size={13} className="text-on-surface/35 mt-0.5 flex-shrink-0" />
-              <span className="leading-snug">{place.fullAddress || place.address}</span>
+          title={fav ? 'Saved' : 'Save'}
+        >
+          <Heart size={15} className={fav ? "fill-current" : ""} />
+        </button>
+      </div>
+    );
+
+    // Distance + driving + walking card. Mirrors the visual language of
+    // the popup's score chips. The popup itself doesn't have a routing
+    // section, so we slot ours at the top of the body via headSlot.
+    const dist = distanceFromAnchor(place.lat, place.lng);
+    const driving = routeLegs?.driving;
+    const walking = routeLegs?.walking;
+    const loading = routeLegs?.loading;
+    const headSlot = (dist || routeLegs) ? (
+      <div className="rounded-2xl border border-on-surface/[0.08] overflow-hidden bg-on-surface/[0.015]">
+        <div className="px-4 pt-3 pb-2 flex items-baseline justify-between gap-2">
+          <div>
+            <div className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/55">
+              From {referenceLocation?.name ? referenceLocation.name : 'map centre'}
             </div>
-          )}
+            {dist && <div className="text-[20px] font-bold font-serif tabular-nums text-on-surface mt-0.5 leading-tight">{dist}</div>}
+          </div>
+          <MapPin size={14} className="text-on-surface/35 self-center" />
         </div>
-
-        {/* Distance + driving + walking. Distance is the haversine line
-            from the current anchor; driving and walking come from the
-            Mapbox Directions API and are cached for the session. */}
-        {(() => {
-          const dist = distanceFromAnchor(place.lat, place.lng);
-          if (!dist && !routeLegs) return null;
-          const driving = routeLegs?.driving;
-          const walking = routeLegs?.walking;
-          const loading = routeLegs?.loading;
-          return (
-            <div className="rounded-2xl border border-on-surface/8 overflow-hidden bg-on-surface/[0.015]">
-              <div className="px-4 pt-3 pb-2 flex items-baseline justify-between gap-2">
-                <div>
-                  <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45">From {referenceLocation?.name ? referenceLocation.name : 'map centre'}</div>
-                  {dist && <div className="text-[20px] font-bold font-serif tabular-nums text-on-surface mt-0.5 leading-tight">{dist}</div>}
-                </div>
-                <MapPin size={14} className="text-on-surface/35 self-center" />
-              </div>
-              <div className="grid grid-cols-2 divide-x divide-on-surface/[0.07] border-t border-on-surface/[0.06] bg-surface">
-                <div className="px-4 py-2.5">
-                  <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 flex items-center gap-1">
-                    <Navigation size={10} /> Driving
-                  </div>
-                  <div className="mt-0.5">
-                    {loading ? (
-                      <span className="inline-flex items-center gap-1.5 text-[13px] text-on-surface/45"><Loader2 size={11} className="animate-spin" /> …</span>
-                    ) : driving ? (
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-[15px] font-bold font-serif tabular-nums text-on-surface leading-none">{formatRouteDuration(driving.durationSeconds)}</span>
-                        <span className="text-[11px] text-on-surface/45 tabular-nums">{formatDistanceMiles(driving.distanceMeters / 1000)}</span>
-                      </div>
-                    ) : (
-                      <span className="text-[12.5px] text-on-surface/35">—</span>
-                    )}
-                  </div>
-                </div>
-                <div className="px-4 py-2.5">
-                  <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 flex items-center gap-1">
-                    <Footprints size={10} /> Walking
-                  </div>
-                  <div className="mt-0.5">
-                    {loading ? (
-                      <span className="inline-flex items-center gap-1.5 text-[13px] text-on-surface/45"><Loader2 size={11} className="animate-spin" /> …</span>
-                    ) : walking ? (
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="text-[15px] font-bold font-serif tabular-nums text-on-surface leading-none">{formatRouteDuration(walking.durationSeconds)}</span>
-                        <span className="text-[11px] text-on-surface/45 tabular-nums">{formatDistanceMiles(walking.distanceMeters / 1000)}</span>
-                      </div>
-                    ) : (
-                      <span className="text-[12.5px] text-on-surface/35">—</span>
-                    )}
-                  </div>
-                </div>
-              </div>
+        <div className="grid grid-cols-2 divide-x divide-on-surface/[0.07] border-t border-on-surface/[0.06] bg-surface">
+          <div className="px-4 py-2.5">
+            <div className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/55 flex items-center gap-1">
+              <Navigation size={10} /> Driving
             </div>
-          );
-        })()}
-
-        {(myR || friendRs.length > 0 || expertR || place.rating > 0) && (
-          <div className="grid grid-cols-2 gap-3">
-            {myR && (
-              <div className="rounded-2xl border border-on-surface/8 px-4 py-3">
-                <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 mb-1.5">My rating</div>
-                <div className="flex items-baseline gap-1">
-                  <span className={cn("text-[24px] font-bold font-serif tabular-nums leading-none", scoreColors(Number(myR.score)).text)}>{Number(myR.score).toFixed(1)}</span>
-                  <span className="text-[11.5px] text-on-surface/40">/ 10</span>
+            <div className="mt-0.5">
+              {loading ? (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-on-surface/45"><Loader2 size={11} className="animate-spin" /> …</span>
+              ) : driving ? (
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[15px] font-bold font-serif tabular-nums text-on-surface leading-none">{formatRouteDuration(driving.durationSeconds)}</span>
+                  <span className="text-[11px] text-on-surface/45 tabular-nums">{formatDistanceMiles(driving.distanceMeters / 1000)}</span>
                 </div>
-              </div>
-            )}
-            {expertR && (
-              <div className="rounded-2xl border border-amber-100 bg-amber-50/40 px-4 py-3">
-                <div className="text-[10.5px] font-bold uppercase tracking-wider text-amber-700/75 mb-1.5 flex items-center gap-1"><Star size={9} className="fill-amber-500 text-amber-500" /> Expert</div>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-[24px] font-bold font-serif tabular-nums leading-none text-amber-700">{Number(expertR.score).toFixed(1)}</span>
-                  <span className="text-[11.5px] text-amber-700/60">/ 10</span>
-                </div>
-              </div>
-            )}
-            {friendRs.length > 0 && (
-              <div className="rounded-2xl border border-on-surface/8 px-4 py-3">
-                <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 mb-1.5">Friends</div>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-[24px] font-bold font-serif tabular-nums leading-none text-on-surface">{(friendRs.reduce((acc, r) => acc + (Number(r.score) || 0), 0) / friendRs.length).toFixed(1)}</span>
-                  <span className="text-[11.5px] text-on-surface/40">avg · {friendRs.length}</span>
-                </div>
-              </div>
-            )}
-            {place.rating > 0 && (
-              <div className="rounded-2xl border border-on-surface/8 px-4 py-3">
-                <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 mb-1.5">Community</div>
-                <div className="flex items-baseline gap-1">
-                  <Star size={14} className="fill-amber-500 text-amber-500 self-center" />
-                  <span className="text-[22px] font-bold font-serif tabular-nums leading-none text-on-surface">{place.rating.toFixed(1)}</span>
-                  {place.userRatingCount > 0 && <span className="text-[11px] text-on-surface/40">· {place.userRatingCount.toLocaleString()}</span>}
-                </div>
-              </div>
-            )}
+              ) : (
+                <span className="text-[12.5px] text-on-surface/35">—</span>
+              )}
+            </div>
           </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate(`/restaurant/${place.id}`)}
-            className="flex-1 min-w-0 px-4 py-3 rounded-full bg-on-surface text-surface font-bold text-[13px] hover:bg-on-surface/85 transition-colors shadow-sm"
-          >
-            Open page
-          </button>
-          <button
-            type="button"
-            onClick={() => openAddRestaurantModal(restData)}
-            className="w-11 h-11 rounded-full border border-on-surface/10 flex items-center justify-center hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
-            aria-label="Add to a list"
-            title="Add to a list"
-          >
-            <Plus size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={() => toggleWishlist(restData)}
-            className={cn(
-              "w-11 h-11 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
-              fav ? "border-red-200 bg-red-50/60 text-red-500" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
-            )}
-            aria-label="Wishlist"
-            title="Save to wishlist"
-          >
-            <Heart size={15} className={fav ? "fill-current" : ""} />
-          </button>
+          <div className="px-4 py-2.5">
+            <div className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/55 flex items-center gap-1">
+              <Footprints size={10} /> Walking
+            </div>
+            <div className="mt-0.5">
+              {loading ? (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-on-surface/45"><Loader2 size={11} className="animate-spin" /> …</span>
+              ) : walking ? (
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[15px] font-bold font-serif tabular-nums text-on-surface leading-none">{formatRouteDuration(walking.durationSeconds)}</span>
+                  <span className="text-[11px] text-on-surface/45 tabular-nums">{formatDistanceMiles(walking.distanceMeters / 1000)}</span>
+                </div>
+              ) : (
+                <span className="text-[12.5px] text-on-surface/35">—</span>
+              )}
+            </div>
+          </div>
         </div>
+      </div>
+    ) : null;
 
-        {/* Expert / friend quotes */}
-        {(expertR || friendRs.length > 0) && (
-          <div className="space-y-3">
-            {expertR && (
-              <div className="rounded-2xl border border-amber-100/80 bg-amber-50/40 px-4 py-3">
-                <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-amber-700/85 mb-1.5">
-                  <Star size={10} className="fill-amber-500 text-amber-500" />
-                  Expert pick · {expertProfiles[expertR.user_id]?.display_name || 'Expert'}
-                </div>
-                {expertR.notes && <p className="text-[13px] leading-snug text-on-surface/75">"{expertR.notes}"</p>}
-              </div>
-            )}
-            {friendRs.slice(0, 3).map((fr) => {
-              const prof = friendProfiles[fr.user_id];
-              const name = prof?.display_name || 'Friend';
-              const s = Number(fr.score) || 0;
-              const c = scoreColors(s);
-              return (
-                <div key={fr.id} className="flex items-start gap-2.5 px-4 py-3 rounded-2xl border border-on-surface/8">
-                  <div className="w-7 h-7 rounded-full bg-on-surface/[0.06] flex items-center justify-center text-[11px] font-bold text-on-surface/70 flex-shrink-0">
-                    {name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[12.5px] font-bold text-on-surface truncate">{name}</span>
-                      <span className={cn("text-[11.5px] font-bold font-serif tabular-nums", c.text)}>{s.toFixed(1)}</span>
-                    </div>
-                    {fr.notes && <p className="text-[12.5px] leading-snug text-on-surface/65 mt-0.5">{fr.notes}</p>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+    return (
+      <div className="h-full flex flex-col">
+        <RestaurantPanelBody
+          snapshot={snapshot}
+          onClose={closePanelDetail}
+          currentUserId={userId}
+          noHero
+          topChrome={topChrome}
+          headSlot={headSlot}
+        />
       </div>
     );
   };
@@ -3075,7 +3002,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       </div>
 
       {/* === BODY === */}
-      <div className="flex-1 overflow-y-auto overscroll-contain">
+      {/* List mode scrolls the outer wrapper; detail mode lets the
+          embedded RestaurantPanelBody own its own scroll so the
+          collapsible "Your rating" / hours / photos sections feel
+          like the reel popup. */}
+      <div className={cn("flex-1 min-h-0", !selectedPlace && "overflow-y-auto overscroll-contain")}>
         <AnimatePresence mode="wait" initial={false}>
           {selectedPlace ? (
             <motion.div
@@ -3084,6 +3015,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -8 }}
               transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="h-full flex flex-col"
             >
               {renderPanelDetail(selectedPlace)}
             </motion.div>

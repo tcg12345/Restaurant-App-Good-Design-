@@ -221,11 +221,26 @@ const RatingDetailRow: React.FC<{
 
 /* ── Body (shared between sheet + panel) ──────────────────────────────── */
 
-const RestaurantPanelBody: React.FC<{
+export const RestaurantPanelBody: React.FC<{
   snapshot: RestaurantPanelSnapshot;
   onClose: () => void;
   currentUserId: string | null;
-}> = ({ snapshot, onClose, currentUserId }) => {
+  /** When true the map hero is omitted entirely so the body can be
+   *  embedded inside another panel (e.g. the Map page's results sidebar)
+   *  that already has its own header. The scroll container and all the
+   *  body sections stay identical so the embedded surface reads as
+   *  "the same panel, minus the map". */
+  noHero?: boolean;
+  /** Optional sticky header rendered above the scrollable body when
+   *  noHero is true. Used by embedded callers to slot in a back arrow,
+   *  wishlist toggle, etc. */
+  topChrome?: React.ReactNode;
+  /** Optional content rendered at the top of the scrollable body, above
+   *  the Directions / Call / Website action row. Lets embedded callers
+   *  inject extra sections (e.g. a distance + routing card) without
+   *  re-implementing the rest of the body. */
+  headSlot?: React.ReactNode;
+}> = ({ snapshot, onClose, currentUserId, noHero, topChrome, headSlot }) => {
   const {
     getRating,
     isWishlisted,
@@ -420,6 +435,12 @@ const RestaurantPanelBody: React.FC<{
 
   return (
     <>
+      {/* Embedded callers (noHero) supply their own header chrome — a
+          back arrow, wishlist toggle, etc. — pinned above the scroll
+          area. The standard panel/sheet renders the map hero instead. */}
+      {noHero && topChrome && (
+        <div className="flex-shrink-0">{topChrome}</div>
+      )}
       {/* Header — map hero (or fallback photo/gradient) that collapses on
           scroll. The OUTER wrapper changes height to drive the layout
           effect, but the media layer inside is pinned to a fixed 204px
@@ -427,6 +448,7 @@ const RestaurantPanelBody: React.FC<{
           (resizing the canvas every scroll tick is what caused the
           glitchy collapse — the parent shrinks, the media clips
           smoothly underneath). */}
+      {!noHero && (
       <motion.div
         className="relative flex-shrink-0 w-full bg-cream-2 overflow-hidden"
         style={{ height: heroHeight, willChange: 'height' }}
@@ -543,6 +565,7 @@ const RestaurantPanelBody: React.FC<{
           style={{ opacity: bottomLineOpacity }}
         />
       </motion.div>
+      )}
 
       {/* Scrollable body — scrollRef drives the hero collapse above. */}
       <div
@@ -550,6 +573,7 @@ const RestaurantPanelBody: React.FC<{
         className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6"
         style={{ overscrollBehavior: 'contain' }}
       >
+        {headSlot}
         {/* Action row — Directions / Call / Website */}
         <div className="grid grid-cols-3 gap-2">
           <ActionButton
