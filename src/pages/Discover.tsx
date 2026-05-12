@@ -1488,9 +1488,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // Any explicit "search the map" action exits the focus-only view so
     // normal discover behaviour resumes.
     if (isFocusOnlyRef.current) setIsFocusOnly(false);
-    // An explicit re-search drops the typed-location distance anchor so
-    // distances reflect the area the user is now searching.
-    setReferenceLocation(null);
+    // NB: callers that represent an explicit user re-search (the
+    // "Search this area" pill, the panel empty-state button, etc.) clear
+    // the typed-location distance anchor themselves. fetchNearby itself
+    // does NOT clear it, because it's also invoked automatically right
+    // after the user picks a location from the location-search dropdown.
     setIsSearching(true);
     setShowSearchHere(false);
     try {
@@ -1718,17 +1720,25 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
     // Show "Search this area" button immediately on pan-end — no debounce,
     // we want the pill visible the moment the user stops dragging.
-    map.on('moveend', () => {
-      // Keep the reactive map-centre in sync so distance calculations
-      // refresh as the user pans. Also drop the typed-location override
-      // once they've panned far away from it.
-      const c = map.getCenter();
-      setMapCenter({ lat: c.lat, lng: c.lng });
-      const ref = referenceLocationRef.current;
-      if (ref) {
-        const dKm = haversineKm({ lat: c.lat, lng: c.lng }, { lat: ref.lat, lng: ref.lng });
-        if (dKm > REFERENCE_CLEAR_RADIUS_MILES * 1.60934) {
-          setReferenceLocation(null);
+    map.on('moveend', (e) => {
+      // Mapbox fires `moveend` for both human gestures (drag, wheel-zoom,
+      // pinch) and programmatic camera moves (easeTo / flyTo / fitBounds).
+      // Distance-anchor bookkeeping must ONLY react to the human moves —
+      // otherwise clicking a marker (which programmatically re-centres
+      // the map on that marker) would collapse the anchor onto the
+      // marker, making every distance read as "<0.1 mi". Mapbox helps
+      // us tell them apart: `originalEvent` is the underlying DOM event
+      // on user moves, and is null/undefined on programmatic ones.
+      const userInitiated = !!(e as { originalEvent?: unknown })?.originalEvent;
+      if (userInitiated) {
+        const c = map.getCenter();
+        setMapCenter({ lat: c.lat, lng: c.lng });
+        const ref = referenceLocationRef.current;
+        if (ref) {
+          const dKm = haversineKm({ lat: c.lat, lng: c.lng }, { lat: ref.lat, lng: ref.lng });
+          if (dKm > REFERENCE_CLEAR_RADIUS_MILES * 1.60934) {
+            setReferenceLocation(null);
+          }
         }
       }
       if (isFocusOnlyRef.current) return; // no fresh searches in focus-only view
@@ -1880,7 +1890,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setSearchLocationBias({ lat, lng });
     // Lock the distance anchor to the typed location so card distances are
     // measured from where the user actually searched, not the map centre.
+    // Also seed mapCenter to the same point so that — should the anchor
+    // ever be cleared later — the fallback already reflects the area the
+    // user is exploring.
     setReferenceLocation({ lat, lng, name });
+    setMapCenter({ lat, lng });
     const map = mapRef.current;
     if (map) {
       map.flyTo({ center: [lng, lat], zoom: 14, duration: 1500 });
@@ -3092,7 +3106,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   {mapMode === 'discover' && !panelTextQ && !isSearching && (
                     <button
                       type="button"
-                      onClick={() => fetchNearby()}
+                      onClick={() => { setReferenceLocation(null); fetchNearby(); }}
                       className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-bold text-primary hover:text-primary/80 transition-colors"
                     >
                       <RefreshCw size={12} /> Search this area
@@ -3192,7 +3206,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ type: 'spring', damping: 26, stiffness: 380 }}
-            onClick={() => { setShowSearchHere(false); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
+            onClick={() => { setShowSearchHere(false); setReferenceLocation(null); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
             className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2 text-sm font-medium text-on-surface hover:shadow-lg transition-shadow"
           >
             <Search size={15} className={mapMode === 'hotels' ? "text-teal-600" : "text-primary"} />
