@@ -2905,39 +2905,63 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       aria-label="Map results panel"
     >
       {/* === HEADER === */}
+      {/* When a place is selected the title row + mode tabs + separator
+          collapse so only the search bar remains. The detail view's
+          own top chrome (back arrow, name, meta row) takes their place
+          and everything beneath shifts up smoothly. */}
       <div className="flex-shrink-0">
-        <div className="px-5 pt-5 pb-2 flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="font-serif font-bold text-[20px] text-on-surface leading-tight truncate">
-              {activePanelMode.label}
-            </h2>
-            <p className="text-[11.5px] font-medium text-on-surface/45 mt-0.5 tabular-nums">
-              {panelResultCount === 0 ? 'No results' : `${panelResultCount} ${panelResultCount === 1 ? 'result' : 'results'}`}
-              {activeFilterCount > 0 && <span> · {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}</span>}
-              {referenceLocation?.name && (
-                <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-px rounded-md bg-primary/[0.08] text-primary text-[10px] font-bold uppercase tracking-wider align-middle">
-                  <MapPin size={9} /> {referenceLocation.name.split(',')[0]}
-                </span>
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFilterSheetOpen(true)}
-            className="relative w-10 h-10 rounded-full border border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-on-surface/[0.04] hover:border-on-surface/15 transition-colors"
-            aria-label="Filters"
-            title="Filters"
-          >
-            <SlidersHorizontal size={15} className="text-on-surface/65" />
-            {activeFilterCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-        </div>
+        <AnimatePresence initial={false}>
+          {!selectedPlace && (
+            <motion.div
+              key="panel-title-row"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="px-5 pt-5 pb-2 flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-serif font-bold text-[20px] text-on-surface leading-tight truncate">
+                    {activePanelMode.label}
+                  </h2>
+                  <p className="text-[11.5px] font-medium text-on-surface/45 mt-0.5 tabular-nums">
+                    {panelResultCount === 0 ? 'No results' : `${panelResultCount} ${panelResultCount === 1 ? 'result' : 'results'}`}
+                    {activeFilterCount > 0 && <span> · {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}</span>}
+                    {referenceLocation?.name && (
+                      <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-px rounded-md bg-primary/[0.08] text-primary text-[10px] font-bold uppercase tracking-wider align-middle">
+                        <MapPin size={9} /> {referenceLocation.name.split(',')[0]}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFilterSheetOpen(true)}
+                  className="relative w-10 h-10 rounded-full border border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-on-surface/[0.04] hover:border-on-surface/15 transition-colors"
+                  aria-label="Filters"
+                  title="Filters"
+                >
+                  <SlidersHorizontal size={15} className="text-on-surface/65" />
+                  {activeFilterCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        <div className="px-5 pt-2 pb-3">
+        {/* Search bar — always visible. Its top padding animates so that
+            with the title collapsed it lifts itself off the top edge of
+            the panel by a comfortable amount. */}
+        <motion.div
+          className="px-5 pb-3"
+          animate={{ paddingTop: selectedPlace ? 16 : 8 }}
+          transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+        >
           <div className="relative">
             <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none" />
             <input
@@ -2973,33 +2997,46 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </button>
             )}
           </div>
-        </div>
+        </motion.div>
 
-        <div className="px-5 pb-4">
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
-            {PANEL_MODE_TABS.map((m) => {
-              const active = mapMode === m.id;
-              const Icon = m.icon;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => { setMapMode(m.id); closePanelDetail(); }}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-bold transition-all whitespace-nowrap flex-shrink-0",
-                    active
-                      ? "bg-on-surface text-surface shadow-sm shadow-on-surface/15"
-                      : "bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.08] hover:text-on-surface/85",
-                  )}
-                >
-                  <Icon size={12.5} className={(m.id === 'experts' && active) ? "fill-current" : ""} />
-                  <span>{m.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="h-px bg-gradient-to-r from-transparent via-on-surface/[0.07] to-transparent" />
+        <AnimatePresence initial={false}>
+          {!selectedPlace && (
+            <motion.div
+              key="panel-mode-tabs"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="px-5 pb-4">
+                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
+                  {PANEL_MODE_TABS.map((m) => {
+                    const active = mapMode === m.id;
+                    const Icon = m.icon;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => { setMapMode(m.id); closePanelDetail(); }}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-bold transition-all whitespace-nowrap flex-shrink-0",
+                          active
+                            ? "bg-on-surface text-surface shadow-sm shadow-on-surface/15"
+                            : "bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.08] hover:text-on-surface/85",
+                        )}
+                      >
+                        <Icon size={12.5} className={(m.id === 'experts' && active) ? "fill-current" : ""} />
+                        <span>{m.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="h-px bg-gradient-to-r from-transparent via-on-surface/[0.07] to-transparent" />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* === BODY === */}
