@@ -2797,88 +2797,90 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       distanceMi: distMi,
     };
 
-    const topChrome = (
-      <div className="px-5 pt-4 pb-3 flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={closePanelDetail}
-          className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
-        >
-          <ChevronLeft size={14} />
-          Back to {activePanelMode.label}
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleWishlist(restData)}
-          aria-label={fav ? 'Remove from wishlist' : 'Save to wishlist'}
-          aria-pressed={fav}
-          className={cn(
-            "w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
-            fav ? "border-red-200 bg-red-50/70 text-red-500" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
-          )}
-          title={fav ? 'Saved' : 'Save'}
-        >
-          <Heart size={15} className={fav ? "fill-current" : ""} />
-        </button>
-      </div>
-    );
-
-    // Distance + driving + walking card. Mirrors the visual language of
-    // the popup's score chips. The popup itself doesn't have a routing
-    // section, so we slot ours at the top of the body via headSlot.
+    // Distance + driving + walking durations. Rendered as inline meta on
+    // the title row rather than as a separate card so the top of the
+    // panel reads as one tight header block.
     const dist = distanceFromAnchor(place.lat, place.lng);
     const driving = routeLegs?.driving;
     const walking = routeLegs?.walking;
-    const loading = routeLegs?.loading;
-    const headSlot = (dist || routeLegs) ? (
-      <div className="rounded-2xl border border-on-surface/[0.08] overflow-hidden bg-on-surface/[0.015]">
-        <div className="px-4 pt-3 pb-2 flex items-baseline justify-between gap-2">
-          <div>
-            <div className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/55">
-              From {referenceLocation?.name ? referenceLocation.name : 'map centre'}
-            </div>
-            {dist && <div className="text-[20px] font-bold font-serif tabular-nums text-on-surface mt-0.5 leading-tight">{dist}</div>}
-          </div>
-          <MapPin size={14} className="text-on-surface/35 self-center" />
+    const routesLoading = routeLegs?.loading;
+
+    const topChrome = (
+      <div className="px-5 pt-4 pb-4">
+        {/* Back arrow + wishlist heart. Heart is a soft circle that stays
+            visible whether or not the place is saved (the fill carries
+            the state). */}
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={closePanelDetail}
+            className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1 px-1 py-1 rounded-md"
+          >
+            <ChevronLeft size={14} />
+            Back to {activePanelMode.label}
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleWishlist(restData)}
+            aria-label={fav ? 'Remove from wishlist' : 'Save to wishlist'}
+            aria-pressed={fav}
+            className={cn(
+              "w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
+              fav ? "border-red-200 bg-red-50/70 text-red-500" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
+            )}
+            title={fav ? 'Saved' : 'Save'}
+          >
+            <Heart size={15} className={fav ? "fill-current" : ""} />
+          </button>
         </div>
-        <div className="grid grid-cols-2 divide-x divide-on-surface/[0.07] border-t border-on-surface/[0.06] bg-surface">
-          <div className="px-4 py-2.5">
-            <div className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/55 flex items-center gap-1">
-              <Navigation size={10} /> Driving
-            </div>
-            <div className="mt-0.5">
-              {loading ? (
-                <span className="inline-flex items-center gap-1.5 text-[13px] text-on-surface/45"><Loader2 size={11} className="animate-spin" /> …</span>
-              ) : driving ? (
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-[15px] font-bold font-serif tabular-nums text-on-surface leading-none">{formatRouteDuration(driving.durationSeconds)}</span>
-                  <span className="text-[11px] text-on-surface/45 tabular-nums">{formatDistanceMiles(driving.distanceMeters / 1000)}</span>
-                </div>
-              ) : (
-                <span className="text-[12.5px] text-on-surface/35">—</span>
-              )}
-            </div>
-          </div>
-          <div className="px-4 py-2.5">
-            <div className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/55 flex items-center gap-1">
-              <Footprints size={10} /> Walking
-            </div>
-            <div className="mt-0.5">
-              {loading ? (
-                <span className="inline-flex items-center gap-1.5 text-[13px] text-on-surface/45"><Loader2 size={11} className="animate-spin" /> …</span>
-              ) : walking ? (
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-[15px] font-bold font-serif tabular-nums text-on-surface leading-none">{formatRouteDuration(walking.durationSeconds)}</span>
-                  <span className="text-[11px] text-on-surface/45 tabular-nums">{formatDistanceMiles(walking.distanceMeters / 1000)}</span>
-                </div>
-              ) : (
-                <span className="text-[12.5px] text-on-surface/35">—</span>
-              )}
-            </div>
-          </div>
+
+        {/* Single header block: name + a flowing meta row that carries
+            cuisine, price, distance and the two route durations. */}
+        <h1 className="font-serif font-bold text-[24px] leading-[1.15] tracking-tight text-on-surface mt-3">
+          {place.name}
+        </h1>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[12.5px] text-on-surface/65">
+          {cuisine && <span className="font-semibold text-primary tracking-tight">{cuisine}</span>}
+          {cuisine && price && <span className="text-on-surface/25">·</span>}
+          {price && <span className="font-semibold tabular-nums">{price}</span>}
+          {dist && (
+            <>
+              {(cuisine || price) && <span className="text-on-surface/25">·</span>}
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <MapPin size={11} className="text-on-surface/45" />
+                {dist}
+              </span>
+            </>
+          )}
+          {driving && (
+            <>
+              <span className="text-on-surface/25">·</span>
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <Navigation size={11} className="text-on-surface/45" />
+                {formatRouteDuration(driving.durationSeconds)} drive
+              </span>
+            </>
+          )}
+          {walking && (
+            <>
+              <span className="text-on-surface/25">·</span>
+              <span className="inline-flex items-center gap-1 tabular-nums">
+                <Footprints size={11} className="text-on-surface/45" />
+                {formatRouteDuration(walking.durationSeconds)} walk
+              </span>
+            </>
+          )}
+          {routesLoading && !driving && !walking && (
+            <>
+              <span className="text-on-surface/25">·</span>
+              <span className="inline-flex items-center gap-1 text-on-surface/45">
+                <Loader2 size={11} className="animate-spin" />
+              </span>
+            </>
+          )}
         </div>
       </div>
-    ) : null;
+    );
 
     return (
       <div className="h-full flex flex-col">
@@ -2888,7 +2890,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
           currentUserId={userId}
           noHero
           topChrome={topChrome}
-          headSlot={headSlot}
         />
       </div>
     );
