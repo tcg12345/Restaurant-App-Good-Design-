@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -266,6 +266,39 @@ const tabDataCache: {
   friendRecipesLoaded: boolean;
 } = { userId: null, tabDataLoaded: false, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverLoaded: false, hotelPlaces: [], hotelsLoaded: false, friendRecipes: [], recipeAuthorProfiles: {}, friendRecipesLoaded: false };
 
+// Module-level cache of Mapbox Directions API results. Keyed by rounded
+// origin → destination so the same anchor + restaurant pair only ever
+// triggers one driving and one walking request per session.
+type RouteLeg = { distanceMeters: number; durationSeconds: number };
+const routeCache = new Map<string, RouteLeg | null>();
+const routeKey = (profile: 'driving' | 'walking', o: { lat: number; lng: number }, d: { lat: number; lng: number }) =>
+  `${profile}:${o.lat.toFixed(4)},${o.lng.toFixed(4)}->${d.lat.toFixed(4)},${d.lng.toFixed(4)}`;
+async function fetchMapboxLeg(
+  profile: 'driving' | 'walking',
+  origin: { lat: number; lng: number },
+  dest: { lat: number; lng: number },
+  token: string,
+): Promise<RouteLeg | null> {
+  const key = routeKey(profile, origin, dest);
+  if (routeCache.has(key)) return routeCache.get(key) ?? null;
+  if (!token) { routeCache.set(key, null); return null; }
+  const coords = `${origin.lng},${origin.lat};${dest.lng},${dest.lat}`;
+  const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coords}?access_token=${token}&overview=false&alternatives=false`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) { routeCache.set(key, null); return null; }
+    const data = await res.json();
+    const r = data?.routes?.[0];
+    if (!r) { routeCache.set(key, null); return null; }
+    const leg: RouteLeg = { distanceMeters: r.distance ?? 0, durationSeconds: r.duration ?? 0 };
+    routeCache.set(key, leg);
+    return leg;
+  } catch {
+    routeCache.set(key, null);
+    return null;
+  }
+}
+
 interface DiscoverProps {
   mode?: 'home' | 'map';
 }
@@ -328,7 +361,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }, [mapPanelWidth]);
-  const { openAddRestaurantModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
+  const { openAddRestaurantModal, openRatingModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
   const {
     friendRecipes: friendPublishedRecipes,
     expertRecipes: expertPublishedRecipes,
@@ -516,6 +549,41 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationInputRef = useRef<HTMLInputElement>(null);
   const [searchLocationBias, setSearchLocationBias] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Distance anchor: where every card / detail measures from.
+  // - When the user types a location in the location-search box, we lock the
+  //   anchor to that point ("typed override").
+  // - Otherwise the anchor is wherever the map is currently centred so the
+  //   distances stay roughly relevant as the user pans.
+  // - The override is cleared when the user (a) types a new location, (b)
+  //   hits "Search this area" / fetchNearby, or (c) pans the map farther
+  //   than REFERENCE_CLEAR_RADIUS_MILES from the typed point.
+  const REFERENCE_CLEAR_RADIUS_MILES = 15;
+  const [referenceLocation, setReferenceLocation] = useState<{ lat: number; lng: number; name?: string } | null>(null);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const referenceLocationRef = useRef(referenceLocation);
+  useEffect(() => { referenceLocationRef.current = referenceLocation; }, [referenceLocation]);
+  // The point distances are measured from. Falls back to the live map centre.
+  const distanceOrigin = useMemo(() => {
+    if (referenceLocation) return { lat: referenceLocation.lat, lng: referenceLocation.lng };
+    return mapCenter;
+  }, [referenceLocation, mapCenter]);
+
+  // Human-readable miles. Tiny distances collapse to "<0.1 mi" so we never
+  // render "0.0 mi" for places that share the anchor.
+  const formatDistanceMiles = useCallback((km: number): string => {
+    const mi = km * 0.621371;
+    if (!Number.isFinite(mi)) return '';
+    if (mi < 0.1) return '<0.1 mi';
+    if (mi < 10) return `${mi.toFixed(1)} mi`;
+    return `${Math.round(mi)} mi`;
+  }, []);
+  const distanceFromAnchor = useCallback((lat?: number | null, lng?: number | null): string | null => {
+    if (!distanceOrigin || !Number.isFinite(lat as number) || !Number.isFinite(lng as number)) return null;
+    if ((lat as number) === 0 && (lng as number) === 0) return null;
+    const km = haversineKm({ lat: lat as number, lng: lng as number }, distanceOrigin);
+    return formatDistanceMiles(km);
+  }, [distanceOrigin, formatDistanceMiles]);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   // Becomes true once the Mapbox `load` event has fired so consumers (e.g.
@@ -1420,6 +1488,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // Any explicit "search the map" action exits the focus-only view so
     // normal discover behaviour resumes.
     if (isFocusOnlyRef.current) setIsFocusOnly(false);
+    // An explicit re-search drops the typed-location distance anchor so
+    // distances reflect the area the user is now searching.
+    setReferenceLocation(null);
     setIsSearching(true);
     setShowSearchHere(false);
     try {
@@ -1605,6 +1676,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // marker for the restaurant the user came from).
     map.on('load', () => {
       setMapReady(true);
+      // Seed the map-centre state so distance calculations work before the
+      // user pans for the first time.
+      const c0 = map.getCenter();
+      setMapCenter({ lat: c0.lat, lng: c0.lng });
       if (isFocusOnlyRef.current && initialFocus) {
         // Build a PlaceResult from the focus payload so the bottom sheet
         // card has all the info it needs.
@@ -1644,6 +1719,18 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     // Show "Search this area" button immediately on pan-end — no debounce,
     // we want the pill visible the moment the user stops dragging.
     map.on('moveend', () => {
+      // Keep the reactive map-centre in sync so distance calculations
+      // refresh as the user pans. Also drop the typed-location override
+      // once they've panned far away from it.
+      const c = map.getCenter();
+      setMapCenter({ lat: c.lat, lng: c.lng });
+      const ref = referenceLocationRef.current;
+      if (ref) {
+        const dKm = haversineKm({ lat: c.lat, lng: c.lng }, { lat: ref.lat, lng: ref.lng });
+        if (dKm > REFERENCE_CLEAR_RADIUS_MILES * 1.60934) {
+          setReferenceLocation(null);
+        }
+      }
       if (isFocusOnlyRef.current) return; // no fresh searches in focus-only view
       if (mapModeRef.current !== 'discover' && mapModeRef.current !== 'hotels') return;
       if (isMarkerSelectedRef.current) return;
@@ -1791,6 +1878,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setLocationResults([]);
     setLocationSearchOpen(false);
     setSearchLocationBias({ lat, lng });
+    // Lock the distance anchor to the typed location so card distances are
+    // measured from where the user actually searched, not the map centre.
+    setReferenceLocation({ lat, lng, name });
     const map = mapRef.current;
     if (map) {
       map.flyTo({ center: [lng, lat], zoom: 14, duration: 1500 });
@@ -2376,16 +2466,68 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   }, []);
 
   // Tiny <ItemMeta /> piece used inside every card so cuisine · price ·
-  // city reads consistently across modes.
+  // city reads consistently across modes. Cuisine is the visual accent —
+  // rendered in a vivid red so it lifts off the rest of the muted meta.
   const renderItemMetaLine = (cuisine?: string | null, price?: string | null, city?: string | null) => (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 mt-1 text-[12px]">
-      {cuisine && <span className="text-on-surface/55">{cuisine}</span>}
-      {cuisine && price && <span className="text-on-surface/20">·</span>}
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 mt-1 text-[12.5px]">
+      {cuisine && <span className="text-red-600 font-semibold tracking-tight">{cuisine}</span>}
+      {cuisine && price && <span className="text-on-surface/25">·</span>}
       {price && <span className="text-on-surface/55 font-semibold tabular-nums">{price}</span>}
-      {(cuisine || price) && city && <span className="text-on-surface/20">·</span>}
-      {city && <span className="text-on-surface/45 truncate">{city}</span>}
+      {(cuisine || price) && city && <span className="text-on-surface/25">·</span>}
+      {city && <span className="text-on-surface/50 truncate">{city}</span>}
     </div>
   );
+
+  // Tiny hover affordance: a Rate (+) and Wishlist (♥) button pair that
+  // fades in at the bottom-right of every restaurant card. Rendered as a
+  // <div> so the click target around the card can stay a <div role="button">
+  // (nested <button> elements would be invalid HTML).
+  const renderCardHoverActions = (rest: { id: string; name: string; image: string; cuisine: string; price: string; address: string; lat?: number; lng?: number }) => {
+    const fav = isWishlisted(rest.id);
+    return (
+      <div className="absolute bottom-2.5 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 z-10">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); openRatingModal(rest); }}
+          className="w-8 h-8 rounded-full bg-surface border border-on-surface/10 flex items-center justify-center hover:bg-on-surface/[0.05] hover:border-on-surface/20 shadow-sm shadow-on-surface/5 transition-all"
+          aria-label={`Rate ${rest.name}`}
+          title="Rate"
+        >
+          <Plus size={14} className="text-on-surface/75" />
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); toggleWishlist(rest); }}
+          className={cn(
+            "w-8 h-8 rounded-full border flex items-center justify-center transition-all shadow-sm",
+            fav ? "border-red-200 bg-red-50 text-red-500 shadow-red-100/40" : "bg-surface border-on-surface/10 hover:bg-on-surface/[0.05] hover:border-on-surface/20 text-on-surface/75 shadow-on-surface/5",
+          )}
+          aria-label={fav ? `Remove ${rest.name} from wishlist` : `Save ${rest.name} to wishlist`}
+          title={fav ? 'Saved' : 'Save'}
+        >
+          <Heart size={13} className={fav ? "fill-current" : ""} />
+        </button>
+      </div>
+    );
+  };
+
+  // Tiny pill that shows distance under the meta line on every card.
+  const renderDistanceRow = (lat?: number | null, lng?: number | null, extra?: React.ReactNode) => {
+    const dist = distanceFromAnchor(lat, lng);
+    if (!dist && !extra) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-1.5 text-[11.5px]">
+        {dist && (
+          <span className="inline-flex items-center gap-1 text-on-surface/60 font-semibold">
+            <MapPin size={10.5} className="text-on-surface/40" />
+            <span className="tabular-nums">{dist}</span>
+          </span>
+        )}
+        {dist && extra && <span className="text-on-surface/20">·</span>}
+        {extra}
+      </div>
+    );
+  };
 
   // Score chip — used on every ratings card. Stacked numeric + "/10".
   const renderScoreChip = (s: number) => {
@@ -2407,30 +2549,35 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return isSearching ? 'Searching…' : (panelTextQ ? 'No restaurants match your search.' : 'Pan the map and hit "Search this area".');
   })();
 
-  // Cards: plain text-only rows, separated by whitespace (no card boxes).
+  // Cards: plain text rows separated by hairline dividers. Hover reveals
+  // a Rate + Wishlist button pair anchored to the bottom-right corner.
   const renderRatingCard = (r: CommunityRating, opts: { extra?: React.ReactNode } = {}) => {
     const s = Number(r.score) || 0;
     const city = extractCityState(r.address || '', r.address || '');
     const selected = selectedMarker === r.restaurant_id;
+    const restData = { id: r.restaurant_id, name: r.restaurant_name, image: r.photo_url || '', cuisine: r.cuisine || '', price: r.price || '', address: r.address || '', lat: r.lat ?? undefined, lng: r.lng ?? undefined };
     return (
-      <button
+      <div
         key={r.id}
-        type="button"
+        role="button"
+        tabIndex={0}
         onClick={() => focusPanelRating(r)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusPanelRating(r); } }}
         className={cn(
-          "w-full text-left rounded-2xl px-4 py-3.5 transition-colors",
-          selected ? "bg-primary/[0.06] ring-1 ring-primary/15" : "hover:bg-on-surface/[0.03]",
+          "group relative cursor-pointer px-4 py-4 pr-3 transition-colors outline-none focus-visible:bg-on-surface/[0.04]",
+          selected ? "bg-primary/[0.05]" : "hover:bg-on-surface/[0.025]",
         )}
       >
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
-            <h3 className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{r.restaurant_name}</h3>
+            <h3 className="font-serif font-bold text-[15.5px] leading-tight text-on-surface truncate">{r.restaurant_name}</h3>
             {renderItemMetaLine(r.cuisine, r.price, city)}
-            {opts.extra}
+            {renderDistanceRow(r.lat, r.lng, opts.extra)}
           </div>
           {renderScoreChip(s)}
         </div>
-      </button>
+        {renderCardHoverActions(restData)}
+      </div>
     );
   };
 
@@ -2442,48 +2589,53 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     const expertR = expertRatings.find((r) => r.restaurant_id === p.id);
     const friendCount = friendRatings.filter((r) => r.restaurant_id === p.id).length;
     const selected = selectedMarker === p.id;
+    const restData = { id: p.id, name: p.name, image: p.photoUrl || '', cuisine, price, address: p.fullAddress || p.address, lat: p.lat, lng: p.lng };
+    const extra = (myScore !== undefined || expertR || friendCount > 0) ? (
+      <span className="inline-flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+        {myScore !== undefined && (
+          <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
+            <Star size={10} className="fill-on-surface/65 text-on-surface/65" /> You rated {myScore.toFixed(1)}
+          </span>
+        )}
+        {expertR && (
+          <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
+            <Star size={10} className="fill-amber-500 text-amber-500" /> Expert pick
+          </span>
+        )}
+        {friendCount > 0 && (
+          <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
+            <Users size={10} /> {friendCount} friend{friendCount === 1 ? '' : 's'}
+          </span>
+        )}
+      </span>
+    ) : undefined;
     return (
-      <button
+      <div
         key={p.id}
-        type="button"
+        role="button"
+        tabIndex={0}
         onClick={() => focusPanelPlace(p)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusPanelPlace(p); } }}
         className={cn(
-          "w-full text-left rounded-2xl px-4 py-3.5 transition-colors",
-          selected ? "bg-primary/[0.06] ring-1 ring-primary/15" : "hover:bg-on-surface/[0.03]",
+          "group relative cursor-pointer px-4 py-4 pr-3 transition-colors outline-none focus-visible:bg-on-surface/[0.04]",
+          selected ? "bg-primary/[0.05]" : "hover:bg-on-surface/[0.025]",
         )}
       >
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
-            <h3 className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{p.name}</h3>
+            <h3 className="font-serif font-bold text-[15.5px] leading-tight text-on-surface truncate">{p.name}</h3>
             {renderItemMetaLine(cuisine, price, city)}
-            {(myScore !== undefined || expertR || friendCount > 0) && (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[11px]">
-                {myScore !== undefined && (
-                  <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
-                    <Star size={10} className="fill-on-surface/65 text-on-surface/65" /> You rated {myScore.toFixed(1)}
-                  </span>
-                )}
-                {expertR && (
-                  <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
-                    <Star size={10} className="fill-amber-500 text-amber-500" /> Expert pick
-                  </span>
-                )}
-                {friendCount > 0 && (
-                  <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
-                    <Users size={10} /> {friendCount} friend{friendCount === 1 ? '' : 's'}
-                  </span>
-                )}
-              </div>
-            )}
+            {renderDistanceRow(p.lat, p.lng, extra)}
           </div>
           {p.rating > 0 && (
-            <div className="flex items-center gap-1 self-start mt-1 flex-shrink-0 text-[12px] font-semibold text-on-surface/60">
-              <Star size={11} className="fill-amber-500 text-amber-500" />
+            <div className="flex items-center gap-1 self-start mt-1 flex-shrink-0 text-[12.5px] font-semibold text-on-surface/65">
+              <Star size={12} className="fill-amber-500 text-amber-500" />
               <span className="tabular-nums">{p.rating.toFixed(1)}</span>
             </div>
           )}
         </div>
-      </button>
+        {renderCardHoverActions(restData)}
+      </div>
     );
   };
 
@@ -2491,36 +2643,41 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     const city = extractCityState(p.fullAddress || '', p.address || '');
     const price = p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '';
     const selected = selectedMarker === p.id;
+    const restData = { id: p.id, name: p.name, image: p.photoUrl || '', cuisine: 'Hotel', price, address: p.fullAddress || p.address, lat: p.lat, lng: p.lng };
+    const extra = p.rating > 0 ? (
+      <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
+        <Star size={10.5} className="fill-amber-500 text-amber-500" />
+        <span className="tabular-nums">{p.rating.toFixed(1)}</span>
+        {p.userRatingCount > 0 && <span className="text-on-surface/40 font-normal">· {p.userRatingCount.toLocaleString()} reviews</span>}
+      </span>
+    ) : undefined;
     return (
-      <button
+      <div
         key={p.id}
-        type="button"
+        role="button"
+        tabIndex={0}
         onClick={() => focusPanelPlace(p)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusPanelPlace(p); } }}
         className={cn(
-          "w-full text-left rounded-2xl px-4 py-3.5 transition-colors",
-          selected ? "bg-teal-50 ring-1 ring-teal-200" : "hover:bg-on-surface/[0.03]",
+          "group relative cursor-pointer px-4 py-4 pr-3 transition-colors outline-none focus-visible:bg-on-surface/[0.04]",
+          selected ? "bg-teal-50/70" : "hover:bg-on-surface/[0.025]",
         )}
       >
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
-            <h3 className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{p.name}</h3>
-            <div className="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12px]">
-              <span className="text-teal-700 font-semibold">Hotel</span>
-              {price && <span className="text-on-surface/20">·</span>}
+            <h3 className="font-serif font-bold text-[15.5px] leading-tight text-on-surface truncate">{p.name}</h3>
+            <div className="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12.5px]">
+              <span className="text-teal-700 font-semibold tracking-tight">Hotel</span>
+              {price && <span className="text-on-surface/25">·</span>}
               {price && <span className="text-on-surface/55 font-semibold tabular-nums">{price}</span>}
-              {city && <span className="text-on-surface/20">·</span>}
-              {city && <span className="text-on-surface/45 truncate">{city}</span>}
+              {city && <span className="text-on-surface/25">·</span>}
+              {city && <span className="text-on-surface/50 truncate">{city}</span>}
             </div>
-            {p.rating > 0 && (
-              <div className="flex items-center gap-1.5 mt-1.5 text-[11.5px] font-semibold text-on-surface/65">
-                <Star size={11} className="fill-amber-500 text-amber-500" />
-                <span className="tabular-nums">{p.rating.toFixed(1)}</span>
-                {p.userRatingCount > 0 && <span className="text-on-surface/40 font-normal">· {p.userRatingCount.toLocaleString()} reviews</span>}
-              </div>
-            )}
+            {renderDistanceRow(p.lat, p.lng, extra)}
           </div>
         </div>
-      </button>
+        {renderCardHoverActions(restData)}
+      </div>
     );
   };
 
@@ -2528,30 +2685,70 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     const author = recipeAuthorProfiles[m.userId];
     const authorName = author?.display_name || author?.username || 'A friend';
     return (
-      <button
+      <div
         key={m.id}
-        type="button"
+        role="button"
+        tabIndex={0}
         onClick={() => navigate(`/meal/${m.userId}/${m.id}`)}
-        className="w-full text-left rounded-2xl px-4 py-3.5 transition-colors hover:bg-on-surface/[0.03]"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/meal/${m.userId}/${m.id}`); } }}
+        className="cursor-pointer px-4 py-4 transition-colors hover:bg-on-surface/[0.025] outline-none focus-visible:bg-on-surface/[0.04]"
       >
-        <h3 className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{m.name || 'Untitled meal'}</h3>
-        <div className="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12px] text-on-surface/55">
+        <h3 className="font-serif font-bold text-[15.5px] leading-tight text-on-surface truncate">{m.name || 'Untitled meal'}</h3>
+        <div className="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12.5px] text-on-surface/55">
           <span>by {authorName}</span>
           {(m.prepTime || m.cookTime) && (
             <>
-              <span className="text-on-surface/20">·</span>
+              <span className="text-on-surface/25">·</span>
               <span className="inline-flex items-center gap-1"><Clock size={10.5} /> {((m.prepTime || 0) + (m.cookTime || 0))} min</span>
             </>
           )}
           {m.difficulty && (
             <>
-              <span className="text-on-surface/20">·</span>
-              <span className="capitalize">{m.difficulty}</span>
+              <span className="text-on-surface/25">·</span>
+              <span className="capitalize text-on-surface/50">{m.difficulty}</span>
             </>
           )}
         </div>
-      </button>
+      </div>
     );
+  };
+
+  // Driving + walking legs for the detail view. Fetched lazily from the
+  // Mapbox Directions API the first time a particular origin → place pair
+  // is opened, then served from the module-level cache for the rest of
+  // the session. The cache is keyed by rounded coords so different
+  // markers in the same building don't each trigger their own request.
+  const [routeLegs, setRouteLegs] = useState<{ driving: RouteLeg | null; walking: RouteLeg | null; loading: boolean } | null>(null);
+  useEffect(() => {
+    if (!isDesktopMapMode || !selectedPlace || !distanceOrigin || !MAPBOX_TOKEN) { setRouteLegs(null); return; }
+    if (!Number.isFinite(selectedPlace.lat) || !Number.isFinite(selectedPlace.lng)) { setRouteLegs(null); return; }
+    const origin = { lat: distanceOrigin.lat, lng: distanceOrigin.lng };
+    const dest = { lat: selectedPlace.lat, lng: selectedPlace.lng };
+    const dKey = routeKey('driving', origin, dest);
+    const wKey = routeKey('walking', origin, dest);
+    if (routeCache.has(dKey) && routeCache.has(wKey)) {
+      setRouteLegs({ driving: routeCache.get(dKey) ?? null, walking: routeCache.get(wKey) ?? null, loading: false });
+      return;
+    }
+    let cancelled = false;
+    setRouteLegs({ driving: null, walking: null, loading: true });
+    Promise.all([
+      fetchMapboxLeg('driving', origin, dest, MAPBOX_TOKEN),
+      fetchMapboxLeg('walking', origin, dest, MAPBOX_TOKEN),
+    ]).then(([driving, walking]) => {
+      if (cancelled) return;
+      setRouteLegs({ driving, walking, loading: false });
+    });
+    return () => { cancelled = true; };
+  }, [isDesktopMapMode, selectedPlace, distanceOrigin]);
+
+  // Pretty "12 min" / "1 h 5 min" formatter for route durations.
+  const formatRouteDuration = (seconds: number): string => {
+    const m = Math.max(1, Math.round(seconds / 60));
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem === 0 ? `${h} h` : `${h} h ${rem} min`;
   };
 
   // Inline detail view shown when a marker / list row is selected.
@@ -2590,6 +2787,64 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             </div>
           )}
         </div>
+
+        {/* Distance + driving + walking. Distance is the haversine line
+            from the current anchor; driving and walking come from the
+            Mapbox Directions API and are cached for the session. */}
+        {(() => {
+          const dist = distanceFromAnchor(place.lat, place.lng);
+          if (!dist && !routeLegs) return null;
+          const driving = routeLegs?.driving;
+          const walking = routeLegs?.walking;
+          const loading = routeLegs?.loading;
+          return (
+            <div className="rounded-2xl border border-on-surface/8 overflow-hidden bg-on-surface/[0.015]">
+              <div className="px-4 pt-3 pb-2 flex items-baseline justify-between gap-2">
+                <div>
+                  <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45">From {referenceLocation?.name ? referenceLocation.name : 'map centre'}</div>
+                  {dist && <div className="text-[20px] font-bold font-serif tabular-nums text-on-surface mt-0.5 leading-tight">{dist}</div>}
+                </div>
+                <MapPin size={14} className="text-on-surface/35 self-center" />
+              </div>
+              <div className="grid grid-cols-2 divide-x divide-on-surface/[0.07] border-t border-on-surface/[0.06] bg-surface">
+                <div className="px-4 py-2.5">
+                  <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 flex items-center gap-1">
+                    <Navigation size={10} /> Driving
+                  </div>
+                  <div className="mt-0.5">
+                    {loading ? (
+                      <span className="inline-flex items-center gap-1.5 text-[13px] text-on-surface/45"><Loader2 size={11} className="animate-spin" /> …</span>
+                    ) : driving ? (
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-[15px] font-bold font-serif tabular-nums text-on-surface leading-none">{formatRouteDuration(driving.durationSeconds)}</span>
+                        <span className="text-[11px] text-on-surface/45 tabular-nums">{formatDistanceMiles(driving.distanceMeters / 1000)}</span>
+                      </div>
+                    ) : (
+                      <span className="text-[12.5px] text-on-surface/35">—</span>
+                    )}
+                  </div>
+                </div>
+                <div className="px-4 py-2.5">
+                  <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 flex items-center gap-1">
+                    <Footprints size={10} /> Walking
+                  </div>
+                  <div className="mt-0.5">
+                    {loading ? (
+                      <span className="inline-flex items-center gap-1.5 text-[13px] text-on-surface/45"><Loader2 size={11} className="animate-spin" /> …</span>
+                    ) : walking ? (
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-[15px] font-bold font-serif tabular-nums text-on-surface leading-none">{formatRouteDuration(walking.durationSeconds)}</span>
+                        <span className="text-[11px] text-on-surface/45 tabular-nums">{formatDistanceMiles(walking.distanceMeters / 1000)}</span>
+                      </div>
+                    ) : (
+                      <span className="text-[12.5px] text-on-surface/35">—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {(myR || friendRs.length > 0 || expertR || place.rating > 0) && (
           <div className="grid grid-cols-2 gap-3">
@@ -2721,6 +2976,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             <p className="text-[11.5px] font-medium text-on-surface/45 mt-0.5 tabular-nums">
               {panelResultCount === 0 ? 'No results' : `${panelResultCount} ${panelResultCount === 1 ? 'result' : 'results'}`}
               {activeFilterCount > 0 && <span> · {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}</span>}
+              {referenceLocation?.name && (
+                <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-px rounded-md bg-primary/[0.08] text-primary text-[10px] font-bold uppercase tracking-wider align-middle">
+                  <MapPin size={9} /> {referenceLocation.name.split(',')[0]}
+                </span>
+              )}
             </p>
           </div>
           <button
@@ -2824,7 +3084,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="px-2 pt-3 pb-10"
+              className="pt-1 pb-10"
             >
               {panelResultCount === 0 ? (
                 <div className="px-4 py-14 text-center">
@@ -2840,7 +3100,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   )}
                 </div>
               ) : (
-                <div className="space-y-1">
+                <div className="divide-y divide-on-surface/[0.06]">
                   {mapMode === 'myratings' && panelMyRatings.map((r) => renderRatingCard(r))}
                   {mapMode === 'friends' && panelFriendRatings.map((r) => {
                     const prof = friendProfiles[r.user_id];
