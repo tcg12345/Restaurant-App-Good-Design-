@@ -287,6 +287,47 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const usingDesktopHeader = isWideViewport && !phoneMode;
+  // Map page on desktop replaces the bottom sheet with a resizable left
+  // panel that sits between the nav rail and the map. Width is persisted
+  // to localStorage so the user's preferred split survives reloads.
+  const isDesktopMapMode = mode === 'map' && usingDesktopHeader;
+  const MAP_PANEL_MIN = 320;
+  const MAP_PANEL_MAX = 600;
+  const MAP_PANEL_DEFAULT = 400;
+  const [mapPanelWidth, setMapPanelWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return MAP_PANEL_DEFAULT;
+    const stored = window.localStorage.getItem('mapPanelWidth');
+    const n = stored ? parseInt(stored, 10) : NaN;
+    if (!Number.isFinite(n)) return MAP_PANEL_DEFAULT;
+    return Math.min(MAP_PANEL_MAX, Math.max(MAP_PANEL_MIN, n));
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('mapPanelWidth', String(mapPanelWidth));
+  }, [mapPanelWidth]);
+  const [isResizingPanel, setIsResizingPanel] = useState(false);
+  const startPanelResize = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = mapPanelWidth;
+    setIsResizingPanel(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const next = Math.min(MAP_PANEL_MAX, Math.max(MAP_PANEL_MIN, startWidth + dx));
+      setMapPanelWidth(next);
+    };
+    const onUp = () => {
+      setIsResizingPanel(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, [mapPanelWidth]);
   const { openAddRestaurantModal, toggleWishlist, isWishlisted, ratings: myLocalRatings, lists: myLists, wishlist, homeMeals } = useLists();
   const {
     friendRecipes: friendPublishedRecipes,
@@ -2263,8 +2304,621 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
   }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles, isWishlisted, isFocusOnly]);
 
+  // ── Desktop map panel: helpers, derived data, and JSX ──
+  // The panel replaces the bottom-sheet pop-up on wide viewports. It owns
+  // the same modes as the sheet but renders everything in a single-column
+  // list with no thumbnail slots, instead emphasising name + meta + score.
+  // Marker clicks select an inline "detail" view rather than spawning a
+  // floating card over the map.
+  const PANEL_MODE_TABS: Array<{
+    id: 'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes';
+    label: string;
+    icon: typeof Star;
+  }> = [
+    { id: 'discover', label: 'Discover', icon: Sparkles },
+    { id: 'myratings', label: 'My Ratings', icon: Star },
+    { id: 'friends', label: 'Friends', icon: Users },
+    { id: 'experts', label: 'Experts', icon: Star },
+    { id: 'hotels', label: 'Hotels', icon: Building2 },
+    { id: 'recipes', label: 'Recipes', icon: ChefHat },
+  ];
+  const activePanelMode = PANEL_MODE_TABS.find((t) => t.id === mapMode) ?? PANEL_MODE_TABS[0];
+
+  // Score → green/amber/red colour bucket used by every list card.
+  const scoreColors = (s: number) => s >= 8
+    ? { bg: 'bg-green-50', border: 'border-green-100', text: 'text-green-700', tint: 'text-green-700/60' }
+    : s >= 5
+      ? { bg: 'bg-amber-50', border: 'border-amber-100', text: 'text-amber-700', tint: 'text-amber-700/60' }
+      : { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-600', tint: 'text-red-600/60' };
+
+  // Optional client-side name filter applied on top of every mode list so
+  // the search input feels alive across tabs (the discover-mode API search
+  // still runs independently via the existing handleSearch effect).
+  const panelTextQ = searchQuery.trim().toLowerCase();
+  const matchesPanelQ = useCallback((name: string) => !panelTextQ || name.toLowerCase().includes(panelTextQ), [panelTextQ]);
+
+  const panelMyRatings = useMemo(() => filteredMyRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredMyRatings, matchesPanelQ]);
+  const panelFriendRatings = useMemo(() => filteredFriendRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredFriendRatings, matchesPanelQ]);
+  const panelExpertRatings = useMemo(() => filteredExpertRatings.filter((r) => matchesPanelQ(r.restaurant_name)), [filteredExpertRatings, matchesPanelQ]);
+  const panelHotelPlaces = useMemo(() => filteredHotelPlaces.filter((p) => matchesPanelQ(p.name)), [filteredHotelPlaces, matchesPanelQ]);
+  const panelDiscoverPlaces = useMemo(() => places.filter((p) => matchesPanelQ(p.name)), [places, matchesPanelQ]);
+  const panelRecipes = useMemo(() => friendRecipes.filter((m) => matchesPanelQ(m.name || '')), [friendRecipes, matchesPanelQ]);
+
+  const panelResultCount =
+    mapMode === 'discover' ? panelDiscoverPlaces.length
+    : mapMode === 'myratings' ? panelMyRatings.length
+    : mapMode === 'friends' ? panelFriendRatings.length
+    : mapMode === 'experts' ? panelExpertRatings.length
+    : mapMode === 'hotels' ? panelHotelPlaces.length
+    : mapMode === 'recipes' ? panelRecipes.length
+    : 0;
+
+  // Click handler shared by every list row: pan the map, light up the
+  // marker, and switch the panel to the inline detail view.
+  const focusPanelPlace = useCallback((place: PlaceResult) => {
+    isMarkerSelectedRef.current = true;
+    setSelectedPlace(place);
+    setSelectedMarker(place.id);
+    setSheetState('peek');
+    mapRef.current?.easeTo({ center: [place.lng, place.lat], duration: 500 });
+  }, []);
+  const focusPanelRating = useCallback((r: CommunityRating) => {
+    const place = ratingToPlace(r);
+    if (!place) return;
+    focusPanelPlace(place);
+  }, [focusPanelPlace]);
+
+  // Clear the inline detail and return the panel body to the list.
+  const closePanelDetail = useCallback(() => {
+    setSelectedPlace(null);
+    setSelectedMarker(null);
+    isMarkerSelectedRef.current = false;
+  }, []);
+
+  // Tiny <ItemMeta /> piece used inside every card so cuisine · price ·
+  // city reads consistently across modes.
+  const renderItemMetaLine = (cuisine?: string | null, price?: string | null, city?: string | null) => (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 mt-1 text-[12px]">
+      {cuisine && <span className="text-on-surface/55">{cuisine}</span>}
+      {cuisine && price && <span className="text-on-surface/20">·</span>}
+      {price && <span className="text-on-surface/55 font-semibold tabular-nums">{price}</span>}
+      {(cuisine || price) && city && <span className="text-on-surface/20">·</span>}
+      {city && <span className="text-on-surface/45 truncate">{city}</span>}
+    </div>
+  );
+
+  // Score chip — used on every ratings card. Stacked numeric + "/10".
+  const renderScoreChip = (s: number) => {
+    const c = scoreColors(s);
+    return (
+      <div className={cn("flex flex-col items-center justify-center flex-shrink-0 rounded-xl px-2.5 py-1.5 self-start border", c.bg, c.border)}>
+        <span className={cn("text-[16px] font-bold font-serif tabular-nums leading-none", c.text)}>{s.toFixed(1)}</span>
+        <span className={cn("text-[8.5px] font-bold uppercase tracking-wider mt-0.5", c.tint)}>/ 10</span>
+      </div>
+    );
+  };
+
+  const panelEmptyMessage = (() => {
+    if (mapMode === 'myratings') return activeFilterCount > 0 || panelTextQ ? 'No ratings match these filters.' : 'No rated restaurants yet.';
+    if (mapMode === 'friends') return activeFilterCount > 0 || panelTextQ ? 'No friend ratings match these filters.' : 'No friend ratings yet.';
+    if (mapMode === 'experts') return activeFilterCount > 0 || panelTextQ ? 'No expert ratings match these filters.' : 'No expert ratings yet.';
+    if (mapMode === 'hotels') return hotelsLoading ? 'Searching hotels…' : (activeFilterCount > 0 || panelTextQ ? 'No hotels match these filters.' : 'No hotels in this area yet.');
+    if (mapMode === 'recipes') return friendRecipesLoading ? 'Loading recipes…' : 'No recipes from friends yet.';
+    return isSearching ? 'Searching…' : (panelTextQ ? 'No restaurants match your search.' : 'Pan the map and hit "Search this area".');
+  })();
+
+  // Cards: plain text-only rows, separated by whitespace (no card boxes).
+  const renderRatingCard = (r: CommunityRating, opts: { extra?: React.ReactNode } = {}) => {
+    const s = Number(r.score) || 0;
+    const city = extractCityState(r.address || '', r.address || '');
+    const selected = selectedMarker === r.restaurant_id;
+    return (
+      <button
+        key={r.id}
+        type="button"
+        onClick={() => focusPanelRating(r)}
+        className={cn(
+          "w-full text-left rounded-2xl px-4 py-3.5 transition-colors",
+          selected ? "bg-primary/[0.06] ring-1 ring-primary/15" : "hover:bg-on-surface/[0.03]",
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{r.restaurant_name}</h3>
+            {renderItemMetaLine(r.cuisine, r.price, city)}
+            {opts.extra}
+          </div>
+          {renderScoreChip(s)}
+        </div>
+      </button>
+    );
+  };
+
+  const renderPlaceCard = (p: PlaceResult) => {
+    const cuisine = getCuisineLabel(p.types);
+    const price = p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '';
+    const city = extractCityState(p.fullAddress || '', p.address || '');
+    const myScore = userRatingMap[p.id];
+    const expertR = expertRatings.find((r) => r.restaurant_id === p.id);
+    const friendCount = friendRatings.filter((r) => r.restaurant_id === p.id).length;
+    const selected = selectedMarker === p.id;
+    return (
+      <button
+        key={p.id}
+        type="button"
+        onClick={() => focusPanelPlace(p)}
+        className={cn(
+          "w-full text-left rounded-2xl px-4 py-3.5 transition-colors",
+          selected ? "bg-primary/[0.06] ring-1 ring-primary/15" : "hover:bg-on-surface/[0.03]",
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{p.name}</h3>
+            {renderItemMetaLine(cuisine, price, city)}
+            {(myScore !== undefined || expertR || friendCount > 0) && (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5 text-[11px]">
+                {myScore !== undefined && (
+                  <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
+                    <Star size={10} className="fill-on-surface/65 text-on-surface/65" /> You rated {myScore.toFixed(1)}
+                  </span>
+                )}
+                {expertR && (
+                  <span className="inline-flex items-center gap-1 font-semibold text-amber-600">
+                    <Star size={10} className="fill-amber-500 text-amber-500" /> Expert pick
+                  </span>
+                )}
+                {friendCount > 0 && (
+                  <span className="inline-flex items-center gap-1 font-semibold text-on-surface/65">
+                    <Users size={10} /> {friendCount} friend{friendCount === 1 ? '' : 's'}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          {p.rating > 0 && (
+            <div className="flex items-center gap-1 self-start mt-1 flex-shrink-0 text-[12px] font-semibold text-on-surface/60">
+              <Star size={11} className="fill-amber-500 text-amber-500" />
+              <span className="tabular-nums">{p.rating.toFixed(1)}</span>
+            </div>
+          )}
+        </div>
+      </button>
+    );
+  };
+
+  const renderHotelCard = (p: PlaceResult) => {
+    const city = extractCityState(p.fullAddress || '', p.address || '');
+    const price = p.priceLevel > 0 ? priceLevelToString(p.priceLevel) : '';
+    const selected = selectedMarker === p.id;
+    return (
+      <button
+        key={p.id}
+        type="button"
+        onClick={() => focusPanelPlace(p)}
+        className={cn(
+          "w-full text-left rounded-2xl px-4 py-3.5 transition-colors",
+          selected ? "bg-teal-50 ring-1 ring-teal-200" : "hover:bg-on-surface/[0.03]",
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{p.name}</h3>
+            <div className="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12px]">
+              <span className="text-teal-700 font-semibold">Hotel</span>
+              {price && <span className="text-on-surface/20">·</span>}
+              {price && <span className="text-on-surface/55 font-semibold tabular-nums">{price}</span>}
+              {city && <span className="text-on-surface/20">·</span>}
+              {city && <span className="text-on-surface/45 truncate">{city}</span>}
+            </div>
+            {p.rating > 0 && (
+              <div className="flex items-center gap-1.5 mt-1.5 text-[11.5px] font-semibold text-on-surface/65">
+                <Star size={11} className="fill-amber-500 text-amber-500" />
+                <span className="tabular-nums">{p.rating.toFixed(1)}</span>
+                {p.userRatingCount > 0 && <span className="text-on-surface/40 font-normal">· {p.userRatingCount.toLocaleString()} reviews</span>}
+              </div>
+            )}
+          </div>
+        </div>
+      </button>
+    );
+  };
+
+  const renderRecipeCard = (m: FriendHomeMeal) => {
+    const author = recipeAuthorProfiles[m.userId];
+    const authorName = author?.display_name || author?.username || 'A friend';
+    return (
+      <button
+        key={m.id}
+        type="button"
+        onClick={() => navigate(`/meal/${m.userId}/${m.id}`)}
+        className="w-full text-left rounded-2xl px-4 py-3.5 transition-colors hover:bg-on-surface/[0.03]"
+      >
+        <h3 className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{m.name || 'Untitled meal'}</h3>
+        <div className="flex flex-wrap items-center gap-x-1.5 mt-1 text-[12px] text-on-surface/55">
+          <span>by {authorName}</span>
+          {(m.prepTime || m.cookTime) && (
+            <>
+              <span className="text-on-surface/20">·</span>
+              <span className="inline-flex items-center gap-1"><Clock size={10.5} /> {((m.prepTime || 0) + (m.cookTime || 0))} min</span>
+            </>
+          )}
+          {m.difficulty && (
+            <>
+              <span className="text-on-surface/20">·</span>
+              <span className="capitalize">{m.difficulty}</span>
+            </>
+          )}
+        </div>
+      </button>
+    );
+  };
+
+  // Inline detail view shown when a marker / list row is selected.
+  const renderPanelDetail = (place: PlaceResult) => {
+    const cuisine = getCuisineLabel(place.types);
+    const price = place.priceLevel > 0 ? priceLevelToString(place.priceLevel) : '';
+    const myR = myRatings.find((r) => r.restaurant_id === place.id);
+    const friendRs = friendRatings.filter((r) => r.restaurant_id === place.id);
+    const expertR = expertRatings.find((r) => r.restaurant_id === place.id);
+    const fav = isWishlisted(place.id);
+    const restData = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine, price, address: place.fullAddress || place.address };
+    return (
+      <div className="px-5 pt-4 pb-10 space-y-6">
+        <button
+          type="button"
+          onClick={closePanelDetail}
+          className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-on-surface/55 hover:text-on-surface transition-colors -ml-1"
+        >
+          <ChevronLeft size={14} />
+          Back to {activePanelMode.label}
+        </button>
+
+        <div className="space-y-2">
+          <h1 className="font-serif font-bold text-[26px] leading-[1.15] text-on-surface">{place.name}</h1>
+          {(cuisine || price) && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-on-surface/65">
+              {cuisine && <span>{cuisine}</span>}
+              {cuisine && price && <span className="text-on-surface/25">·</span>}
+              {price && <span className="font-semibold tabular-nums">{price}</span>}
+            </div>
+          )}
+          {(place.fullAddress || place.address) && (
+            <div className="flex items-start gap-1.5 text-[13px] text-on-surface/55 pt-0.5">
+              <MapPin size={13} className="text-on-surface/35 mt-0.5 flex-shrink-0" />
+              <span className="leading-snug">{place.fullAddress || place.address}</span>
+            </div>
+          )}
+        </div>
+
+        {(myR || friendRs.length > 0 || expertR || place.rating > 0) && (
+          <div className="grid grid-cols-2 gap-3">
+            {myR && (
+              <div className="rounded-2xl border border-on-surface/8 px-4 py-3">
+                <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 mb-1.5">My rating</div>
+                <div className="flex items-baseline gap-1">
+                  <span className={cn("text-[24px] font-bold font-serif tabular-nums leading-none", scoreColors(Number(myR.score)).text)}>{Number(myR.score).toFixed(1)}</span>
+                  <span className="text-[11.5px] text-on-surface/40">/ 10</span>
+                </div>
+              </div>
+            )}
+            {expertR && (
+              <div className="rounded-2xl border border-amber-100 bg-amber-50/40 px-4 py-3">
+                <div className="text-[10.5px] font-bold uppercase tracking-wider text-amber-700/75 mb-1.5 flex items-center gap-1"><Star size={9} className="fill-amber-500 text-amber-500" /> Expert</div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-[24px] font-bold font-serif tabular-nums leading-none text-amber-700">{Number(expertR.score).toFixed(1)}</span>
+                  <span className="text-[11.5px] text-amber-700/60">/ 10</span>
+                </div>
+              </div>
+            )}
+            {friendRs.length > 0 && (
+              <div className="rounded-2xl border border-on-surface/8 px-4 py-3">
+                <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 mb-1.5">Friends</div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-[24px] font-bold font-serif tabular-nums leading-none text-on-surface">{(friendRs.reduce((acc, r) => acc + (Number(r.score) || 0), 0) / friendRs.length).toFixed(1)}</span>
+                  <span className="text-[11.5px] text-on-surface/40">avg · {friendRs.length}</span>
+                </div>
+              </div>
+            )}
+            {place.rating > 0 && (
+              <div className="rounded-2xl border border-on-surface/8 px-4 py-3">
+                <div className="text-[10.5px] font-bold uppercase tracking-wider text-on-surface/45 mb-1.5">Community</div>
+                <div className="flex items-baseline gap-1">
+                  <Star size={14} className="fill-amber-500 text-amber-500 self-center" />
+                  <span className="text-[22px] font-bold font-serif tabular-nums leading-none text-on-surface">{place.rating.toFixed(1)}</span>
+                  {place.userRatingCount > 0 && <span className="text-[11px] text-on-surface/40">· {place.userRatingCount.toLocaleString()}</span>}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate(`/restaurant/${place.id}`)}
+            className="flex-1 min-w-0 px-4 py-3 rounded-full bg-on-surface text-surface font-bold text-[13px] hover:bg-on-surface/85 transition-colors shadow-sm"
+          >
+            Open page
+          </button>
+          <button
+            type="button"
+            onClick={() => openAddRestaurantModal(restData)}
+            className="w-11 h-11 rounded-full border border-on-surface/10 flex items-center justify-center hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
+            aria-label="Add to a list"
+            title="Add to a list"
+          >
+            <Plus size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleWishlist(restData)}
+            className={cn(
+              "w-11 h-11 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
+              fav ? "border-red-200 bg-red-50/60 text-red-500" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
+            )}
+            aria-label="Wishlist"
+            title="Save to wishlist"
+          >
+            <Heart size={15} className={fav ? "fill-current" : ""} />
+          </button>
+        </div>
+
+        {/* Expert / friend quotes */}
+        {(expertR || friendRs.length > 0) && (
+          <div className="space-y-3">
+            {expertR && (
+              <div className="rounded-2xl border border-amber-100/80 bg-amber-50/40 px-4 py-3">
+                <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-amber-700/85 mb-1.5">
+                  <Star size={10} className="fill-amber-500 text-amber-500" />
+                  Expert pick · {expertProfiles[expertR.user_id]?.display_name || 'Expert'}
+                </div>
+                {expertR.notes && <p className="text-[13px] leading-snug text-on-surface/75">"{expertR.notes}"</p>}
+              </div>
+            )}
+            {friendRs.slice(0, 3).map((fr) => {
+              const prof = friendProfiles[fr.user_id];
+              const name = prof?.display_name || 'Friend';
+              const s = Number(fr.score) || 0;
+              const c = scoreColors(s);
+              return (
+                <div key={fr.id} className="flex items-start gap-2.5 px-4 py-3 rounded-2xl border border-on-surface/8">
+                  <div className="w-7 h-7 rounded-full bg-on-surface/[0.06] flex items-center justify-center text-[11px] font-bold text-on-surface/70 flex-shrink-0">
+                    {name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12.5px] font-bold text-on-surface truncate">{name}</span>
+                      <span className={cn("text-[11.5px] font-bold font-serif tabular-nums", c.text)}>{s.toFixed(1)}</span>
+                    </div>
+                    {fr.notes && <p className="text-[12.5px] leading-snug text-on-surface/65 mt-0.5">{fr.notes}</p>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const desktopPanel = isDesktopMapMode ? (
+    <motion.aside
+      initial={false}
+      animate={{ width: mapPanelWidth }}
+      transition={isResizingPanel ? { duration: 0 } : { type: 'spring', damping: 30, stiffness: 260, mass: 0.7 }}
+      style={{ width: mapPanelWidth }}
+      className="relative flex-shrink-0 h-screen bg-surface flex flex-col z-20"
+      aria-label="Map results panel"
+    >
+      {/* === HEADER === */}
+      <div className="flex-shrink-0">
+        <div className="px-5 pt-5 pb-2 flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="font-serif font-bold text-[20px] text-on-surface leading-tight truncate">
+              {activePanelMode.label}
+            </h2>
+            <p className="text-[11.5px] font-medium text-on-surface/45 mt-0.5 tabular-nums">
+              {panelResultCount === 0 ? 'No results' : `${panelResultCount} ${panelResultCount === 1 ? 'result' : 'results'}`}
+              {activeFilterCount > 0 && <span> · {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}</span>}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterSheetOpen(true)}
+            className="relative w-10 h-10 rounded-full border border-on-surface/10 flex items-center justify-center flex-shrink-0 hover:bg-on-surface/[0.04] hover:border-on-surface/15 transition-colors"
+            aria-label="Filters"
+            title="Filters"
+          >
+            <SlidersHorizontal size={15} className="text-on-surface/65" />
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        <div className="px-5 pt-2 pb-3">
+          <div className="relative">
+            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => {
+                if (mapMode === 'discover') {
+                  preSearchPlacesRef.current = places;
+                  setDiscoverSearchActive(true);
+                }
+              }}
+              placeholder={mapMode === 'discover' ? 'Search this area…' : 'Filter results…'}
+              className="w-full pl-9 pr-9 py-2.5 rounded-full border border-on-surface/10 bg-on-surface/[0.025] text-[13px] font-medium placeholder:text-on-surface/35 focus:outline-none focus:border-primary/40 focus:bg-surface focus:ring-2 focus:ring-primary/10 transition-all"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  if (mapMode === 'discover' && discoverSearchActive) {
+                    setDiscoverSearchActive(false);
+                    if (preSearchPlacesRef.current.length > 0) {
+                      setPlaces(preSearchPlacesRef.current);
+                      syncMarkersRef.current?.(preSearchPlacesRef.current);
+                    }
+                  }
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-on-surface/[0.08] flex items-center justify-center hover:bg-on-surface/[0.15] transition-colors"
+                aria-label="Clear search"
+              >
+                <X size={11} className="text-on-surface/55" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="px-5 pb-4">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
+            {PANEL_MODE_TABS.map((m) => {
+              const active = mapMode === m.id;
+              const Icon = m.icon;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => { setMapMode(m.id); closePanelDetail(); }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-bold transition-all whitespace-nowrap flex-shrink-0",
+                    active
+                      ? "bg-on-surface text-surface shadow-sm shadow-on-surface/15"
+                      : "bg-on-surface/[0.04] text-on-surface/60 hover:bg-on-surface/[0.08] hover:text-on-surface/85",
+                  )}
+                >
+                  <Icon size={12.5} className={(m.id === 'experts' && active) ? "fill-current" : ""} />
+                  <span>{m.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="h-px bg-gradient-to-r from-transparent via-on-surface/[0.07] to-transparent" />
+      </div>
+
+      {/* === BODY === */}
+      <div className="flex-1 overflow-y-auto overscroll-contain">
+        <AnimatePresence mode="wait" initial={false}>
+          {selectedPlace ? (
+            <motion.div
+              key="detail"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+            >
+              {renderPanelDetail(selectedPlace)}
+            </motion.div>
+          ) : (
+            <motion.div
+              key={`list-${mapMode}`}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="px-2 pt-3 pb-10"
+            >
+              {panelResultCount === 0 ? (
+                <div className="px-4 py-14 text-center">
+                  <p className="text-[13px] text-on-surface/45 leading-snug">{panelEmptyMessage}</p>
+                  {mapMode === 'discover' && !panelTextQ && !isSearching && (
+                    <button
+                      type="button"
+                      onClick={() => fetchNearby()}
+                      className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-bold text-primary hover:text-primary/80 transition-colors"
+                    >
+                      <RefreshCw size={12} /> Search this area
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {mapMode === 'myratings' && panelMyRatings.map((r) => renderRatingCard(r))}
+                  {mapMode === 'friends' && panelFriendRatings.map((r) => {
+                    const prof = friendProfiles[r.user_id];
+                    const name = prof?.display_name || 'Friend';
+                    const initial = name.charAt(0).toUpperCase();
+                    return renderRatingCard(r, {
+                      extra: (
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <span className="w-4 h-4 rounded-full bg-primary/10 text-[8.5px] font-bold text-primary flex items-center justify-center flex-shrink-0">{initial}</span>
+                          <span className="text-[11.5px] text-on-surface/55 truncate">{name}</span>
+                        </div>
+                      ),
+                    });
+                  })}
+                  {mapMode === 'experts' && panelExpertRatings.map((r) => {
+                    const expProf = expertProfiles[r.user_id];
+                    const expName = expProf?.display_name || 'Expert';
+                    return renderRatingCard(r, {
+                      extra: (
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <Star size={10} className="fill-amber-500 text-amber-500 flex-shrink-0" />
+                          <span className="text-[11.5px] font-semibold text-amber-700 truncate">{expName}</span>
+                        </div>
+                      ),
+                    });
+                  })}
+                  {mapMode === 'hotels' && panelHotelPlaces.map((p) => renderHotelCard(p))}
+                  {mapMode === 'discover' && panelDiscoverPlaces.map((p) => renderPlaceCard(p))}
+                  {mapMode === 'recipes' && panelRecipes.map((m) => renderRecipeCard(m))}
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* === Resize handle (right edge) === */}
+      <button
+        type="button"
+        onPointerDown={startPanelResize}
+        aria-label="Resize results panel"
+        title="Drag to resize"
+        className="group absolute top-0 right-0 h-full w-2 cursor-col-resize z-30 flex items-center justify-center"
+        style={{ touchAction: 'none' }}
+      >
+        <span
+          className={cn(
+            "block w-px h-full bg-on-surface/[0.07] transition-colors",
+            "group-hover:bg-primary/40",
+            isResizingPanel && "bg-primary/70",
+          )}
+        />
+        <span
+          className={cn(
+            "absolute h-14 w-1 rounded-full bg-on-surface/15 transition-all duration-200",
+            "group-hover:bg-primary/60 group-hover:h-20 group-hover:w-1.5",
+            isResizingPanel && "bg-primary h-24 w-1.5 shadow-lg shadow-primary/30",
+          )}
+        />
+      </button>
+    </motion.aside>
+  ) : null;
+
   return (
-    <div className="relative h-screen w-full overflow-hidden bg-muted">
+    <div className={cn(
+      "relative h-screen w-full overflow-hidden bg-muted",
+      // Desktop map mode lays out as a horizontal flex row so the new
+      // results sidebar takes the left strip and the map fills the rest.
+      isDesktopMapMode && "flex",
+    )}>
+      {/* Desktop map results sidebar — draggable width, replaces the
+          bottom sheet pop-up on wide viewports. */}
+      {desktopPanel}
+      {/* On desktop the map + floating chrome live inside an inner
+          flex-1 column so they sit beside the sidebar; on mobile the
+          inner div collapses (`display:contents`) so absolute children
+          still position against the page wrapper as before. */}
+      <div className={isDesktopMapMode ? "relative flex-1 min-w-0 h-full overflow-hidden" : "contents"}>
       {/* Real Mapbox Map — rendered only when this is the Map page */}
       {mode !== 'home' && (
         <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
@@ -2909,9 +3563,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         })()}
       </AnimatePresence>
 
-      {/* Selected Place Card — above bottom sheet */}
+      {/* Selected Place Card — above the bottom sheet. On the desktop
+          map page the side panel renders an inline detail view instead,
+          so this floating card is suppressed for that surface. */}
       <AnimatePresence mode="wait">
-        {selectedPlace && sheetState === 'peek' && (() => {
+        {selectedPlace && sheetState === 'peek' && !isDesktopMapMode && (() => {
           const isRatingsMode = mapMode === 'myratings' || mapMode === 'friends' || mapMode === 'experts';
           const historyIdx = navHistory.indexOf(selectedPlace.id);
           // Arrows can always navigate as long as there's more than one place —
@@ -3169,7 +3825,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         })()}
       </AnimatePresence>
 
-      {/* Bottom Sheet — tri-state: peek / half / full */}
+      {/* Bottom Sheet — tri-state: peek / half / full. Desktop map mode
+          replaces this with the left-side panel rendered above; on every
+          other surface (home page on any width, map page on phone / phone
+          frame preview) the bottom sheet still owns the chrome. */}
+      {!isDesktopMapMode && (
       <motion.div
         ref={sheetRef}
         animate={{ y: getSheetY(sheetState) }}
@@ -4325,7 +4985,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         </>
         )}
       </motion.div>
+      )}
 
+      </div>{/* inner map-area wrapper (contents on mobile, flex-1 on desktop) */}
     </div>
   );
 };
