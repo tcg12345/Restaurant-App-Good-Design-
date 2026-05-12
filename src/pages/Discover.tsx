@@ -2480,7 +2480,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // rendered in a vivid red so it lifts off the rest of the muted meta.
   const renderItemMetaLine = (cuisine?: string | null, price?: string | null, city?: string | null) => (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0 mt-1 text-[12.5px]">
-      {cuisine && <span className="text-red-600 font-semibold tracking-tight">{cuisine}</span>}
+      {cuisine && <span className="text-primary font-semibold tracking-tight">{cuisine}</span>}
       {cuisine && price && <span className="text-on-surface/25">·</span>}
       {price && <span className="text-on-surface/55 font-semibold tabular-nums">{price}</span>}
       {(cuisine || price) && city && <span className="text-on-surface/25">·</span>}
