@@ -251,46 +251,50 @@ export const CUISINE_TYPES: { label: string; type: string }[] = [
 const CUISINE_LABEL_MAP: Record<string, string> = {};
 CUISINE_TYPES.forEach((c) => { if (c.type) CUISINE_LABEL_MAP[c.type] = c.label; });
 
-export async function searchNearbyRestaurants(
+/*
+ * Search radius → result-cap mapping. The user-facing rule is:
+ *  - Tight area (~city block / few streets): return everything we can find
+ *    (≈35 after dedupe). Distance ranking takes priority so a single
+ *    Michelin spot tucked between popular bistros still surfaces.
+ *  - Larger areas: cap at 50 ranked by quality (rating × log(reviews)) so
+ *    the panel stays readable while still covering a wide swath.
+ */
+const PRECISE_RADIUS_M = 1500;
+const PRECISE_CAP = 35;
+const BROAD_CAP = 50;
+
+// Quality score used to rank a candidate list down to the cap. Restaurants
+// with no rating sort last; among rated ones we balance score and the
+// log of review count so a 4.9 with 12 ratings doesn't bury a 4.6 with
+// 8 000. Stable enough that "popular but not legendary" places still
+// make the cut.
+function qualityRank(p: PlaceResult): number {
+  if (p.rating <= 0) return -Infinity;
+  return p.rating * Math.log10(1 + p.userRatingCount);
+}
+
+function sortByDistance(lat: number, lng: number, places: PlaceResult[]): PlaceResult[] {
+  return [...places].sort((a, b) => {
+    const da = (a.lat - lat) ** 2 + (a.lng - lng) ** 2;
+    const db = (b.lat - lat) ** 2 + (b.lng - lng) ** 2;
+    return da - db;
+  });
+}
+
+function sortByQuality(places: PlaceResult[]): PlaceResult[] {
+  return [...places].sort((a, b) => qualityRank(b) - qualityRank(a));
+}
+
+// Single nearby request — wraps the boilerplate Google v1 invocation.
+async function nearbyRequest(
   lat: number,
   lng: number,
-  radiusMeters = 2000,
-  cuisineTypes: string[] = [],
-  priceLevel = 0,
-  locationName?: string,
+  radius: number,
+  rank: 'POPULARITY' | 'DISTANCE',
+  includedTypes: string[] = ['restaurant'],
 ): Promise<PlaceResult[]> {
-  const hasLocation = !!locationName && locationName !== 'Current Location';
-
-  // Always use text search for better coverage — supports price levels and more results
-  if (priceLevel > 0 || cuisineTypes.length > 0) {
-    return searchWithFilters(lat, lng, radiusMeters, cuisineTypes, priceLevel, locationName);
-  }
-
-  // Default: fetch from multiple sources in parallel for maximum results
-  const radius = radiusMeters;
-  const bigRadius = radiusMeters;
-
-  const nearbyBody = {
-    includedTypes: ['restaurant'],
-    maxResultCount: 20,
-    rankPreference: 'POPULARITY',
-    locationRestriction: {
-      circle: {
-        center: { latitude: lat, longitude: lng },
-        radius: radius,
-      },
-    },
-  };
-
-  const textQueries = ['popular restaurants'];
-
-  // When location is set, restrict text queries to the area; otherwise just bias
-  const locationParam = hasLocation
-    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, bigRadius) } }
-    : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: bigRadius } } };
-
-  const textFetches = textQueries.map((q) =>
-    fetch(`${BASE_URL}/places:searchText`, {
+  try {
+    const res = await fetch(`${BASE_URL}/places:searchNearby`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -298,68 +302,49 @@ export async function searchNearbyRestaurants(
         'X-Goog-FieldMask': FIELDS,
       },
       body: JSON.stringify({
-        textQuery: q,
-        includedType: 'restaurant',
+        includedTypes,
         maxResultCount: 20,
-        ...locationParam,
+        rankPreference: rank,
+        locationRestriction: {
+          circle: {
+            center: { latitude: lat, longitude: lng },
+            radius,
+          },
+        },
       }),
-    }).then((r) => r.json()).then((d) => mapPlaces(d.places || []))
-      .catch((err) => { console.error('[Places] textSearch error:', err); return [] as PlaceResult[]; })
-  );
-
-  const [nearbyRes, ...textResults] = await Promise.all([
-    fetch(`${BASE_URL}/places:searchNearby`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
-        'X-Goog-FieldMask': FIELDS,
-      },
-      body: JSON.stringify(nearbyBody),
-    }).then((r) => r.json()).then((d) => mapPlaces(d.places || []))
-      .catch((err) => { console.error('[Places] searchNearby error:', err); return [] as PlaceResult[]; }),
-    ...textFetches,
-  ]);
-
-  const combined = [nearbyRes, ...textResults].flat();
-  return deduplicatePlaces(combined);
+    });
+    if (!res.ok) {
+      console.error('[Places] searchNearby error:', res.status, await res.text().catch(() => ''));
+      return [];
+    }
+    const data = await res.json();
+    return mapPlaces(data.places || []);
+  } catch (err) {
+    console.error('[Places] searchNearby exception:', err);
+    return [];
+  }
 }
 
-// Use text search for filtered queries — supports priceLevels and better cuisine matching
-async function searchWithFilters(
+// Single text request — same idea but for places:searchText.
+async function textRequest(
+  textQuery: string,
   lat: number,
   lng: number,
-  radiusMeters: number,
-  cuisineTypes: string[],
-  priceLevel: number,
-  locationName?: string,
+  radius: number,
+  hasRestrictedLocation: boolean,
+  priceLevels?: string[],
 ): Promise<PlaceResult[]> {
-  const hasLocation = !!locationName && locationName !== 'Current Location';
-  const queries = cuisineTypes.length > 0
-    ? cuisineTypes.map((t) => CUISINE_LABEL_MAP[t] || 'restaurant')
-    : ['restaurant'];
-
-  const priceLevels = priceLevel > 0 && PRICE_LEVEL_STRINGS[priceLevel]
-    ? [PRICE_LEVEL_STRINGS[priceLevel]]
-    : undefined;
-
-  const filterRadius = Math.max(radiusMeters, 5000);
-  const locationParam = hasLocation
-    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, filterRadius) } }
-    : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius: filterRadius } } };
-
-  const promises = queries.map(async (cuisine) => {
-    const body: Record<string, unknown> = {
-      textQuery: cuisine,
-      includedType: 'restaurant',
-      maxResultCount: 20,
-      ...locationParam,
-    };
-
-    if (priceLevels) {
-      body.priceLevels = priceLevels;
-    }
-
+  const locationParam = hasRestrictedLocation
+    ? { locationRestriction: { rectangle: circleToRectangle(lat, lng, radius) } }
+    : { locationBias: { circle: { center: { latitude: lat, longitude: lng }, radius } } };
+  const body: Record<string, unknown> = {
+    textQuery,
+    includedType: 'restaurant',
+    maxResultCount: 20,
+    ...locationParam,
+  };
+  if (priceLevels && priceLevels.length > 0) body.priceLevels = priceLevels;
+  try {
     const res = await fetch(`${BASE_URL}/places:searchText`, {
       method: 'POST',
       headers: {
@@ -369,17 +354,127 @@ async function searchWithFilters(
       },
       body: JSON.stringify(body),
     });
-
-    const data = await res.json();
     if (!res.ok) {
-      console.error('[Places] filtered textSearch error:', data);
+      console.error('[Places] searchText error:', res.status, await res.text().catch(() => ''));
       return [];
     }
+    const data = await res.json();
     return mapPlaces(data.places || []);
-  });
+  } catch (err) {
+    console.error('[Places] searchText exception:', err);
+    return [];
+  }
+}
 
-  const results = await Promise.all(promises);
-  return deduplicatePlaces(results.flat());
+export async function searchNearbyRestaurants(
+  lat: number,
+  lng: number,
+  radiusMeters = 2000,
+  cuisineTypes: string[] = [],
+  priceLevel = 0,
+  locationName?: string,
+): Promise<PlaceResult[]> {
+  const hasLocation = !!locationName && locationName !== 'Current Location';
+  const hasFilters = priceLevel > 0 || cuisineTypes.length > 0;
+  const isPrecise = radiusMeters <= PRECISE_RADIUS_M;
+  const cap = isPrecise ? PRECISE_CAP : BROAD_CAP;
+
+  if (hasFilters) {
+    return searchWithFilters(lat, lng, radiusMeters, cuisineTypes, priceLevel, locationName, cap, isPrecise);
+  }
+
+  if (isPrecise) {
+    // Precise area: prioritise DISTANCE so genuinely-nearby spots (a 3-star
+    // tucked between cafés, a small bistro the popularity ranker doesn't
+    // know about) come back even if Google considers them obscure.
+    // The popularity pass + a single text-query supplement fill in the
+    // gaps from the type filter and catch food places that nearby's
+    // includedTypes might miss (some restaurants only carry their cuisine
+    // type, e.g. 'french_restaurant' without 'restaurant').
+    const [byDistance, byPopularity, byText] = await Promise.all([
+      nearbyRequest(lat, lng, radiusMeters, 'DISTANCE'),
+      nearbyRequest(lat, lng, radiusMeters, 'POPULARITY'),
+      textRequest('restaurants', lat, lng, radiusMeters, hasLocation),
+    ]);
+
+    const all = [...byDistance, ...byPopularity, ...byText];
+    const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types));
+    return sortByDistance(lat, lng, deduped).slice(0, cap);
+  }
+
+  // Broad area: pull from several angles in parallel so the result set
+  // isn't biased to whatever single query happens to like this area.
+  // Each query returns up to 20 places; together they typically yield
+  // 60-120 raw, which dedupes down to 40-90 unique food places before
+  // we rank by quality and slice to the cap.
+  const broadQueries = ['restaurants', 'best restaurants', 'top rated restaurants', 'popular restaurants'];
+
+  const [byPopularity, byDistance, ...textResults] = await Promise.all([
+    nearbyRequest(lat, lng, radiusMeters, 'POPULARITY'),
+    nearbyRequest(lat, lng, radiusMeters, 'DISTANCE'),
+    ...broadQueries.map((q) => textRequest(q, lat, lng, radiusMeters, hasLocation)),
+  ]);
+
+  const all = [...byPopularity, ...byDistance, ...textResults.flat()];
+  const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types));
+  return sortByQuality(deduped).slice(0, cap);
+}
+
+// Filtered search (price level and/or cuisine selected). One text query per
+// cuisine — gives genuine cuisine diversity rather than a generic
+// "restaurant" query trying to second-guess what the user wants. Precise
+// areas additionally fold in a distance-ranked nearby pass so the result
+// set still surfaces tightly-clustered options the cuisine queries miss.
+async function searchWithFilters(
+  lat: number,
+  lng: number,
+  radiusMeters: number,
+  cuisineTypes: string[],
+  priceLevel: number,
+  locationName: string | undefined,
+  cap: number,
+  isPrecise: boolean,
+): Promise<PlaceResult[]> {
+  const hasLocation = !!locationName && locationName !== 'Current Location';
+  const queries = cuisineTypes.length > 0
+    ? cuisineTypes.map((t) => CUISINE_LABEL_MAP[t] || 'restaurant')
+    : ['restaurants'];
+
+  const priceLevels = priceLevel > 0 && PRICE_LEVEL_STRINGS[priceLevel]
+    ? [PRICE_LEVEL_STRINGS[priceLevel]]
+    : undefined;
+
+  // Clamp text-search radius to at least 5 km so cuisine queries have
+  // something to chew on even when the user is zoomed all the way in
+  // (otherwise "italian" with a 400m radius returns 1-2 places). The
+  // distance-ranked nearby pass still uses the actual radius so it
+  // genuinely respects the visible area.
+  const filterRadius = Math.max(radiusMeters, 5000);
+
+  const textPromises = queries.map((q) => textRequest(q, lat, lng, filterRadius, hasLocation, priceLevels));
+
+  // Distance-ranked nearby supplement so a precise search returns the
+  // physically nearest matches even if Google's text relevance disagrees.
+  // No-op for broad searches.
+  const distancePromise = isPrecise
+    ? nearbyRequest(lat, lng, radiusMeters, 'DISTANCE')
+    : Promise.resolve([] as PlaceResult[]);
+
+  const [textResults, byDistance] = await Promise.all([
+    Promise.all(textPromises),
+    distancePromise,
+  ]);
+
+  const all = [...textResults.flat(), ...byDistance];
+  let deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types));
+  // Distance-ranked nearby doesn't honour price/cuisine filters server-side,
+  // so trim its contributions client-side. Price level on PlaceResult is
+  // 0 when unknown — those aren't excluded because the filter can't tell
+  // unknown vs mismatch.
+  if (priceLevel > 0) {
+    deduped = deduped.filter((p) => p.priceLevel === 0 || p.priceLevel === priceLevel);
+  }
+  return (isPrecise ? sortByDistance(lat, lng, deduped) : sortByQuality(deduped)).slice(0, cap);
 }
 
 // Food-related place types that should be included in search results
