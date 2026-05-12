@@ -1723,44 +1723,42 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     map.on('moveend', (e) => {
       // Mapbox fires `moveend` for both human gestures (drag, wheel-zoom,
       // pinch) and programmatic camera moves (easeTo / flyTo / fitBounds).
-      // Distance-anchor bookkeeping must ONLY react to the human moves —
+      // Everything below should only fire on real human moves —
       // otherwise clicking a marker (which programmatically re-centres
-      // the map on that marker) would collapse the anchor onto the
-      // marker, making every distance read as "<0.1 mi". Mapbox helps
-      // us tell them apart: `originalEvent` is the underlying DOM event
-      // on user moves, and is null/undefined on programmatic ones.
+      // the map) would collapse the anchor onto the marker and pop the
+      // "Search this area" pill. Mapbox helps us tell them apart:
+      // `originalEvent` is the underlying DOM event on user moves, and
+      // is null/undefined on programmatic ones.
       const userInitiated = !!(e as { originalEvent?: unknown })?.originalEvent;
-      if (userInitiated) {
-        const c = map.getCenter();
-        setMapCenter({ lat: c.lat, lng: c.lng });
-        const ref = referenceLocationRef.current;
-        if (ref) {
-          const dKm = haversineKm({ lat: c.lat, lng: c.lng }, { lat: ref.lat, lng: ref.lng });
-          if (dKm > REFERENCE_CLEAR_RADIUS_MILES * 1.60934) {
-            setReferenceLocation(null);
-          }
+      if (!userInitiated) return;
+      const c = map.getCenter();
+      setMapCenter({ lat: c.lat, lng: c.lng });
+      const ref = referenceLocationRef.current;
+      if (ref) {
+        const dKm = haversineKm({ lat: c.lat, lng: c.lng }, { lat: ref.lat, lng: ref.lng });
+        if (dKm > REFERENCE_CLEAR_RADIUS_MILES * 1.60934) {
+          setReferenceLocation(null);
         }
       }
       if (isFocusOnlyRef.current) return; // no fresh searches in focus-only view
       if (mapModeRef.current !== 'discover' && mapModeRef.current !== 'hotels') return;
-      if (isMarkerSelectedRef.current) return;
       if (fetchTimeoutRef.current) { clearTimeout(fetchTimeoutRef.current); fetchTimeoutRef.current = null; }
       setShowSearchHere(true);
     });
 
-    // Click on map background or drag clears popup
+    // Click on the map background clears the selection. Marker click
+    // handlers call e.stopPropagation(), so a real marker hit never
+    // reaches this listener — meaning any click that does reach it
+    // genuinely came from empty map and should dismiss the detail
+    // panel on the first try.
     const clearPopup = () => {
-      // Skip clearing if a marker was just clicked (set in marker click handlers)
-      if (isMarkerSelectedRef.current) {
-        isMarkerSelectedRef.current = false;
-        return;
-      }
       if (popupRef.current) {
         popupRef.current.remove();
         popupRef.current = null;
       }
       setSelectedMarker(null);
       setSelectedPlace(null);
+      isMarkerSelectedRef.current = false;
     };
     const clearOnDrag = () => {
       if (popupRef.current) {
@@ -2415,7 +2413,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // Marker clicks select an inline "detail" view rather than spawning a
   // floating card over the map.
   const PANEL_MODE_TABS: Array<{
-    id: 'discover' | 'myratings' | 'friends' | 'experts' | 'hotels' | 'recipes';
+    id: 'discover' | 'myratings' | 'friends' | 'experts';
     label: string;
     icon: typeof Star;
   }> = [
@@ -2423,8 +2421,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     { id: 'myratings', label: 'My Ratings', icon: Star },
     { id: 'friends', label: 'Friends', icon: Users },
     { id: 'experts', label: 'Experts', icon: Star },
-    { id: 'hotels', label: 'Hotels', icon: Building2 },
-    { id: 'recipes', label: 'Recipes', icon: ChefHat },
   ];
   const activePanelMode = PANEL_MODE_TABS.find((t) => t.id === mapMode) ?? PANEL_MODE_TABS[0];
 
@@ -4770,28 +4766,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 >
                   <Star size={16} className={mapMode === 'experts' ? "text-white fill-white" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">Experts</span>
-                </button>
-
-                <button
-                  onClick={() => setMapMode(mapMode === 'hotels' ? 'discover' : 'hotels')}
-                  className={cn(
-                    "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'hotels' ? "bg-teal-600 border-teal-600 text-white shadow-sm shadow-teal-600/20" : "border-on-surface/10 hover:bg-muted"
-                  )}
-                >
-                  <Building2 size={16} className={mapMode === 'hotels' ? "text-white" : "text-on-surface/50"} />
-                  <span className="text-xs font-bold uppercase tracking-wider">Hotels</span>
-                </button>
-
-                <button
-                  onClick={() => setMapMode(mapMode === 'recipes' ? 'discover' : 'recipes')}
-                  className={cn(
-                    "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'recipes' ? "bg-emerald-600 border-emerald-600 text-white shadow-sm shadow-emerald-600/20" : "border-on-surface/10 hover:bg-muted"
-                  )}
-                >
-                  <ChefHat size={16} className={mapMode === 'recipes' ? "text-white" : "text-on-surface/50"} />
-                  <span className="text-xs font-bold uppercase tracking-wider">Recipes</span>
                 </button>
               </motion.div>
             )}
