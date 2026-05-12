@@ -1794,8 +1794,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update marker styles when selection changes
+  // Update marker styles when selection changes. We have three different
+  // marker pools (discover places by id, ratings markers in a flat array,
+  // hotels), and each has its own visual language; the discover marker
+  // swaps to a filled primary pin while the ratings markers keep their
+  // score-coloured ring but get an extra primary glow + slight scale so
+  // the picked one is obviously the active one. The map's z-index is
+  // bumped too so the selected pin draws above its neighbours.
   useEffect(() => {
+    // Discover-mode pin markers (id-keyed map)
     Object.entries(markersRef.current).forEach(([id, marker]) => {
       const el = marker.getElement();
       const pin = el.querySelector('.marker-pin') as HTMLElement;
@@ -1813,6 +1820,24 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         svg.setAttribute('stroke', isSelected ? 'white' : 'currentColor');
         svg.setAttribute('fill', isSelected ? 'white' : 'none');
       }
+      el.style.zIndex = isSelected ? '5' : '';
+    });
+    // Ratings markers (myratings / friends / experts) — flat array, each
+    // marker carries data-place-id. The hover handlers on these markers
+    // mutate `transform` on mouseenter/leave, so the selection state
+    // sticks to box-shadow + z-index (which the hover code never touches)
+    // — that way the picked marker stays visually called-out even after
+    // the cursor leaves it.
+    customMarkersRef.current.forEach((marker) => {
+      const el = marker.getElement();
+      const id = el.dataset.placeId;
+      const inner = el.querySelector('.marker-pin') as HTMLElement | null;
+      if (!inner) return;
+      const isSelected = !!id && id === selectedMarker;
+      inner.style.boxShadow = isSelected
+        ? '0 0 0 5px rgba(159, 48, 18, 0.22), 0 6px 16px rgba(0,0,0,0.28)'
+        : '0 2px 10px rgba(0,0,0,0.15)';
+      el.style.zIndex = isSelected ? '10' : '';
     });
   }, [selectedMarker]);
 
@@ -2376,8 +2401,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       }
 
       el.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;`;
+      el.dataset.placeId = r.restaurant_id;
       const inner = document.createElement('div');
-      inner.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:white;border:${borderStyle};box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
+      inner.className = 'marker-pin';
+      inner.dataset.placeId = r.restaurant_id;
+      inner.style.cssText = `width:${markerSize}px;height:${markerSize}px;border-radius:50%;background:white;border:${borderStyle};box-shadow:0 2px 10px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease, box-shadow 0.2s ease;`;
       inner.innerHTML = iconHtml;
       el.appendChild(inner);
       el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
@@ -2461,7 +2489,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setSelectedPlace(place);
     setSelectedMarker(place.id);
     setSheetState('peek');
-    mapRef.current?.easeTo({ center: [place.lng, place.lat], duration: 500 });
+    const map = mapRef.current;
+    if (map) {
+      // Zoom into the place so the marker is the obvious centre of
+      // attention. Only zoom IN — if the user is already closer than
+      // street level we keep their current zoom rather than yanking
+      // them back out.
+      const targetZoom = Math.max(map.getZoom(), 15.5);
+      map.easeTo({ center: [place.lng, place.lat], zoom: targetZoom, duration: 700 });
+    }
   }, []);
   const focusPanelRating = useCallback((r: CommunityRating) => {
     const place = ratingToPlace(r);
