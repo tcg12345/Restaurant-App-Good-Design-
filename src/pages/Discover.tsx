@@ -243,10 +243,14 @@ function placeToCardProps(place: PlaceResult) {
   };
 }
 
-// Module-level cache for tab data (persists across navigations within same session)
+// Module-level cache for tab data (persists across navigations within same session).
+// Cache is session-long: once data is loaded for a tab/mode it stays cached until
+// the page reloads, so returning to the Map page from another tab never triggers
+// an automatic refetch. The userId field guards against showing one user's data
+// to another after a sign-out/sign-in.
 const tabDataCache: {
-  ts: number;
   userId: string | null;
+  tabDataLoaded: boolean;
   myRatings: CommunityRating[];
   friendRatings: CommunityRating[];
   expertRatings: CommunityRating[];
@@ -254,9 +258,13 @@ const tabDataCache: {
   expertProfiles: Record<string, UserProfile>;
   coordsLookedUp: Record<string, boolean>;
   discoverPlaces: PlaceResult[];
-  discoverTs: number;
-} = { ts: 0, userId: null, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverTs: 0 };
-const TAB_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+  discoverLoaded: boolean;
+  hotelPlaces: PlaceResult[];
+  hotelsLoaded: boolean;
+  friendRecipes: FriendHomeMeal[];
+  recipeAuthorProfiles: Record<string, UserProfile>;
+  friendRecipesLoaded: boolean;
+} = { userId: null, tabDataLoaded: false, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverLoaded: false, hotelPlaces: [], hotelsLoaded: false, friendRecipes: [], recipeAuthorProfiles: {}, friendRecipesLoaded: false };
 
 interface DiscoverProps {
   mode?: 'home' | 'map';
@@ -289,8 +297,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
-  // Data for My Ratings and Friends tabs — initialized from cache if fresh
-  const cacheHit = userId && tabDataCache.userId === userId && (Date.now() - tabDataCache.ts) < TAB_CACHE_TTL;
+  // Data for My Ratings and Friends tabs — initialized from cache if it was
+  // populated for this user earlier in the session. Cache lives until reload.
+  const cacheHit = userId && tabDataCache.userId === userId && tabDataCache.tabDataLoaded;
   const [myRatings, setMyRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.myRatings : []);
   const [friendRatings, setFriendRatings] = useState<CommunityRating[]>(cacheHit ? tabDataCache.friendRatings : []);
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>(cacheHit ? tabDataCache.friendProfiles : {});
@@ -328,14 +337,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         setFriendProfiles(profs);
         setExpertProfiles(expProfs);
       }
-      // Update module-level cache
-      tabDataCache.ts = Date.now();
+      // Update module-level cache (kept for the session — no TTL)
       tabDataCache.userId = userId;
       tabDataCache.myRatings = myR;
       tabDataCache.friendRatings = friendR;
       tabDataCache.expertRatings = expertR;
       tabDataCache.friendProfiles = profs;
       tabDataCache.expertProfiles = expProfs;
+      tabDataCache.tabDataLoaded = true;
       setUserDataReady(true);
     })();
   }, [userId, tabDataLoaded]);
@@ -383,12 +392,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setRatingPrice(null);
     setRatingCities([]);
   };
-  const [hotelPlaces, setHotelPlaces] = useState<PlaceResult[]>([]);
+  const [hotelPlaces, setHotelPlaces] = useState<PlaceResult[]>(() => tabDataCache.hotelPlaces);
   const [hotelsLoading, setHotelsLoading] = useState(false);
   // Recipes mode: friends' public home meals + the meal we're viewing in modal.
-  const [friendRecipes, setFriendRecipes] = useState<FriendHomeMeal[]>([]);
+  const [friendRecipes, setFriendRecipes] = useState<FriendHomeMeal[]>(() => tabDataCache.friendRecipes);
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
-  const [recipeAuthorProfiles, setRecipeAuthorProfiles] = useState<Record<string, UserProfile>>({});
+  const [recipeAuthorProfiles, setRecipeAuthorProfiles] = useState<Record<string, UserProfile>>(() => tabDataCache.recipeAuthorProfiles);
   const hotelMarkersRef = useRef<mapboxgl.Marker[]>([]);
   const mapModeRef = useRef(mapMode);
   mapModeRef.current = mapMode;
@@ -416,9 +425,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [activeStyle, setActiveStyle] = useState<string>('light');
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [is3D, setIs3D] = useState(false);
-  const [places, setPlaces] = useState<PlaceResult[]>(() =>
-    (Date.now() - tabDataCache.discoverTs) < TAB_CACHE_TTL ? tabDataCache.discoverPlaces : []
-  );
+  const [places, setPlaces] = useState<PlaceResult[]>(() => tabDataCache.discoverPlaces);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1395,7 +1402,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       // Add expert overlay markers in the visible area
       setTimeout(() => addExpertOverlayRef.current?.(), 100);
       tabDataCache.discoverPlaces = sorted;
-      tabDataCache.discoverTs = Date.now();
+      tabDataCache.discoverLoaded = true;
     } catch (err) {
       console.error('Places search failed:', err);
     } finally {
@@ -1582,8 +1589,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         setSheetState('peek');
         return;
       }
-      const hasCachedPlaces = tabDataCache.discoverPlaces.length > 0 && (Date.now() - tabDataCache.discoverTs) < TAB_CACHE_TTL;
-      if (hasCachedPlaces) {
+      // Session cache: if we've already loaded discover places earlier in
+      // this session, just paint the markers — don't fire a fresh API call
+      // when the user returns to the Map page from another tab.
+      if (tabDataCache.discoverLoaded) {
         syncMarkers(tabDataCache.discoverPlaces);
         setTimeout(() => addExpertOverlayRef.current?.(), 100);
       } else {
@@ -1627,8 +1636,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     map.on('click', clearPopup);
     map.on('dragstart', clearOnDrag);
 
+    // The desktop sidebar expands on hover and collapses on leave, which
+    // changes the map container's width. Mapbox doesn't track container
+    // size on its own, so watch the container and trigger a resize on
+    // every change — otherwise the canvas keeps its previous size and
+    // leaves a blank strip where the sidebar used to be.
+    const container = mapContainerRef.current;
+    const ro = new ResizeObserver(() => { mapRef.current?.resize(); });
+    ro.observe(container);
+    const onWindowResize = () => { mapRef.current?.resize(); };
+    window.addEventListener('resize', onWindowResize);
+
     return () => {
       if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+      ro.disconnect();
+      window.removeEventListener('resize', onWindowResize);
       map.remove();
       mapRef.current = null;
       setMapReady(false);
@@ -1811,6 +1833,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       const center = map.getCenter();
       const results = await searchHotels('hotels', center.lat, center.lng);
       setHotelPlaces(results);
+      tabDataCache.hotelPlaces = results;
+      tabDataCache.hotelsLoaded = true;
     } catch (err) {
       console.error('Hotel search failed:', err);
     } finally {
@@ -2024,16 +2048,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     })();
   }, [mapMode, expertRatings, friendRatings]);
 
-  // Fetch hotels when entering hotels mode
+  // Fetch hotels when entering hotels mode — but only the first time in
+  // this session. Returning to the tab after navigating away reuses the
+  // cached results and skips the API call entirely.
   useEffect(() => {
     if (isFocusOnly) return; // focus-only view never pulls extra markers
-    if (mapMode === 'hotels' && hotelPlaces.length === 0) fetchHotels();
+    if (mapMode === 'hotels' && !tabDataCache.hotelsLoaded) fetchHotels();
   }, [mapMode, isFocusOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch friends' public home meals when entering recipes mode. Loads lazily
-  // the first time the tab is opened and refreshes every time it's re-opened.
+  // Fetch friends' public home meals when entering recipes mode. Loads
+  // lazily the first time the tab is opened in a session; subsequent
+  // visits reuse the cached list rather than re-firing the API call.
   useEffect(() => {
     if (mapMode !== 'recipes' || !userId) return;
+    if (tabDataCache.friendRecipesLoaded) return;
     let cancelled = false;
     setFriendRecipesLoading(true);
     (async () => {
@@ -2042,19 +2070,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         const friendIds = friends.map((f) => f.friend_id);
         if (friendIds.length === 0) {
           if (!cancelled) setFriendRecipes([]);
+          tabDataCache.friendRecipes = [];
+          tabDataCache.recipeAuthorProfiles = {};
+          tabDataCache.friendRecipesLoaded = true;
           return;
         }
         const meals = await getFriendsPublicHomeMeals(friendIds);
         if (cancelled) return;
         meals.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
         setFriendRecipes(meals);
+        tabDataCache.friendRecipes = meals;
         // Pull author profiles so we can show names on cards.
         const uniqueAuthors = Array.from(new Set(meals.map((m) => m.userId)));
+        let profiles: Record<string, UserProfile> = {};
         if (uniqueAuthors.length > 0) {
-          const profiles = await getProfilesByIds(uniqueAuthors);
+          profiles = await getProfilesByIds(uniqueAuthors);
           if (cancelled) return;
           setRecipeAuthorProfiles(profiles);
         }
+        tabDataCache.recipeAuthorProfiles = profiles;
+        tabDataCache.friendRecipesLoaded = true;
       } catch (err) {
         console.warn('[Map] friend recipes fetch failed:', err);
       } finally {
