@@ -4711,7 +4711,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         >
                           {cover ? (
                             /* Photo card — text overlaid on bottom gradient */
-                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
+                            <div className="relative w-[178px] h-[172px] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
                               <img
                                 src={cover}
                                 alt=""
@@ -4743,10 +4743,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                               </div>
                             </div>
                           ) : (
-                            /* Text-rich card — no broken placeholder. Fills the
-                               middle with title + cuisine + stats so no empty
-                               space sits between the source chip and footer. */
-                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-3.5 flex flex-col overflow-hidden">
+                            /* Text-rich card — no broken placeholder. Sized to
+                               match the Recommended rail (h-[172px]) so the
+                               two rails read consistently and the card has no
+                               empty middle band. */
+                            <div className="relative w-[178px] h-[172px] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-3.5 flex flex-col overflow-hidden">
                               <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/80" />
 
                               {/* Source chip + chef icon */}
@@ -4757,14 +4758,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                 <ChefHat size={13} className="text-emerald-500/70 flex-shrink-0" />
                               </div>
 
-                              {/* Title + cuisine — top-aligned so the layout feels
-                                  deliberate rather than empty-in-the-middle. */}
-                              <div className="mt-3">
-                                <p className="font-serif text-[15.5px] font-bold text-on-surface leading-[1.18] line-clamp-3">
+                              {/* Title + cuisine — fills the middle band */}
+                              <div className="flex-1 flex flex-col justify-center mt-2 min-h-0">
+                                <p className="font-serif text-[15px] font-bold text-on-surface leading-[1.18] line-clamp-2">
                                   {r.title}
                                 </p>
                                 {r.cuisine && (
-                                  <p className="text-[11px] text-on-surface/55 font-medium mt-1.5 truncate">
+                                  <p className="text-[11px] text-on-surface/55 font-medium mt-1 truncate">
                                     {r.cuisine}
                                   </p>
                                 )}
@@ -4772,7 +4772,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
                               {/* Stats footer pinned to the bottom */}
                               {(timeLabel || ingCount > 0 || stepCount > 0) && (
-                                <div className="mt-auto pt-3 border-t border-on-surface/[0.06] flex items-center justify-between text-[10.5px] text-on-surface/65 font-semibold tabular-nums">
+                                <div className="pt-2 border-t border-on-surface/[0.06] flex items-center justify-between text-[10.5px] text-on-surface/65 font-semibold tabular-nums">
                                   {timeLabel ? (
                                     <span className="inline-flex items-center gap-1"><Clock size={11} />{timeLabel}</span>
                                   ) : <span />}
