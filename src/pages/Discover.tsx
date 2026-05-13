@@ -4644,11 +4644,30 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
                     {recommendedRecipes.map((r) => {
                       const cover = r.photos?.[0];
-                      const sourceLabel = r._source === 'friend' ? 'Friend' : r._source === 'expert' ? 'Chef' : 'Community';
+                      const authorProfile =
+                        r._source === 'friend' ? friendProfiles[r.userId]
+                        : r._source === 'expert' ? expertProfiles[r.userId]
+                        : undefined;
+                      const authorName = authorProfile?.display_name
+                        || (authorProfile?.username ? `@${authorProfile.username}` : '');
+                      const sourceLabel =
+                        r._source === 'public' ? 'Community'
+                        : authorName
+                          ? (r._source === 'expert' ? `By ${authorName}` : `From ${authorName}`)
+                          : (r._source === 'expert' ? 'Chef' : 'Friend');
                       const sourceCls =
                         r._source === 'friend' ? 'bg-blue-500/95 text-white'
                         : r._source === 'expert' ? 'bg-amber-500/95 text-white'
                         : 'bg-white/90 text-on-surface/70';
+                      // Stats row: time + ingredient count + step count
+                      const totalMin = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
+                      const timeLabel = totalMin > 0
+                        ? totalMin >= 60
+                          ? `${Math.floor(totalMin / 60)}h${totalMin % 60 ? ` ${totalMin % 60}m` : ''}`
+                          : `${totalMin}m`
+                        : '';
+                      const ingCount = r.ingredients?.length || 0;
+                      const stepCount = r.steps?.length || 0;
                       return (
                         <Link
                           key={r.id}
@@ -4660,39 +4679,79 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             <div className="relative w-[178px] aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
                               <img
                                 src={cover}
-                                alt={r.title}
+                                alt=""
                                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
                                 referrerPolicy="no-referrer"
                               />
                               <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
-                              <span className={cn('absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full backdrop-blur px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]', sourceCls)}>
+                              <span className={cn('absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full backdrop-blur px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] max-w-[148px] truncate', sourceCls)}>
                                 {sourceLabel}
                               </span>
-                              <div className="absolute inset-x-0 bottom-0 p-3">
+                              <div className="absolute inset-x-0 bottom-0 p-3 space-y-1.5">
                                 <p className="text-white text-[13px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{r.title}</p>
                                 {r.cuisine && (
-                                  <p className="text-white/80 text-[10px] font-medium mt-1 truncate">{r.cuisine}</p>
+                                  <p className="text-white/80 text-[10px] font-medium truncate">{r.cuisine}</p>
+                                )}
+                                {(timeLabel || ingCount > 0 || stepCount > 0) && (
+                                  <div className="flex items-center gap-2 text-white/85 text-[10px] font-semibold pt-0.5">
+                                    {timeLabel && (
+                                      <span className="inline-flex items-center gap-0.5"><Clock size={10} />{timeLabel}</span>
+                                    )}
+                                    {ingCount > 0 && (
+                                      <span className="inline-flex items-center gap-0.5"><UtensilsCrossed size={10} />{ingCount}</span>
+                                    )}
+                                    {stepCount > 0 && (
+                                      <span className="inline-flex items-center gap-0.5"><BookOpen size={10} />{stepCount}</span>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>
                           ) : (
-                            /* Text-rich card — no broken placeholder. Soft emerald
-                               accent identifies it as a recipe at a glance. */
-                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden">
+                            /* Text-rich card — no broken placeholder. Fills the
+                               middle with title + cuisine + stats so no empty
+                               space sits between the source chip and footer. */
+                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-3.5 flex flex-col overflow-hidden">
                               <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/80" />
-                              <div className="flex items-center justify-between gap-2">
-                                <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]', sourceCls)}>
+
+                              {/* Source chip + chef icon */}
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] truncate min-w-0', sourceCls)}>
                                   {sourceLabel}
                                 </span>
-                                <ChefHat size={14} className="text-emerald-500/70" />
+                                <ChefHat size={13} className="text-emerald-500/70 flex-shrink-0" />
                               </div>
-                              <div className="flex-1 flex items-end mt-3">
-                                <p className="font-serif text-[16px] font-bold text-on-surface leading-[1.2] line-clamp-4">
+
+                              {/* Title + cuisine — top-aligned so the layout feels
+                                  deliberate rather than empty-in-the-middle. */}
+                              <div className="mt-3">
+                                <p className="font-serif text-[15.5px] font-bold text-on-surface leading-[1.18] line-clamp-3">
                                   {r.title}
                                 </p>
+                                {r.cuisine && (
+                                  <p className="text-[11px] text-on-surface/55 font-medium mt-1.5 truncate">
+                                    {r.cuisine}
+                                  </p>
+                                )}
                               </div>
-                              {r.cuisine && (
-                                <p className="text-[11px] text-on-surface/55 font-medium mt-2 truncate">{r.cuisine}</p>
+
+                              {/* Stats footer pinned to the bottom */}
+                              {(timeLabel || ingCount > 0 || stepCount > 0) && (
+                                <div className="mt-auto pt-3 border-t border-on-surface/[0.06] flex items-center justify-between text-[10.5px] text-on-surface/65 font-semibold tabular-nums">
+                                  {timeLabel ? (
+                                    <span className="inline-flex items-center gap-1"><Clock size={11} />{timeLabel}</span>
+                                  ) : <span />}
+                                  {ingCount > 0 ? (
+                                    <span className="inline-flex items-center gap-1" title={`${ingCount} ingredient${ingCount === 1 ? '' : 's'}`}>
+                                      <UtensilsCrossed size={11} />{ingCount}
+                                    </span>
+                                  ) : <span />}
+                                  {stepCount > 0 ? (
+                                    <span className="inline-flex items-center gap-1" title={`${stepCount} step${stepCount === 1 ? '' : 's'}`}>
+                                      <BookOpen size={11} />{stepCount}
+                                    </span>
+                                  ) : <span />}
+                                </div>
                               )}
                             </div>
                           )}
