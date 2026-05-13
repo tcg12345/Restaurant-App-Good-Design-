@@ -15,6 +15,7 @@ import {
   getFriendsPublicHomeMeals, getFollowedExpertIds,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
+import { listPosts, setPostLike, type PostRow } from '../lib/supabase-posts';
 import { getMealCoverUrl } from '../lib/recipe-display';
 import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
 import { EmptyState } from './EmptyState';
@@ -74,7 +75,8 @@ const initialOf = (name: string) => (name || 'U').trim().charAt(0).toUpperCase()
 
 type FeedItem =
   | { type: 'rating'; data: CommunityRating; sortTime: number }
-  | { type: 'homeMeal'; data: FriendHomeMeal; sortTime: number };
+  | { type: 'homeMeal'; data: FriendHomeMeal; sortTime: number }
+  | { type: 'post'; data: PostRow; sortTime: number };
 
 // Great-circle distance between two coords in kilometres (Haversine). Used to
 // sort the Friend Activity feed so ratings near the home-page location anchor
@@ -105,6 +107,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
+  const [posts, setPosts] = useState<PostRow[]>([]);
   // Ratings authored by experts the user follows. Loaded lazily the first
   // time the user switches the feed dropdown to "Expert Picks".
   const [expertActivity, setExpertActivity] = useState<CommunityRating[]>([]);
@@ -162,12 +165,18 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     if (friends.length === 0) { setLoading(false); return; }
 
     const friendIds = friends.map((f) => f.friend_id);
-    const [act, meals] = await Promise.all([
+    const friendIdSet = new Set(friendIds);
+    const [act, meals, allPosts] = await Promise.all([
       getFriendActivity(friendIds, 500),
       getFriendsPublicHomeMeals(friendIds),
+      // Pull the public-post feed and filter to friends only — RLS already
+      // limits the row set to public + accepted-followers, so this keeps
+      // the Friend Activity feed scoped to people you actually follow.
+      listPosts({ viewerId: userId, limit: 100 }),
     ]);
     setActivity(act);
     setHomeMeals(meals);
+    setPosts(allPosts.filter((p) => friendIdSet.has(p.userId)));
 
     // Collect all user IDs from both sources
     const allUserIds = new Set<string>();
@@ -260,10 +269,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return haversineKm(centerLat!, centerLng!, r.lat, r.lng);
   };
   // Expert Picks mode shows ratings from followed experts only (no
-  // home-meal logger entries, since experts publish via ratings). Friend
-  // Activity is the existing mix of friend ratings + home meals.
+  // home-meal logger entries or posts, since experts publish via
+  // ratings). Friend Activity is the existing mix of friend ratings +
+  // home meals + posts.
   const ratingSource = feedMode === 'experts' ? expertActivity : activity;
   const mealSource = feedMode === 'experts' ? [] : homeMeals;
+  const postSource = feedMode === 'experts' ? [] : posts;
   const feedItems: FeedItem[] = [
     ...ratingSource.map((r): FeedItem => ({
       type: 'rating', data: r,
@@ -272,6 +283,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     ...mealSource.map((m): FeedItem => ({
       type: 'homeMeal', data: m,
       sortTime: m.createdAt,
+    })),
+    ...postSource.map((p): FeedItem => ({
+      type: 'post', data: p,
+      sortTime: p.createdAt ? new Date(p.createdAt).getTime() : 0,
     })),
   ].sort((a, b) => {
     if (hasAnchor) {
@@ -288,6 +303,19 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     setUserLiked((prev) => { const next = new Set(prev); wasLiked ? next.delete(ratingId) : next.add(ratingId); return next; });
     setLikes((prev) => ({ ...prev, [ratingId]: Math.max(0, (prev[ratingId] || 0) + (wasLiked ? -1 : 1)) }));
     await toggleLike(userId, ratingId);
+  };
+
+  // Toggle a post like. Mirrors handleLike's optimistic pattern so the
+  // heart flips immediately and the server call reconciles in the
+  // background.
+  const handleLikePost = async (postId: string, currentlyLiked: boolean) => {
+    if (!userId) return;
+    setPosts((prev) => prev.map((p) => (
+      p.id === postId
+        ? { ...p, liked: !currentlyLiked, likesCount: Math.max(0, p.likesCount + (currentlyLiked ? -1 : 1)) }
+        : p
+    )));
+    await setPostLike(postId, userId, !currentlyLiked);
   };
 
   const handleOpenComments = async (ratingId: string) => {
@@ -474,7 +502,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return (
       <section className="mb-8">
         <SectionHeader />
-        <ul className="space-y-3">
+        <ul className={cn("space-y-3", !phoneMode && "xl:max-w-[62%] xl:mx-auto")}>
           {[0, 1, 2].map((i) => (
             <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
               <div className="flex items-center gap-2.5 mb-4">
@@ -503,7 +531,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     <section className="mb-8">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
       {feedMode === 'experts' && expertLoading ? (
-        <ul className="space-y-3">
+        <ul className={cn("space-y-3", !phoneMode && "xl:max-w-[62%] xl:mx-auto")}>
           {[0, 1, 2].map((i) => (
             <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
               <div className="flex items-center gap-2.5 mb-4">
@@ -534,7 +562,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
           />
         ) : (
-          <ul className="space-y-3">
+          <ul className={cn("space-y-3", !phoneMode && "xl:max-w-[62%] xl:mx-auto")}>
             {recipesSorted.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
@@ -619,8 +647,118 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           </ul>
         )
       ) : (
-      <ul className="space-y-3">
+      <ul className={cn("space-y-3", !phoneMode && "xl:max-w-[62%] xl:mx-auto")}>
         {feedItems.map((item) => {
+          if (item.type === 'post') {
+            const p = item.data;
+            const author = p.author;
+            const displayName = author?.displayName || author?.username || 'A friend';
+            const authorUsername = author?.username || '';
+            const postTimeAgo = timeAgo(p.createdAt);
+            // First attached restaurant/recipe across the post's items —
+            // surfaces a small follow-up card so the feed reads like a
+            // mini-version of the full reel post, sans the media.
+            const attached = p.items.find((it) => it.attachedKind && (it.restaurant || it.recipe));
+            const restaurant = attached?.restaurant || null;
+            const recipe = attached?.recipe || null;
+            const navigateToPost = () => navigate(`/r/post-${p.id}`);
+            return (
+              <li key={`post-${p.id}`}>
+                <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-4">
+                  {/* Author header */}
+                  <div className="flex items-center gap-2.5">
+                    <Link to={`/user/${authorUsername}`} className="flex-shrink-0">
+                      <div className={cn(
+                        'w-9 h-9 rounded-full flex items-center justify-center text-white text-[12px] font-bold',
+                        author?.avatarColor || 'bg-stone-700',
+                      )}>
+                        {author?.initials || 'U'}
+                      </div>
+                    </Link>
+                    <div className="flex-1 min-w-0">
+                      <Link to={`/user/${authorUsername}`} className="text-[13px] font-bold hover:text-primary block truncate leading-tight">
+                        {displayName}
+                      </Link>
+                      <p className="text-[11px] text-on-surface/45 leading-tight mt-0.5 inline-flex items-center gap-1">
+                        <span className="inline-flex items-center gap-0.5 text-fuchsia-600 font-semibold">
+                          <BookOpen size={9} />Posted
+                        </span>
+                        <span className="text-on-surface/20 mx-0.5">·</span>
+                        {postTimeAgo}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Body */}
+                  <button
+                    type="button"
+                    onClick={navigateToPost}
+                    className="block w-full text-left mt-2.5 group focus-visible:outline-none"
+                  >
+                    {p.caption && (
+                      <p className="font-serif text-[18px] leading-[1.25] text-on-surface group-hover:text-primary transition-colors line-clamp-4">
+                        {p.caption}
+                      </p>
+                    )}
+                    {p.locationLabel && (
+                      <p className="mt-1.5 text-[11.5px] text-on-surface/50 font-medium uppercase tracking-[0.08em] truncate">
+                        {p.locationLabel}
+                      </p>
+                    )}
+
+                    {/* Attached restaurant/recipe mini-card */}
+                    {(restaurant || recipe) && (
+                      <div className="mt-3 rounded-xl border border-on-surface/[0.08] bg-on-surface/[0.02] px-3 py-2.5 group-hover:border-on-surface/[0.16] transition-colors">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/45">
+                          {restaurant ? 'Featured place' : 'Featured recipe'}
+                        </p>
+                        <p className="mt-0.5 font-serif font-bold text-[15px] text-on-surface leading-tight line-clamp-1">
+                          {restaurant?.name || recipe?.title || ''}
+                        </p>
+                        {(restaurant || recipe) && (
+                          <p className="mt-0.5 text-[11px] text-on-surface/50 truncate">
+                            {restaurant
+                              ? [restaurant.cuisine, restaurant.price, restaurant.address].filter(Boolean).join(' · ')
+                              : recipe?.cuisine || ''}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </button>
+
+                  {/* Actions footer */}
+                  <div className="flex items-center gap-1 mt-3 pt-2 border-t border-on-surface/[0.05]">
+                    <button
+                      onClick={() => handleLikePost(p.id, p.liked)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full transition-colors',
+                        p.liked
+                          ? 'text-red-500'
+                          : 'text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]',
+                      )}
+                    >
+                      <Heart size={17} className={p.liked ? 'fill-red-500' : ''} />
+                      <span className="text-[12px] font-bold tabular-nums">{p.likesCount}</span>
+                    </button>
+                    <button
+                      onClick={navigateToPost}
+                      className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
+                    >
+                      <MessageSquare size={17} />
+                      <span className="text-[12px] font-bold tabular-nums">{p.commentsCount}</span>
+                    </button>
+                    <div className="flex-1" />
+                    <button
+                      onClick={navigateToPost}
+                      className="inline-flex items-center gap-1 h-9 px-3 rounded-full text-[11.5px] font-bold uppercase tracking-[0.08em] text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
+                    >
+                      View post
+                    </button>
+                  </div>
+                </article>
+              </li>
+            );
+          }
           if (item.type === 'homeMeal') {
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
