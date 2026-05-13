@@ -11,7 +11,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
-  getCommentCounts, toggleLike, addComment, getComments,
+  getCommentCounts, toggleLike, addComment, getComments, toggleCommentLike,
   getFriendsPublicHomeMeals,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
@@ -118,6 +118,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [commentProfiles, setCommentProfiles] = useState<Record<string, UserProfile>>({});
   const [newComment, setNewComment] = useState('');
   const [commentsLoading, setCommentsLoading] = useState(false);
+  // Which top-level comment IDs have their reply-thread expanded (YouTube-style).
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  // Which top-level comment ID is currently showing the inline reply input.
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
   // Always navigate to the full recipe page — the phone-optimized layout
   // handles the narrow viewport, so we no longer need the bottom-sheet modal.
   const openFriendRecipe = useCallback((m: FriendHomeMeal) => {
@@ -227,7 +232,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     setOpenComments(ratingId);
     setCommentsLoading(true);
     setNewComment('');
-    const cmts = await getComments(ratingId);
+    setReplyingTo(null);
+    setReplyText('');
+    setExpandedThreads(new Set());
+    const cmts = await getComments(ratingId, userId);
     setComments(cmts);
     if (cmts.length > 0) {
       const ids = [...new Set(cmts.map((c) => c.user_id))];
@@ -237,17 +245,66 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     setCommentsLoading(false);
   };
 
+  // Single shared "refresh comments after a write" routine so handlers stay tiny.
+  const refreshComments = async (ratingId: string) => {
+    const cmts = await getComments(ratingId, userId);
+    setComments(cmts);
+    const ids = [...new Set(cmts.map((c) => c.user_id))];
+    setCommentProfiles(await getProfilesByIds(ids));
+  };
+
   const handleAddComment = async (ratingId: string) => {
     if (!userId || !newComment.trim()) return;
-    const ok = await addComment(userId, ratingId, newComment.trim());
+    const ok = await addComment(userId, ratingId, newComment.trim(), null);
     if (ok) {
       setNewComment('');
       setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
-      const cmts = await getComments(ratingId);
-      setComments(cmts);
-      const ids = [...new Set(cmts.map((c) => c.user_id))];
-      setCommentProfiles(await getProfilesByIds(ids));
+      await refreshComments(ratingId);
     }
+  };
+
+  const handleAddReply = async (ratingId: string, parentId: string) => {
+    if (!userId || !replyText.trim()) return;
+    const ok = await addComment(userId, ratingId, replyText.trim(), parentId);
+    if (ok) {
+      setReplyText('');
+      setReplyingTo(null);
+      setCommentCounts((prev) => ({ ...prev, [ratingId]: (prev[ratingId] || 0) + 1 }));
+      // Expand the parent thread so the new reply is visible immediately.
+      setExpandedThreads((prev) => new Set(prev).add(parentId));
+      await refreshComments(ratingId);
+    }
+  };
+
+  // Optimistic comment-like toggle — flips the local state first, then
+  // syncs to Supabase. If the server call fails we silently leave the
+  // optimistic state in place; the next refresh will reconcile.
+  const handleToggleCommentLike = async (commentId: string) => {
+    if (!userId) return;
+    setComments((prev) => prev.map((c) => {
+      if (c.id !== commentId) return c;
+      const wasLiked = !!c.liked_by_me;
+      return {
+        ...c,
+        liked_by_me: !wasLiked,
+        like_count: Math.max(0, (c.like_count || 0) + (wasLiked ? -1 : 1)),
+      };
+    }));
+    await toggleCommentLike(userId, commentId);
+  };
+
+  const toggleThread = (parentId: string) => {
+    setExpandedThreads((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
+  };
+
+  const startReply = (parentId: string) => {
+    setReplyingTo((cur) => (cur === parentId ? null : parentId));
+    setReplyText('');
   };
 
   const getName = (uid: string) => profiles[uid]?.display_name || 'User';
@@ -611,11 +668,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                 className="block w-full text-left mt-4 group focus-visible:outline-none"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">
+                <div className="flex items-start justify-between gap-4">
+                  <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors pt-1">
                     {r.restaurant_name}
                   </h3>
-                  <ScoreBadge rating={Number(r.score)} size="md" />
+                  <ScoreBadge rating={Number(r.score)} size="xl" />
                 </div>
                 {(r.cuisine || r.price || r.address) && (
                   <p className="mt-1.5 text-[11.5px] text-on-surface/50 font-medium uppercase tracking-[0.08em] truncate">
@@ -685,57 +742,183 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   <Heart size={17} className={wishlisted ? 'fill-red-500' : ''} />
                 </button>
               </div>
-            </article>
 
-            {/* Comments */}
-            <AnimatePresence>
-              {openComments === r.id && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                  <div className="mt-3 pt-3 border-t border-on-surface/[0.06] space-y-3">
-                    {commentsLoading ? (
-                      <div className="space-y-2 py-1">
-                        <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-4/5" />
-                        <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-3/5" />
-                      </div>
-                    ) : comments.length === 0 ? (
-                      <p className="text-[12px] text-on-surface/40 py-1">No comments yet — be the first!</p>
-                    ) : (
-                      <div className="space-y-3 max-h-52 overflow-y-auto">
-                        {comments.map((c) => {
-                          const cColor = avatarColor(c.user_id);
-                          const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
-                          return (
-                          <div key={c.id} className="flex gap-2.5">
-                            <div className={cn("w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5", cColor.bg)}>
-                              <span className={cn("text-[13px] font-serif font-bold", cColor.text)}>{cInitial}</span>
+              {/* Comments — nested INSIDE the card as an indented subsection.
+                  Replies are collapsed by default behind a YouTube-style
+                  "View N replies" toggle on the parent. */}
+              <AnimatePresence>
+                {openComments === r.id && (() => {
+                  const topLevel = comments.filter((c) => !c.parent_id);
+                  const repliesByParent: Record<string, ActivityComment[]> = {};
+                  comments.forEach((c) => {
+                    if (c.parent_id) {
+                      (repliesByParent[c.parent_id] ||= []).push(c);
+                    }
+                  });
+
+                  const renderCommentRow = (c: ActivityComment, isReply: boolean): React.ReactNode => {
+                    const cColor = avatarColor(c.user_id);
+                    const profile = commentProfiles[c.user_id];
+                    const cInitial = initialOf(profile?.display_name || 'User');
+                    const replies = !isReply ? (repliesByParent[c.id] || []) : [];
+                    const expanded = expandedThreads.has(c.id);
+                    const replying = replyingTo === c.id;
+                    return (
+                      <li key={c.id}>
+                        <div className="flex gap-2.5">
+                          <Link to={`/user/${profile?.username || ''}`} className="flex-shrink-0">
+                            <div className={cn(
+                              'rounded-full flex items-center justify-center',
+                              isReply ? 'w-6 h-6' : 'w-8 h-8',
+                              cColor.bg,
+                            )}>
+                              <span className={cn('font-serif font-bold', isReply ? 'text-[10px]' : 'text-[12px]', cColor.text)}>{cInitial}</span>
                             </div>
-                            <div className="min-w-0">
-                              <p className="text-[12px] leading-relaxed">
-                                <Link to={`/user/${commentProfiles[c.user_id]?.username || ''}`} className="font-semibold text-on-surface/80 hover:text-primary">{commentProfiles[c.user_id]?.display_name || 'User'}</Link>{' '}
-                                <span className="text-on-surface/60">{c.text}</span>
-                              </p>
-                              <p className="text-[12px] text-on-surface/35 mt-0.5">{timeAgo(c.created_at)}</p>
+                          </Link>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <Link to={`/user/${profile?.username || ''}`} className="text-[12.5px] font-semibold text-on-surface/85 hover:text-primary leading-tight">
+                                {profile?.display_name || 'User'}
+                              </Link>
+                              <span className="text-[11px] text-on-surface/35 leading-tight">{timeAgo(c.created_at)}</span>
                             </div>
+                            <p className="text-[13px] text-on-surface/75 mt-0.5 leading-relaxed whitespace-pre-wrap break-words">
+                              {c.text}
+                            </p>
+                            <div className="flex items-center gap-1 mt-1 -ml-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleCommentLike(c.id)}
+                                className={cn(
+                                  'inline-flex items-center gap-1 h-7 px-1.5 rounded-full text-[11.5px] font-semibold transition-colors',
+                                  c.liked_by_me
+                                    ? 'text-red-500'
+                                    : 'text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]',
+                                )}
+                                aria-label={c.liked_by_me ? 'Unlike' : 'Like'}
+                              >
+                                <Heart size={13} className={c.liked_by_me ? 'fill-red-500' : ''} />
+                                {(c.like_count || 0) > 0 && <span className="tabular-nums">{c.like_count}</span>}
+                              </button>
+                              {!isReply && (
+                                <button
+                                  type="button"
+                                  onClick={() => startReply(c.id)}
+                                  className={cn(
+                                    'h-7 px-2 rounded-full text-[11.5px] font-semibold transition-colors',
+                                    replying ? 'text-primary' : 'text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04]',
+                                  )}
+                                >
+                                  Reply
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Inline reply composer */}
+                            {!isReply && replying && (
+                              <div className="flex items-center gap-2 mt-2">
+                                <input
+                                  type="text"
+                                  value={replyText}
+                                  onChange={(e) => setReplyText(e.target.value)}
+                                  placeholder={`Reply to ${profile?.display_name || 'User'}…`}
+                                  autoFocus
+                                  className="flex-1 bg-on-surface/[0.04] rounded-full h-9 px-3.5 text-[12.5px] focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddReply(r.id, c.id); }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddReply(r.id, c.id)}
+                                  disabled={!replyText.trim()}
+                                  className="inline-flex items-center justify-center w-9 h-9 rounded-full text-primary disabled:text-on-surface/20 hover:bg-primary/5 transition-colors"
+                                  aria-label="Post reply"
+                                >
+                                  <Send size={15} />
+                                </button>
+                              </div>
+                            )}
+
+                            {/* YouTube-style "View N replies" toggle */}
+                            {!isReply && replies.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => toggleThread(c.id)}
+                                className="mt-2 inline-flex items-center gap-1 h-7 pl-1.5 pr-2.5 rounded-full bg-primary/[0.06] hover:bg-primary/[0.12] text-primary text-[11.5px] font-bold transition-colors"
+                              >
+                                <ChevronDown size={13} className={cn('transition-transform', expanded && 'rotate-180')} />
+                                {expanded
+                                  ? 'Hide replies'
+                                  : `View ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
+                              </button>
+                            )}
+
+                            {/* Replies thread — indented under the parent */}
+                            <AnimatePresence>
+                              {!isReply && expanded && replies.length > 0 && (
+                                <motion.ul
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: 'auto', opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  className="overflow-hidden mt-3 space-y-3"
+                                >
+                                  {replies.map((reply) => renderCommentRow(reply, true))}
+                                </motion.ul>
+                              )}
+                            </AnimatePresence>
                           </div>
-                          );
-                        })}
+                        </div>
+                      </li>
+                    );
+                  };
+
+                  return (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-4 pt-4 pl-8 sm:pl-12 border-t border-on-surface/[0.06]">
+                        {/* New top-level comment composer */}
+                        <div className="flex items-center gap-2 mb-4">
+                          <input
+                            type="text"
+                            value={newComment}
+                            onChange={(e) => setNewComment(e.target.value)}
+                            placeholder="Add a comment…"
+                            className="flex-1 bg-on-surface/[0.04] rounded-full h-10 px-4 text-[13px] focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(r.id); }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleAddComment(r.id)}
+                            disabled={!newComment.trim()}
+                            className="inline-flex items-center justify-center w-10 h-10 rounded-full text-primary disabled:text-on-surface/20 hover:bg-primary/5 transition-colors"
+                            aria-label="Post comment"
+                          >
+                            <Send size={17} />
+                          </button>
+                        </div>
+
+                        {/* Comments list */}
+                        {commentsLoading ? (
+                          <div className="space-y-2 py-1">
+                            <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-4/5" />
+                            <div className="animate-pulse bg-on-surface/[0.06] rounded h-3 w-3/5" />
+                          </div>
+                        ) : topLevel.length === 0 ? (
+                          <p className="text-[12.5px] text-on-surface/40 py-1">No comments yet — be the first.</p>
+                        ) : (
+                          <ul className="space-y-4">
+                            {topLevel.map((c) => renderCommentRow(c, false))}
+                          </ul>
+                        )}
                       </div>
-                    )}
-                    <div className="flex items-center gap-2 pt-1">
-                      <input type="text" value={newComment} onChange={(e) => setNewComment(e.target.value)}
-                        placeholder="Write a comment..."
-                        className="flex-1 bg-on-surface/5 rounded-full min-h-[44px] px-4 text-[12px] focus:outline-none focus:ring-1 focus:ring-primary/20"
-                        onKeyDown={(e) => e.key === 'Enter' && handleAddComment(r.id)} />
-                      <button onClick={() => handleAddComment(r.id)} disabled={!newComment.trim()}
-                        className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
-                        aria-label="Post comment">
-                        <Send size={18} />
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                    </motion.div>
+                  );
+                })()}
+              </AnimatePresence>
+            </article>
           </li>
           );
         })}
