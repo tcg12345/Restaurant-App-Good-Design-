@@ -19,6 +19,41 @@ import { getMealCoverUrl } from '../lib/recipe-display';
 import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
 import { EmptyState } from './EmptyState';
 
+/**
+ * Photo strip with built-in failure handling — when the image URL 404s or
+ * loads zero bytes, the entire strip removes itself from the layout so
+ * activity cards without working covers don't show an alt-text placeholder
+ * or a broken-image tile.
+ */
+const ActivityPhoto: React.FC<{
+  src?: string | null;
+  onClick: () => void;
+  aria: string;
+}> = ({ src, onClick, aria }) => {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="block w-full mb-4 aspect-[16/9] rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      aria-label={aria}
+    >
+      <img
+        src={src}
+        alt=""
+        onError={() => setFailed(true)}
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          if (img.naturalWidth === 0) setFailed(true);
+        }}
+        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+        referrerPolicy="no-referrer"
+      />
+    </button>
+  );
+};
+
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
   { bg: 'bg-rose-100', text: 'text-rose-700' },
@@ -315,20 +350,19 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return (
       <section className="mb-8">
         <SectionHeader />
-        <ul className="divide-y divide-on-surface/[0.06]">
+        <ul className="space-y-4">
           {[0, 1, 2].map((i) => (
-            <li key={i} className="py-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-on-surface/[0.05] animate-pulse" />
+            <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-9 h-9 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 <div className="flex-1 space-y-1.5">
                   <div className="h-2.5 w-24 rounded-full bg-on-surface/[0.05] animate-pulse" />
                   <div className="h-2 w-16 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 </div>
               </div>
-              <div className="w-full max-w-md aspect-[16/10] rounded-lg bg-on-surface/[0.05] animate-pulse mb-3" />
               <div className="space-y-2">
-                <div className="h-3 w-3/4 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                <div className="h-2.5 w-1/2 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                <div className="h-4 w-3/5 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                <div className="h-3 w-2/5 rounded-full bg-on-surface/[0.05] animate-pulse" />
               </div>
             </li>
           ))}
@@ -358,145 +392,54 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
           />
         ) : (
-          <ul className="divide-y divide-on-surface/[0.06]">
+          <ul className="space-y-4">
             {recipesSorted.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
               return (
-                <li key={`recipe-${m.userId}-${m.id}`} className="py-5">
-                  <div className={cn("flex", getMealCoverUrl(m) ? "gap-3" : "gap-0", !phoneMode && getMealCoverUrl(m) && "md:gap-4")}>
-                    {/* Cover thumbnail — only when there's an actual photo. */}
-                    {getMealCoverUrl(m) && (
-                      <button
-                        type="button"
+                <li key={`recipe-${m.userId}-${m.id}`}>
+                  <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-5">
+                    {/* Hero photo — only when a cover URL actually resolves */}
+                    {!phoneMode && (
+                      <ActivityPhoto
+                        src={getMealCoverUrl(m)}
                         onClick={() => openFriendRecipe(m)}
-                        className={cn(
-                          "flex-shrink-0 rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-                          phoneMode ? "w-24 h-24" : "w-[100px] h-[100px] md:w-[140px] md:h-[140px]",
-                        )}
-                        aria-label={`View ${m.name}`}
-                      >
-                        <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
-                      </button>
+                        aria={`View ${m.name}`}
+                      />
                     )}
 
-                    {/* Content stack */}
-                    <div className="flex-1 min-w-0 flex flex-col">
-                      {/* User header */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <Link to={`/user/${getUsername(m.userId)}`} className="flex-shrink-0">
-                          <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center">
-                            <ChefHat size={12} className="text-emerald-600" />
-                          </div>
-                        </Link>
-                        <div className="flex-1 min-w-0">
-                          <Link to={`/user/${getUsername(m.userId)}`} className="text-[12px] font-bold hover:text-primary block truncate leading-tight">{getName(m.userId)}</Link>
-                          <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider leading-tight mt-0.5">Cooked at home · {mealTimeAgo}</p>
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
-                          className="text-on-surface/35 hover:text-emerald-600 transition-colors p-1 flex-shrink-0"
-                          aria-label="Share recipe"
-                        >
-                          <Share2 size={14} />
-                        </button>
-                      </div>
-
-                      {/* Tappable meal info */}
-                      <button
-                        type="button"
-                        onClick={() => openFriendRecipe(m)}
-                        className="block text-left group focus-visible:outline-none"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <h3 className="font-serif font-bold text-[16px] sm:text-[17px] leading-tight flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">{m.name}</h3>
-                          {summary && summary.count > 0 && (
-                            <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
-                              <div className="flex gap-0.5">
-                                {[1, 2, 3, 4, 5].map((n) => (
-                                  <Star key={n} size={12} className={cn(
-                                    n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
-                                  )} />
-                                ))}
-                              </div>
-                              <span className="text-sm text-on-surface/50 font-bold tabular-nums">{summary.average.toFixed(1)}</span>
-                            </div>
-                          )}
-                        </div>
-                        <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                          {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                          {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
-                        </p>
-                        {m.tags.length > 0 && (
-                          <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                            {m.tags.slice(0, 3).map((t) => (
-                              <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
-                            ))}
-                          </div>
-                        )}
-                        {m.description && (
-                          <p className="mt-2 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
-                            &ldquo;{m.description}&rdquo;
-                          </p>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )
-      ) : (
-      <ul className="divide-y divide-on-surface/10">
-        {feedItems.map((item) => {
-          if (item.type === 'homeMeal') {
-            const m = item.data;
-            const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
-            const summary = mealRatingSummaries[m.id];
-            return (
-              <li key={`meal-${m.id}`} className="py-5">
-                <div className={cn("flex", getMealCoverUrl(m) ? "gap-3" : "gap-0", !phoneMode && getMealCoverUrl(m) && "md:gap-4")}>
-                  {/* Cover thumbnail — rendered only when there's an actual
-                      cover photo, so empty meals don't carry a placeholder
-                      tile. */}
-                  {getMealCoverUrl(m) && (
-                    <button
-                      type="button"
-                      onClick={() => openFriendRecipe(m)}
-                      className={cn(
-                        "flex-shrink-0 rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-                        phoneMode ? "w-24 h-24" : "w-[100px] h-[100px] md:w-[140px] md:h-[140px]",
-                      )}
-                      aria-label={`View ${m.name}`}
-                    >
-                      <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
-                    </button>
-                  )}
-
-                  {/* Content stack */}
-                  <div className="flex-1 min-w-0 flex flex-col">
-                    {/* User header */}
-                    <div className="flex items-center gap-2 mb-2">
+                    {/* Cook header + share */}
+                    <div className="flex items-center gap-2.5">
                       <Link to={`/user/${getUsername(m.userId)}`} className="flex-shrink-0">
-                        <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center">
-                          <ChefHat size={12} className="text-emerald-600" />
+                        <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center">
+                          <ChefHat size={14} className="text-emerald-700" />
                         </div>
                       </Link>
                       <div className="flex-1 min-w-0">
-                        <Link to={`/user/${getUsername(m.userId)}`} className="text-[12px] font-bold hover:text-primary block truncate leading-tight">{getName(m.userId)}</Link>
-                        <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider leading-tight mt-0.5">Cooked at home · {mealTimeAgo}</p>
+                        <Link to={`/user/${getUsername(m.userId)}`} className="text-[13px] font-bold hover:text-primary block truncate leading-tight">
+                          {getName(m.userId)}
+                        </Link>
+                        <p className="text-[11px] text-emerald-700/85 font-semibold leading-tight mt-0.5">
+                          Cooked at home <span className="mx-1.5 text-emerald-700/30">·</span>{mealTimeAgo}
+                        </p>
                       </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
+                        className="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-full text-on-surface/45 hover:text-emerald-700 hover:bg-on-surface/[0.04] transition-colors"
+                        aria-label="Share recipe"
+                      >
+                        <Share2 size={16} />
+                      </button>
                     </div>
 
-                    {/* Tappable meal info */}
+                    {/* Meal block */}
                     <button
                       type="button"
                       onClick={() => openFriendRecipe(m)}
-                      className="block text-left group focus-visible:outline-none"
+                      className="block w-full text-left mt-4 group focus-visible:outline-none"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <h3 className="font-serif font-bold text-[16px] sm:text-[17px] leading-tight flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">{m.name}</h3>
+                        <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">{m.name}</h3>
                         {summary && summary.count > 0 && (
                           <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
                             <div className="flex gap-0.5">
@@ -506,29 +449,108 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                                 )} />
                               ))}
                             </div>
-                            <span className="text-sm text-on-surface/50 font-bold tabular-nums">{summary.average.toFixed(1)}</span>
+                            <span className="text-[13px] text-on-surface/55 font-bold tabular-nums">{summary.average.toFixed(1)}</span>
                           </div>
                         )}
                       </div>
-                      <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                      <p className="mt-1.5 text-[11.5px] text-on-surface/50 font-medium uppercase tracking-[0.08em] truncate">
                         {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
                       </p>
-                      {m.tags.length > 0 && (
-                        <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                          {m.tags.slice(0, 3).map((t) => (
-                            <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/80">{t}</span>
-                          ))}
-                        </div>
-                      )}
                       {m.description && (
-                        <p className="mt-2 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
+                        <p className="mt-3 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
                           &ldquo;{m.description}&rdquo;
                         </p>
                       )}
+                      {m.tags.length > 0 && (
+                        <div className="flex gap-1.5 mt-3 flex-wrap">
+                          {m.tags.slice(0, 4).map((t) => (
+                            <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/85">{t}</span>
+                          ))}
+                        </div>
+                      )}
                     </button>
+                  </article>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      ) : (
+      <ul className="space-y-4">
+        {feedItems.map((item) => {
+          if (item.type === 'homeMeal') {
+            const m = item.data;
+            const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
+            const summary = mealRatingSummaries[m.id];
+            return (
+              <li key={`meal-${m.id}`}>
+                <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-5">
+                  {/* Hero photo — only when a cover URL actually resolves */}
+                  {!phoneMode && (
+                    <ActivityPhoto
+                      src={getMealCoverUrl(m)}
+                      onClick={() => openFriendRecipe(m)}
+                      aria={`View ${m.name}`}
+                    />
+                  )}
+
+                  {/* Cook header */}
+                  <div className="flex items-center gap-2.5">
+                    <Link to={`/user/${getUsername(m.userId)}`} className="flex-shrink-0">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center">
+                        <ChefHat size={14} className="text-emerald-700" />
+                      </div>
+                    </Link>
+                    <div className="flex-1 min-w-0">
+                      <Link to={`/user/${getUsername(m.userId)}`} className="text-[13px] font-bold hover:text-primary block truncate leading-tight">
+                        {getName(m.userId)}
+                      </Link>
+                      <p className="text-[11px] text-emerald-700/85 font-semibold leading-tight mt-0.5">
+                        Cooked at home <span className="mx-1.5 text-emerald-700/30">·</span>{mealTimeAgo}
+                      </p>
+                    </div>
                   </div>
-                </div>
+
+                  {/* Meal block */}
+                  <button
+                    type="button"
+                    onClick={() => openFriendRecipe(m)}
+                    className="block w-full text-left mt-4 group focus-visible:outline-none"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">{m.name}</h3>
+                      {summary && summary.count > 0 && (
+                        <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
+                          <div className="flex gap-0.5">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star key={n} size={12} className={cn(
+                                n <= Math.round(summary.average) ? "text-amber-500 fill-amber-500" : "text-on-surface/15",
+                              )} />
+                            ))}
+                          </div>
+                          <span className="text-[13px] text-on-surface/55 font-bold tabular-nums">{summary.average.toFixed(1)}</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-1.5 text-[11.5px] text-on-surface/50 font-medium uppercase tracking-[0.08em] truncate">
+                      {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
+                    </p>
+                    {m.description && (
+                      <p className="mt-3 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
+                        &ldquo;{m.description}&rdquo;
+                      </p>
+                    )}
+                    {m.tags.length > 0 && (
+                      <div className="flex gap-1.5 mt-3 flex-wrap">
+                        {m.tags.slice(0, 4).map((t) => (
+                          <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/85">{t}</span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                </article>
               </li>
             );
           }
@@ -547,122 +569,123 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             address: r.address || '',
           };
           return (
-          <li key={r.id} className="py-5">
-            {/* Photo + content — no box, full width. Thumbnail only renders
-                when the rating actually has an uploaded photo; otherwise the
-                content takes the full row width so there's no empty
-                placeholder square. */}
-            <div className={cn("flex", !phoneMode && r.photo_url && "md:gap-4")}>
-              {!phoneMode && r.photo_url && (
-                <button
-                  type="button"
+          <li key={r.id}>
+            <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-5">
+              {/* Hero photo (desktop only, and only when the URL resolves) */}
+              {!phoneMode && (
+                <ActivityPhoto
+                  src={r.photo_url}
                   onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="hidden md:block flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                  aria-label={`View ${r.restaurant_name}`}
-                >
-                  <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
-                </button>
+                  aria={`View ${r.restaurant_name}`}
+                />
               )}
 
-              {/* Content stack */}
-              <div className="flex-1 min-w-0 flex flex-col">
-                {/* Reviewer header */}
-                <div className="flex items-center gap-2 mb-2">
-                  <Link to={`/user/${getUsername(r.user_id)}`} className="flex-shrink-0">
-                    <div className={cn("w-7 h-7 rounded-full flex items-center justify-center", color.bg)}>
-                      <span className={cn("text-[11px] font-serif font-bold", color.text)}>{initial}</span>
-                    </div>
+              {/* Reviewer header */}
+              <div className="flex items-center gap-2.5">
+                <Link to={`/user/${getUsername(r.user_id)}`} className="flex-shrink-0">
+                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center", color.bg)}>
+                    <span className={cn("text-[13px] font-serif font-bold", color.text)}>{initial}</span>
+                  </div>
+                </Link>
+                <div className="flex-1 min-w-0">
+                  <Link to={`/user/${getUsername(r.user_id)}`} className="text-[13px] font-bold hover:text-primary block truncate leading-tight">
+                    {getName(r.user_id)}
                   </Link>
-                  <div className="flex-1 min-w-0">
-                    <Link to={`/user/${getUsername(r.user_id)}`} className="text-[12px] font-bold hover:text-primary block truncate leading-tight">
-                      {getName(r.user_id)}
-                    </Link>
-                    <p className="text-[10px] text-on-surface/40 font-medium uppercase tracking-wider leading-tight mt-0.5">
-                      {profiles[r.user_id]?.is_expert
-                        ? <span className="inline-flex items-center gap-0.5 text-amber-600 font-bold"><Star size={9} className="fill-amber-500 text-amber-500" />Expert · {timeAgo(r.created_at)}</span>
-                        : <>Rated · {timeAgo(r.created_at)}</>}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Tappable restaurant info */}
-                <button
-                  type="button"
-                  onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                  className="block text-left group focus-visible:outline-none"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="font-serif font-bold text-[16px] sm:text-[17px] leading-tight flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">
-                      {r.restaurant_name}
-                    </h3>
-                    <ScoreBadge rating={Number(r.score)} size="md" />
-                  </div>
-                  <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                    {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}
+                  <p className="text-[11px] text-on-surface/45 leading-tight mt-0.5">
+                    {profiles[r.user_id]?.is_expert ? (
+                      <span className="inline-flex items-center gap-0.5 text-amber-600 font-semibold">
+                        <Star size={9} className="fill-amber-500 text-amber-500" />Expert
+                      </span>
+                    ) : (
+                      <span className="font-medium">Rated</span>
+                    )}
+                    <span className="mx-1.5 text-on-surface/20">·</span>
+                    {timeAgo(r.created_at)}
                   </p>
-                  {r.tags && r.tags.length > 0 && (
-                    <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                      {r.tags.slice(0, 3).map((t) => (
-                        <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/8 text-primary/70 font-medium">{t}</span>
-                      ))}
-                    </div>
+                </div>
+              </div>
+
+              {/* Restaurant block — title + score, location row, notes, tags */}
+              <button
+                type="button"
+                onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                className="block w-full text-left mt-4 group focus-visible:outline-none"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">
+                    {r.restaurant_name}
+                  </h3>
+                  <ScoreBadge rating={Number(r.score)} size="md" />
+                </div>
+                {(r.cuisine || r.price || r.address) && (
+                  <p className="mt-1.5 text-[11.5px] text-on-surface/50 font-medium uppercase tracking-[0.08em] truncate">
+                    {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
+                  </p>
+                )}
+                {r.notes && (
+                  <p className="mt-3 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
+                    &ldquo;{r.notes}&rdquo;
+                  </p>
+                )}
+                {r.tags && r.tags.length > 0 && (
+                  <div className="flex gap-1.5 mt-3 flex-wrap">
+                    {r.tags.slice(0, 4).map((t) => (
+                      <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/[0.08] text-primary/75 font-medium">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </button>
+
+              {/* Actions — hairline divider above keeps it visually grouped with the card */}
+              <div className="flex items-center gap-1 mt-4 pt-3 border-t border-on-surface/[0.05]">
+                <button
+                  onClick={() => handleLike(r.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full transition-colors",
+                    userLiked.has(r.id)
+                      ? "text-red-500"
+                      : "text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]"
                   )}
-                  {r.notes && (
-                    <p className="mt-2 text-[13px] text-on-surface/60 italic leading-relaxed line-clamp-3">
-                      &ldquo;{r.notes}&rdquo;
-                    </p>
+                >
+                  <Heart size={17} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
+                  <span className="text-[12px] font-bold tabular-nums">{likes[r.id] || 0}</span>
+                </button>
+                <button
+                  onClick={() => handleOpenComments(r.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full transition-colors",
+                    openComments === r.id
+                      ? "text-primary"
+                      : "text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04]"
                   )}
+                >
+                  <MessageSquare size={17} />
+                  <span className="text-[12px] font-bold tabular-nums">{commentCounts[r.id] || 0}</span>
+                </button>
+                <div className="flex-1" />
+                <button
+                  onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
+                  className="inline-flex items-center justify-center w-9 h-9 rounded-full text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
+                  aria-label="Rate this restaurant"
+                >
+                  <Plus size={17} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
+                  className={cn(
+                    "inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors",
+                    wishlisted
+                      ? "text-red-500 hover:bg-red-500/5"
+                      : "text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                  )}
+                  aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
+                >
+                  <Heart size={17} className={wishlisted ? 'fill-red-500' : ''} />
                 </button>
               </div>
-            </div>
-
-            {/* Actions row */}
-            <div className="flex items-center gap-1 mt-3 -ml-2">
-              <button
-                onClick={() => handleLike(r.id)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 min-h-[44px] px-2 rounded-full transition-colors",
-                  userLiked.has(r.id)
-                    ? "text-red-500"
-                    : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
-                )}
-              >
-                <Heart size={18} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
-                <span className="text-[12px] font-bold">{likes[r.id] || 0}</span>
-              </button>
-              <button
-                onClick={() => handleOpenComments(r.id)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 min-h-[44px] px-2 rounded-full transition-colors",
-                  openComments === r.id
-                    ? "text-primary"
-                    : "text-on-surface/50 hover:text-primary hover:bg-on-surface/[0.04]"
-                )}
-              >
-                <MessageSquare size={18} />
-                <span className="text-[12px] font-bold">{commentCounts[r.id] || 0}</span>
-              </button>
-              <div className="flex-1" />
-              <button
-                onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
-                className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-on-surface/50 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
-                aria-label="Rate this restaurant"
-              >
-                <Plus size={18} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
-                className={cn(
-                  "inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full transition-colors",
-                  wishlisted
-                    ? "text-red-500 hover:bg-red-500/5"
-                    : "text-on-surface/50 hover:text-red-500 hover:bg-on-surface/[0.04]"
-                )}
-                aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-              >
-                <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
-              </button>
-            </div>
+            </article>
 
             {/* Comments */}
             <AnimatePresence>
