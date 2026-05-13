@@ -4364,18 +4364,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
                   <div className="flex items-end justify-between gap-4 mb-5">
                     <div className="min-w-0">
-                      <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">For you</p>
                       <h2 className={cn(
-                        'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                        'font-serif font-bold text-on-surface leading-[1.05]',
                         usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
                       )}>
                         Recommended
                       </h2>
-                      {usingDesktopHeader && (
-                        <p className="mt-2 text-[13px] text-on-surface/55 max-w-[520px]">
-                          Picked from your taste — scored against your ratings, wishlist, and lists.
-                        </p>
-                      )}
                     </div>
                     {mode === 'home' && (
                       <div className="flex-shrink-0 pb-1">
@@ -4392,18 +4386,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
                   <div className="flex items-end justify-between gap-4 mb-5">
                     <div className="min-w-0">
-                      <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">For you</p>
                       <h2 className={cn(
-                        'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                        'font-serif font-bold text-on-surface leading-[1.05]',
                         usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
                       )}>
                         Recommended
                       </h2>
-                      {usingDesktopHeader && (
-                        <p className="mt-2 text-[13px] text-on-surface/55 max-w-[520px]">
-                          Picked from your taste — scored against your ratings, wishlist, and lists.
-                        </p>
-                      )}
                     </div>
                     {mode === 'home' && (
                       <div className="flex-shrink-0 pb-1">
@@ -4558,9 +4546,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
                   <div className="flex items-end justify-between gap-4 mb-5">
                     <div className="min-w-0">
-                      <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">For you</p>
                       <h2 className={cn(
-                        'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                        'font-serif font-bold text-on-surface leading-[1.05]',
                         usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
                       )}>
                         Recommended
@@ -4581,18 +4568,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
                 <div className="flex items-end justify-between gap-4 mb-5">
                   <div className="min-w-0">
-                    <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">Curated</p>
                     <h2 className={cn(
-                      'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                      'font-serif font-bold text-on-surface leading-[1.05]',
                       usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
                     )}>
                       Guides
                     </h2>
-                    {usingDesktopHeader && (
-                      <p className="mt-2 text-[13px] text-on-surface/55 max-w-[520px]">
-                        Hand-picked collections from the editorial team and trusted experts.
-                      </p>
-                    )}
                   </div>
                 </div>
                 <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
@@ -4632,18 +4613,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
                 <div className="flex items-end justify-between gap-4 mb-5">
                   <div className="min-w-0">
-                    <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">From the kitchen</p>
                     <h2 className={cn(
-                      'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                      'font-serif font-bold text-on-surface leading-[1.05]',
                       usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
                     )}>
                       Recipes for you
                     </h2>
-                    {usingDesktopHeader && (
-                      <p className="mt-2 text-[13px] text-on-surface/55 max-w-[520px]">
-                        Friend, chef, and community dishes that match the cuisines you cook.
-                      </p>
-                    )}
                   </div>
                   <Link
                     to="/recipes-for-you"
