@@ -264,7 +264,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           onClick={() => setFeedDropdownOpen((p) => !p)}
           className="flex items-center gap-1.5 -ml-1 px-1 py-0.5 transition-colors hover:text-primary"
         >
-          <span className="text-xl font-bold font-serif">{currentOption.label}</span>
+          <span className="text-[22px] font-bold font-serif">{currentOption.label}</span>
           <ChevronDown size={16} className={cn("text-on-surface/40 transition-transform", feedDropdownOpen && "rotate-180")} />
         </button>
         <AnimatePresence>
