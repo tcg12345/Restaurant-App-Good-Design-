@@ -474,7 +474,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return (
       <section className="mb-8">
         <SectionHeader />
-        <ul className="space-y-4">
+        <ul className="space-y-3">
           {[0, 1, 2].map((i) => (
             <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
               <div className="flex items-center gap-2.5 mb-4">
@@ -503,7 +503,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     <section className="mb-8">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
       {feedMode === 'experts' && expertLoading ? (
-        <ul className="space-y-4">
+        <ul className="space-y-3">
           {[0, 1, 2].map((i) => (
             <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
               <div className="flex items-center gap-2.5 mb-4">
@@ -534,13 +534,13 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
           />
         ) : (
-          <ul className="space-y-4">
+          <ul className="space-y-3">
             {recipesSorted.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
               return (
                 <li key={`recipe-${m.userId}-${m.id}`}>
-                  <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-5">
+                  <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-4">
                     {/* Hero photo — only when a cover URL actually resolves */}
                     {!phoneMode && (
                       <ActivityPhoto
@@ -578,7 +578,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                     <button
                       type="button"
                       onClick={() => openFriendRecipe(m)}
-                      className="block w-full text-left mt-4 group focus-visible:outline-none"
+                      className="block w-full text-left mt-2.5 group focus-visible:outline-none"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">{m.name}</h3>
@@ -600,7 +600,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                         {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
                       </p>
                       {m.description && (
-                        <p className="mt-3 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
+                        <p className="mt-2 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
                           &ldquo;{m.description}&rdquo;
                         </p>
                       )}
@@ -619,7 +619,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           </ul>
         )
       ) : (
-      <ul className="space-y-4">
+      <ul className="space-y-3">
         {feedItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
@@ -627,7 +627,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             const summary = mealRatingSummaries[m.id];
             return (
               <li key={`meal-${m.id}`}>
-                <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-5">
+                <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-4">
                   {/* Hero photo — only when a cover URL actually resolves */}
                   {!phoneMode && (
                     <ActivityPhoto
@@ -658,7 +658,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   <button
                     type="button"
                     onClick={() => openFriendRecipe(m)}
-                    className="block w-full text-left mt-4 group focus-visible:outline-none"
+                    className="block w-full text-left mt-2.5 group focus-visible:outline-none"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">{m.name}</h3>
@@ -680,7 +680,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
                     </p>
                     {m.description && (
-                      <p className="mt-3 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
+                      <p className="mt-2 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
                         &ldquo;{m.description}&rdquo;
                       </p>
                     )}
@@ -712,7 +712,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           };
           return (
           <li key={r.id}>
-            <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-5">
+            <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-4">
               {/* Hero photo (desktop only, and only when the URL resolves) */}
               {!phoneMode && (
                 <ActivityPhoto
@@ -751,7 +751,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               <button
                 type="button"
                 onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                className="block w-full text-left mt-4 group focus-visible:outline-none"
+                className="block w-full text-left mt-2.5 group focus-visible:outline-none"
               >
                 <div className="flex items-start justify-between gap-4">
                   <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors pt-1">
@@ -765,7 +765,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   </p>
                 )}
                 {r.notes && (
-                  <p className="mt-3 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
+                  <p className="mt-2 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
                     &ldquo;{r.notes}&rdquo;
                   </p>
                 )}
@@ -781,7 +781,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               </button>
 
               {/* Actions — hairline divider above keeps it visually grouped with the card */}
-              <div className="flex items-center gap-1 mt-4 pt-3 border-t border-on-surface/[0.05]">
+              <div className="flex items-center gap-1 mt-3 pt-2 border-t border-on-surface/[0.05]">
                 <button
                   onClick={() => handleLike(r.id)}
                   className={cn(
@@ -994,7 +994,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                         ) : topLevel.length === 0 ? (
                           <p className="text-[12.5px] text-on-surface/40 py-1">No comments yet — be the first.</p>
                         ) : (
-                          <ul className="space-y-4">
+                          <ul className="space-y-3">
                             {topLevel.map((c) => renderCommentRow(c, false))}
                           </ul>
                         )}
