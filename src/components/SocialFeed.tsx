@@ -87,7 +87,11 @@ const PostMediaCarousel: React.FC<{
   };
 
   return (
-    <div className="relative -mx-4 mt-3 mb-1 select-none">
+    // Mobile/phone-frame: full-bleed photos (instagram-style — match the
+    // card edges). Desktop: cap to a narrower centered column so the
+    // photos don't dominate the card now that the feed list itself is
+    // wider than a typical instagram column.
+    <div className="relative -mx-4 mt-3 mb-1 select-none lg:mx-auto lg:max-w-[420px] lg:rounded-2xl lg:overflow-hidden">
       <div
         ref={trackRef}
         onScroll={handleScroll}
