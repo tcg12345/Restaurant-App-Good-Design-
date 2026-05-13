@@ -2,6 +2,7 @@ import React from 'react';
 import { Heart, Plus, Building2, ImageOff } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import { scoreBadgeBg, scoreColor } from '../lib/score';
 
 /**
  * Cover image or "no photos added yet" placeholder. The app has intentionally
@@ -68,34 +69,30 @@ interface RestaurantCardProps {
 
 /* ── Score badge ────────────────────────────────────────────────────────────
    Single source of truth for how a restaurant rating renders across every
-   variant. Always a circular pill, white bold text, color-coded background:
-   green ≥8, amber 5–7, red <5. Sizes are minimum 36px (size='sm') so the
-   number stays legible on a thumbnail or in a dense list row.
+   card surface in the app. A soft pastel circle: light tinted background,
+   matching darker text, thin matching border. Color-coded by score band
+   (green ≥8, amber 5–7, red <5) via the shared score helpers.
    ────────────────────────────────────────────────────────────────────────── */
-const scoreBg = (rating: number): string => {
-  if (rating >= 8) return 'bg-emerald-500';
-  if (rating >= 5) return 'bg-amber-500';
-  return 'bg-red-500';
-};
-
-const ScoreBadge: React.FC<{
+export const ScoreBadge: React.FC<{
   rating: number;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
 }> = ({ rating, size = 'md', className }) => {
-  const dims =
-    size === 'sm' ? 'w-9 h-9 text-sm'
-    : size === 'lg' ? 'w-12 h-12 text-base'
-    : 'w-10 h-10 text-sm';
   // Hide the badge entirely when rating is missing/zero — there's nothing
   // meaningful to show and a "—" pill just adds noise.
   if (!rating || rating <= 0) return null;
+  const dims =
+    size === 'xs' ? 'w-7 h-7 text-[11px]'
+    : size === 'sm' ? 'w-9 h-9 text-sm'
+    : size === 'lg' ? 'w-12 h-12 text-base'
+    : 'w-10 h-10 text-sm';
   return (
     <div
       className={cn(
-        'rounded-full flex items-center justify-center font-bold text-white tabular-nums shadow-sm flex-shrink-0',
+        'rounded-full flex items-center justify-center font-bold tabular-nums border flex-shrink-0',
         dims,
-        scoreBg(rating),
+        scoreBadgeBg(rating),
+        scoreColor(rating),
         className,
       )}
       aria-label={`Score ${rating.toFixed(1)}`}
@@ -254,7 +251,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
               {price}
             </p>
           </div>
-          <ScoreBadge rating={rating} size="lg" className="ring-2 ring-white/20" />
+          <ScoreBadge rating={rating} size="lg" className="shadow-md shadow-black/20" />
         </div>
       </Link>
     );
@@ -289,7 +286,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
 
         {/* Bottom-right score badge */}
         <div className="absolute bottom-2.5 right-2.5 z-10">
-          <ScoreBadge rating={rating} size="sm" className="ring-2 ring-white/30" />
+          <ScoreBadge rating={rating} size="sm" className="shadow-md shadow-black/20" />
         </div>
       </div>
 

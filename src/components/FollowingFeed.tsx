@@ -12,7 +12,7 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 import { cn } from '../lib/utils';
-import { scoreColor, scoreBadgeBg } from '../lib/score';
+import { ScoreBadge } from './RestaurantCard';
 import { extractCityState } from '../lib/places';
 
 const CHUNK_SIZE = 15;
@@ -443,16 +443,7 @@ export const FollowingFeed: React.FC = () => {
 
                     {/* Right rail — score pill + subtle action icons, aligned to the name */}
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      <span
-                        className={cn(
-                          'inline-flex items-center justify-center min-w-[38px] h-7 px-2 rounded-full border text-[12px] font-bold tabular-nums',
-                          scoreBadgeBg(score),
-                          scoreColor(score),
-                        )}
-                        aria-label={`Score ${score.toFixed(1)}`}
-                      >
-                        {score.toFixed(1)}
-                      </span>
+                      <ScoreBadge rating={score} size="xs" />
                       <button
                         type="button"
                         onClick={(e) => {
