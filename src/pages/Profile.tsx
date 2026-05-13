@@ -191,7 +191,7 @@ const Top10Section: React.FC<{
   children: React.ReactNode;
 }> = ({ name, total, avg, onSeeAll, children }) => (
   <section>
-    <div className="px-5 flex items-baseline justify-between gap-3 mb-3">
+    <div className="px-5 flex items-baseline justify-between gap-3 mb-1.5">
       <h3 className="font-serif font-bold text-on-surface text-[20px] leading-tight min-w-0 truncate">
         {name}
         <span className="text-on-surface/45 font-normal ml-1.5">
@@ -946,7 +946,7 @@ export const Profile: React.FC = () => {
       )}
 
       {/* ── Profile header ────────────────────────────────────────────── */}
-      <div className="px-5 pt-6 pb-5">
+      <div className="px-5 pt-4 pb-3">
         {/* Avatar + horizontal stats row */}
         <div className="flex items-center gap-5">
           <div className="relative flex-shrink-0">
@@ -1134,7 +1134,7 @@ export const Profile: React.FC = () => {
       </div>
 
       {/* ── Tab content ───────────────────────────────────────────────── */}
-      <main className="px-5 pt-5">
+      <main className="px-5 pt-3">
         {activeTab === 'top' && (
           ratings.length === 0 ? (
             <EmptyTabState
@@ -1147,7 +1147,7 @@ export const Profile: React.FC = () => {
           ) : (
             // Full-bleed strips: negative margin cancels the `main` pad
             // so cards run edge-to-edge during horizontal scroll.
-            <div className="-mx-5 space-y-7">
+            <div className="-mx-5 space-y-3">
               {visibleLists.map(({ config, items, total, avg }) => (
                 <Top10Section
                   key={topListKey(config)}
@@ -1257,7 +1257,7 @@ export const Profile: React.FC = () => {
               onCta={() => navigate('/')}
             />
           ) : (
-            <div className="space-y-7">
+            <div className="space-y-4">
               {cuisineStats.length > 0 && (
                 <section>
                   <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-4">Cuisine breakdown</h3>
