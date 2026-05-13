@@ -777,13 +777,43 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       }
     };
 
+    // Friends post recipes via two paths: the formal /recipes flow
+    // (Recipe rows in `recipes`) and the meal logger (HomeMeal rows
+    // stored in user_app_data.home_meals). Both count as "friend
+    // recipes" for the home rail — adapt the HomeMeal shape into the
+    // Recipe contract on the fly so the same scoring works for both.
+    const friendHomeMealsAsRecipes: Recipe[] = (friendRecipes || [])
+      .filter((m) => m.isPublic !== false && (m.name || '').trim().length > 0)
+      .map((m) => ({
+        id: `homemeal-${m.id}`,
+        userId: m.userId,
+        title: m.name,
+        description: m.description || '',
+        ingredients: m.ingredients || [],
+        steps: (m.steps || []).map((text, i) => ({ order: i, text })),
+        prepTimeMinutes: m.prepTime ?? null,
+        cookTimeMinutes: m.cookTime ?? null,
+        servings: m.servings ?? null,
+        difficulty: (m.difficulty?.toLowerCase() ?? 'medium') as 'easy' | 'medium' | 'hard',
+        cuisine: m.cuisine || '',
+        tags: m.tags || [],
+        photos: m.coverPhoto ? [m.coverPhoto] : (m.photos?.map((p) => p.url).filter(Boolean) || []),
+        isPublic: true,
+        sourceType: 'user',
+        linkedRestaurantId: null,
+        linkedMealId: null,
+        createdAt: new Date(m.createdAt ?? Date.now()).toISOString(),
+        updatedAt: new Date(m.createdAt ?? Date.now()).toISOString(),
+      }));
+
     consume(friendPublishedRecipes, 'friend', 8);
+    consume(friendHomeMealsAsRecipes, 'friend', 8);
     consume(expertPublishedRecipes, 'expert', 5);
     consume(publicPublishedRecipes, 'public', 1);
 
     scored.sort((a, b) => b._score - a._score);
     return scored.slice(0, 8);
-  }, [friendPublishedRecipes, expertPublishedRecipes, publicPublishedRecipes, homeMeals, recipePreferences]);
+  }, [friendPublishedRecipes, friendRecipes, expertPublishedRecipes, publicPublishedRecipes, homeMeals, recipePreferences]);
 
   // Map each city the user eats in to a representative lat/lng, computed as
   // the centroid of that city's high-rated community ratings. Used so that
@@ -2226,11 +2256,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (mapMode === 'hotels' && !tabDataCache.hotelsLoaded) fetchHotels();
   }, [mapMode, isFocusOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch friends' public home meals when entering recipes mode. Loads
-  // lazily the first time the tab is opened in a session; subsequent
-  // visits reuse the cached list rather than re-firing the API call.
+  // Fetch friends' public home meals — eagerly, not gated by the map's
+  // recipes tab, because the home page "Recipes for you" rail also pulls
+  // from this pool (home-cooked entries posted via the meal logger are a
+  // valid source of friend recipes alongside the formal `recipes` table).
+  // Loads lazily the first time per session; subsequent visits reuse the
+  // cached list rather than re-firing the API call.
   useEffect(() => {
-    if (mapMode !== 'recipes' || !userId) return;
+    if (!userId) return;
     if (tabDataCache.friendRecipesLoaded) return;
     let cancelled = false;
     setFriendRecipesLoading(true);
@@ -2267,7 +2300,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       }
     })();
     return () => { cancelled = true; };
-  }, [mapMode, userId]);
+  }, [userId]);
 
   // Add/remove hotel markers
   useEffect(() => {
@@ -4645,9 +4678,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     {recommendedRecipes.map((r) => {
                       const cover = r.photos?.[0];
                       const authorProfile =
-                        r._source === 'friend' ? friendProfiles[r.userId]
-                        : r._source === 'expert' ? expertProfiles[r.userId]
-                        : undefined;
+                        r._source === 'friend'
+                          ? (friendProfiles[r.userId] || recipeAuthorProfiles[r.userId])
+                          : r._source === 'expert'
+                            ? (expertProfiles[r.userId] || recipeAuthorProfiles[r.userId])
+                            : undefined;
                       const authorName = authorProfile?.display_name
                         || (authorProfile?.username ? `@${authorProfile.username}` : '');
                       const sourceLabel =
