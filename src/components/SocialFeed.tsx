@@ -12,7 +12,7 @@ import { useLists } from '../contexts/ListsContext';
 import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments, toggleCommentLike,
-  getFriendsPublicHomeMeals,
+  getFriendsPublicHomeMeals, getFollowedExpertIds,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
 import { getMealCoverUrl } from '../lib/recipe-display';
@@ -105,6 +105,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
+  // Ratings authored by experts the user follows. Loaded lazily the first
+  // time the user switches the feed dropdown to "Expert Picks".
+  const [expertActivity, setExpertActivity] = useState<CommunityRating[]>([]);
+  const [expertLoading, setExpertLoading] = useState(false);
+  const [expertLoaded, setExpertLoaded] = useState(false);
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
   const [likes, setLikes] = useState<Record<string, number>>({});
   const [userLiked, setUserLiked] = useState<Set<string>>(new Set());
@@ -112,6 +117,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
+  // Hoisted earlier than the rest of the feed-mode UI plumbing so the
+  // feedItems memo below can switch its source based on the current tab.
+  type FeedMode = 'friends' | 'experts' | 'recipes';
+  const [feedMode, setFeedMode] = useState<FeedMode>('friends');
 
   const [openComments, setOpenComments] = useState<string | null>(null);
   const [comments, setComments] = useState<ActivityComment[]>([]);
@@ -192,6 +201,55 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   useEffect(() => { loadFeed(); }, [loadFeed]);
 
+  // Lazy-load expert ratings the first time the user opens the Expert
+  // Picks tab. Pulls every rating authored by an expert the viewer
+  // follows (intersection of followed accounts + is_expert profiles)
+  // and reuses the same author-profile lookup as the friend feed.
+  const loadExperts = useCallback(async () => {
+    if (!userId || expertLoaded) return;
+    setExpertLoading(true);
+    try {
+      const expertIds = await getFollowedExpertIds(userId);
+      if (expertIds.size === 0) {
+        setExpertActivity([]);
+        setExpertLoaded(true);
+        return;
+      }
+      const ratings = await getFriendActivity([...expertIds], 200);
+      setExpertActivity(ratings);
+
+      // Author profiles for expert ratings — fold into the same `profiles`
+      // map the friend feed already uses so name lookups stay free.
+      const newAuthorIds = ratings
+        .map((r) => r.user_id)
+        .filter((id) => !profiles[id]);
+      if (newAuthorIds.length > 0) {
+        const profs = await getProfilesByIds([...new Set(newAuthorIds)]);
+        setProfiles((prev) => ({ ...prev, ...profs }));
+      }
+
+      // Engagement metadata (likes + comment counts) for the new ratings
+      // so the action bar can show counts immediately.
+      const ratingIds = ratings.map((r) => r.id).filter(Boolean);
+      if (ratingIds.length > 0) {
+        const [likeData, counts] = await Promise.all([
+          getLikesForRatings(userId, ratingIds),
+          getCommentCounts(ratingIds),
+        ]);
+        setLikes((prev) => ({ ...prev, ...likeData.likes }));
+        setUserLiked((prev) => {
+          const next = new Set(prev);
+          likeData.userLiked.forEach((id) => next.add(id));
+          return next;
+        });
+        setCommentCounts((prev) => ({ ...prev, ...counts }));
+      }
+      setExpertLoaded(true);
+    } finally {
+      setExpertLoading(false);
+    }
+  }, [userId, expertLoaded, profiles]);
+
   // Merge and sort feed items. When a location anchor is provided, sort so
   // ratings nearest that anchor come first (then fall back to recency). Home
   // meals don't have a location so they always sort by time.
@@ -201,12 +259,17 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     if (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1) return Infinity;
     return haversineKm(centerLat!, centerLng!, r.lat, r.lng);
   };
+  // Expert Picks mode shows ratings from followed experts only (no
+  // home-meal logger entries, since experts publish via ratings). Friend
+  // Activity is the existing mix of friend ratings + home meals.
+  const ratingSource = feedMode === 'experts' ? expertActivity : activity;
+  const mealSource = feedMode === 'experts' ? [] : homeMeals;
   const feedItems: FeedItem[] = [
-    ...activity.map((r): FeedItem => ({
+    ...ratingSource.map((r): FeedItem => ({
       type: 'rating', data: r,
       sortTime: r.created_at ? new Date(r.created_at).getTime() : 0,
     })),
-    ...homeMeals.map((m): FeedItem => ({
+    ...mealSource.map((m): FeedItem => ({
       type: 'homeMeal', data: m,
       sortTime: m.createdAt,
     })),
@@ -327,15 +390,19 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return `${years} year${years === 1 ? '' : 's'} ago`;
   };
 
-  type FeedMode = 'friends' | 'experts' | 'recipes';
   const FEED_OPTIONS: { value: FeedMode; label: string; icon: React.ReactNode }[] = [
     { value: 'friends', label: 'Friend Activity', icon: <Heart size={12} /> },
     { value: 'experts', label: 'Expert Picks', icon: <Star size={12} className="fill-amber-500 text-amber-500" /> },
     { value: 'recipes', label: 'Recipes', icon: <BookOpen size={12} /> },
   ];
-  const [feedMode, setFeedMode] = useState<FeedMode>('friends');
   const [feedDropdownOpen, setFeedDropdownOpen] = useState(false);
   const feedDropdownRef = React.useRef<HTMLDivElement>(null);
+
+  // Lazy-load expert ratings the first time the dropdown switches into the
+  // "Expert Picks" tab. Subsequent switches reuse what's already in state.
+  useEffect(() => {
+    if (feedMode === 'experts' && !expertLoaded && !expertLoading) loadExperts();
+  }, [feedMode, expertLoaded, expertLoading, loadExperts]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -435,11 +502,29 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   return (
     <section className="mb-8">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
-      {feedMode === 'experts' ? (
+      {feedMode === 'experts' && expertLoading ? (
+        <ul className="space-y-4">
+          {[0, 1, 2].map((i) => (
+            <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-9 h-9 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-2.5 w-24 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                  <div className="h-2 w-16 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="h-4 w-3/5 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                <div className="h-3 w-2/5 rounded-full bg-on-surface/[0.05] animate-pulse" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : feedMode === 'experts' && feedItems.length === 0 ? (
         <EmptyState
           icon={<Star size={48} className="fill-amber-400 text-amber-400" />}
-          heading="Expert Picks"
-          description="Coming soon."
+          heading="No expert picks yet"
+          description="Follow critics, chefs, and writers to see their ratings show up here."
         />
       ) : feedMode === 'recipes' ? (
         recipesSorted.length === 0 ? (
