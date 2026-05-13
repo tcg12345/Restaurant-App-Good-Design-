@@ -4414,23 +4414,31 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   <div
                     className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
                     onScroll={(e) => {
+                      // Stop fetching once we have enough to fill the rail
+                      // — the user hits the View-all card before this cap.
+                      if (recommendations.length >= 30) return;
                       const el = e.currentTarget;
                       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
                     }}
                   >
-                    {recommendations.map((place) => {
+                    {recommendations.slice(0, 30).map((place) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
                       const photoUrl = (place as any).photoUrl as string | undefined;
                       const rating = (place as any).rating as number | undefined;
                       const price = priceLevelToString((place as any).priceLevel || 0);
+                      const fullAddress = (place as any).address as string || '';
+                      // First chunk of the address is usually street + number
+                      // (e.g. "120 Wythe Ave") — most useful neighborhood-level
+                      // signal in a short card.
+                      const street = fullAddress.split(',')[0]?.trim() || '';
                       const recMeta = {
                         id: place.id,
                         name: place.name,
                         image: photoUrl || '',
                         cuisine,
                         price,
-                        address: (place as any).address || '',
+                        address: fullAddress,
                       };
                       return (
                         <button
@@ -4439,7 +4447,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           onClick={() => navigate(`/restaurant/${place.id}`)}
                           className="flex-shrink-0 w-[178px] snap-start text-left group"
                         >
-                          <div className="relative h-[232px] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden">
+                          <div className="relative h-[172px] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-3.5 flex flex-col overflow-hidden">
                             {/* Subtle photo backdrop only when one exists — fades into the card */}
                             {photoUrl && (
                               <div className="absolute inset-0 pointer-events-none">
@@ -4464,44 +4472,47 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
                                     className={cn(
-                                      'w-8 h-8 rounded-full flex items-center justify-center transition-colors',
+                                      'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
                                       wishlisted ? 'text-primary' : 'text-on-surface/45 hover:text-primary hover:bg-on-surface/[0.05]',
                                     )}
                                     aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
                                   >
-                                    <Heart size={15} className={wishlisted ? 'fill-primary' : ''} />
+                                    <Heart size={14} className={wishlisted ? 'fill-primary' : ''} />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
-                                    className="w-8 h-8 rounded-full flex items-center justify-center text-primary hover:bg-primary/10 transition-colors"
+                                    className="w-7 h-7 rounded-full flex items-center justify-center text-primary hover:bg-primary/10 transition-colors"
                                     aria-label="Add to list"
                                   >
-                                    <Plus size={15} />
+                                    <Plus size={14} />
                                   </button>
                                 </div>
                               </div>
 
-                              {/* Middle: name fills the card */}
-                              <div className="flex-1 flex items-end mt-3">
-                                <h3 className="font-serif text-[17px] font-bold text-on-surface leading-[1.18] line-clamp-3">
+                              {/* Body: name + location + rating row pinned to the bottom */}
+                              <div className="flex-1 flex flex-col justify-end mt-2">
+                                <h3 className="font-serif text-[15px] font-bold text-on-surface leading-[1.18] line-clamp-2">
                                   {place.name}
                                 </h3>
+                                {street && (
+                                  <p className="mt-1 text-[11px] text-on-surface/45 font-medium truncate">
+                                    {street}
+                                  </p>
+                                )}
+                                {((rating && rating > 0) || price) && (
+                                  <div className="flex items-center gap-1.5 text-[11.5px] mt-1.5">
+                                    {rating && rating > 0 && (
+                                      <span className="inline-flex items-center gap-0.5 font-bold text-amber-600">
+                                        <Star size={11} className="fill-amber-500 text-amber-500" />
+                                        {rating.toFixed(1)}
+                                      </span>
+                                    )}
+                                    {rating && rating > 0 && price && <span className="text-on-surface/25">·</span>}
+                                    {price && <span className="text-on-surface/60 font-semibold">{price}</span>}
+                                  </div>
+                                )}
                               </div>
-
-                              {/* Bottom: rating + price */}
-                              {(rating && rating > 0) || price ? (
-                                <div className="flex items-center gap-1.5 text-[11.5px] mt-3">
-                                  {rating && rating > 0 && (
-                                    <span className="inline-flex items-center gap-0.5 font-bold text-amber-600">
-                                      <Star size={11} className="fill-amber-500 text-amber-500" />
-                                      {rating.toFixed(1)}
-                                    </span>
-                                  )}
-                                  {rating && rating > 0 && price && <span className="text-on-surface/25">·</span>}
-                                  {price && <span className="text-on-surface/60 font-semibold">{price}</span>}
-                                </div>
-                              ) : null}
                             </div>
                           </div>
                         </button>
@@ -4511,6 +4522,30 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       <div className="flex-shrink-0 w-[178px] flex items-center justify-center">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
+                    )}
+                    {/* View-all end-card — takes the user to the full
+                        location page so they can browse beyond the
+                        first 30 recommendations. */}
+                    {homeLocation && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
+                          )
+                        }
+                        className="flex-shrink-0 w-[178px] snap-start text-left group"
+                      >
+                        <div className="relative h-[172px] rounded-2xl border border-dashed border-primary/30 bg-primary/[0.03] group-hover:bg-primary/[0.07] group-hover:border-primary/45 transition-colors p-4 flex flex-col items-center justify-center text-center">
+                          <div className="w-10 h-10 rounded-full bg-primary/12 group-hover:bg-primary/20 transition-colors flex items-center justify-center mb-2">
+                            <ChevronRight size={18} className="text-primary" strokeWidth={2.2} />
+                          </div>
+                          <p className="font-serif text-[14px] font-bold text-primary leading-tight">View all</p>
+                          <p className="text-[10.5px] text-on-surface/55 mt-1 line-clamp-2 leading-tight max-w-full">
+                            in {homeLocation.label.split(',')[0]}
+                          </p>
+                        </div>
+                      </button>
                     )}
                   </div>
                 </section>
