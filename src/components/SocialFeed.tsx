@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2 } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2, Bookmark, X } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
-import type { SharedRecipe } from '../contexts/ChatContext';
+import { ShareDialog } from './ShareDialog';
+import { CommentsBody } from '../pages/Reels';
+import { RestaurantPanel, type RestaurantPanelSnapshot } from './RestaurantPanel';
+import type { SharedRecipe, SharePayload } from '../contexts/ChatContext';
+import { usePosts } from '../contexts/PostsContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { ScoreBadge } from './ScoreBadge';
@@ -15,7 +19,7 @@ import {
   getFriendsPublicHomeMeals, getFollowedExpertIds,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
-import { listPosts, setPostLike, type PostRow } from '../lib/supabase-posts';
+import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantSnapshot } from '../lib/supabase-posts';
 import { getMealCoverUrl } from '../lib/recipe-display';
 import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
 import { EmptyState } from './EmptyState';
@@ -189,9 +193,28 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const { phoneMode } = useSettings();
   const { openAddRestaurantModal, toggleWishlist, isWishlisted } = useLists();
 
+  const { loadPostComments, addPostComment, deletePostComment } = usePosts();
+  // Desktop vs phone — drives whether post comments open as a centered
+  // modal (wide) or a bottom sheet (narrow), and whether the featured-place
+  // card navigates to a detail page or opens an in-feed sheet.
+  const [isWideViewport, setIsWideViewport] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsWideViewport(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  const isDesktop = isWideViewport && !phoneMode;
+
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
   const [posts, setPosts] = useState<PostRow[]>([]);
+  // Post-level overlays (open one at a time, controlled by the post card)
+  const [openPostCommentsId, setOpenPostCommentsId] = useState<string | null>(null);
+  const [restaurantPanelSnap, setRestaurantPanelSnap] = useState<RestaurantPanelSnapshot | null>(null);
+  const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
   // Ratings authored by experts the user follows. Loaded lazily the first
   // time the user switches the feed dropdown to "Expert Picks".
   const [expertActivity, setExpertActivity] = useState<CommunityRating[]>([]);
@@ -401,6 +424,69 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     )));
     await setPostLike(postId, userId, !currentlyLiked);
   };
+
+  const handleSavePost = async (postId: string, currentlySaved: boolean) => {
+    if (!userId) return;
+    setPosts((prev) => prev.map((p) => (
+      p.id === postId
+        ? { ...p, saved: !currentlySaved, savesCount: Math.max(0, p.savesCount + (currentlySaved ? -1 : 1)) }
+        : p
+    )));
+    await setPostSave(postId, userId, !currentlySaved);
+  };
+
+  // Open the share dialog with a SharedPost payload mirrored from the
+  // Reels page's buildSharedPost helper.
+  const handleSharePost = (post: PostRow) => {
+    const cover = post.items[0];
+    setSharePayload({
+      sharedPost: {
+        postId: post.id,
+        authorId: post.userId,
+        authorUsername: post.author?.username || post.userId.slice(0, 8),
+        authorDisplayName: post.author?.displayName,
+        authorAvatarColor: post.author?.avatarColor || 'bg-stone-700',
+        authorInitials: post.author?.initials || post.userId.slice(0, 2).toUpperCase(),
+        isExpert: post.author?.isExpert ?? false,
+        caption: post.caption,
+        locationLabel: post.locationLabel,
+        coverUrl: cover?.mediaUrl,
+        coverMediaType: cover?.mediaType,
+        bgGradient: cover?.bgGradient || 'from-stone-800 to-stone-900',
+        itemCount: post.items.length,
+      },
+    });
+  };
+
+  // Featured place — desktop navigates to the full restaurant detail
+  // page; phone-frame and mobile open the same in-feed sheet that the
+  // reels viewer uses for "Featured place" taps.
+  const handleFeaturedPlaceClick = (restaurant: PostRestaurantSnapshot) => {
+    if (isDesktop) {
+      navigate(`/restaurant/${restaurant.id}`);
+    } else {
+      setRestaurantPanelSnap(restaurant);
+    }
+  };
+
+  // Adapters fold PostComment (with extra postId) into the same shape
+  // CommentsBody already consumes for reels.
+  const loadPostCommentsAdapter = useCallback(async (postId: string) => {
+    const rows = await loadPostComments(postId);
+    return rows.map((c) => ({ id: c.id, userId: c.userId, body: c.body, createdAt: c.createdAt, author: c.author }));
+  }, [loadPostComments]);
+  const addPostCommentAdapter = useCallback(async (postId: string, body: string) => {
+    const c = await addPostComment(postId, body);
+    if (!c) return null;
+    // Bump the local post's comment count so the badge updates without a refetch.
+    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: p.commentsCount + 1 } : p));
+    return { id: c.id, userId: c.userId, body: c.body, createdAt: c.createdAt, author: c.author };
+  }, [addPostComment]);
+  const deletePostCommentAdapter = useCallback(async (postId: string, commentId: string) => {
+    const ok = await deletePostComment(postId, commentId);
+    if (ok) setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, commentsCount: Math.max(0, p.commentsCount - 1) } : p));
+    return ok;
+  }, [deletePostComment]);
 
   const handleOpenComments = async (ratingId: string) => {
     if (openComments === ratingId) { setOpenComments(null); return; }
@@ -778,7 +864,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       dedicated reels viewer. */}
                   <PostMediaCarousel items={p.items} onClick={navigateToPost} />
 
-                  {/* Body */}
+                  {/* Caption + location */}
                   <button
                     type="button"
                     onClick={navigateToPost}
@@ -794,28 +880,52 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                         {p.locationLabel}
                       </p>
                     )}
-
-                    {/* Attached restaurant/recipe mini-card */}
-                    {(restaurant || recipe) && (
-                      <div className="mt-3 rounded-xl border border-on-surface/[0.08] bg-on-surface/[0.02] px-3 py-2.5 group-hover:border-on-surface/[0.16] transition-colors">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/45">
-                          {restaurant ? 'Featured place' : 'Featured recipe'}
-                        </p>
-                        <p className="mt-0.5 font-serif font-bold text-[15px] text-on-surface leading-tight line-clamp-1">
-                          {restaurant?.name || recipe?.title || ''}
-                        </p>
-                        {(restaurant || recipe) && (
-                          <p className="mt-0.5 text-[11px] text-on-surface/50 truncate">
-                            {restaurant
-                              ? [restaurant.cuisine, restaurant.price, restaurant.address].filter(Boolean).join(' · ')
-                              : recipe?.cuisine || ''}
-                          </p>
-                        )}
-                      </div>
-                    )}
                   </button>
 
-                  {/* Actions footer */}
+                  {/* Attached restaurant — its own button so taps open the
+                      restaurant detail (sheet on phone / page on desktop)
+                      instead of bubbling into the post-view navigation. */}
+                  {restaurant && (
+                    <button
+                      type="button"
+                      onClick={() => handleFeaturedPlaceClick(restaurant)}
+                      className="block w-full text-left mt-3 rounded-xl border border-on-surface/[0.08] bg-on-surface/[0.02] px-3 py-2.5 hover:border-on-surface/[0.18] hover:bg-on-surface/[0.04] transition-colors"
+                    >
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/45">
+                        Featured place
+                      </p>
+                      <p className="mt-0.5 font-serif font-bold text-[15px] text-on-surface leading-tight line-clamp-1">
+                        {restaurant.name}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-on-surface/50 truncate">
+                        {[restaurant.cuisine, restaurant.price, restaurant.address].filter(Boolean).join(' · ')}
+                      </p>
+                    </button>
+                  )}
+
+                  {/* Attached recipe — opens the meal page directly. */}
+                  {recipe && !restaurant && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/meal/${p.userId}/${recipe.id}`); }}
+                      className="block w-full text-left mt-3 rounded-xl border border-on-surface/[0.08] bg-on-surface/[0.02] px-3 py-2.5 hover:border-on-surface/[0.18] hover:bg-on-surface/[0.04] transition-colors"
+                    >
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface/45">
+                        Featured recipe
+                      </p>
+                      <p className="mt-0.5 font-serif font-bold text-[15px] text-on-surface leading-tight line-clamp-1">
+                        {recipe.title}
+                      </p>
+                      {recipe.cuisine && (
+                        <p className="mt-0.5 text-[11px] text-on-surface/50 truncate">{recipe.cuisine}</p>
+                      )}
+                    </button>
+                  )}
+
+                  {/* Actions footer — like / comment on the left, save +
+                      share on the right (Instagram-style). The comment
+                      button opens the inline comments overlay rather than
+                      navigating away. */}
                   <div className="flex items-center gap-1 mt-3 pt-2 border-t border-on-surface/[0.05]">
                     <button
                       onClick={() => handleLikePost(p.id, p.liked)}
@@ -830,18 +940,32 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       <span className="text-[12px] font-bold tabular-nums">{p.likesCount}</span>
                     </button>
                     <button
-                      onClick={navigateToPost}
+                      onClick={() => setOpenPostCommentsId(p.id)}
                       className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
+                      aria-label="View comments"
                     >
                       <MessageSquare size={17} />
                       <span className="text-[12px] font-bold tabular-nums">{p.commentsCount}</span>
                     </button>
                     <div className="flex-1" />
                     <button
-                      onClick={navigateToPost}
-                      className="inline-flex items-center gap-1 h-9 px-3 rounded-full text-[11.5px] font-bold uppercase tracking-[0.08em] text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
+                      onClick={() => handleSharePost(p)}
+                      className="inline-flex items-center justify-center w-9 h-9 rounded-full text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
+                      aria-label="Share post"
                     >
-                      View post
+                      <Share2 size={17} />
+                    </button>
+                    <button
+                      onClick={() => handleSavePost(p.id, p.saved)}
+                      className={cn(
+                        'inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors',
+                        p.saved
+                          ? 'text-amber-500 hover:bg-amber-500/5'
+                          : 'text-on-surface/55 hover:text-amber-500 hover:bg-on-surface/[0.04]',
+                      )}
+                      aria-label={p.saved ? 'Unsave post' : 'Save post'}
+                    >
+                      <Bookmark size={17} className={p.saved ? 'fill-amber-500' : ''} />
                     </button>
                   </div>
                 </article>
@@ -1241,6 +1365,88 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         open={!!shareRecipeData}
         recipe={shareRecipeData}
         onClose={() => setShareRecipeData(null)}
+      />
+
+      {/* ─── Post comments overlay ─────────────────────────────────────
+          Mobile/phone-frame: bottom sheet (Instagram-style). Desktop:
+          centered modal dialog. Both wrap the same CommentsBody so the
+          composer + list logic is shared with the reels page. */}
+      <AnimatePresence>
+        {openPostCommentsId && (
+          isDesktop ? (
+            <motion.div
+              key="post-comments-modal"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 bg-black/45 backdrop-blur-sm flex items-center justify-center px-4"
+              onClick={() => setOpenPostCommentsId(null)}
+            >
+              <motion.div
+                initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.98 }}
+                transition={{ type: 'spring', damping: 26, stiffness: 280 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-[440px] h-[min(640px,80vh)] bg-surface rounded-2xl shadow-2xl border border-on-surface/[0.08] overflow-hidden flex flex-col"
+              >
+                <CommentsBody
+                  targetId={openPostCommentsId}
+                  onClose={() => setOpenPostCommentsId(null)}
+                  variant="panel"
+                  loadComments={loadPostCommentsAdapter}
+                  addComment={addPostCommentAdapter}
+                  deleteComment={deletePostCommentAdapter}
+                  currentUserId={userId}
+                />
+              </motion.div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="post-comments-sheet"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-end"
+              onClick={() => setOpenPostCommentsId(null)}
+            >
+              <motion.div
+                initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white w-full rounded-t-3xl flex flex-col"
+                style={{ height: '75%' }}
+              >
+                <div className="pt-2 pb-1 flex justify-center">
+                  <span className="w-10 h-1 rounded-full bg-stone-300" />
+                </div>
+                <CommentsBody
+                  targetId={openPostCommentsId}
+                  onClose={() => setOpenPostCommentsId(null)}
+                  variant="sheet"
+                  loadComments={loadPostCommentsAdapter}
+                  addComment={addPostCommentAdapter}
+                  deleteComment={deletePostCommentAdapter}
+                  currentUserId={userId}
+                />
+              </motion.div>
+            </motion.div>
+          )
+        )}
+      </AnimatePresence>
+
+      {/* Restaurant detail — mobile/phone-frame sheet variant only.
+          Desktop taps navigate to the full /restaurant page instead. */}
+      {!isDesktop && (
+        <RestaurantPanel
+          variant="sheet"
+          snapshot={restaurantPanelSnap}
+          onClose={() => setRestaurantPanelSnap(null)}
+          currentUserId={userId}
+        />
+      )}
+
+      {/* Share dialog */}
+      <ShareDialog
+        open={!!sharePayload}
+        payload={sharePayload}
+        onClose={() => setSharePayload(null)}
       />
     </section>
   );
