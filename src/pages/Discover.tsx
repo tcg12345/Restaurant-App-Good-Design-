@@ -4354,7 +4354,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               {!discoverSearchActive && mode === 'home' && (
                 <div className={cn(
                   'flex items-end justify-between gap-4',
-                  usingDesktopHeader ? 'mt-4 pb-2 mb-2 border-b border-on-surface/[0.06]' : 'mt-2',
+                  usingDesktopHeader ? 'mt-2 pb-1.5 mb-0 border-b border-on-surface/[0.06]' : 'mt-2',
                 )}>
                   {/* On phone the location bar is capped to ~60% of the row so
                       long addresses wrap onto a second line instead of
@@ -4394,8 +4394,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               >
               {/* Recommendations */}
               {recsLoading ? (
-                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
-                  <div className="flex items-end justify-between gap-4 mb-5">
+                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                  <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
                         'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4416,8 +4416,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
                 </section>
               ) : recommendations.length > 0 ? (
-                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
-                  <div className="flex items-end justify-between gap-4 mb-5">
+                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                  <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
                         'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4576,8 +4576,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 // came back narrower than the radius allows. We keep the
                 // header visible so the radius picker stays reachable —
                 // bumping the chip is usually the fix.
-                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
-                  <div className="flex items-end justify-between gap-4 mb-5">
+                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                  <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
                         'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4598,8 +4598,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               ) : null}
 
               {/* Guides — curated lists published by experts and members */}
-              <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
-                <div className="flex items-end justify-between gap-4 mb-5">
+              <section className={cn(usingDesktopHeader ? 'mt-6' : 'mt-4')}>
+                <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
                       'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4643,8 +4643,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                    source + cuisine/tag overlap with the user's logged Home
                    Cooking meals. Always renders the section so the View all
                    affordance is reachable even before the pools load. */}
-              <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
-                <div className="flex items-end justify-between gap-4 mb-5">
+              <section className={cn(usingDesktopHeader ? 'mt-6' : 'mt-4')}>
+                <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
                       'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4798,7 +4798,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </section>
 
               {/* Social Feed */}
-              <div className="mt-8">
+              <div className="mt-5">
                 <SocialFeed
                   centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
                   centerLng={mode === 'home' ? homeLocation?.lng ?? null : null}
