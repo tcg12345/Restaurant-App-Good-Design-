@@ -315,9 +315,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return (
       <section className="mb-8">
         <SectionHeader />
-        <ul className="divide-y divide-on-surface/[0.06]">
+        <ul className={cn(
+          'divide-y divide-on-surface/[0.06]',
+          !phoneMode && 'xl:grid xl:grid-cols-2 xl:gap-x-10 xl:gap-y-0 xl:divide-y-0',
+        )}>
           {[0, 1, 2].map((i) => (
-            <li key={i} className="py-5">
+            <li key={i} className={cn('py-5', !phoneMode && 'xl:border-b xl:border-on-surface/[0.06]')}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 <div className="flex-1 space-y-1.5">
@@ -358,12 +361,15 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
           />
         ) : (
-          <ul className="divide-y divide-on-surface/[0.06]">
+          <ul className={cn(
+            'divide-y divide-on-surface/[0.06]',
+            !phoneMode && 'xl:grid xl:grid-cols-2 xl:gap-x-10 xl:gap-y-0 xl:divide-y-0',
+          )}>
             {recipesSorted.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
               return (
-                <li key={`recipe-${m.userId}-${m.id}`} className="py-5">
+                <li key={`recipe-${m.userId}-${m.id}`} className={cn('py-5', !phoneMode && 'xl:border-b xl:border-on-surface/[0.06]')}>
                   <div className={cn("flex gap-3", !phoneMode && "md:gap-4")}>
                     {/* Cover thumbnail — on the side */}
                     <button
@@ -452,14 +458,17 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           </ul>
         )
       ) : (
-      <ul className="divide-y divide-on-surface/10">
+      <ul className={cn(
+        'divide-y divide-on-surface/10',
+        !phoneMode && 'xl:grid xl:grid-cols-2 xl:gap-x-10 xl:gap-y-0 xl:divide-y-0',
+      )}>
         {feedItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
             const summary = mealRatingSummaries[m.id];
             return (
-              <li key={`meal-${m.id}`} className="py-5">
+              <li key={`meal-${m.id}`} className={cn('py-5', !phoneMode && 'xl:border-b xl:border-on-surface/[0.06]')}>
                 <div className={cn("flex gap-3", !phoneMode && "md:gap-4")}>
                   {/* Cover thumbnail — on the side */}
                   <button
@@ -553,7 +562,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             address: r.address || '',
           };
           return (
-          <li key={r.id} className="py-5">
+          <li key={r.id} className={cn('py-5', !phoneMode && 'xl:border-b xl:border-on-surface/[0.06]')}>
             {/* Photo + content — no box, full width */}
             <div className={cn("flex", !phoneMode && "md:gap-4")}>
               {/* Photo thumbnail — desktop only (hidden in phone mode) */}

@@ -4319,7 +4319,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
               {/* Feed content — hidden when searching */}
               {!discoverSearchActive && mode === 'home' && (
-                <div className="mt-2 flex items-end justify-between gap-3">
+                <div className={cn(
+                  'flex items-end justify-between gap-4',
+                  usingDesktopHeader ? 'mt-4 pb-2 mb-2 border-b border-on-surface/[0.06]' : 'mt-2',
+                )}>
                   {/* On phone the location bar is capped to ~60% of the row so
                       long addresses wrap onto a second line instead of
                       pushing the "View all" link off-screen. */}
@@ -4338,9 +4341,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
                         )
                       }
-                      className="flex-shrink-0 text-[11px] font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors pb-1"
+                      className={cn(
+                        'flex-shrink-0 inline-flex items-center gap-1 font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors',
+                        usingDesktopHeader ? 'text-[12px] pb-1.5' : 'text-[11px] pb-1',
+                      )}
                     >
                       View all
+                      <ChevronRight size={12} strokeWidth={2.5} />
                     </button>
                   )}
                 </div>
@@ -4354,13 +4361,27 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               >
               {/* Recommendations */}
               {recsLoading ? (
-                <section className="mt-7">
-                  <div className="flex items-end justify-between mb-4">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">For you</p>
-                      <h2 className="font-serif text-[22px] font-bold text-on-surface leading-tight mt-0.5">Recommended</h2>
+                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
+                  <div className="flex items-end justify-between gap-4 mb-5">
+                    <div className="min-w-0">
+                      <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">For you</p>
+                      <h2 className={cn(
+                        'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                        usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                      )}>
+                        Recommended
+                      </h2>
+                      {usingDesktopHeader && (
+                        <p className="mt-2 text-[13px] text-on-surface/55 max-w-[520px]">
+                          Picked from your taste — scored against your ratings, wishlist, and lists.
+                        </p>
+                      )}
                     </div>
-                    {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
+                    {mode === 'home' && (
+                      <div className="flex-shrink-0 pb-1">
+                        <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center justify-center py-10">
                     <Loader2 size={18} className="text-primary/40 animate-spin" />
@@ -4368,17 +4389,36 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
                 </section>
               ) : recommendations.length > 0 ? (
-                <section className="mt-7">
-                  <div className="flex items-end justify-between mb-4">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">For you</p>
-                      <h2 className="font-serif text-[22px] font-bold text-on-surface leading-tight mt-0.5">Recommended</h2>
+                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
+                  <div className="flex items-end justify-between gap-4 mb-5">
+                    <div className="min-w-0">
+                      <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">For you</p>
+                      <h2 className={cn(
+                        'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                        usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                      )}>
+                        Recommended
+                      </h2>
+                      {usingDesktopHeader && (
+                        <p className="mt-2 text-[13px] text-on-surface/55 max-w-[520px]">
+                          Picked from your taste — scored against your ratings, wishlist, and lists.
+                        </p>
+                      )}
                     </div>
-                    {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
+                    {mode === 'home' && (
+                      <div className="flex-shrink-0 pb-1">
+                        <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
+                      </div>
+                    )}
                   </div>
                   <div
-                    className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
+                    className={cn(
+                      usingDesktopHeader
+                        ? 'grid grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3'
+                        : 'flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory',
+                    )}
                     onScroll={(e) => {
+                      if (usingDesktopHeader) return;
                       const el = e.currentTarget;
                       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
                     }}
@@ -4402,9 +4442,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           key={place.id}
                           type="button"
                           onClick={() => navigate(`/restaurant/${place.id}`)}
-                          className="flex-shrink-0 w-[178px] snap-start text-left group"
+                          className={cn(
+                            'text-left group snap-start',
+                            usingDesktopHeader ? 'w-full' : 'flex-shrink-0 w-[178px]',
+                          )}
                         >
-                          <div className="relative h-[232px] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden">
+                          <div className={cn(
+                            'relative rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden',
+                            usingDesktopHeader ? 'h-[220px]' : 'h-[232px]',
+                          )}>
                             {/* Subtle photo backdrop only when one exists — fades into the card */}
                             {photoUrl && (
                               <div className="absolute inset-0 pointer-events-none">
@@ -4472,12 +4518,34 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         </button>
                       );
                     })}
-                    {recsLoadingMore && (
+                    {recsLoadingMore && !usingDesktopHeader && (
                       <div className="flex-shrink-0 w-[178px] flex items-center justify-center">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
                     )}
                   </div>
+                  {/* Desktop "load more" button — replaces the horizontal
+                       scroll-to-end pagination since the grid has no
+                       scroll edge to trigger off of. */}
+                  {usingDesktopHeader && (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => loadMoreRecommendations()}
+                        disabled={recsLoadingMore}
+                        className="inline-flex items-center gap-2 h-9 px-4 rounded-full border border-on-surface/15 text-[12.5px] font-semibold text-on-surface/70 hover:text-on-surface hover:border-on-surface/30 transition-colors disabled:opacity-50"
+                      >
+                        {recsLoadingMore ? (
+                          <>
+                            <Loader2 size={13} className="animate-spin" />
+                            Loading…
+                          </>
+                        ) : (
+                          'Show more picks'
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </section>
               ) : mode === 'home' && homeLocation ? (
                 // Empty state. Most common cause: the user switched to a
@@ -4485,13 +4553,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 // came back narrower than the radius allows. We keep the
                 // header visible so the radius picker stays reachable —
                 // bumping the chip is usually the fix.
-                <section className="mt-7">
-                  <div className="flex items-end justify-between mb-4">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">For you</p>
-                      <h2 className="font-serif text-[22px] font-bold text-on-surface leading-tight mt-0.5">Recommended</h2>
+                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
+                  <div className="flex items-end justify-between gap-4 mb-5">
+                    <div className="min-w-0">
+                      <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">For you</p>
+                      <h2 className={cn(
+                        'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                        usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                      )}>
+                        Recommended
+                      </h2>
                     </div>
-                    <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
+                    <div className="flex-shrink-0 pb-1">
+                      <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
+                    </div>
                   </div>
                   <div className="rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-10 px-6 text-center">
                     <p className="text-sm text-on-surface/55 font-semibold">No recommendations in this area yet</p>
@@ -4501,21 +4576,41 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               ) : null}
 
               {/* Guides — curated lists published by experts and members */}
-              <section className="mt-8">
-                <div className="flex items-end justify-between mb-4">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Curated</p>
-                    <h2 className="font-serif text-[22px] font-bold text-on-surface leading-tight mt-0.5">Guides</h2>
+              <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
+                <div className="flex items-end justify-between gap-4 mb-5">
+                  <div className="min-w-0">
+                    <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">Curated</p>
+                    <h2 className={cn(
+                      'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                      usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                    )}>
+                      Guides
+                    </h2>
+                    {usingDesktopHeader && (
+                      <p className="mt-2 text-[13px] text-on-surface/55 max-w-[520px]">
+                        Hand-picked collections from the editorial team and trusted experts.
+                      </p>
+                    )}
                   </div>
                 </div>
-                <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                <div className={cn(
+                  usingDesktopHeader
+                    ? 'grid grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3'
+                    : 'flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory',
+                )}>
                   {MOCK_GUIDES.map((g) => (
                     <button
                       key={g.id}
                       type="button"
-                      className="flex-shrink-0 snap-start group text-left"
+                      className={cn(
+                        'snap-start group text-left',
+                        usingDesktopHeader ? 'w-full' : 'flex-shrink-0',
+                      )}
                     >
-                      <div className="relative w-[178px] aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
+                      <div className={cn(
+                        'relative aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all',
+                        usingDesktopHeader ? 'w-full' : 'w-[178px]',
+                      )}>
                         <img
                           src={g.image}
                           alt={g.title}
@@ -4542,15 +4637,25 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                    source + cuisine/tag overlap with the user's logged Home
                    Cooking meals. Always renders the section so the View all
                    affordance is reachable even before the pools load. */}
-              <section className="mt-8">
-                <div className="flex items-end justify-between mb-4">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/40">From the kitchen</p>
-                    <h2 className="font-serif text-[22px] font-bold text-on-surface leading-tight mt-0.5">Recipes for you</h2>
+              <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
+                <div className="flex items-end justify-between gap-4 mb-5">
+                  <div className="min-w-0">
+                    <p className="text-[10.5px] font-bold uppercase tracking-[0.18em] text-primary/65">From the kitchen</p>
+                    <h2 className={cn(
+                      'font-serif font-bold text-on-surface leading-[1.05] mt-2',
+                      usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                    )}>
+                      Recipes for you
+                    </h2>
+                    {usingDesktopHeader && (
+                      <p className="mt-2 text-[13px] text-on-surface/55 max-w-[520px]">
+                        Friend, chef, and community dishes that match the cuisines you cook.
+                      </p>
+                    )}
                   </div>
                   <Link
                     to="/recipes-for-you"
-                    className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors pb-1"
+                    className="flex-shrink-0 text-[11px] font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors pb-1.5"
                   >
                     View all
                   </Link>
@@ -4569,7 +4674,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     </Link>
                   </div>
                 ) : (
-                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                  <div className={cn(
+                    usingDesktopHeader
+                      ? 'grid grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3'
+                      : 'flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory',
+                  )}>
                     {recommendedRecipes.map((r) => {
                       const cover = r.photos?.[0];
                       const sourceLabel = r._source === 'friend' ? 'Friend' : r._source === 'expert' ? 'Chef' : 'Community';
@@ -4581,11 +4690,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         <Link
                           key={r.id}
                           to={`/recipe/${r.id}`}
-                          className="flex-shrink-0 w-[178px] snap-start group"
+                          className={cn(
+                            'snap-start group',
+                            usingDesktopHeader ? 'w-full' : 'flex-shrink-0 w-[178px]',
+                          )}
                         >
                           {cover ? (
                             /* Photo card — text overlaid on bottom gradient */
-                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
+                            <div className={cn(
+                              'relative aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all',
+                              usingDesktopHeader ? 'w-full' : 'w-[178px]',
+                            )}>
                               <img
                                 src={cover}
                                 alt={r.title}
@@ -4606,7 +4721,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           ) : (
                             /* Text-rich card — no broken placeholder. Soft emerald
                                accent identifies it as a recipe at a glance. */
-                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden">
+                            <div className={cn(
+                              'relative aspect-[3/4] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden',
+                              usingDesktopHeader ? 'w-full' : 'w-[178px]',
+                            )}>
                               <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/80" />
                               <div className="flex items-center justify-between gap-2">
                                 <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]', sourceCls)}>
