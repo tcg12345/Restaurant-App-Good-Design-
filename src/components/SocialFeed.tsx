@@ -4,7 +4,7 @@ import { ShareRecipeSheet } from './ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { scoreColor } from '../lib/score';
+import { ScoreBadge } from './ScoreBadge';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -605,9 +605,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                     <h3 className="font-serif font-bold text-[16px] sm:text-[17px] leading-tight flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">
                       {r.restaurant_name}
                     </h3>
-                    <span className={cn("text-xl sm:text-2xl font-serif font-bold flex-shrink-0 leading-none pt-0.5", scoreColor(Number(r.score)))}>
-                      {Number(r.score).toFixed(1)}
-                    </span>
+                    <ScoreBadge rating={Number(r.score)} size="md" />
                   </div>
                   <p className="mt-1 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
                     {r.cuisine}{r.price && <span className="text-on-surface/25 mx-1.5">·</span>}{r.price}

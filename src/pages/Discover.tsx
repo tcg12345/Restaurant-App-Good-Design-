@@ -7,6 +7,7 @@ import mapboxgl from 'mapbox-gl';
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -2576,16 +2577,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     );
   };
 
-  // Score chip — used on every ratings card. Stacked numeric + "/10".
-  const renderScoreChip = (s: number) => {
-    const c = scoreColors(s);
-    return (
-      <div className={cn("flex flex-col items-center justify-center flex-shrink-0 rounded-xl px-2.5 py-1.5 self-start border", c.bg, c.border)}>
-        <span className={cn("text-[16px] font-bold font-serif tabular-nums leading-none", c.text)}>{s.toFixed(1)}</span>
-        <span className={cn("text-[8.5px] font-bold uppercase tracking-wider mt-0.5", c.tint)}>/ 10</span>
-      </div>
-    );
-  };
+  // Score chip — used on every ratings card. Circular soft pastel badge.
+  const renderScoreChip = (s: number) => <ScoreBadge rating={s} size="sm" />;
 
   const panelEmptyMessage = (() => {
     if (mapMode === 'myratings') return activeFilterCount > 0 || panelTextQ ? 'No ratings match these filters.' : 'No rated restaurants yet.';

@@ -5,6 +5,7 @@ import { ShareRecipeSheet } from '../components/ShareRecipeSheet';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, extractStepMinutes, StepTimer, PhotoLightbox } from '../lib/recipe-display';
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
@@ -378,7 +379,7 @@ const AddFromRatedSheet: React.FC<{
                       <p className="text-sm font-semibold truncate">{r.name}</p>
                       <p className="text-[11px] text-on-surface/40 truncate">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
                     </div>
-                    {r.score > 0 && <span className={cn("text-sm font-serif font-bold flex-shrink-0", scoreColor(r.score))}>{r.score.toFixed(1)}</span>}
+                    {r.score > 0 && <ScoreBadge rating={r.score} size="xs" />}
                     <div className={cn("w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all flex-shrink-0", isInList ? "bg-primary border-primary text-white" : "border-on-surface/15")}>
                       {isInList && <Check size={14} strokeWidth={3} />}
                     </div>
@@ -594,11 +595,7 @@ const RestaurantRow: React.FC<{
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {score !== undefined && (
-                    <span className={cn("text-lg font-serif font-bold leading-none", scoreColor(score))}>
-                      {score.toFixed(1)}
-                    </span>
-                  )}
+                  {score !== undefined && <ScoreBadge rating={score} size="sm" />}
                   {onEdit && (
                     <button
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
@@ -920,14 +917,7 @@ const RestaurantGridCard: React.FC<{
             <h3 className="font-serif font-bold text-[22px] leading-tight tracking-tight text-on-surface line-clamp-2 min-w-0">
               {name}
             </h3>
-            {hasScore && (
-              <span className={cn(
-                'font-serif font-bold tabular-nums leading-none text-[28px] flex-shrink-0',
-                scoreColor(score!),
-              )}>
-                {score!.toFixed(1)}
-              </span>
-            )}
+            {hasScore && <ScoreBadge rating={score!} size="lg" />}
           </div>
 
           {/* Cuisine · price */}
@@ -1039,9 +1029,7 @@ const RestaurantGridCard: React.FC<{
             <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{name}</h3>
           </Link>
           <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5">
-            {hasScore && (
-              <span className={cn("text-base font-serif font-bold", scoreColor(score!))}>{score!.toFixed(1)}</span>
-            )}
+            {hasScore && <ScoreBadge rating={score!} size="xs" />}
             {onEdit && (
               <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
                 className="p-1 text-on-surface/30 hover:text-primary rounded-lg transition-colors"><Edit3 size={12} /></button>
@@ -2329,10 +2317,7 @@ const ListDetailView: React.FC<{
                       )}
                     </div>
                   </div>
-                  <div className="flex-shrink-0 text-right">
-                    <span className={cn("text-lg font-serif font-bold tabular-nums", scoreColor(recipe.score))}>{recipe.score.toFixed(1)}</span>
-                    <p className="text-[9px] text-on-surface/30 font-medium">/ 10</p>
-                  </div>
+                  <ScoreBadge rating={recipe.score} size="sm" />
                 </button>
               );
             })}
@@ -3328,7 +3313,7 @@ const AddToNightSheet: React.FC<{
                               <p className="text-[13px] font-semibold truncate">{r.name}</p>
                               <p className="text-[10px] text-on-surface/40">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
                             </div>
-                            {r.score > 0 && <span className={cn("text-sm font-serif font-bold flex-shrink-0", scoreColor(r.score))}>{r.score.toFixed(1)}</span>}
+                            {r.score > 0 && <ScoreBadge rating={r.score} size="xs" />}
                             <button
                               onClick={() => !alreadyAdded && !wasJustAdded && addFromRating(r)}
                               disabled={alreadyAdded}
@@ -5473,9 +5458,13 @@ const RecipeRow: React.FC<{
       >
         <div className="flex items-start justify-between gap-3">
           <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1">{meal.name}</h3>
-          <span className={cn('text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 mr-7 tabular-nums', scoreColor(meal.score))}>
-            {meal.score > 0 ? meal.score.toFixed(1) : '—'}
-          </span>
+          <div className="flex-shrink-0 mr-7">
+            {meal.score > 0 ? (
+              <ScoreBadge rating={meal.score} size="sm" />
+            ) : (
+              <span className="text-on-surface/25 text-lg font-serif font-bold leading-none pt-0.5">—</span>
+            )}
+          </div>
         </div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
           {meal.cuisine && <><span>{meal.cuisine}</span></>}
