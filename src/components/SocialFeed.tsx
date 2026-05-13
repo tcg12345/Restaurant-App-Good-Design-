@@ -55,6 +55,90 @@ const ActivityPhoto: React.FC<{
   );
 };
 
+/**
+ * Instagram-style swipeable media carousel for a post's items. Skips
+ * video items (videos still live in the dedicated reels viewer for
+ * now) and renders only photo items as a horizontal scroll-snap row
+ * with dot indicators. Returns null when no usable photos exist so the
+ * caller can fall back to a text-only card.
+ */
+const PostMediaCarousel: React.FC<{
+  items: { id: string; mediaType: 'photo' | 'video'; mediaUrl: string }[];
+  onClick?: () => void;
+}> = ({ items, onClick }) => {
+  const photos = items.filter((it) => it.mediaType === 'photo' && it.mediaUrl);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [failed, setFailed] = useState<Set<string>>(new Set());
+  const trackRef = React.useRef<HTMLDivElement>(null);
+
+  if (photos.length === 0) return null;
+  const visible = photos.filter((p) => !failed.has(p.id));
+  if (visible.length === 0) return null;
+
+  const handleScroll = () => {
+    const el = trackRef.current;
+    if (!el) return;
+    const idx = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+    if (idx !== activeIdx) setActiveIdx(idx);
+  };
+
+  return (
+    <div className="relative -mx-4 mt-3 mb-1 select-none">
+      <div
+        ref={trackRef}
+        onScroll={handleScroll}
+        className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide"
+        style={{ scrollbarWidth: 'none' }}
+      >
+        {visible.map((it) => (
+          <button
+            key={it.id}
+            type="button"
+            onClick={onClick}
+            className="relative w-full flex-shrink-0 snap-center aspect-square overflow-hidden bg-on-surface/[0.04] focus-visible:outline-none"
+            aria-label="Open post"
+          >
+            <img
+              src={it.mediaUrl}
+              alt=""
+              onError={() => setFailed((prev) => new Set(prev).add(it.id))}
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                if (img.naturalWidth === 0) setFailed((prev) => new Set(prev).add(it.id));
+              }}
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+              draggable={false}
+            />
+          </button>
+        ))}
+      </div>
+
+      {/* Counter badge — only when multi-photo */}
+      {visible.length > 1 && (
+        <div className="absolute top-2.5 right-2.5 rounded-full bg-black/55 backdrop-blur px-2 py-0.5 text-[11px] font-semibold text-white tabular-nums">
+          {activeIdx + 1}/{visible.length}
+        </div>
+      )}
+
+      {/* Dot indicators */}
+      {visible.length > 1 && (
+        <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 flex gap-1">
+          {visible.map((_, i) => (
+            <span
+              key={i}
+              className={cn(
+                'rounded-full transition-all',
+                i === activeIdx ? 'w-1.5 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/50',
+              )}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
   { bg: 'bg-rose-100', text: 'text-rose-700' },
@@ -689,11 +773,16 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                     </div>
                   </div>
 
+                  {/* Photo carousel (Instagram-style) — only photos for
+                      now per design choice. Videos still play in the
+                      dedicated reels viewer. */}
+                  <PostMediaCarousel items={p.items} onClick={navigateToPost} />
+
                   {/* Body */}
                   <button
                     type="button"
                     onClick={navigateToPost}
-                    className="block w-full text-left mt-2.5 group focus-visible:outline-none"
+                    className="block w-full text-left mt-3 group focus-visible:outline-none"
                   >
                     {p.caption && (
                       <p className="font-serif text-[18px] leading-[1.25] text-on-surface group-hover:text-primary transition-colors line-clamp-4">
