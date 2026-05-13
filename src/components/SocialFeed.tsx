@@ -315,12 +315,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     return (
       <section className="mb-8">
         <SectionHeader />
-        <ul className={cn(
-          'divide-y divide-on-surface/[0.06]',
-          !phoneMode && 'xl:grid xl:grid-cols-2 xl:gap-x-10 xl:gap-y-0 xl:divide-y-0',
-        )}>
+        <ul className="divide-y divide-on-surface/[0.06]">
           {[0, 1, 2].map((i) => (
-            <li key={i} className={cn('py-5', !phoneMode && 'xl:border-b xl:border-on-surface/[0.06]')}>
+            <li key={i} className="py-5">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 <div className="flex-1 space-y-1.5">
@@ -361,34 +358,27 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
           />
         ) : (
-          <ul className={cn(
-            'divide-y divide-on-surface/[0.06]',
-            !phoneMode && 'xl:grid xl:grid-cols-2 xl:gap-x-10 xl:gap-y-0 xl:divide-y-0',
-          )}>
+          <ul className="divide-y divide-on-surface/[0.06]">
             {recipesSorted.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
               return (
-                <li key={`recipe-${m.userId}-${m.id}`} className={cn('py-5', !phoneMode && 'xl:border-b xl:border-on-surface/[0.06]')}>
-                  <div className={cn("flex gap-3", !phoneMode && "md:gap-4")}>
-                    {/* Cover thumbnail — on the side */}
-                    <button
-                      type="button"
-                      onClick={() => openFriendRecipe(m)}
-                      className={cn(
-                        "flex-shrink-0 rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-                        phoneMode ? "w-24 h-24" : "w-[100px] h-[100px] md:w-[140px] md:h-[140px]",
-                      )}
-                      aria-label={`View ${m.name}`}
-                    >
-                      {getMealCoverUrl(m) ? (
+                <li key={`recipe-${m.userId}-${m.id}`} className="py-5">
+                  <div className={cn("flex", getMealCoverUrl(m) ? "gap-3" : "gap-0", !phoneMode && getMealCoverUrl(m) && "md:gap-4")}>
+                    {/* Cover thumbnail — only when there's an actual photo. */}
+                    {getMealCoverUrl(m) && (
+                      <button
+                        type="button"
+                        onClick={() => openFriendRecipe(m)}
+                        className={cn(
+                          "flex-shrink-0 rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                          phoneMode ? "w-24 h-24" : "w-[100px] h-[100px] md:w-[140px] md:h-[140px]",
+                        )}
+                        aria-label={`View ${m.name}`}
+                      >
                         <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <ChefHat size={28} className="text-emerald-400" />
-                        </div>
-                      )}
-                    </button>
+                      </button>
+                    )}
 
                     {/* Content stack */}
                     <div className="flex-1 min-w-0 flex flex-col">
@@ -458,36 +448,31 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           </ul>
         )
       ) : (
-      <ul className={cn(
-        'divide-y divide-on-surface/10',
-        !phoneMode && 'xl:grid xl:grid-cols-2 xl:gap-x-10 xl:gap-y-0 xl:divide-y-0',
-      )}>
+      <ul className="divide-y divide-on-surface/10">
         {feedItems.map((item) => {
           if (item.type === 'homeMeal') {
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
             const summary = mealRatingSummaries[m.id];
             return (
-              <li key={`meal-${m.id}`} className={cn('py-5', !phoneMode && 'xl:border-b xl:border-on-surface/[0.06]')}>
-                <div className={cn("flex gap-3", !phoneMode && "md:gap-4")}>
-                  {/* Cover thumbnail — on the side */}
-                  <button
-                    type="button"
-                    onClick={() => openFriendRecipe(m)}
-                    className={cn(
-                      "flex-shrink-0 rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-                      phoneMode ? "w-24 h-24" : "w-[100px] h-[100px] md:w-[140px] md:h-[140px]",
-                    )}
-                    aria-label={`View ${m.name}`}
-                  >
-                    {getMealCoverUrl(m) ? (
+              <li key={`meal-${m.id}`} className="py-5">
+                <div className={cn("flex", getMealCoverUrl(m) ? "gap-3" : "gap-0", !phoneMode && getMealCoverUrl(m) && "md:gap-4")}>
+                  {/* Cover thumbnail — rendered only when there's an actual
+                      cover photo, so empty meals don't carry a placeholder
+                      tile. */}
+                  {getMealCoverUrl(m) && (
+                    <button
+                      type="button"
+                      onClick={() => openFriendRecipe(m)}
+                      className={cn(
+                        "flex-shrink-0 rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                        phoneMode ? "w-24 h-24" : "w-[100px] h-[100px] md:w-[140px] md:h-[140px]",
+                      )}
+                      aria-label={`View ${m.name}`}
+                    >
                       <img src={getMealCoverUrl(m)} alt={m.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <ChefHat size={28} className="text-emerald-400" />
-                      </div>
-                    )}
-                  </button>
+                    </button>
+                  )}
 
                   {/* Content stack */}
                   <div className="flex-1 min-w-0 flex flex-col">
@@ -562,24 +547,20 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             address: r.address || '',
           };
           return (
-          <li key={r.id} className={cn('py-5', !phoneMode && 'xl:border-b xl:border-on-surface/[0.06]')}>
-            {/* Photo + content — no box, full width */}
-            <div className={cn("flex", !phoneMode && "md:gap-4")}>
-              {/* Photo thumbnail — desktop only (hidden in phone mode) */}
-              {!phoneMode && (
+          <li key={r.id} className="py-5">
+            {/* Photo + content — no box, full width. Thumbnail only renders
+                when the rating actually has an uploaded photo; otherwise the
+                content takes the full row width so there's no empty
+                placeholder square. */}
+            <div className={cn("flex", !phoneMode && r.photo_url && "md:gap-4")}>
+              {!phoneMode && r.photo_url && (
                 <button
                   type="button"
                   onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                   className="hidden md:block flex-shrink-0 w-[140px] aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                   aria-label={`View ${r.restaurant_name}`}
                 >
-                  {r.photo_url ? (
-                    <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center font-serif text-3xl font-bold text-on-surface/20">
-                      {initialOf(r.restaurant_name)}
-                    </div>
-                  )}
+                  <img src={r.photo_url} alt={r.restaurant_name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]" referrerPolicy="no-referrer" />
                 </button>
               )}
 
@@ -664,9 +645,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               <div className="flex-1" />
               <button
                 onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
-                className="inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-full text-[12px] font-bold uppercase tracking-wider text-primary hover:bg-primary/5 transition-colors"
+                className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-on-surface/50 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
+                aria-label="Rate this restaurant"
               >
-                <Plus size={14} /> Rate
+                <Plus size={18} />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}

@@ -4412,13 +4412,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     )}
                   </div>
                   <div
-                    className={cn(
-                      usingDesktopHeader
-                        ? 'grid grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3'
-                        : 'flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory',
-                    )}
+                    className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
                     onScroll={(e) => {
-                      if (usingDesktopHeader) return;
                       const el = e.currentTarget;
                       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
                     }}
@@ -4442,15 +4437,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           key={place.id}
                           type="button"
                           onClick={() => navigate(`/restaurant/${place.id}`)}
-                          className={cn(
-                            'text-left group snap-start',
-                            usingDesktopHeader ? 'w-full' : 'flex-shrink-0 w-[178px]',
-                          )}
+                          className="flex-shrink-0 w-[178px] snap-start text-left group"
                         >
-                          <div className={cn(
-                            'relative rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden',
-                            usingDesktopHeader ? 'h-[220px]' : 'h-[232px]',
-                          )}>
+                          <div className="relative h-[232px] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden">
                             {/* Subtle photo backdrop only when one exists — fades into the card */}
                             {photoUrl && (
                               <div className="absolute inset-0 pointer-events-none">
@@ -4518,34 +4507,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         </button>
                       );
                     })}
-                    {recsLoadingMore && !usingDesktopHeader && (
+                    {recsLoadingMore && (
                       <div className="flex-shrink-0 w-[178px] flex items-center justify-center">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
                     )}
                   </div>
-                  {/* Desktop "load more" button — replaces the horizontal
-                       scroll-to-end pagination since the grid has no
-                       scroll edge to trigger off of. */}
-                  {usingDesktopHeader && (
-                    <div className="mt-4 flex justify-center">
-                      <button
-                        type="button"
-                        onClick={() => loadMoreRecommendations()}
-                        disabled={recsLoadingMore}
-                        className="inline-flex items-center gap-2 h-9 px-4 rounded-full border border-on-surface/15 text-[12.5px] font-semibold text-on-surface/70 hover:text-on-surface hover:border-on-surface/30 transition-colors disabled:opacity-50"
-                      >
-                        {recsLoadingMore ? (
-                          <>
-                            <Loader2 size={13} className="animate-spin" />
-                            Loading…
-                          </>
-                        ) : (
-                          'Show more picks'
-                        )}
-                      </button>
-                    </div>
-                  )}
                 </section>
               ) : mode === 'home' && homeLocation ? (
                 // Empty state. Most common cause: the user switched to a
@@ -4593,24 +4560,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     )}
                   </div>
                 </div>
-                <div className={cn(
-                  usingDesktopHeader
-                    ? 'grid grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3'
-                    : 'flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory',
-                )}>
+                <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
                   {MOCK_GUIDES.map((g) => (
                     <button
                       key={g.id}
                       type="button"
-                      className={cn(
-                        'snap-start group text-left',
-                        usingDesktopHeader ? 'w-full' : 'flex-shrink-0',
-                      )}
+                      className="flex-shrink-0 snap-start group text-left"
                     >
-                      <div className={cn(
-                        'relative aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all',
-                        usingDesktopHeader ? 'w-full' : 'w-[178px]',
-                      )}>
+                      <div className="relative w-[148px] aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
                         <img
                           src={g.image}
                           alt={g.title}
@@ -4619,13 +4576,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         />
                         <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/45 to-transparent pointer-events-none" />
                         <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/45 to-transparent pointer-events-none" />
-                        <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full bg-white/90 backdrop-blur px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-on-surface/70">
-                          <BookOpen size={9} />
+                        <span className="absolute top-2 left-2 inline-flex items-center gap-0.5 rounded-full bg-white/90 backdrop-blur px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.14em] text-on-surface/70">
+                          <BookOpen size={8} />
                           Guide
                         </span>
-                        <div className="absolute inset-x-0 bottom-0 p-3">
-                          <p className="text-white text-[13px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
-                          <p className="text-white/80 text-[10px] font-medium mt-1 truncate">by {g.author}</p>
+                        <div className="absolute inset-x-0 bottom-0 p-2.5">
+                          <p className="text-white text-[11.5px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
+                          <p className="text-white/75 text-[9.5px] font-medium mt-0.5 truncate">by {g.author}</p>
                         </div>
                       </div>
                     </button>
@@ -4674,11 +4631,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     </Link>
                   </div>
                 ) : (
-                  <div className={cn(
-                    usingDesktopHeader
-                      ? 'grid grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3'
-                      : 'flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory',
-                  )}>
+                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
                     {recommendedRecipes.map((r) => {
                       const cover = r.photos?.[0];
                       const sourceLabel = r._source === 'friend' ? 'Friend' : r._source === 'expert' ? 'Chef' : 'Community';
@@ -4690,17 +4643,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         <Link
                           key={r.id}
                           to={`/recipe/${r.id}`}
-                          className={cn(
-                            'snap-start group',
-                            usingDesktopHeader ? 'w-full' : 'flex-shrink-0 w-[178px]',
-                          )}
+                          className="flex-shrink-0 w-[178px] snap-start group"
                         >
                           {cover ? (
                             /* Photo card — text overlaid on bottom gradient */
-                            <div className={cn(
-                              'relative aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all',
-                              usingDesktopHeader ? 'w-full' : 'w-[178px]',
-                            )}>
+                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
                               <img
                                 src={cover}
                                 alt={r.title}
@@ -4721,10 +4668,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           ) : (
                             /* Text-rich card — no broken placeholder. Soft emerald
                                accent identifies it as a recipe at a glance. */
-                            <div className={cn(
-                              'relative aspect-[3/4] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden',
-                              usingDesktopHeader ? 'w-full' : 'w-[178px]',
-                            )}>
+                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden">
                               <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/80" />
                               <div className="flex items-center justify-between gap-2">
                                 <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]', sourceCls)}>
