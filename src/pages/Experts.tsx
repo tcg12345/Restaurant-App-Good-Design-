@@ -4,6 +4,7 @@ import { Star, Crown, Check, ArrowUpDown, ChevronDown, Loader2, MapPin } from 'l
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreDotBg } from '../lib/score';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { useAuth } from '../contexts/AuthContext';
 import {
   getExpertProfiles, getUserRatings, getFollowCounts, followPublicAccount, getFriends,
@@ -363,10 +364,8 @@ export const Experts: React.FC = () => {
                           scoreDotBg(score)
                         )}
                       />
-                      <div className="flex items-baseline gap-2.5">
-                        <span className={cn("font-serif font-bold text-base leading-none flex-shrink-0", scoreColor(score))}>
-                          {score.toFixed(1)}
-                        </span>
+                      <div className="flex items-center gap-2.5">
+                        <ScoreBadge rating={score} size="xs" />
                         <h4 className="font-semibold text-sm text-on-surface truncate flex-1 min-w-0 leading-tight">
                           {r.restaurant_name}
                         </h4>

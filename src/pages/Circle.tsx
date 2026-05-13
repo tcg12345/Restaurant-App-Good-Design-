@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Users, UserPlus, Search, X, Star, Trash2, Check, UserCircle, Crown, ChevronRight, Loader2, ArrowLeft, MapPin } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreBadgeBg } from '../lib/score';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, sendFriendRequest, followPublicAccount, removeFriend, getFriendActivity, searchUsersByUsername, getProfilesByIds, getPendingRequests, acceptFriendRequest, declineFriendRequest, getExpertProfiles, getUserRatings, getFollowCounts, type FriendInfo, type FriendRequest, type CommunityRating, type UserProfile } from '../lib/supabase-community';
 import { Link, useNavigate } from 'react-router-dom';
@@ -466,9 +467,7 @@ export const Circle: React.FC = () => {
                               @{getFriendUsername(r.user_id, activityProfiles)} · {timeAgo(r.created_at)}
                             </p>
                           </div>
-                          <span className={cn("flex-shrink-0 text-xl font-serif font-bold leading-none", scoreColor(Number(r.score)))}>
-                            {Number(r.score).toFixed(1)}
-                          </span>
+                          <ScoreBadge rating={Number(r.score)} size="sm" />
                         </div>
 
                         {/* Restaurant name + cuisine */}

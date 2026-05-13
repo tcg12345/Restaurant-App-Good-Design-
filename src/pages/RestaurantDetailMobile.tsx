@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
@@ -1722,7 +1723,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                           </div>
                           <span className="text-xs font-semibold text-on-surface/70">Friend</span>
                         </div>
-                        <span className={cn("text-lg font-serif font-bold", scoreColor(Number(r.score)))}>{Number(r.score).toFixed(1)}</span>
+                        <ScoreBadge rating={Number(r.score)} size="sm" />
                       </div>
                       {r.notes && <p className="text-[13px] text-on-surface/50 italic mt-1 leading-relaxed">"{r.notes}"</p>}
                       {r.tags && r.tags.length > 0 && (

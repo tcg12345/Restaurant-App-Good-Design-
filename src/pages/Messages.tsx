@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, Share2, ChefHat, Clock, Film, PlayCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe, type SharedReel, type SharedPost } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
@@ -18,7 +19,6 @@ const RestaurantShareCard: React.FC<{
   onClick?: () => void;
 }> = ({ restaurant, isMe, hasTextAbove, onClick }) => {
   // Color tokens adapt to bubble side
-  const scoreClr = isMe ? 'text-white' : scoreColor(restaurant.score ?? 0);
   const titleCls = isMe ? 'text-white' : 'text-on-surface';
   const subCls = isMe ? 'text-white/75' : 'text-on-surface/50';
   const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
@@ -50,11 +50,14 @@ const RestaurantShareCard: React.FC<{
               {restaurant.price && <span className={cn("text-[11px]", faintCls)}>{restaurant.price}</span>}
             </div>
           </div>
-          {restaurant.isReview && restaurant.score !== undefined && (
-            <div className="flex-shrink-0 text-right leading-none pl-1">
-              <span className={cn("text-lg font-serif font-bold tabular-nums", scoreClr)}>{restaurant.score.toFixed(1)}</span>
-              <p className={cn("text-[9px] font-medium", faintCls)}>/10</p>
-            </div>
+          {restaurant.isReview && restaurant.score !== undefined && restaurant.score > 0 && (
+            isMe ? (
+              <span className="flex-shrink-0 w-9 h-9 rounded-full border border-white/30 bg-white/15 text-white flex items-center justify-center font-bold text-sm tabular-nums">
+                {restaurant.score.toFixed(1)}
+              </span>
+            ) : (
+              <ScoreBadge rating={restaurant.score} size="sm" />
+            )
           )}
         </div>
         {restaurant.address && (
@@ -392,7 +395,7 @@ const ShareRestaurantSheet: React.FC<{
                           <p className="text-sm font-semibold text-on-surface/80 truncate">{r.name}</p>
                           <p className="text-[11px] text-on-surface/40">{r.cuisine} · {r.price}</p>
                         </div>
-                        <span className={cn("text-sm font-serif font-bold tabular-nums mr-1", scoreColor(r.score))}>{r.score.toFixed(1)}</span>
+                        <span className="mr-1"><ScoreBadge rating={r.score} size="xs" /></span>
                         <div className="flex flex-col gap-1 flex-shrink-0">
                           <button onClick={() => handleShareReview(r)}
                             className="px-2.5 py-1 bg-primary text-white text-[10px] font-semibold rounded-lg hover:bg-primary/90 transition-colors">

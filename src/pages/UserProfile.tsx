@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Lock, UserCircle, Loader2, UserPlus, Check, Star, MapPin, Camera, Users, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, ChefHat, UtensilsCrossed, Crown, Heart, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { scoreColor } from '../lib/score';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useReels } from '../contexts/ReelsContext';
@@ -749,9 +749,7 @@ export const UserProfile: React.FC = () => {
                             {city && ` · ${city}`}
                           </p>
                         </div>
-                        <span className={cn("text-2xl font-serif font-bold leading-none tabular-nums flex-shrink-0", scoreColor(Number(r.score)))}>
-                          {Number(r.score).toFixed(1)}
-                        </span>
+                        <ScoreBadge rating={Number(r.score)} size="sm" />
                         <ChevronDown size={16} className={cn("text-on-surface/25 flex-shrink-0 transition-transform ml-1", isExpanded && "rotate-180")} />
                       </button>
 
@@ -833,9 +831,11 @@ export const UserProfile: React.FC = () => {
                           >
                             <div className="flex items-start justify-between gap-3">
                               <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2 flex-1 text-on-surface">{meal.name}</h3>
-                              <span className={cn('text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5 tabular-nums', scoreColor(meal.score))}>
-                                {meal.score > 0 ? meal.score.toFixed(1) : '—'}
-                              </span>
+                              {meal.score > 0 ? (
+                                <ScoreBadge rating={meal.score} size="sm" />
+                              ) : (
+                                <span className="text-on-surface/25 text-lg font-serif font-bold flex-shrink-0 leading-none pt-0.5">—</span>
+                              )}
                             </div>
                             <div className="mt-1 flex items-center gap-1.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider">
                               {meal.cuisine && <span>{meal.cuisine}</span>}

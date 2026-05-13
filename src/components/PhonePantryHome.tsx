@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Bookmark, ChefHat, Clock, Flame, Plus, UtensilsCrossed } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreBadgeBg, scoreColor } from '../lib/score';
 import type { CustomList, HomeMeal } from '../contexts/ListsContext';
 
 /**
@@ -246,7 +247,11 @@ const RatedCard: React.FC<{ count: number; topScores: number[]; onClick: () => v
             {topScores.slice(0, 3).map((s, i) => (
               <div
                 key={i}
-                className="w-9 h-9 rounded-full bg-emerald-700/95 ring-2 ring-[#2C2826] flex items-center justify-center text-white font-serif font-bold text-[12px] tabular-nums"
+                className={cn(
+                  'w-9 h-9 rounded-full border ring-2 ring-[#2C2826] flex items-center justify-center font-bold text-[12px] tabular-nums',
+                  scoreBadgeBg(s),
+                  scoreColor(s),
+                )}
               >
                 {s.toFixed(1)}
               </div>
@@ -408,7 +413,13 @@ export const RecipeCard: React.FC<{ meal: HomeMeal; onClick: () => void }> = ({ 
       )}
       <div className="relative flex items-start justify-between">
         {meal.score > 0 ? (
-          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/90 bg-emerald-700/90 px-2 py-0.5 rounded-full">
+          <span
+            className={cn(
+              'w-9 h-9 rounded-full border flex items-center justify-center font-bold text-[12px] tabular-nums shadow-md shadow-black/20',
+              scoreBadgeBg(meal.score),
+              scoreColor(meal.score),
+            )}
+          >
             {meal.score.toFixed(1)}
           </span>
         ) : (

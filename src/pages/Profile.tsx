@@ -16,7 +16,7 @@ import { saveProfile, getFollowCounts, getExpertRecommendationCount } from '../l
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
-import { scoreColor } from '../lib/score';
+import { ScoreBadge } from '../components/ScoreBadge';
 
 type SettingsPage = 'main' | 'edit' | 'account';
 
@@ -85,12 +85,7 @@ const TopRatedCard: React.FC<{
             {rank}
           </span>
         </div>
-        <span className={cn(
-          'font-serif font-bold tabular-nums text-[28px] leading-none flex-shrink-0',
-          scoreColor(numericScore(rating.score)),
-        )}>
-          {formatScore(rating.score)}
-        </span>
+        <ScoreBadge rating={numericScore(rating.score)} size="lg" />
       </div>
 
       <p className="font-serif font-bold text-on-surface text-[16px] leading-tight line-clamp-1 mt-3">
@@ -1318,9 +1313,7 @@ export const Profile: React.FC = () => {
                               {r.cuisine && `${r.visitDate ? ' · ' : ''}${r.cuisine}`}
                             </p>
                           </div>
-                          <span className={cn('text-[16px] font-serif font-bold flex-shrink-0 tabular-nums', scoreColor(numericScore(r.score)))}>
-                            {formatScore(r.score)}
-                          </span>
+                          <ScoreBadge rating={numericScore(r.score)} size="sm" />
                         </Link>
                       </li>
                     ))}

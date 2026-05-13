@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Heart, MessageCircle, Bookmark, Share2, ChefHat, ChevronRight, Star, Trash2, MapPin, PlayCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { ScoreBadge } from './RestaurantCard';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
 
@@ -97,11 +98,7 @@ const RestaurantCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ 
           {[r.cuisine, r.price].filter(Boolean).join(' · ')}
         </p>
       </div>
-      {score > 0 && (
-        <span className="inline-flex items-center justify-center min-w-[40px] h-9 px-2.5 rounded-xl text-sm font-bold tabular-nums bg-emerald-700 text-white">
-          {score.toFixed(1)}
-        </span>
-      )}
+      <ScoreBadge rating={score} size="sm" />
       <ChevronRight size={16} className="text-stone-400 flex-shrink-0" />
     </button>
   );

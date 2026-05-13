@@ -7,6 +7,7 @@ import mapboxgl from 'mapbox-gl';
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -2576,16 +2577,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     );
   };
 
-  // Score chip — used on every ratings card. Stacked numeric + "/10".
-  const renderScoreChip = (s: number) => {
-    const c = scoreColors(s);
-    return (
-      <div className={cn("flex flex-col items-center justify-center flex-shrink-0 rounded-xl px-2.5 py-1.5 self-start border", c.bg, c.border)}>
-        <span className={cn("text-[16px] font-bold font-serif tabular-nums leading-none", c.text)}>{s.toFixed(1)}</span>
-        <span className={cn("text-[8.5px] font-bold uppercase tracking-wider mt-0.5", c.tint)}>/ 10</span>
-      </div>
-    );
-  };
+  // Score chip — used on every ratings card. Circular soft pastel badge.
+  const renderScoreChip = (s: number) => <ScoreBadge rating={s} size="sm" />;
 
   const panelEmptyMessage = (() => {
     if (mapMode === 'myratings') return activeFilterCount > 0 || panelTextQ ? 'No ratings match these filters.' : 'No rated restaurants yet.';
@@ -4326,7 +4319,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
 
               {/* Feed content — hidden when searching */}
               {!discoverSearchActive && mode === 'home' && (
-                <div className="mt-2 flex items-end justify-between gap-3">
+                <div className={cn(
+                  'flex items-end justify-between gap-4',
+                  usingDesktopHeader ? 'mt-4 pb-2 mb-2 border-b border-on-surface/[0.06]' : 'mt-2',
+                )}>
                   {/* On phone the location bar is capped to ~60% of the row so
                       long addresses wrap onto a second line instead of
                       pushing the "View all" link off-screen. */}
@@ -4345,9 +4341,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
                         )
                       }
-                      className="flex-shrink-0 text-[11px] font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors pb-1"
+                      className={cn(
+                        'flex-shrink-0 inline-flex items-center gap-1 font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors',
+                        usingDesktopHeader ? 'text-[12px] pb-1.5' : 'text-[11px] pb-1',
+                      )}
                     >
                       View all
+                      <ChevronRight size={12} strokeWidth={2.5} />
                     </button>
                   )}
                 </div>
@@ -4361,98 +4361,179 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               >
               {/* Recommendations */}
               {recsLoading ? (
-                <section className="mt-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Sparkles size={15} className="text-primary/60" />
-                      <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
+                  <div className="flex items-end justify-between gap-4 mb-5">
+                    <div className="min-w-0">
+                      <h2 className={cn(
+                        'font-serif font-bold text-on-surface leading-[1.05]',
+                        usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                      )}>
+                        Recommended
+                      </h2>
                     </div>
-                    {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
+                    {mode === 'home' && (
+                      <div className="flex-shrink-0 pb-1">
+                        <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 size={20} className="text-primary/40 animate-spin" />
-                    <span className="ml-2 text-xs text-on-surface/40">Finding recommendations...</span>
+                  <div className="flex items-center justify-center py-10">
+                    <Loader2 size={18} className="text-primary/40 animate-spin" />
+                    <span className="ml-2 text-xs text-on-surface/40">Finding picks near you…</span>
                   </div>
                 </section>
               ) : recommendations.length > 0 ? (
-                <section className="mt-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Sparkles size={15} className="text-primary/60" />
-                      <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
+                  <div className="flex items-end justify-between gap-4 mb-5">
+                    <div className="min-w-0">
+                      <h2 className={cn(
+                        'font-serif font-bold text-on-surface leading-[1.05]',
+                        usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                      )}>
+                        Recommended
+                      </h2>
                     </div>
-                    {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
+                    {mode === 'home' && (
+                      <div className="flex-shrink-0 pb-1">
+                        <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
+                      </div>
+                    )}
                   </div>
                   <div
                     className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
                     onScroll={(e) => {
+                      // Stop fetching once we have enough to fill the rail
+                      // — the user hits the View-all card before this cap.
+                      if (recommendations.length >= 30) return;
                       const el = e.currentTarget;
                       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
                     }}
                   >
-                    {recommendations.map((place) => {
+                    {recommendations.slice(0, 30).map((place) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
+                      const photoUrl = (place as any).photoUrl as string | undefined;
+                      const rating = (place as any).rating as number | undefined;
+                      const price = priceLevelToString((place as any).priceLevel || 0);
+                      const fullAddress = (place as any).address as string || '';
+                      // First chunk of the address is usually street + number
+                      // (e.g. "120 Wythe Ave") — most useful neighborhood-level
+                      // signal in a short card.
+                      const street = fullAddress.split(',')[0]?.trim() || '';
                       const recMeta = {
                         id: place.id,
                         name: place.name,
-                        image: (place as any).photoUrl || '',
+                        image: photoUrl || '',
                         cuisine,
-                        price: priceLevelToString((place as any).priceLevel || 0),
-                        address: (place as any).address || '',
+                        price,
+                        address: fullAddress,
                       };
                       return (
-                        <div key={place.id} className="flex-shrink-0 w-44 group cursor-pointer snap-start" onClick={() => navigate(`/restaurant/${place.id}`)}>
-                          <div className="relative aspect-[6/5] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
-                            {(place as any).photoUrl ? (
-                              <img src={(place as any).photoUrl} alt={place.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
-                            ) : (
-                              <div className="h-full w-full flex flex-col items-center justify-center gap-1.5 text-on-surface/30">
-                                <ImageOff size={22} />
-                                <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-on-surface/40">No photos yet</span>
+                        <button
+                          key={place.id}
+                          type="button"
+                          onClick={() => navigate(`/restaurant/${place.id}`)}
+                          className="flex-shrink-0 w-[178px] snap-start text-left group"
+                        >
+                          <div className="relative h-[172px] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-3.5 flex flex-col overflow-hidden">
+                            {/* Subtle photo backdrop only when one exists — fades into the card */}
+                            {photoUrl && (
+                              <div className="absolute inset-0 pointer-events-none">
+                                <img
+                                  src={photoUrl}
+                                  alt=""
+                                  className="absolute inset-0 w-full h-full object-cover opacity-25 group-hover:opacity-30 transition-opacity"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-b from-white/40 via-white/85 to-white" />
                               </div>
                             )}
-                            <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); toggleWishlist(recMeta); }}
-                                className={cn(
-                                  "w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95",
-                                  wishlisted ? "text-primary" : "text-on-surface/70 hover:text-primary"
-                                )}
-                                aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                              >
-                                <Heart size={16} className={wishlisted ? "fill-primary" : ""} />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(recMeta); }}
-                                className="w-9 h-9 rounded-full flex items-center justify-center bg-white/90 backdrop-blur-sm shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
-                                aria-label="Add to list"
-                              >
-                                <Plus size={16} />
-                              </button>
-                            </div>
-                          </div>
-                          <div className="pt-2.5 pb-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <h3 className="font-serif text-[13px] font-bold leading-snug line-clamp-2 flex-1">{place.name}</h3>
-                              {(place as any).rating > 0 && (
-                                <div className="flex items-center gap-0.5 flex-shrink-0 pt-0.5 text-primary">
-                                  <Star size={11} className="fill-primary" />
-                                  <span className="text-[11px] font-bold">{(place as any).rating.toFixed(1)}</span>
+
+                            <div className="relative flex flex-col h-full">
+                              {/* Top: cuisine eyebrow + action buttons */}
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="text-[9.5px] font-bold uppercase tracking-[0.16em] text-primary/65 truncate flex-1 leading-tight pt-1">
+                                  {cuisine || 'Restaurant'}
+                                </span>
+                                <div className="flex items-center gap-0.5 -mt-1.5 -mr-1.5 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
+                                    className={cn(
+                                      'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
+                                      wishlisted ? 'text-primary' : 'text-on-surface/45 hover:text-primary hover:bg-on-surface/[0.05]',
+                                    )}
+                                    aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
+                                  >
+                                    <Heart size={14} className={wishlisted ? 'fill-primary' : ''} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
+                                    className="w-7 h-7 rounded-full flex items-center justify-center text-primary hover:bg-primary/10 transition-colors"
+                                    aria-label="Add to list"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
                                 </div>
-                              )}
+                              </div>
+
+                              {/* Body: name + location + rating row pinned to the bottom */}
+                              <div className="flex-1 flex flex-col justify-end mt-2">
+                                <h3 className="font-serif text-[15px] font-bold text-on-surface leading-[1.18] line-clamp-2">
+                                  {place.name}
+                                </h3>
+                                {street && (
+                                  <p className="mt-1 text-[11px] text-on-surface/45 font-medium truncate">
+                                    {street}
+                                  </p>
+                                )}
+                                {((rating && rating > 0) || price) && (
+                                  <div className="flex items-center gap-1.5 text-[11.5px] mt-1.5">
+                                    {rating && rating > 0 && (
+                                      <span className="inline-flex items-center gap-0.5 font-bold text-amber-600">
+                                        <Star size={11} className="fill-amber-500 text-amber-500" />
+                                        {rating.toFixed(1)}
+                                      </span>
+                                    )}
+                                    {rating && rating > 0 && price && <span className="text-on-surface/25">·</span>}
+                                    {price && <span className="text-on-surface/60 font-semibold">{price}</span>}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <p className="mt-0.5 text-[10px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
-                              {cuisine}{cuisine && <span className="text-on-surface/25 mx-1.5">·</span>}{priceLevelToString((place as any).priceLevel || 0)}
-                            </p>
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                     {recsLoadingMore && (
-                      <div className="flex-shrink-0 w-44 flex items-center justify-center">
+                      <div className="flex-shrink-0 w-[178px] flex items-center justify-center">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
+                    )}
+                    {/* View-all end-card — takes the user to the full
+                        location page so they can browse beyond the
+                        first 30 recommendations. */}
+                    {homeLocation && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
+                          )
+                        }
+                        className="flex-shrink-0 w-[178px] snap-start text-left group"
+                      >
+                        <div className="relative h-[172px] rounded-2xl border border-dashed border-primary/30 bg-primary/[0.03] group-hover:bg-primary/[0.07] group-hover:border-primary/45 transition-colors p-4 flex flex-col items-center justify-center text-center">
+                          <div className="w-10 h-10 rounded-full bg-primary/12 group-hover:bg-primary/20 transition-colors flex items-center justify-center mb-2">
+                            <ChevronRight size={18} className="text-primary" strokeWidth={2.2} />
+                          </div>
+                          <p className="font-serif text-[14px] font-bold text-primary leading-tight">View all</p>
+                          <p className="text-[10.5px] text-on-surface/55 mt-1 line-clamp-2 leading-tight max-w-full">
+                            in {homeLocation.label.split(',')[0]}
+                          </p>
+                        </div>
+                      </button>
                     )}
                   </div>
                 </section>
@@ -4462,26 +4543,38 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 // came back narrower than the radius allows. We keep the
                 // header visible so the radius picker stays reachable —
                 // bumping the chip is usually the fix.
-                <section className="mt-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Sparkles size={15} className="text-primary/60" />
-                      <h3 className="text-sm font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
+                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
+                  <div className="flex items-end justify-between gap-4 mb-5">
+                    <div className="min-w-0">
+                      <h2 className={cn(
+                        'font-serif font-bold text-on-surface leading-[1.05]',
+                        usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                      )}>
+                        Recommended
+                      </h2>
                     </div>
-                    <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
+                    <div className="flex-shrink-0 pb-1">
+                      <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
+                    </div>
                   </div>
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <p className="text-sm text-on-surface/50 font-medium">No recommendations in this area yet</p>
-                    <p className="text-xs text-on-surface/35 mt-1">Try a wider radius or a different location.</p>
+                  <div className="rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-10 px-6 text-center">
+                    <p className="text-sm text-on-surface/55 font-semibold">No recommendations in this area yet</p>
+                    <p className="text-xs text-on-surface/40 mt-1">Try a wider radius or a different location.</p>
                   </div>
                 </section>
               ) : null}
 
               {/* Guides — curated lists published by experts and members */}
-              <section className="mt-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <BookOpen size={13} className="text-primary/60" />
-                  <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Guides</h3>
+              <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
+                <div className="flex items-end justify-between gap-4 mb-5">
+                  <div className="min-w-0">
+                    <h2 className={cn(
+                      'font-serif font-bold text-on-surface leading-[1.05]',
+                      usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                    )}>
+                      Guides
+                    </h2>
+                  </div>
                 </div>
                 <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
                   {MOCK_GUIDES.map((g) => (
@@ -4490,17 +4583,22 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       type="button"
                       className="flex-shrink-0 snap-start group text-left"
                     >
-                      <div className="relative w-36 aspect-[4/5] rounded-xl overflow-hidden bg-on-surface/[0.05]">
+                      <div className="relative w-[148px] aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
                         <img
                           src={g.image}
                           alt={g.title}
-                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
                           referrerPolicy="no-referrer"
                         />
-                        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+                        <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/45 to-transparent pointer-events-none" />
+                        <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/45 to-transparent pointer-events-none" />
+                        <span className="absolute top-2 left-2 inline-flex items-center gap-0.5 rounded-full bg-white/90 backdrop-blur px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.14em] text-on-surface/70">
+                          <BookOpen size={8} />
+                          Guide
+                        </span>
                         <div className="absolute inset-x-0 bottom-0 p-2.5">
-                          <p className="text-white text-[11px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
-                          <p className="text-white/75 text-[9px] font-medium mt-0.5 truncate">by {g.author}</p>
+                          <p className="text-white text-[11.5px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
+                          <p className="text-white/75 text-[9.5px] font-medium mt-0.5 truncate">by {g.author}</p>
                         </div>
                       </div>
                     </button>
@@ -4512,73 +4610,92 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                    source + cuisine/tag overlap with the user's logged Home
                    Cooking meals. Always renders the section so the View all
                    affordance is reachable even before the pools load. */}
-              <section className="mt-5">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <ChefHat size={13} className="text-emerald-600/70" />
-                    <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recipes For You</h3>
+              <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
+                <div className="flex items-end justify-between gap-4 mb-5">
+                  <div className="min-w-0">
+                    <h2 className={cn(
+                      'font-serif font-bold text-on-surface leading-[1.05]',
+                      usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                    )}>
+                      Recipes for you
+                    </h2>
                   </div>
                   <Link
                     to="/recipes-for-you"
-                    className="text-[11px] font-semibold text-primary hover:text-primary/80 transition-colors"
+                    className="flex-shrink-0 text-[11px] font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors pb-1.5"
                   >
                     View all
                   </Link>
                 </div>
                 {recommendedRecipes.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] p-4 flex items-center justify-between gap-3">
+                  <div className="rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] p-5 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-on-surface/55">No recipes from your circle yet</p>
-                      <p className="text-[11px] text-on-surface/35 mt-0.5">Browse the community for ideas to cook next.</p>
+                      <p className="text-sm font-semibold text-on-surface/65">No recipes from your circle yet</p>
+                      <p className="text-[12px] text-on-surface/40 mt-0.5">Browse the community for ideas to cook next.</p>
                     </div>
                     <Link
                       to="/recipes-for-you"
-                      className="flex-shrink-0 px-3 py-1.5 rounded-full bg-emerald-600 text-white text-[11px] font-semibold hover:bg-emerald-700 transition-colors"
+                      className="flex-shrink-0 px-3.5 py-2 rounded-full bg-emerald-600 text-white text-[12px] font-semibold hover:bg-emerald-700 transition-colors"
                     >
                       Explore
                     </Link>
                   </div>
                 ) : (
-                  <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
                     {recommendedRecipes.map((r) => {
                       const cover = r.photos?.[0];
+                      const sourceLabel = r._source === 'friend' ? 'Friend' : r._source === 'expert' ? 'Chef' : 'Community';
+                      const sourceCls =
+                        r._source === 'friend' ? 'bg-blue-500/95 text-white'
+                        : r._source === 'expert' ? 'bg-amber-500/95 text-white'
+                        : 'bg-white/90 text-on-surface/70';
                       return (
                         <Link
                           key={r.id}
                           to={`/recipe/${r.id}`}
-                          className="flex-shrink-0 snap-start group"
+                          className="flex-shrink-0 w-[178px] snap-start group"
                         >
-                          <div className="relative w-36 aspect-[4/5] rounded-xl overflow-hidden bg-on-surface/[0.05]">
-                            {cover ? (
+                          {cover ? (
+                            /* Photo card — text overlaid on bottom gradient */
+                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
                               <img
                                 src={cover}
                                 alt={r.title}
-                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
                                 referrerPolicy="no-referrer"
                               />
-                            ) : (
-                              <div className="absolute inset-0 flex items-center justify-center bg-emerald-50">
-                                <ChefHat size={24} className="text-emerald-300" />
-                              </div>
-                            )}
-                            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
-                            <div className="absolute top-1.5 left-1.5">
-                              <span className={cn(
-                                'inline-block text-[8.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full backdrop-blur-sm',
-                                r._source === 'friend' && 'bg-blue-500/95 text-white',
-                                r._source === 'expert' && 'bg-amber-500/95 text-white',
-                                r._source === 'public' && 'bg-white/85 text-on-surface/70',
-                              )}>
-                                {r._source === 'friend' ? 'Friend' : r._source === 'expert' ? 'Chef' : 'Community'}
+                              <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+                              <span className={cn('absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full backdrop-blur px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]', sourceCls)}>
+                                {sourceLabel}
                               </span>
+                              <div className="absolute inset-x-0 bottom-0 p-3">
+                                <p className="text-white text-[13px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{r.title}</p>
+                                {r.cuisine && (
+                                  <p className="text-white/80 text-[10px] font-medium mt-1 truncate">{r.cuisine}</p>
+                                )}
+                              </div>
                             </div>
-                            <div className="absolute inset-x-0 bottom-0 p-2.5">
-                              <p className="text-white text-[11px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{r.title}</p>
+                          ) : (
+                            /* Text-rich card — no broken placeholder. Soft emerald
+                               accent identifies it as a recipe at a glance. */
+                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden">
+                              <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/80" />
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]', sourceCls)}>
+                                  {sourceLabel}
+                                </span>
+                                <ChefHat size={14} className="text-emerald-500/70" />
+                              </div>
+                              <div className="flex-1 flex items-end mt-3">
+                                <p className="font-serif text-[16px] font-bold text-on-surface leading-[1.2] line-clamp-4">
+                                  {r.title}
+                                </p>
+                              </div>
                               {r.cuisine && (
-                                <p className="text-white/75 text-[9px] font-medium mt-0.5 truncate">{r.cuisine}</p>
+                                <p className="text-[11px] text-on-surface/55 font-medium mt-2 truncate">{r.cuisine}</p>
                               )}
                             </div>
-                          </div>
+                          )}
                         </Link>
                       );
                     })}
@@ -4587,7 +4704,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </section>
 
               {/* Social Feed */}
-              <div className="mt-5">
+              <div className="mt-8">
                 <SocialFeed
                   centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
                   centerLng={mode === 'home' ? homeLocation?.lng ?? null : null}
