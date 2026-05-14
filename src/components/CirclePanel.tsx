@@ -545,7 +545,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
       exit={{ x: -40, opacity: 0 }}
       transition={{ type: 'spring', damping: 28, stiffness: 280 }}
       className="fixed top-0 bottom-0 left-0 z-50 bg-surface border-r border-on-surface/[0.08] shadow-2xl flex flex-col"
-      style={{ width: 'min(420px, 92vw)' }}
+      style={{ width: 'min(480px, 92vw)' }}
       onClick={(e) => e.stopPropagation()}
     >
       {body}
