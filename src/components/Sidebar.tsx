@@ -8,6 +8,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
+import { useCirclePanel } from '../contexts/CirclePanelContext';
 
 /**
  * Desktop-only collapsible sidebar. App.tsx decides when to mount it
@@ -38,6 +39,14 @@ export const Sidebar: React.FC = () => {
   const { unreadCount } = useChat();
   const { openAddReelModal } = useReels();
   const { openAddPostModal } = usePosts();
+  const { open: circleOpen, toggle: toggleCircle, setOpen: setCircleOpen } = useCirclePanel();
+
+  // Auto-close the panel whenever the route changes — otherwise it
+  // hovers over the new page and confuses the user.
+  useEffect(() => {
+    if (circleOpen) setCircleOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   // The rail is always collapsed by default. Hover expands it; leaving
   // collapses it again. We don't persist this — the rail is hover-driven
@@ -97,6 +106,13 @@ export const Sidebar: React.FC = () => {
         ? 'bg-on-surface/[0.07] text-on-surface font-bold'
         : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
     );
+
+  // Expose the current sidebar width as a CSS custom property on the
+  // document root so the CirclePanel overlay can anchor its left edge
+  // flush against the rail (margin-left: var(--sidebar-width)).
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
+  }, [width]);
 
   return (
     <motion.aside
@@ -239,12 +255,21 @@ export const Sidebar: React.FC = () => {
             </NavLink>
           </li>
 
-          {/* Circle */}
+          {/* Circle — opens a slide-out panel next to the sidebar
+              instead of navigating to a separate page. */}
           <li>
-            <NavLink to="/circle" className={navRowClass(isCircleActive)} title={collapsed ? 'Circle' : undefined}>
-              <Users size={20} strokeWidth={isCircleActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isCircleActive ? 'text-on-surface' : 'text-on-surface/65')} />
+            <button
+              type="button"
+              onClick={toggleCircle}
+              className={cn(
+                navRowClass(circleOpen || isCircleActive),
+                'w-full text-left',
+              )}
+              title={collapsed ? 'Circle' : undefined}
+            >
+              <Users size={20} strokeWidth={(circleOpen || isCircleActive) ? 2.4 : 1.9} className={cn('flex-shrink-0', (circleOpen || isCircleActive) ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Circle</span>}
-            </NavLink>
+            </button>
           </li>
 
           {/* Messages */}
