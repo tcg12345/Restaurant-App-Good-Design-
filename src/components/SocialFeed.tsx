@@ -816,7 +816,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </ul>
           </div>
           {!phoneMode && (
-            <aside className="hidden xl:block">
+            <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
               <SuggestionsRail userId={userId} friendIds={friendIds} />
             </aside>
           )}
@@ -1498,7 +1498,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       )}
         </div>
         {!phoneMode && (
-          <aside className="hidden xl:block">
+          <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
             <SuggestionsRail userId={userId} friendIds={friendIds} />
           </aside>
         )}
