@@ -16,7 +16,7 @@ import { useLists } from '../contexts/ListsContext';
 import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments, toggleCommentLike,
-  getFriendsPublicHomeMeals, getFollowedExpertIds,
+  getFriendsPublicHomeMeals, getFollowedExpertIds, getExpertProfiles,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
 } from '../lib/supabase-community';
 import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantSnapshot } from '../lib/supabase-posts';
@@ -147,6 +147,119 @@ const PostMediaCarousel: React.FC<{
   );
 };
 
+// Mock guides for the suggestions rail. Curated copy matches the strip on
+// the Discover home page so the right column reads as a feature surface
+// rather than an empty placeholder.
+const SUGGESTION_GUIDES = [
+  { id: 'g-paris-bistros', title: 'Classic Paris Bistros', author: 'Camille Durand', spots: 8 },
+  { id: 'g-tokyo-ramen', title: 'Tokyo’s Hidden Ramen Gems', author: 'Aiko Tanaka', spots: 11 },
+  { id: 'g-nyc-chinese', title: 'Best Chinese Restaurants in NYC', author: 'Jamie Lin', spots: 12 },
+];
+
+/**
+ * Right-side suggestions rail — Instagram-style. Shows people to follow
+ * (experts not yet followed by the viewer) plus a small curated guide
+ * list. Rendered only on desktop next to the activity feed; hidden on
+ * mobile / phone-frame where vertical space is the constraint.
+ */
+const SuggestionsRail: React.FC<{
+  userId: string | null;
+  friendIds: Set<string>;
+}> = ({ userId, friendIds }) => {
+  const [suggested, setSuggested] = useState<UserProfile[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getExpertProfiles().then((profiles) => {
+      if (cancelled) return;
+      const filtered = profiles.filter((p) => p.user_id !== userId && !friendIds.has(p.user_id));
+      setSuggested(filtered.slice(0, 5));
+    });
+    return () => { cancelled = true; };
+  }, [userId, friendIds]);
+
+  return (
+    <aside className="space-y-7">
+      {/* People to follow */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Suggested for you</h4>
+          <Link to="/circle" className="text-[11px] font-semibold text-primary hover:text-primary/80">See all</Link>
+        </div>
+        {suggested.length === 0 ? (
+          <p className="text-[12.5px] text-on-surface/40">No suggestions right now.</p>
+        ) : (
+          <ul className="space-y-3">
+            {suggested.map((p) => {
+              const color = avatarColor(p.user_id);
+              const initial = initialOf(p.display_name || p.username);
+              return (
+                <li key={p.user_id}>
+                  <Link to={`/user/${p.username}`} className="flex items-center gap-3 group">
+                    <div className={cn('w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
+                      <span className={cn('text-[13px] font-serif font-bold', color.text)}>{initial}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
+                        {p.display_name || p.username}
+                      </p>
+                      <p className="text-[11px] text-on-surface/45 truncate inline-flex items-center gap-1">
+                        {p.is_expert && (
+                          <span className="inline-flex items-center gap-0.5 text-amber-600 font-semibold">
+                            <Star size={9} className="fill-amber-500 text-amber-500" />
+                            Expert
+                          </span>
+                        )}
+                        {p.is_expert && p.username && <span className="text-on-surface/20">·</span>}
+                        @{p.username || 'user'}
+                      </p>
+                    </div>
+                    <span className="text-[11px] font-bold text-primary hover:text-primary/80 flex-shrink-0">Follow</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Featured guides */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Featured guides</h4>
+          <Link to="/discover" className="text-[11px] font-semibold text-primary hover:text-primary/80">Browse</Link>
+        </div>
+        <ul className="space-y-3">
+          {SUGGESTION_GUIDES.map((g) => (
+            <li key={g.id}>
+              <button
+                type="button"
+                className="w-full flex items-center gap-3 text-left group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-stone-700 to-stone-900 flex items-center justify-center flex-shrink-0">
+                  <BookOpen size={15} className="text-white/85" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-serif font-bold text-on-surface leading-tight line-clamp-1 group-hover:text-primary transition-colors">
+                    {g.title}
+                  </p>
+                  <p className="text-[11px] text-on-surface/45 truncate mt-0.5">
+                    by {g.author} · {g.spots} spots
+                  </p>
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <p className="text-[10px] text-on-surface/30 leading-relaxed">
+        Suggestions update based on the people you follow and the cuisines you cook.
+      </p>
+    </aside>
+  );
+};
+
 // Palette used to tint user avatar initials deterministically per user.
 const AVATAR_PALETTE = [
   { bg: 'bg-rose-100', text: 'text-rose-700' },
@@ -215,6 +328,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
   const [posts, setPosts] = useState<PostRow[]>([]);
+  // Friend IDs are reused by the right-side SuggestionsRail to exclude
+  // already-followed accounts from "Suggested for you".
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   // Post-level overlays (open one at a time, controlled by the post card)
   const [openPostCommentsId, setOpenPostCommentsId] = useState<string | null>(null);
   const [restaurantPanelSnap, setRestaurantPanelSnap] = useState<RestaurantPanelSnapshot | null>(null);
@@ -275,11 +391,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     const friends = await getFriends(userId);
     if (friends.length === 0) { setLoading(false); return; }
 
-    const friendIds = friends.map((f) => f.friend_id);
-    const friendIdSet = new Set(friendIds);
+    const friendIdsArr = friends.map((f) => f.friend_id);
+    const friendIdSet = new Set(friendIdsArr);
+    setFriendIds(friendIdSet);
     const [act, meals, allPosts] = await Promise.all([
-      getFriendActivity(friendIds, 500),
-      getFriendsPublicHomeMeals(friendIds),
+      getFriendActivity(friendIdsArr, 500),
+      getFriendsPublicHomeMeals(friendIdsArr),
       // Pull the public-post feed and filter to friends only — RLS already
       // limits the row set to public + accepted-followers, so this keeps
       // the Friend Activity feed scoped to people you actually follow.
@@ -311,7 +428,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     // Scan the viewer's friends' meta (plus self) so reviews persisted via
     // the ListsContext fallback are included in the averages.
     if (meals.length > 0) {
-      const scanIds = [userId, ...friendIds];
+      const scanIds = [userId, ...friendIdsArr];
       getReviewSummariesBatch(meals.map((m) => m.id), scanIds)
         .then(setMealRatingSummaries)
         .catch(() => {});
@@ -675,24 +792,35 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   if (loading) {
     return (
       <section className="mb-8">
-        <SectionHeader />
-        <ul className={cn("space-y-3", !phoneMode && "xl:max-w-[62%] xl:mx-auto")}>
-          {[0, 1, 2].map((i) => (
-            <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-9 h-9 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-2.5 w-24 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                  <div className="h-2 w-16 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="h-4 w-3/5 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                <div className="h-3 w-2/5 rounded-full bg-on-surface/[0.05] animate-pulse" />
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className={cn(
+          !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-8 xl:items-start xl:max-w-[1024px] xl:mx-auto',
+        )}>
+          <div className="xl:min-w-0">
+            <SectionHeader />
+            <ul className="space-y-3">
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
+                  <div className="flex items-center gap-2.5 mb-4">
+                    <div className="w-9 h-9 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-2.5 w-24 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                      <div className="h-2 w-16 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-4 w-3/5 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                    <div className="h-3 w-2/5 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {!phoneMode && (
+            <aside className="hidden xl:block">
+              <SuggestionsRail userId={userId} friendIds={friendIds} />
+            </aside>
+          )}
+        </div>
       </section>
     );
   }
@@ -703,9 +831,13 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   return (
     <section className="mb-8">
+      <div className={cn(
+        !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-8 xl:items-start xl:max-w-[1024px] xl:mx-auto',
+      )}>
+        <div className="xl:min-w-0">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
       {feedMode === 'experts' && expertLoading ? (
-        <ul className={cn("space-y-3", !phoneMode && "xl:max-w-[62%] xl:mx-auto")}>
+        <ul className="space-y-3">
           {[0, 1, 2].map((i) => (
             <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
               <div className="flex items-center gap-2.5 mb-4">
@@ -736,7 +868,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
           />
         ) : (
-          <ul className={cn("space-y-3", !phoneMode && "xl:max-w-[62%] xl:mx-auto")}>
+          <ul className="space-y-3">
             {recipesSorted.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
@@ -821,7 +953,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           </ul>
         )
       ) : (
-      <ul className={cn("space-y-3", !phoneMode && "xl:max-w-[62%] xl:mx-auto")}>
+      <ul className="space-y-3">
         {feedItems.map((item) => {
           if (item.type === 'post') {
             const p = item.data;
@@ -1364,6 +1496,13 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         })}
       </ul>
       )}
+        </div>
+        {!phoneMode && (
+          <aside className="hidden xl:block">
+            <SuggestionsRail userId={userId} friendIds={friendIds} />
+          </aside>
+        )}
+      </div>
 
       <ShareRecipeSheet
         open={!!shareRecipeData}
