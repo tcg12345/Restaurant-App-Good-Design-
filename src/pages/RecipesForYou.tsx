@@ -389,11 +389,11 @@ export const RecipesForYou: React.FC = () => {
       </div>
 
       {/* Body */}
-      <div className="max-w-5xl mx-auto p-4">
+      <div className="px-4 sm:px-6 lg:px-8 py-4">
         {loading ? (
-          <div className={cn('grid gap-3', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4')}>
+          <div className={cn('grid gap-3', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6')}>
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-[220px] rounded-2xl bg-on-surface/[0.04] animate-pulse" />
+              <div key={i} className="h-[260px] rounded-2xl bg-on-surface/[0.04] animate-pulse" />
             ))}
           </div>
         ) : filtered.length === 0 ? (
@@ -411,7 +411,7 @@ export const RecipesForYou: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className={cn('grid gap-3', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4')}>
+          <div className={cn('grid gap-3', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6')}>
             {filtered.map((r) => {
               const author = authors[r.userId];
               const total = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
@@ -431,27 +431,27 @@ export const RecipesForYou: React.FC = () => {
                 <Link
                   key={r.id}
                   to={`/recipe/${r.id}`}
-                  className="group relative rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.18] hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-3.5 flex flex-col overflow-hidden"
+                  className="group relative rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.18] hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden"
                 >
                   {/* Top emerald accent strip */}
                   <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/80" />
 
                   {/* Top row: source chip + chef icon */}
                   <div className="flex items-center justify-between gap-2">
-                    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.12em] truncate min-w-0', sourceCls)}>
-                      <SourceIcon size={9} />
+                    <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] truncate min-w-0', sourceCls)}>
+                      <SourceIcon size={11} />
                       {sourceLabel}
                     </span>
-                    <ChefHat size={13} className="text-emerald-500/70 flex-shrink-0" />
+                    <ChefHat size={15} className="text-emerald-500/70 flex-shrink-0" />
                   </div>
 
                   {/* Title + cuisine row */}
-                  <div className="mt-3">
-                    <h3 className="font-serif text-[15px] font-bold leading-[1.18] line-clamp-2 text-on-surface group-hover:text-primary transition-colors">
+                  <div className="mt-3.5">
+                    <h3 className="font-serif text-[17px] font-bold leading-[1.18] line-clamp-2 text-on-surface group-hover:text-primary transition-colors">
                       {r.title}
                     </h3>
                     {(r.cuisine || r.difficulty) && (
-                      <p className="mt-1 text-[10.5px] text-on-surface/55 font-medium uppercase tracking-[0.08em] truncate">
+                      <p className="mt-1.5 text-[11.5px] text-on-surface/55 font-medium uppercase tracking-[0.08em] truncate">
                         {[r.cuisine, DIFFICULTY_LABEL[r.difficulty]].filter(Boolean).join(' · ')}
                       </p>
                     )}
@@ -459,21 +459,21 @@ export const RecipesForYou: React.FC = () => {
 
                   {/* Short description preview when available */}
                   {r.description && (
-                    <p className="mt-2 text-[11.5px] text-on-surface/55 italic leading-snug line-clamp-2">
+                    <p className="mt-2.5 text-[13px] text-on-surface/55 italic leading-snug line-clamp-2">
                       {r.description}
                     </p>
                   )}
 
                   {/* Tag pips (max 2) so the page reads scannable */}
                   {r.tags && r.tags.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
                       {r.tags.slice(0, 2).map((t) => (
-                        <span key={t} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700/80">
+                        <span key={t} className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700/85">
                           {t}
                         </span>
                       ))}
                       {r.tags.length > 2 && (
-                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full text-on-surface/40">
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-on-surface/45">
                           +{r.tags.length - 2}
                         </span>
                       )}
@@ -485,32 +485,32 @@ export const RecipesForYou: React.FC = () => {
 
                   {/* Stats footer */}
                   {(totalLabel || ingCount > 0 || stepCount > 0) && (
-                    <div className="mt-3 pt-2.5 border-t border-on-surface/[0.06] flex items-center justify-between text-[10.5px] text-on-surface/65 font-semibold tabular-nums">
+                    <div className="mt-3 pt-3 border-t border-on-surface/[0.06] flex items-center justify-between text-[12px] text-on-surface/70 font-semibold tabular-nums">
                       {totalLabel ? (
-                        <span className="inline-flex items-center gap-1"><Clock size={11} />{totalLabel}</span>
+                        <span className="inline-flex items-center gap-1.5"><Clock size={13} />{totalLabel}</span>
                       ) : <span />}
                       {ingCount > 0 ? (
-                        <span className="inline-flex items-center gap-1" title={`${ingCount} ingredient${ingCount === 1 ? '' : 's'}`}>
-                          <UtensilsCrossed size={11} />{ingCount}
+                        <span className="inline-flex items-center gap-1.5" title={`${ingCount} ingredient${ingCount === 1 ? '' : 's'}`}>
+                          <UtensilsCrossed size={13} />{ingCount}
                         </span>
                       ) : <span />}
                       {stepCount > 0 ? (
-                        <span className="inline-flex items-center gap-1" title={`${stepCount} step${stepCount === 1 ? '' : 's'}`}>
-                          <BookOpen size={11} />{stepCount}
+                        <span className="inline-flex items-center gap-1.5" title={`${stepCount} step${stepCount === 1 ? '' : 's'}`}>
+                          <BookOpen size={13} />{stepCount}
                         </span>
                       ) : <span />}
                     </div>
                   )}
 
                   {/* Author footer */}
-                  <div className="mt-2 pt-2 border-t border-on-surface/[0.04] flex items-center gap-1.5 text-[11px] text-on-surface/60 min-w-0">
-                    <div className="w-5 h-5 rounded-full bg-on-surface/10 flex items-center justify-center text-[9px] font-serif font-bold text-on-surface/55 flex-shrink-0">
+                  <div className="mt-2.5 pt-2.5 border-t border-on-surface/[0.04] flex items-center gap-2 text-[12.5px] text-on-surface/65 min-w-0">
+                    <div className="w-6 h-6 rounded-full bg-on-surface/10 flex items-center justify-center text-[10px] font-serif font-bold text-on-surface/60 flex-shrink-0">
                       {(author?.display_name?.charAt(0) || author?.username?.charAt(0) || '?').toUpperCase()}
                     </div>
                     <span className="truncate font-medium">
                       {author?.display_name || author?.username || 'Unknown'}
                     </span>
-                    {isExpert && <Crown size={10} className="text-amber-500 flex-shrink-0" />}
+                    {isExpert && <Crown size={12} className="text-amber-500 flex-shrink-0" />}
                   </div>
                 </Link>
               );
