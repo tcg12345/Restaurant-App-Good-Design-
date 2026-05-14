@@ -783,9 +783,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         )}>
           <div className="xl:min-w-0">
             <SectionHeader />
-            <ul className="space-y-3">
+            <ul>
               {[0, 1, 2].map((i) => (
-                <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
+                <li key={i} className="border-b border-on-surface/[0.08] last:border-0 py-5">
                   <div className="flex items-center gap-2.5 mb-4">
                     <div className="w-9 h-9 rounded-full bg-on-surface/[0.05] animate-pulse" />
                     <div className="flex-1 space-y-1.5">
@@ -823,9 +823,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         <div className="xl:min-w-0">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
       {feedMode === 'experts' && expertLoading ? (
-        <ul className="space-y-3">
+        <ul>
           {[0, 1, 2].map((i) => (
-            <li key={i} className="rounded-2xl bg-white border border-on-surface/[0.07] p-5">
+            <li key={i} className="border-b border-on-surface/[0.08] last:border-0 py-5">
               <div className="flex items-center gap-2.5 mb-4">
                 <div className="w-9 h-9 rounded-full bg-on-surface/[0.05] animate-pulse" />
                 <div className="flex-1 space-y-1.5">
@@ -854,13 +854,13 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             description="When your friends publish a recipe, it will show up here so you can try it and leave a rating."
           />
         ) : (
-          <ul className="space-y-3">
+          <ul>
             {recipesSorted.map((m) => {
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
               return (
-                <li key={`recipe-${m.userId}-${m.id}`}>
-                  <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-4">
+                <li key={`recipe-${m.userId}-${m.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
+                  <article>
                     {/* Hero photo — only when a cover URL actually resolves */}
                     {!phoneMode && (
                       <ActivityPhoto
@@ -939,7 +939,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           </ul>
         )
       ) : (
-      <ul className="space-y-3">
+      <ul>
         {feedItems.map((item) => {
           if (item.type === 'post') {
             const p = item.data;
@@ -955,8 +955,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             const recipe = attached?.recipe || null;
             const navigateToPost = () => navigate(`/r/post-${p.id}`);
             return (
-              <li key={`post-${p.id}`}>
-                <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-4">
+              <li key={`post-${p.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
+                <article>
                   {/* Author header */}
                   <div className="flex items-center gap-2.5">
                     <Link to={`/user/${authorUsername}`} className="flex-shrink-0">
@@ -1099,8 +1099,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
             const summary = mealRatingSummaries[m.id];
             return (
-              <li key={`meal-${m.id}`}>
-                <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-4">
+              <li key={`meal-${m.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
+                <article>
                   {/* Hero photo — only when a cover URL actually resolves */}
                   {!phoneMode && (
                     <ActivityPhoto
@@ -1184,8 +1184,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             address: r.address || '',
           };
           return (
-          <li key={r.id}>
-            <article className="rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.14] transition-colors p-4">
+          <li key={r.id} className="border-b border-on-surface/[0.08] last:border-0 py-5">
+            <article>
               {/* Hero photo (desktop only, and only when the URL resolves) */}
               {!phoneMode && (
                 <ActivityPhoto
@@ -1195,66 +1195,90 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 />
               )}
 
-              {/* Reviewer header */}
-              <div className="flex items-center gap-2.5">
+              {/* Header row + right rail body — avatar/header is its own row,
+                  then the restaurant content sits in a 2-column flex with
+                  score / rate / wishlist stacked on the right. */}
+              <div className="flex items-center gap-2.5 mb-3">
                 <Link to={`/user/${getUsername(r.user_id)}`} className="flex-shrink-0">
                   <div className={cn("w-9 h-9 rounded-full flex items-center justify-center", color.bg)}>
                     <span className={cn("text-[13px] font-serif font-bold", color.text)}>{initial}</span>
                   </div>
                 </Link>
-                <div className="flex-1 min-w-0">
-                  <Link to={`/user/${getUsername(r.user_id)}`} className="text-[13px] font-bold hover:text-primary block truncate leading-tight">
+                <p className="text-[12.5px] text-on-surface/60 leading-tight flex-1 min-w-0 truncate">
+                  <Link to={`/user/${getUsername(r.user_id)}`} className="font-bold text-on-surface hover:text-primary">
                     {getName(r.user_id)}
                   </Link>
-                  <p className="text-[11px] text-on-surface/45 leading-tight mt-0.5">
-                    {profiles[r.user_id]?.is_expert ? (
-                      <span className="inline-flex items-center gap-0.5 text-amber-600 font-semibold">
-                        <Star size={9} className="fill-amber-500 text-amber-500" />Expert
-                      </span>
-                    ) : (
-                      <span className="font-medium">Rated</span>
+                  {profiles[r.user_id]?.is_expert ? (
+                    <span className="inline-flex items-center gap-0.5 ml-1.5 text-amber-600 font-semibold">
+                      <Star size={9} className="fill-amber-500 text-amber-500" />
+                    </span>
+                  ) : null}
+                  <span className="ml-1.5">rated</span>
+                  <span className="mx-1.5 text-on-surface/25">·</span>
+                  <span className="text-on-surface/45">{timeAgo(r.created_at)}</span>
+                </p>
+              </div>
+
+              <div className="flex gap-4">
+                {/* Left: content (tappable) */}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                  className="block flex-1 min-w-0 text-left group focus-visible:outline-none"
+                >
+                  <h3 className="font-serif font-bold text-[22px] leading-[1.12] line-clamp-2 text-on-surface group-hover:text-primary transition-colors">
+                    {r.restaurant_name}
+                  </h3>
+                  {(r.cuisine || r.price || r.address) && (
+                    <p className="mt-1.5 text-[11.5px] text-on-surface/55 font-medium uppercase tracking-[0.08em] truncate">
+                      {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                  {r.tags && r.tags.length > 0 && (
+                    <div className="flex gap-1.5 mt-3 flex-wrap">
+                      {r.tags.slice(0, 4).map((t) => (
+                        <span key={t} className="text-[12px] px-2.5 py-0.5 rounded-full bg-primary/[0.09] text-primary/80 font-medium">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {r.notes && (
+                    <p className="mt-3 text-[14.5px] text-on-surface/70 italic leading-relaxed line-clamp-3 border-l-2 border-primary/45 pl-3">
+                      {r.notes}
+                    </p>
+                  )}
+                </button>
+
+                {/* Right rail: score + rate + wishlist stacked */}
+                <div className="flex-shrink-0 flex flex-col items-center gap-3 pt-0.5">
+                  <ScoreBadge rating={Number(r.score)} size="xl" />
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
+                    className="inline-flex items-center justify-center w-9 h-9 rounded-full text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
+                    aria-label="Rate this restaurant"
+                  >
+                    <Plus size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
+                    className={cn(
+                      'inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors',
+                      wishlisted
+                        ? 'text-red-500 hover:bg-red-500/5'
+                        : 'text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]',
                     )}
-                    <span className="mx-1.5 text-on-surface/20">·</span>
-                    {timeAgo(r.created_at)}
-                  </p>
+                    aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
+                  >
+                    <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
+                  </button>
                 </div>
               </div>
 
-              {/* Restaurant block — title + score, location row, notes, tags */}
-              <button
-                type="button"
-                onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
-                className="block w-full text-left mt-2.5 group focus-visible:outline-none"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors pt-1">
-                    {r.restaurant_name}
-                  </h3>
-                  <ScoreBadge rating={Number(r.score)} size="xl" />
-                </div>
-                {(r.cuisine || r.price || r.address) && (
-                  <p className="mt-1.5 text-[11.5px] text-on-surface/50 font-medium uppercase tracking-[0.08em] truncate">
-                    {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
-                  </p>
-                )}
-                {r.notes && (
-                  <p className="mt-2 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
-                    &ldquo;{r.notes}&rdquo;
-                  </p>
-                )}
-                {r.tags && r.tags.length > 0 && (
-                  <div className="flex gap-1.5 mt-3 flex-wrap">
-                    {r.tags.slice(0, 4).map((t) => (
-                      <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-primary/[0.08] text-primary/75 font-medium">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </button>
-
-              {/* Actions — hairline divider above keeps it visually grouped with the card */}
-              <div className="flex items-center gap-1 mt-3 pt-2 border-t border-on-surface/[0.05]">
+              {/* Bottom row: like + comment counts (flat, no top border) */}
+              <div className="flex items-center gap-1 mt-3 -ml-2">
                 <button
                   onClick={() => handleLike(r.id)}
                   className={cn(
@@ -1278,26 +1302,6 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 >
                   <MessageSquare size={17} />
                   <span className="text-[12px] font-bold tabular-nums">{commentCounts[r.id] || 0}</span>
-                </button>
-                <div className="flex-1" />
-                <button
-                  onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
-                  className="inline-flex items-center justify-center w-9 h-9 rounded-full text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04] transition-colors"
-                  aria-label="Rate this restaurant"
-                >
-                  <Plus size={17} />
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); toggleWishlist(meta); }}
-                  className={cn(
-                    "inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors",
-                    wishlisted
-                      ? "text-red-500 hover:bg-red-500/5"
-                      : "text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]"
-                  )}
-                  aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                >
-                  <Heart size={17} className={wishlisted ? 'fill-red-500' : ''} />
                 </button>
               </div>
 
