@@ -4404,11 +4404,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         Recommended
                       </h2>
                     </div>
-                    {mode === 'home' && (
-                      <div className="flex-shrink-0 pb-1">
-                        <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
-                      </div>
-                    )}
                   </div>
                   <div className="flex items-center justify-center py-10">
                     <Loader2 size={18} className="text-primary/40 animate-spin" />
@@ -4426,11 +4421,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         Recommended
                       </h2>
                     </div>
-                    {mode === 'home' && (
-                      <div className="flex-shrink-0 pb-1">
-                        <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
-                      </div>
-                    )}
                   </div>
                   <div
                     className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
@@ -4585,9 +4575,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       )}>
                         Recommended
                       </h2>
-                    </div>
-                    <div className="flex-shrink-0 pb-1">
-                      <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
                     </div>
                   </div>
                   <div className="rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-10 px-6 text-center">
@@ -5312,7 +5299,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div className="flex items-center justify-center py-6">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
@@ -5326,7 +5312,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div
                         className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
