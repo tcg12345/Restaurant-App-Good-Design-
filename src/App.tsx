@@ -72,11 +72,7 @@ const CircleDesktopOverlay: React.FC = () => {
         <>
           <motion.div
             key="circle-panel-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px]"
+            className="fixed inset-0 z-40"
             onClick={() => setOpen(false)}
           />
           <CirclePanel variant="overlay" onClose={() => setOpen(false)} />
