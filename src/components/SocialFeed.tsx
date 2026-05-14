@@ -487,15 +487,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     }
   }, [userId, expertLoaded, profiles]);
 
-  // Merge and sort feed items. When a location anchor is provided, sort so
-  // ratings nearest that anchor come first (then fall back to recency). Home
-  // meals don't have a location so they always sort by time.
-  const hasAnchor = centerLat != null && centerLng != null;
-  const distanceFor = (r: CommunityRating): number => {
-    if (!hasAnchor || r.lat == null || r.lng == null) return Infinity;
-    if (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1) return Infinity;
-    return haversineKm(centerLat!, centerLng!, r.lat, r.lng);
-  };
+  // Merge and sort feed items by recency. Newest activity surfaces first
+  // regardless of the source kind (rating / home meal / post).
   // Expert Picks mode shows ratings from followed experts only (no
   // home-meal logger entries or posts, since experts publish via
   // ratings). Friend Activity is the existing mix of friend ratings +
@@ -516,14 +509,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       type: 'post', data: p,
       sortTime: p.createdAt ? new Date(p.createdAt).getTime() : 0,
     })),
-  ].sort((a, b) => {
-    if (hasAnchor) {
-      const da = a.type === 'rating' ? distanceFor(a.data) : Infinity;
-      const db = b.type === 'rating' ? distanceFor(b.data) : Infinity;
-      if (da !== db) return da - db;
-    }
-    return b.sortTime - a.sortTime;
-  });
+  ].sort((a, b) => b.sortTime - a.sortTime);
 
   const handleLike = async (ratingId: string) => {
     if (!userId || !ratingId) return;
