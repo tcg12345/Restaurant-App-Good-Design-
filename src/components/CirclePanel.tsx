@@ -535,15 +535,17 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     );
   }
 
-  // Overlay variant — slide-out anchored next to the desktop sidebar.
+  // Overlay variant — slide-out from the left edge of the viewport,
+  // covering the desktop sidebar. The backdrop in App.tsx handles
+  // outside-click dismissal (sidebar area + main content).
   return (
     <motion.aside
       initial={{ x: -40, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: -40, opacity: 0 }}
       transition={{ type: 'spring', damping: 28, stiffness: 280 }}
-      className="fixed top-0 bottom-0 z-40 bg-surface border-r border-on-surface/[0.08] shadow-2xl flex flex-col"
-      style={{ left: 'var(--sidebar-width, 72px)', width: 'min(420px, 92vw)' }}
+      className="fixed top-0 bottom-0 left-0 z-50 bg-surface border-r border-on-surface/[0.08] shadow-2xl flex flex-col"
+      style={{ width: 'min(420px, 92vw)' }}
       onClick={(e) => e.stopPropagation()}
     >
       {body}
