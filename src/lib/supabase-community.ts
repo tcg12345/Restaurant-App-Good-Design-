@@ -732,6 +732,22 @@ export async function getFriends(userId: string): Promise<FriendInfo[]> {
   } catch (err) { console.error('[Friends] getFriends exception:', err); return []; }
 }
 
+/**
+ * IDs of every user who follows the given userId — i.e. the "followers"
+ * side of the user_friends edge. Mirrors getFriends but flipped: we look
+ * up accepted rows where friend_id = userId and return the user_ids of
+ * the rows.
+ */
+export async function getFollowerIds(userId: string): Promise<string[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('user_friends')
+      .select('user_id').eq('friend_id', userId).eq('status', 'accepted');
+    if (error) { console.error('[Friends] getFollowerIds error:', error); return []; }
+    return (data || []).map((r) => (r as { user_id: string }).user_id);
+  } catch (err) { console.error('[Friends] getFollowerIds exception:', err); return []; }
+}
+
 /** Get pending friend requests sent TO you */
 export async function getPendingRequests(userId: string): Promise<FriendRequest[]> {
   if (!supabaseConfigured || !userId) return [];
