@@ -1,21 +1,18 @@
 /**
- * AddPostModal — create a multi-media post (1–15 photos / videos, mixed)
- * with per-item captions and per-item featured restaurant or recipe.
+ * AddPostModal — three-step flow for creating a multi-media post.
  *
- * UX:
- *   1. Empty state: a drop zone for files (multi-select, drag-and-drop).
- *   2. With items present: a horizontal strip of thumbnails. Tap one to
- *      make it the "active" item. The strip has a "+" tile to add more.
- *   3. The active-item editor shows below the strip:
- *        • Per-item caption.
- *        • Per-item featured attachment (restaurant or recipe). Once an
- *          item has an attachment, an "Apply to all" pill appears so the
- *          user can clone it onto the rest in one tap. There's also an
- *          "Apply to next…" affordance for partial cloning.
- *        • Reorder buttons + remove.
- *   4. Post-level fields below: location (free-text label that surfaces
- *      under the caption when viewing), audio label, post-level caption,
- *      visibility toggle.
+ *   Step 1: Media — pick / arrange 1–15 photos and videos.
+ *   Step 2: Tag — per-item caption + featured restaurant or recipe
+ *           attachment, with the same apply-to-all / apply-to-specific
+ *           power-tools from the previous single-page flow.
+ *   Step 3: Details — post-level caption, location, audio, visibility.
+ *
+ * Edit mode jumps straight to step 2 (media is immutable on existing
+ * posts) and the back button on step 2 closes the modal.
+ *
+ * The step body slides horizontally between steps via motion's
+ * direction variant. Phone shows a compact pip indicator in the
+ * header; wide viewports get a full YouTube-style labelled stepper.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -104,6 +101,16 @@ function detectMediaType(file: File): PostMediaType | null {
   return null;
 }
 
+/* ── Step machine type ───────────────────────────────────────────────── */
+
+type Step = 1 | 2 | 3;
+
+const stepVariants = {
+  enter: (dir: number) => ({ x: dir > 0 ? 32 : -32, opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (dir: number) => ({ x: dir > 0 ? -32 : 32, opacity: 0 }),
+};
+
 /* ── The modal ──────────────────────────────────────────────────────── */
 
 export const AddPostModal: React.FC = () => {
@@ -117,6 +124,15 @@ export const AddPostModal: React.FC = () => {
   const { profile, user } = useAuth();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
+
+  // Step machine. Create flow walks 1 → 2 → 3; edit flow enters at 2
+  // (media is locked) and goes 2 → 3.
+  const [step, setStep] = useState<Step>(1);
+  const [direction, setDirection] = useState<1 | -1>(1);
+  const goToStep = (next: Step) => {
+    setDirection(next > step ? 1 : -1);
+    setStep(next);
+  };
 
   const [items, setItems] = useState<WorkingItem[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -186,6 +202,9 @@ export const AddPostModal: React.FC = () => {
         : null);
       setAudio(editingPost.audioLabel);
       setIsPublic(editingPost.isPublic);
+      // Edit mode: media is locked, so we start at step 2 (per-item
+      // tagging) and let the user advance to step 3 (post-level fields).
+      setStep(2);
     } else {
       setItems([]);
       setActiveKey(null);
@@ -194,7 +213,9 @@ export const AddPostModal: React.FC = () => {
       setPickedLocation(null);
       setAudio('Original audio');
       setIsPublic(true);
+      setStep(1);
     }
+    setDirection(1);
     setLocationSuggestions([]);
     setLocationFocused(false);
     setLocationSearching(false);
@@ -222,6 +243,23 @@ export const AddPostModal: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // On phone, auto-open the OS picker the first time step 1 mounts so
+  // the user lands on the camera roll without an extra tap. Same
+  // best-effort approach as AddReelModal: the "Create" tap that opened
+  // the modal keeps the user-gesture context alive on iOS / Android
+  // Chrome. Bails out in edit mode (media is locked) or once items
+  // exist (going back to add more is an explicit user action).
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!addPostModalOpen) { autoOpenedRef.current = false; return; }
+    if (!phoneMode || isEditing || step !== 1 || items.length > 0 || autoOpenedRef.current) return;
+    autoOpenedRef.current = true;
+    const id = window.setTimeout(() => {
+      try { fileInputRef.current?.click(); } catch { /* user gesture lost */ }
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [addPostModalOpen, phoneMode, isEditing, step, items.length]);
 
   // Geolocation bias for the Places query.
   useEffect(() => {
@@ -322,6 +360,9 @@ export const AddPostModal: React.FC = () => {
   const onPickFiles = async (incoming: File[]) => {
     // Editing an existing post — media is locked. Bail.
     if (isEditing) return;
+    // Media can only be added on step 1; ignore drops that arrive while
+    // the user is on the tagging or details step.
+    if (step !== 1) return;
     setValidationMsg(null);
     setErrorMsg(null);
 
@@ -696,30 +737,80 @@ export const AddPostModal: React.FC = () => {
             )}
           >
             {/* Header */}
-            <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-on-surface/[0.06] flex-shrink-0">
-              <div>
-                <h2 className="font-serif font-bold text-lg leading-tight">
-                  {isEditing ? 'Edit post' : 'New post'}
+            <div className="px-5 pt-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
+              {/* Back when there's a previous step, else close. Edit mode
+                  starts at step 2 so its "back" closes the modal. */}
+              {!isEditing && step > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => { if (!submitting) goToStep((step - 1) as Step); }}
+                  disabled={submitting}
+                  className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0"
+                  aria-label="Back"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { if (!submitting) closeAddPostModal(); }}
+                  disabled={submitting}
+                  className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              )}
+              <div className="flex-1 min-w-0">
+                <h2 className="font-serif font-bold text-lg leading-tight truncate">
+                  {isEditing ? 'Edit post' : (
+                    step === 1 ? 'Choose photos & videos' :
+                    step === 2 ? 'Tag each item' :
+                    'Final details'
+                  )}
                 </h2>
-                <p className="text-[12px] text-on-surface/45 mt-0.5">
-                  {isEditing
-                    ? 'Update captions, location, audio, and per-item featured. The photos / videos themselves stay the same.'
-                    : `Up to ${POST_MAX_ITEMS} photos / videos. Each can have its own caption + featured.`}
-                </p>
+                {!isEditing && (
+                  <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
+                    {step === 1 && `Up to ${POST_MAX_ITEMS} items.`}
+                    {step === 2 && 'Add a per-item caption and featured restaurant or recipe.'}
+                    {step === 3 && 'Post caption, location, and visibility.'}
+                  </p>
+                )}
+                {isEditing && (
+                  <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
+                    {step === 2 && 'Update per-item captions and featured.'}
+                    {step === 3 && 'Update caption, location, audio, and visibility.'}
+                  </p>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={() => { if (!submitting) closeAddPostModal(); }}
-                disabled={submitting}
-                className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
+              {/* Compact step pip — phone only. Desktop gets the labelled
+                  stepper bar below the header. Edit mode shows just two
+                  pips (steps 2 + 3). */}
+              {phoneMode && (
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {(isEditing ? [2, 3] : [1, 2, 3]).map((s) => (
+                    <motion.span
+                      key={s}
+                      className={cn(
+                        'h-1.5 rounded-full',
+                        s <= step ? 'bg-primary' : 'bg-on-surface/10',
+                      )}
+                      animate={{ width: s === step ? 20 : 6 }}
+                      transition={{ duration: 0.25, ease: 'easeOut' }}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
+            {/* Desktop stepper — full-width labelled checkpoints, hidden
+                on phone (the header pip is enough). */}
+            {!phoneMode && (
+              <PostDesktopStepper currentStep={step} isEditing={isEditing} />
+            )}
+
             <div
-              className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 pb-32 space-y-5 relative"
+              className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden relative"
               onDragEnter={onDragEnter}
               onDragOver={onDragOver}
               onDragLeave={onDragLeave}
@@ -734,6 +825,24 @@ export const AddPostModal: React.FC = () => {
                 onChange={(e) => onPickFiles(Array.from(e.target.files || []))}
               />
 
+              {/* Animated step content. AnimatePresence + key={step} drives
+                  the horizontal slide; the inner motion.div uses
+                  direction-aware variants so forward swipes right-to-left
+                  and back swipes the other way. */}
+              <AnimatePresence mode="wait" initial={false} custom={direction}>
+                <motion.div
+                  key={step}
+                  custom={direction}
+                  variants={stepVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                  className="px-5 pt-4 pb-6 space-y-5"
+                >
+
+              {/* ───────── STEP 1: Media ───────── */}
+              {step === 1 && (<>
               {/* Empty state vs items strip */}
               {items.length === 0 ? (
                 <button
@@ -849,6 +958,77 @@ export const AddPostModal: React.FC = () => {
                   )}
                 </section>
               )}
+              </>)}
+
+              {/* ───────── STEP 2: Tag each item ───────── */}
+              {step === 2 && items.length > 0 && (<>
+              {/* Compact horizontal strip — same component is rendered
+                  in step 1 to show the items grid; here it stays at the
+                  top for jumping between items while editing. */}
+              <section>
+                <div className="flex items-baseline justify-between mb-2">
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">
+                    Items
+                    <span className="text-on-surface/30 font-medium ml-1.5">{items.length} / {POST_MAX_ITEMS}</span>
+                  </label>
+                  {activeIdx >= 0 && (
+                    <span className="text-[11px] text-on-surface/45 font-mono tabular-nums">#{activeIdx + 1}</span>
+                  )}
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory scrollbar-hide">
+                  {items.map((it, idx) => {
+                    const isActive = it.key === activeKey;
+                    const hasAttach = it.attachedKind !== null;
+                    const inMulti = !!multiApply;
+                    const isSource = inMulti && it.key === multiApply.sourceKey;
+                    const isTarget = inMulti && multiApply.targets.has(it.key);
+                    return (
+                      <button
+                        key={it.key}
+                        type="button"
+                        onClick={() => {
+                          if (inMulti) toggleMultiApplyTarget(it.key);
+                          else setActiveKey(it.key);
+                        }}
+                        className={cn(
+                          'relative flex-shrink-0 w-16 aspect-[9/14] rounded-xl overflow-hidden snap-start transition-all',
+                          !inMulti && isActive && 'ring-2 ring-primary ring-offset-2 ring-offset-surface',
+                          !inMulti && !isActive && 'ring-1 ring-on-surface/[0.08]',
+                          inMulti && isSource && 'ring-2 ring-emerald-500 ring-offset-2 ring-offset-surface',
+                          inMulti && isTarget && 'ring-2 ring-primary ring-offset-2 ring-offset-surface',
+                          inMulti && !isSource && !isTarget && 'ring-1 ring-on-surface/[0.08] opacity-70',
+                        )}
+                      >
+                        {it.mediaType === 'photo' ? (
+                          <img src={it.previewUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                        ) : (
+                          <video src={it.previewUrl} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
+                        )}
+                        <div className="absolute inset-x-0 bottom-0 p-1 bg-gradient-to-t from-black/70 to-transparent flex items-center justify-between gap-1">
+                          <span className="text-[10px] font-bold text-white/90 tabular-nums">#{idx + 1}</span>
+                          {it.mediaType === 'video' && <VideoIcon size={10} className="text-white/85" />}
+                        </div>
+                        {hasAttach && !inMulti && (
+                          <span className="absolute top-1 left-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-white">
+                            {it.attachedKind === 'restaurant' ? <MapPin size={10} /> : <ChefHat size={10} />}
+                          </span>
+                        )}
+                        {isSource && (
+                          <span className="absolute top-1 left-1 px-1.5 h-4 inline-flex items-center rounded bg-emerald-600 text-white text-[8px] font-bold uppercase tracking-wider">Source</span>
+                        )}
+                        {inMulti && !isSource && (
+                          <span className={cn(
+                            'absolute top-1 right-1 inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors',
+                            isTarget ? 'bg-primary text-white' : 'bg-black/55 text-white border border-white/40',
+                          )}>
+                            {isTarget && <Check size={11} strokeWidth={3} />}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
 
               {/* Multi-apply banner — replaces the active-item editor while
                   the user is selecting which thumbnails to copy the
@@ -1040,9 +1220,10 @@ export const AddPostModal: React.FC = () => {
                   </div>
                 </section>
               )}
+              </>)}
 
-              {/* Post-level fields */}
-              {items.length > 0 && (
+              {/* ───────── STEP 3: Final details ───────── */}
+              {step === 3 && items.length > 0 && (
                 <>
                   <section>
                     <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Post caption</label>
@@ -1201,60 +1382,89 @@ export const AddPostModal: React.FC = () => {
                 </>
               )}
 
-              {/* Auth notice */}
-              {!user?.id && (
-                <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                  <span>Sign in to post.</span>
-                </div>
-              )}
-
-              {errorMsg && (
-                <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
-                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                  <span>{errorMsg}</span>
-                </div>
-              )}
+                </motion.div>
+              </AnimatePresence>
             </div>
+
+            {/* Auth + submit-error banners — pinned between the body and
+                the footer so they stay visible across all steps. */}
+            {(!user?.id || errorMsg) && (
+              <div className="px-5 pb-2 flex-shrink-0 space-y-2">
+                {!user?.id && (
+                  <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                    <span>Sign in to post.</span>
+                  </div>
+                )}
+                {errorMsg && (
+                  <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                    <span>{errorMsg}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Footer */}
             <div className="border-t border-on-surface/[0.06] px-5 py-3 bg-surface flex items-center gap-3 flex-shrink-0">
-              <button
-                type="button"
-                onClick={() => { if (!submitting) closeAddPostModal(); }}
-                disabled={submitting}
-                className="px-4 h-11 rounded-full text-sm font-semibold text-on-surface/65 hover:bg-on-surface/[0.05] disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onSubmit}
-                disabled={!canSubmit}
-                className={cn(
-                  'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors relative overflow-hidden',
-                  canSubmit
-                    ? 'bg-primary text-white hover:bg-primary/90'
-                    : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
-                )}
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 size={15} className="animate-spin" />
-                    {isEditing ? 'Saving…' : `Uploading… ${Math.round(progress * 100)}%`}
-                  </>
-                ) : (
-                  <>
-                    <Upload size={15} />
-                    {isEditing
-                      ? 'Save changes'
-                      : items.length === 0 ? 'Post' : `Post ${items.length} ${items.length === 1 ? 'item' : 'items'}`}
-                  </>
-                )}
-                {submitting && !isEditing && (
-                  <span className="absolute left-0 bottom-0 h-0.5 bg-white/40" style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }} />
-                )}
-              </button>
+              {/* Step 1: Next, gated on at least one item. */}
+              {!isEditing && step === 1 && (
+                <button
+                  type="button"
+                  onClick={() => goToStep(2)}
+                  disabled={items.length === 0}
+                  className={cn(
+                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
+                    items.length > 0
+                      ? 'bg-primary text-white hover:bg-primary/90'
+                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
+                  )}
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              )}
+              {/* Step 2: Next → step 3. (No gating — captions and
+                  featured are optional.) */}
+              {step === 2 && (
+                <button
+                  type="button"
+                  onClick={() => goToStep(3)}
+                  className="flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary/90 transition-colors"
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              )}
+              {/* Step 3: Post / Save changes. */}
+              {step === 3 && (
+                <button
+                  type="button"
+                  onClick={onSubmit}
+                  disabled={!canSubmit}
+                  className={cn(
+                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors relative overflow-hidden',
+                    canSubmit
+                      ? 'bg-primary text-white hover:bg-primary/90'
+                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
+                  )}
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" />
+                      {isEditing ? 'Saving…' : `Uploading… ${Math.round(progress * 100)}%`}
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={15} />
+                      {isEditing
+                        ? 'Save changes'
+                        : items.length === 0 ? 'Post' : `Post ${items.length} ${items.length === 1 ? 'item' : 'items'}`}
+                    </>
+                  )}
+                  {submitting && !isEditing && (
+                    <span className="absolute left-0 bottom-0 h-0.5 bg-white/40" style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }} />
+                  )}
+                </button>
+              )}
             </div>
           </motion.div>
 
@@ -1401,5 +1611,87 @@ export const AddPostModal: React.FC = () => {
         </motion.div>
       )}
     </AnimatePresence>
+  );
+};
+
+/* ── Desktop stepper ──────────────────────────────────────────────────
+   Mirrors the YouTube-style stepper used in AddReelModal — three
+   labelled checkpoints (Media · Tag · Details) with a primary-filled
+   circle + check for completed steps, a primary ring for the current
+   step, and outlined circles for upcoming ones. The connector between
+   each pair fills with primary color as the user advances. Edit mode
+   collapses to two checkpoints since the media step is hidden. */
+
+const POST_STEPPER_LABELS: { label: string; sub: string }[] = [
+  { label: 'Media',   sub: 'Photos & videos' },
+  { label: 'Tag',     sub: 'Per-item details' },
+  { label: 'Details', sub: 'Caption & visibility' },
+];
+
+const PostDesktopStepper: React.FC<{ currentStep: Step; isEditing: boolean }> = ({ currentStep, isEditing }) => {
+  // Edit mode hides the media step entirely; the stepper becomes a
+  // two-checkpoint bar starting from "Tag".
+  const entries = isEditing ? POST_STEPPER_LABELS.slice(1) : POST_STEPPER_LABELS;
+  const offset = isEditing ? 2 : 1; // step number of the first visible entry
+  return (
+    <div className="border-b border-on-surface/[0.06] px-8 py-5 flex-shrink-0 bg-surface">
+      <div className="relative flex items-start justify-between gap-2">
+        {entries.map((entry, i) => {
+          const stepNum = (offset + i) as Step;
+          const status: 'done' | 'current' | 'upcoming' =
+            stepNum < currentStep ? 'done' : stepNum === currentStep ? 'current' : 'upcoming';
+          const isLast = i === entries.length - 1;
+          const nextDone = stepNum < currentStep;
+          return (
+            <React.Fragment key={entry.label}>
+              <div className="flex flex-col items-center min-w-0 flex-shrink-0 relative z-10">
+                <motion.div
+                  className={cn(
+                    'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
+                    status === 'done' && 'bg-primary text-white',
+                    status === 'current' && 'bg-primary text-white ring-4 ring-primary/15',
+                    status === 'upcoming' && 'bg-on-surface/[0.04] border-2 border-on-surface/15 text-on-surface/35',
+                  )}
+                  initial={false}
+                  animate={status === 'current' ? { scale: 1.04 } : { scale: 1 }}
+                  transition={{ type: 'spring', damping: 22, stiffness: 320 }}
+                >
+                  {status === 'done' ? (
+                    <Check size={14} strokeWidth={3} />
+                  ) : (
+                    <span className="text-[11px] font-bold tabular-nums">{stepNum}</span>
+                  )}
+                </motion.div>
+                <div className="mt-2 text-center px-1 min-w-[88px]">
+                  <p className={cn(
+                    'text-[12px] font-bold leading-tight transition-colors',
+                    status === 'upcoming' ? 'text-on-surface/40' : 'text-on-surface',
+                  )}>
+                    {entry.label}
+                  </p>
+                  <p className={cn(
+                    'text-[10.5px] mt-0.5 leading-snug transition-colors',
+                    status === 'upcoming' ? 'text-on-surface/30' : 'text-on-surface/50',
+                  )}>
+                    {entry.sub}
+                  </p>
+                </div>
+              </div>
+              {!isLast && (
+                <div className="flex-1 mt-3 relative">
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full bg-on-surface/10" />
+                  <motion.div
+                    className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full bg-primary"
+                    initial={false}
+                    animate={{ width: nextDone ? '100%' : '0%' }}
+                    transition={{ duration: 0.35, ease: 'easeOut' }}
+                  />
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
   );
 };
