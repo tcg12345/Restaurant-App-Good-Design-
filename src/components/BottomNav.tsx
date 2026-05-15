@@ -59,24 +59,34 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
       layout
       animate={{ opacity: hideBottomNav ? 0 : 1, y: hideBottomNav ? 20 : 0 }}
       className={cn(
-        "fixed left-1/2 glass rounded-full border border-on-surface/[0.06] z-50 flex items-center justify-center",
+        "fixed z-50 flex items-center",
         hideBottomNav && "pointer-events-none",
-        !phoneMode && "bottom-6",
-        isExpanded
-          ? phoneMode ? "gap-1 px-2 py-1.5" : "gap-2 px-6 py-2"
-          : phoneMode ? "px-1.5 py-1.5" : "px-3 py-2"
+        phoneMode
+          // Phone: solid full-width bar flush with the bottom edge, with
+          // a thin top divider. 50px of content + safe-area-inset-bottom
+          // padding underneath, set inline below.
+          ? "left-0 right-0 bottom-0 bg-surface border-t border-on-surface/10 justify-around"
+          // Desktop: original floating pill, centered above the bottom.
+          : cn(
+              "left-1/2 glass rounded-full border border-on-surface/[0.06] justify-center bottom-6",
+              isExpanded ? "gap-2 px-6 py-2" : "px-3 py-2",
+            ),
       )}
-      style={{
-        x: '-50%',
-        ...(phoneMode ? { bottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' } : {}),
-      }}
+      style={
+        phoneMode
+          ? {
+              height: 'calc(50px + env(safe-area-inset-bottom))',
+              paddingBottom: 'env(safe-area-inset-bottom)',
+            }
+          : { x: '-50%' }
+      }
       transition={{
         layout: { type: 'spring', damping: 22, stiffness: 280, mass: 0.8 },
         opacity: { duration: 0.2 },
         y: { duration: 0.2 },
       }}
-      onMouseEnter={() => collapsible && setExpanded(true)}
-      onMouseLeave={() => collapsible && setExpanded(false)}
+      onMouseEnter={() => !phoneMode && collapsible && setExpanded(true)}
+      onMouseLeave={() => !phoneMode && collapsible && setExpanded(false)}
     >
       <AnimatePresence mode="popLayout">
         {navItems.map((item) => {
@@ -125,16 +135,16 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                   }}
                   aria-label={item.label}
                   className={cn(
-                    "flex items-center justify-center rounded-full transition-colors duration-200",
+                    "flex items-center justify-center transition-colors duration-200",
                     phoneMode
                       ? "w-11 h-11"
-                      : "flex-col gap-1 min-w-[44px] min-h-[44px] px-3 py-2",
+                      : "flex-col gap-1 min-w-[44px] min-h-[44px] px-3 py-2 rounded-full",
                     location.pathname === '/'
-                      ? "bg-primary/10 text-primary"
-                      : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
+                      ? phoneMode ? "text-primary" : "bg-primary/10 text-primary"
+                      : phoneMode ? "text-on-surface/50" : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
                   )}
                 >
-                  <item.icon size={phoneMode ? 22 : 22} strokeWidth={location.pathname === '/' ? 2.5 : 2} />
+                  <item.icon size={phoneMode ? 24 : 22} strokeWidth={location.pathname === '/' ? 2.5 : 2} />
                   {!phoneMode && (
                     <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
                   )}
@@ -256,17 +266,17 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                       }}
                       aria-label={item.label}
                       className={cn(
-                        "flex items-center justify-center rounded-full transition-colors duration-200",
+                        "flex items-center justify-center transition-colors duration-200",
                         phoneMode
                           ? "w-11 h-11"
-                          : "flex-col gap-1 min-w-[44px] min-h-[44px] px-3 py-2",
+                          : "flex-col gap-1 min-w-[44px] min-h-[44px] px-3 py-2 rounded-full",
                         (phoneMode ? isSearchActive : isSearchOrMap)
-                          ? "bg-primary/10 text-primary"
-                          : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
+                          ? phoneMode ? "text-primary" : "bg-primary/10 text-primary"
+                          : phoneMode ? "text-on-surface/50" : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
                       )}
                       transition={{ type: 'spring', damping: 22, stiffness: 280, mass: 0.8 }}
                     >
-                      <Search size={22} strokeWidth={(phoneMode ? isSearchActive : isSearchOrMap) ? 2.5 : 2} />
+                      <Search size={phoneMode ? 24 : 22} strokeWidth={(phoneMode ? isSearchActive : isSearchOrMap) ? 2.5 : 2} />
                       {!phoneMode && (
                         <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
                       )}
@@ -304,19 +314,19 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
                 aria-label={item.label}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center justify-center rounded-full transition-colors duration-200",
+                    "flex items-center justify-center transition-colors duration-200",
                     phoneMode
                       ? "w-11 h-11"
-                      : "flex-col gap-1 min-w-[44px] min-h-[44px] px-3 py-2",
+                      : "flex-col gap-1 min-w-[44px] min-h-[44px] px-3 py-2 rounded-full",
                     isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
+                      ? phoneMode ? "text-primary" : "bg-primary/10 text-primary"
+                      : phoneMode ? "text-on-surface/50" : "text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/5"
                   )
                 }
               >
                 {({ isActive }) => (
                   <>
-                    <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+                    <item.icon size={phoneMode ? 24 : 22} strokeWidth={isActive ? 2.5 : 2} />
                     {!phoneMode && (
                       <span className="font-semibold uppercase text-[11px] tracking-wider">{item.label}</span>
                     )}
