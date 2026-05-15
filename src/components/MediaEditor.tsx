@@ -16,7 +16,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Loader2, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 /* ── Types ───────────────────────────────────────────────────────────── */
@@ -331,7 +331,34 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
   // Per-item natural source size — needed to convert pan deltas into
   // normalised crop offsets. Stored by key.
   const [naturalSizes, setNaturalSizes] = useState<Record<string, { w: number; h: number }>>({});
-  const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  // Peek-carousel refs — mirror the layout used by the post Tag step
+  // so the Edit step feels like one continuous flow. The scroll
+  // handler tracks which slide is centered and sync-snaps when the
+  // active key changes from outside.
+  const carouselRef = useRef<HTMLDivElement | null>(null);
+  const slideRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+
+  useEffect(() => {
+    if (!active) return;
+    const slide = slideRefs.current.get(active.key);
+    const carousel = carouselRef.current;
+    if (!slide || !carousel) return;
+    const desired = slide.offsetLeft - (carousel.clientWidth - slide.offsetWidth) / 2;
+    if (Math.abs(carousel.scrollLeft - desired) > 6) {
+      carousel.scrollTo({ left: desired, behavior: 'smooth' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.key, items.length]);
+
+  useEffect(() => {
+    if (!active) return;
+    videoRefs.current.forEach((v, key) => {
+      if (key === active.key) return;
+      try { v.pause(); } catch { /* ignore */ }
+    });
+  }, [active?.key]);
 
   // Default the tab to the most useful one for the media type.
   const [tab, setTab] = useState<Tab>(active?.mediaType === 'video' ? 'trim' : 'crop');
@@ -363,72 +390,138 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
 
   return (
     <div className="space-y-4">
-      {/* Item strip — only when there's more than one. Tap a thumbnail
-          to focus a different item. */}
+      {/* Items header — count + active position, mirrors the Tag step
+          so the two steps feel visually continuous. */}
       {items.length > 1 && (
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              const prev = activeIdx > 0 ? items[activeIdx - 1] : items[items.length - 1];
-              onActiveChange(prev.key);
-            }}
-            className="w-8 h-8 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/65 flex-shrink-0"
-            aria-label="Previous item"
-          >
-            <ChevronLeft size={15} />
-          </button>
-          <div className="flex-1 flex gap-1.5 overflow-x-auto py-0.5 px-0.5 scrollbar-hide">
-            {items.map((it, idx) => {
-              const isActive = it.key === active.key;
-              const touched = isEdited(it.edits);
-              return (
-                <button
-                  key={it.key}
-                  type="button"
-                  onClick={() => onActiveChange(it.key)}
-                  className={cn(
-                    'relative w-12 h-16 rounded-lg overflow-hidden flex-shrink-0 transition-all',
-                    isActive ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : 'ring-1 ring-on-surface/15',
-                  )}
-                >
-                  {it.mediaType === 'photo' ? (
-                    <img src={it.previewUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <video src={it.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
-                  )}
-                  <span className="absolute bottom-0.5 left-1 text-[9px] font-bold text-white tabular-nums drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]">#{idx + 1}</span>
-                  {touched && (
-                    <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-primary text-white flex items-center justify-center">
-                      <Check size={9} strokeWidth={3} />
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              const next = activeIdx < items.length - 1 ? items[activeIdx + 1] : items[0];
-              onActiveChange(next.key);
-            }}
-            className="w-8 h-8 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/65 flex-shrink-0"
-            aria-label="Next item"
-          >
-            <ChevronRight size={15} />
-          </button>
+        <div className="flex items-baseline justify-between">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/45">
+            Items <span className="text-on-surface/30 font-medium ml-1.5">{activeIdx + 1} / {items.length}</span>
+          </p>
+          {isEdited(active.edits) && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-emerald-700">
+              <Check size={10} /> Edited
+            </span>
+          )}
         </div>
       )}
 
-      {/* Preview viewport — shows the source with crop overlay and the
-          current CSS filter applied so the user sees their edits live. */}
-      <Viewport
-        ref={viewportRef}
-        item={active}
-        natural={natural}
-        onNatural={(w, h) => onNatural(active.key, w, h)}
-      />
+      {/* Peek carousel — 82% width slides with snap-center. The active
+          slide renders the live edit preview (CSS filter chain + crop
+          overlay); peeks dim and scale down so the active item reads
+          as the focus. Videos auto-play (muted, looping) on the active
+          slide only. */}
+      <div className="-mx-5">
+        <div
+          ref={carouselRef}
+          className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 px-[9%] pb-1"
+          onScroll={() => {
+            const el = carouselRef.current;
+            if (!el) return;
+            const center = el.scrollLeft + el.clientWidth / 2;
+            let bestKey: string | null = null;
+            let bestDist = Infinity;
+            slideRefs.current.forEach((slide, key) => {
+              const slideCenter = slide.offsetLeft + slide.offsetWidth / 2;
+              const dist = Math.abs(slideCenter - center);
+              if (dist < bestDist) { bestDist = dist; bestKey = key; }
+            });
+            if (bestKey && bestKey !== active.key) onActiveChange(bestKey);
+          }}
+        >
+          {items.map((it, idx) => {
+            const isActive = it.key === active.key;
+            const filter = cssFilterFor(it.edits);
+            const touched = isEdited(it.edits);
+            return (
+              <div
+                key={it.key}
+                ref={(el) => {
+                  if (el) slideRefs.current.set(it.key, el);
+                  else slideRefs.current.delete(it.key);
+                }}
+                className={cn(
+                  'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center bg-black transition-all duration-300',
+                  isActive ? 'scale-100 opacity-100' : 'scale-[0.94] opacity-70',
+                )}
+              >
+                {it.mediaType === 'photo' ? (
+                  <img
+                    src={it.previewUrl}
+                    alt=""
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full object-contain"
+                    style={{ filter }}
+                    onLoad={(e) => {
+                      const t = e.currentTarget;
+                      onNatural(it.key, t.naturalWidth, t.naturalHeight);
+                    }}
+                  />
+                ) : (
+                  <video
+                    ref={(el) => {
+                      if (el) videoRefs.current.set(it.key, el);
+                      else videoRefs.current.delete(it.key);
+                    }}
+                    src={it.previewUrl}
+                    muted
+                    loop
+                    autoPlay={isActive}
+                    playsInline
+                    preload="metadata"
+                    className="absolute inset-0 w-full h-full object-contain"
+                    style={{ filter }}
+                    onLoadedMetadata={(e) => {
+                      const v = e.currentTarget;
+                      onNatural(it.key, v.videoWidth, v.videoHeight);
+                    }}
+                  />
+                )}
+                {/* Crop overlay — same dimmed-outside-the-rect look as
+                    the original viewport. Only renders when the user
+                    has picked a non-free aspect. */}
+                {it.edits.aspectRatio !== 'free' && <CropOverlay edits={it.edits} />}
+                {/* Index pill + edit indicator on the corner. */}
+                <div className="absolute inset-x-0 bottom-0 px-3 py-2 bg-gradient-to-t from-black/65 to-transparent flex items-center justify-between gap-2 pointer-events-none">
+                  <span className="text-[12px] font-bold text-white/90 tabular-nums">#{idx + 1}</span>
+                </div>
+                {touched && (
+                  <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-wider shadow-sm">
+                    <Check size={10} strokeWidth={3} /> Edited
+                  </span>
+                )}
+                {/* Tap-anywhere overlay for peeks — selects the slide
+                    without triggering the underlying media. */}
+                {!isActive && (
+                  <button
+                    type="button"
+                    onClick={() => onActiveChange(it.key)}
+                    className="absolute inset-0 z-10"
+                    aria-label={`Edit item ${idx + 1}`}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Pagination dots — only render when there's more than one
+          item; same primary-pip style as the Tag step. */}
+      {items.length > 1 && (
+        <div className="flex items-center justify-center gap-1.5">
+          {items.map((it) => (
+            <motion.span
+              key={it.key}
+              className={cn(
+                'h-1.5 rounded-full',
+                it.key === active.key ? 'bg-primary' : 'bg-on-surface/15',
+              )}
+              animate={{ width: it.key === active.key ? 18 : 5 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex items-center justify-center gap-1 rounded-full bg-on-surface/[0.05] p-1">
@@ -484,56 +577,6 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
 
 /* ── Viewport — preview with crop overlay + pan ──────────────────────── */
 
-interface ViewportProps {
-  item: EditableItem;
-  natural?: { w: number; h: number };
-  onNatural: (w: number, h: number) => void;
-}
-
-const Viewport = React.forwardRef<HTMLDivElement, ViewportProps>(({ item, onNatural }, ref) => {
-  const filter = cssFilterFor(item.edits);
-  return (
-    <div
-      ref={ref}
-      className="relative w-full aspect-[4/5] sm:aspect-[3/4] rounded-2xl overflow-hidden bg-black flex items-center justify-center select-none"
-    >
-      {item.mediaType === 'photo' ? (
-        <img
-          src={item.previewUrl}
-          alt=""
-          className="w-full h-full object-contain"
-          style={{ filter }}
-          onLoad={(e) => {
-            const t = e.currentTarget;
-            onNatural(t.naturalWidth, t.naturalHeight);
-          }}
-        />
-      ) : (
-        <video
-          src={item.previewUrl}
-          muted
-          loop
-          autoPlay
-          playsInline
-          className="w-full h-full object-contain"
-          style={{ filter }}
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget;
-            onNatural(v.videoWidth, v.videoHeight);
-          }}
-        />
-      )}
-      {/* Crop overlay — dimmed area outside the crop rect, plus a
-          thin rule on the boundary. Only renders when the user has
-          chosen a non-free aspect (otherwise the crop is the whole
-          frame and there's nothing to dim). */}
-      {item.edits.aspectRatio !== 'free' && (
-        <CropOverlay edits={item.edits} />
-      )}
-    </div>
-  );
-});
-Viewport.displayName = 'Viewport';
 
 const CropOverlay: React.FC<{ edits: EditState }> = ({ edits }) => {
   const { x, y, width, height } = edits.crop;
