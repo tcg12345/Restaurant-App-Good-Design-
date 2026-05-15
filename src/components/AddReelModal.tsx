@@ -576,7 +576,7 @@ export const AddReelModal: React.FC = () => {
             )}
           >
             {/* Header */}
-            <div className="px-5 pt-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
+            <div className="px-5 pt-safe-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
               {/* Back / close */}
               {step > 1 && !isEditing ? (
                 <button

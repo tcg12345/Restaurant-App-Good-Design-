@@ -739,7 +739,7 @@ export const AddHomeMealModal: React.FC = () => {
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
-                  <div className="px-6 pt-5 sm:pt-6 pb-3 flex items-center justify-between flex-shrink-0 gap-2">
+                  <div className="px-6 pt-safe-5 sm:pt-6 pb-3 flex items-center justify-between flex-shrink-0 gap-2">
                     <div className="min-w-0">
                       <h2 className="font-serif font-bold text-xl truncate">{existing ? 'Update Meal' : 'Log Home Meal'}</h2>
                       {existing && <p className="text-xs text-on-surface/40 truncate mt-0.5">{existing.name}</p>}
@@ -1793,7 +1793,7 @@ const SubPage: React.FC<{
   <motion.div initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
     transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
     className="flex flex-col flex-1 min-h-0" onTouchMove={(e) => e.stopPropagation()}>
-    <div className="px-5 pt-5 sm:pt-6 pb-3 flex items-center gap-3 flex-shrink-0">
+    <div className="px-5 pt-safe-5 sm:pt-6 pb-3 flex items-center gap-3 flex-shrink-0">
       <button onClick={onBack} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/45 hover:text-on-surface transition-colors">
         <ChevronLeft size={22} />
       </button>

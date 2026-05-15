@@ -844,7 +844,7 @@ export const AddPostModal: React.FC = () => {
             )}
           >
             {/* Header */}
-            <div className="px-5 pt-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
+            <div className="px-5 pt-safe-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
               {/* Back when there's a previous step, else close. Edit mode
                   starts at step 2 so its "back" closes the modal. */}
               {!isEditing && step > 1 ? (

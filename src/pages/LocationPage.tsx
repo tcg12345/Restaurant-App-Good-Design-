@@ -1157,7 +1157,7 @@ export const LocationPage: React.FC = () => {
       {/* Sticky action bar — back + map stay pinned as the page scrolls so
           the user can always navigate out. Background is opaque so the
           scrolling content underneath isn't visible through the bar. */}
-      <div className="sticky top-0 z-20 bg-surface px-4 pt-4 pb-2">
+      <div className="sticky top-0 z-20 bg-surface px-4 pt-safe-4 pb-2">
         <div className="flex items-center justify-between">
           <button
             type="button"

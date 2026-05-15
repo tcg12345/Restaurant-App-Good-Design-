@@ -196,7 +196,7 @@ export const FriendReviewDetail: React.FC = () => {
     >
       {/* Sticky header */}
       <div className="sticky top-0 z-30 bg-surface/70 backdrop-blur-md">
-        <div className="flex items-center gap-3 px-3 py-3">
+        <div className="flex items-center gap-3 px-3 pt-safe-3 pb-3">
           <button
             onClick={() => navigate(-1)}
             className="w-9 h-9 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"

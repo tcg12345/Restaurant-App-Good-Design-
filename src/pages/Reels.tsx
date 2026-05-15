@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause, ArrowLeft } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -12,6 +12,7 @@ import { type SharedReel, type SharedPost, type SharePayload } from '../contexts
 import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
+import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -65,7 +66,7 @@ interface ActionRailProps {
 
 const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment, onShare }) => {
   return (
-    <div className="absolute right-3 bottom-32 z-20 flex flex-col items-center gap-5 select-none">
+    <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-5 select-none">
       <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
         <motion.span
           whileTap={{ scale: 0.8 }}
@@ -113,15 +114,20 @@ const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment
 
 const RestaurantCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onClick }) => {
   const r = reel.restaurant!;
+  const { phoneMode } = useSettings();
   const score = r.score ?? 0;
   const distance = r.distanceMi != null ? `${r.distanceMi.toFixed(1)}mi` : '';
+  // Phone: translucent glass over the reel video — white text on a
+  // dark blur. Desktop side panel: opaque white card on the app surface.
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-3 rounded-2xl bg-white/95 backdrop-blur',
-        'pl-2 pr-3 py-2 text-left shadow-lg hover:bg-white transition-colors',
+        'w-full flex items-center gap-3 rounded-2xl pl-2 pr-3 py-2 text-left transition-colors',
+        phoneMode
+          ? 'bg-black/40 backdrop-blur-md border border-white/15 shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/50'
+          : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
       )}
     >
       <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br from-rose-700 to-orange-700 flex items-center justify-center">
@@ -132,9 +138,9 @@ const RestaurantCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, o
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">Featured in reel</p>
-        <p className="text-[15px] font-bold leading-tight text-stone-900 truncate">{r.name}</p>
-        <p className="text-[11px] text-stone-500 truncate mt-0.5">
+        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-stone-500')}>Featured in reel</p>
+        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-stone-900')}>{r.name}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-stone-500')}>
           {[r.cuisine, r.price, distance].filter(Boolean).join(' · ')}
         </p>
       </div>
@@ -143,20 +149,23 @@ const RestaurantCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, o
           {score.toFixed(1)}
         </span>
       )}
-      <ChevronRight size={16} className="text-stone-400 flex-shrink-0" />
+      <ChevronRight size={16} className={cn('flex-shrink-0', phoneMode ? 'text-white/45' : 'text-stone-400')} />
     </button>
   );
 };
 
 const RecipeCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onClick }) => {
   const r = reel.recipe!;
+  const { phoneMode } = useSettings();
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-3 rounded-2xl bg-white/95 backdrop-blur',
-        'pl-2 pr-2 py-2 text-left shadow-lg hover:bg-white transition-colors',
+        'w-full flex items-center gap-3 rounded-2xl pl-2 pr-2 py-2 text-left transition-colors',
+        phoneMode
+          ? 'bg-black/40 backdrop-blur-md border border-white/15 shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/50'
+          : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
       )}
     >
       <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-blue-50 flex items-center justify-center">
@@ -167,11 +176,14 @@ const RecipeCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onCli
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">Recipe</p>
-        <p className="text-[15px] font-bold leading-tight text-stone-900 truncate">{r.title}</p>
-        <p className="text-[11px] text-stone-500 truncate mt-0.5">{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
+        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-stone-500')}>Recipe</p>
+        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-stone-900')}>{r.title}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-stone-500')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
       </div>
-      <span className="px-3.5 h-9 rounded-full bg-stone-900 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">View</span>
+      <span className={cn(
+        'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
+        phoneMode ? 'bg-white text-stone-900' : 'bg-stone-900 text-white',
+      )}>View</span>
     </button>
   );
 };
@@ -182,7 +194,9 @@ interface ReelSlideProps {
   reel: Reel;
   active: boolean;
   muted: boolean;
+  setMuted: (m: boolean) => void;
   isMine: boolean;
+  currentUserId: string | null;
   /** When true, skip the right-edge action rail (desktop renders one beside the reel). */
   hideActionRail?: boolean;
   /** When true, skip the in-reel delete button (desktop puts delete in the side rail's "more" menu). */
@@ -202,7 +216,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
   // object-cover + heavy blur so phone screens taller than 9:16 letterbox
@@ -213,18 +227,46 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
     || (reel.kind === 'restaurant' && !!reel.restaurant)
     || (reel.kind === 'recipe' && !!reel.recipe);
   const [infoOpen, setInfoOpen] = useState(true);
-  // Brief play/pause feedback overlay — flashes a centered icon when the
-  // user taps the video to toggle, then fades out after ~700ms. The
-  // icon shown matches the action that just happened (pause icon when
-  // pausing, play icon when resuming).
-  const [tapIndicator, setTapIndicator] = useState<'play' | 'pause' | null>(null);
-  const tapTimeoutRef = useRef<number | null>(null);
+  // Persistent paused state — stays true while the user has the video
+  // paused, drives a centered overlay (audio toggle + play icon) so the
+  // user can resume or change audio without an always-on mute button.
+  const [isPaused, setIsPaused] = useState(false);
+
+  // Follow state for the reel's author. Resolved from the DB on first
+  // mount; mutated optimistically when the user taps the follow pill.
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentUserId || !reel.authorId || isMine) return;
+    (async () => {
+      const yes = await isFollowingUser(currentUserId, reel.authorId);
+      if (!cancelled) setIsFollowing(yes);
+    })();
+    return () => { cancelled = true; };
+  }, [currentUserId, reel.authorId, isMine]);
+
+  const onToggleFollow = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUserId || isMine || followBusy) return;
+    setFollowBusy(true);
+    const wasFollowing = isFollowing;
+    setIsFollowing(!wasFollowing); // optimistic
+    const ok = wasFollowing
+      ? await removeFriend(currentUserId, reel.authorId)
+      : await followPublicAccount(currentUserId, reel.authorId);
+    if (!ok) setIsFollowing(wasFollowing); // rollback
+    setFollowBusy(false);
+  };
 
   useEffect(() => {
     const el = videoRef.current;
     const bg = backdropRef.current;
     if (!el) return;
     if (active) {
+      // Optimistically clear isPaused before play() resolves so the
+      // paused overlay doesn't flash for a few ms on slide-in.
+      setIsPaused(false);
       el.muted = muted;
       el.play().catch(() => { /* autoplay may be blocked until user gesture */ });
       if (bg) {
@@ -240,6 +282,23 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       }
     }
   }, [active, muted]);
+
+  // Mirror the video's play/pause state into React so the persistent
+  // paused overlay reflects reality (covers system pauses, autoplay
+  // failures, and user taps in one place).
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const handlePlay = () => setIsPaused(false);
+    const handlePause = () => setIsPaused(true);
+    el.addEventListener('play', handlePlay);
+    el.addEventListener('pause', handlePause);
+    setIsPaused(el.paused);
+    return () => {
+      el.removeEventListener('play', handlePlay);
+      el.removeEventListener('pause', handlePause);
+    };
+  }, []);
 
   // Publish / withdraw the underlying <video> element to the parent
   // page when this slide becomes active. The page-level progress bar
@@ -257,18 +316,6 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
     };
   }, [active, onActiveVideoChange]);
 
-  // Clear any in-flight tap-feedback timeout when this slide unmounts
-  // (e.g. user scrolls past mid-flash).
-  useEffect(() => () => {
-    if (tapTimeoutRef.current != null) window.clearTimeout(tapTimeoutRef.current);
-  }, []);
-
-  const showTapIndicator = (kind: 'play' | 'pause') => {
-    if (tapTimeoutRef.current != null) window.clearTimeout(tapTimeoutRef.current);
-    setTapIndicator(kind);
-    tapTimeoutRef.current = window.setTimeout(() => setTapIndicator(null), 650);
-  };
-
   const onTapVideo = () => {
     const el = videoRef.current;
     const bg = backdropRef.current;
@@ -276,11 +323,9 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
     if (el.paused) {
       el.play().catch(() => {});
       if (bg) bg.play().catch(() => {});
-      showTapIndicator('play');
     } else {
       el.pause();
       if (bg) bg.pause();
-      showTapIndicator('pause');
     }
   };
 
@@ -296,17 +341,25 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       <div className="absolute inset-0">
         {reel.videoUrl ? (
           <>
-            <video
-              ref={backdropRef}
-              src={reel.videoUrl}
-              playsInline
-              loop
-              muted
-              preload="metadata"
-              aria-hidden
-              tabIndex={-1}
-              className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 pointer-events-none"
-            />
+            {/* Blurred backdrop only on desktop where the reel sits
+                inside a column with side panels — letterboxing reads
+                as intentional there. On phone we want Instagram-style
+                edge-to-edge: the foreground video uses object-cover
+                and fills under the status bar, so the backdrop would
+                just be wasted bandwidth. */}
+            {!phoneMode && (
+              <video
+                ref={backdropRef}
+                src={reel.videoUrl}
+                playsInline
+                loop
+                muted
+                preload="metadata"
+                aria-hidden
+                tabIndex={-1}
+                className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 pointer-events-none"
+              />
+            )}
             <video
               ref={videoRef}
               src={reel.videoUrl}
@@ -316,7 +369,10 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
               muted={muted}
               preload="metadata"
               onClick={onTapVideo}
-              className="absolute inset-0 w-full h-full object-contain"
+              className={cn(
+                'absolute inset-0 w-full h-full',
+                phoneMode ? 'object-cover' : 'object-contain',
+              )}
             />
           </>
         ) : (
@@ -334,26 +390,34 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/55 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/75 via-black/30 to-transparent z-10" />
 
-      {/* Tap-to-toggle feedback — flashes a centered play/pause icon for
-          ~650ms whenever the user toggles playback by tapping the video.
-          pointer-events-none so a quick double tap still routes to the
-          underlying video click handler. */}
+      {/* Persistent paused overlay — when the active reel is paused,
+          a centered audio toggle sits above a play icon. Disappears
+          immediately on resume, so a playing video has no chrome in
+          the middle of the frame. */}
       <AnimatePresence>
-        {tapIndicator && (
+        {active && isPaused && (
           <motion.div
-            key={`${tapIndicator}-${Date.now()}`}
-            initial={{ opacity: 0, scale: 0.7 }}
+            initial={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.25 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ opacity: 0, scale: 0.85 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
           >
-            <div className="w-[88px] h-[88px] rounded-full bg-black/55 backdrop-blur flex items-center justify-center shadow-lg">
-              {tapIndicator === 'play' ? (
+            <div className="flex flex-col items-center gap-4">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMuted(!muted);
+                }}
+                className="pointer-events-auto w-12 h-12 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white shadow-lg hover:bg-black/70 transition-colors"
+                aria-label={muted ? 'Unmute' : 'Mute'}
+              >
+                {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+              </button>
+              <div className="w-[88px] h-[88px] rounded-full bg-black/55 backdrop-blur flex items-center justify-center shadow-lg">
                 <Play size={40} className="text-white fill-white ml-1.5" strokeWidth={1.5} />
-              ) : (
-                <Pause size={40} className="text-white fill-white" strokeWidth={1.5} />
-              )}
+              </div>
             </div>
           </motion.div>
         )}
@@ -398,8 +462,15 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
         aria-expanded={hasCollapsibleContent ? infoOpen : undefined}
         aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
         className={cn(
-          'absolute inset-x-0 bottom-0 z-20 px-4 pt-10',
-          phoneMode ? 'pb-20' : 'pb-5',
+          'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10',
+          // Padding clears the solid 50 px bottom nav + the safe-area
+          // inset on a real iPhone, sitting just above the scrub bar.
+          phoneMode ? 'pb-[calc(70px+env(safe-area-inset-bottom))]' : 'pb-5',
+          // Keep the author row + featured card out from under the
+          // right-side action rail. The rail sits at right-3 (12 px)
+          // with 44 px-wide buttons, so 68 px on phone leaves a
+          // small visual gap.
+          phoneMode && !hideActionRail ? 'pr-[68px]' : 'pr-4',
           hasCollapsibleContent && 'cursor-pointer',
         )}
       >
@@ -426,9 +497,24 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
               )}
             </div>
           </Link>
-          {/* Audio label sits to the right, outside the profile link
-              hitbox. It still falls under the toggle handler. */}
-          <p className="text-white/85 text-[12px] truncate font-mono flex-1 min-w-0">♪ {reel.audioLabel}</p>
+          {/* Follow / Unfollow pill — replaces the audio label that
+              used to sit here. Hidden on the user's own reels and
+              when not signed in. */}
+          {!isMine && currentUserId && (
+            <button
+              type="button"
+              onClick={onToggleFollow}
+              disabled={followBusy}
+              className={cn(
+                'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60',
+                isFollowing
+                  ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
+                  : 'bg-white text-stone-900 hover:bg-white/90',
+              )}
+            >
+              {isFollowing ? 'Unfollow' : 'Follow'}
+            </button>
+          )}
         </div>
 
         <AnimatePresence initial={false}>
@@ -622,7 +708,7 @@ const ReelProgressBar: React.FC<{
       )}
     >
       <div
-        className="relative w-full bg-white/25 rounded-full overflow-hidden transition-[height] duration-200 ease-out"
+        className="relative w-full bg-white/25 rounded-full overflow-hidden transition-[height] duration-200 ease-out ring-1 ring-black/35 shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
         style={{ height: dragging ? 4 : 2 }}
       >
         <div
@@ -1052,9 +1138,15 @@ interface TopBarProps {
 }
 
 const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
+  const { phoneMode } = useSettings();
   return (
-    <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-      <div className="relative flex-1 max-w-[280px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
+    // Three-column grid keeps the tabs perfectly centered regardless of
+    // whether the right-side mute button is present. The text-only tabs
+    // rely on the top gradient overlay + a small drop shadow for
+    // legibility on bright video.
+    <div className="absolute top-0 inset-x-0 z-30 grid grid-cols-3 items-center px-3 pt-safe-3">
+      <div />
+      <div className="flex items-center justify-center gap-6">
         {([
           { value: 'explore', label: 'Explore' },
           { value: 'recipe', label: 'Recipes' },
@@ -1066,8 +1158,8 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
               type="button"
               onClick={() => setKind(opt.value)}
               className={cn(
-                'flex-1 h-9 rounded-full text-[14px] font-bold transition-colors',
-                active ? 'bg-white text-stone-900 shadow' : 'text-white/85',
+                'text-[16px] transition-colors drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]',
+                active ? 'text-white font-bold' : 'text-white/55 font-semibold',
               )}
             >
               {opt.label}
@@ -1075,14 +1167,21 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
           );
         })}
       </div>
-      <button
-        type="button"
-        onClick={() => setMuted(!muted)}
-        className="w-11 h-11 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-        aria-label={muted ? 'Unmute' : 'Mute'}
-      >
-        {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-      </button>
+      <div className="flex justify-end">
+        {/* Mute toggle lives in the paused-state overlay on phone, so the
+            top-right slot stays empty there. Desktop keeps the always-on
+            button since pausing isn't the primary interaction model. */}
+        {!phoneMode && (
+          <button
+            type="button"
+            onClick={() => setMuted(!muted)}
+            className="w-11 h-11 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
+            aria-label={muted ? 'Unmute' : 'Mute'}
+          >
+            {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+        )}
+      </div>
     </div>
   );
 };
@@ -1630,7 +1729,9 @@ export const Reels: React.FC = () => {
                   reel={item.reel}
                   active={activeKey === item.key}
                   muted={muted}
+                  setMuted={setMuted}
                   isMine={!!currentUserId && item.reel.authorId === currentUserId}
+                  currentUserId={currentUserId}
                   hideActionRail={opts.hideActionRail}
                   hideOwnerDelete={opts.hideOwnerDelete}
                   hideDetailsOverlay={opts.hideDetailsOverlay}
@@ -1654,6 +1755,7 @@ export const Reels: React.FC = () => {
                   active={activeKey === item.key}
                   muted={muted}
                   isMine={!!currentUserId && item.post.userId === currentUserId}
+                  currentUserId={currentUserId}
                   hideActionRail={opts.hideActionRail}
                   hideOwnerDelete={opts.hideOwnerDelete}
                   onLike={() => {
@@ -1757,7 +1859,7 @@ export const Reels: React.FC = () => {
             type="button"
             onClick={() => navigate(-1)}
             aria-label="Go back"
-            className="absolute top-4 left-4 z-50 w-10 h-10 rounded-full bg-on-surface/[0.08] backdrop-blur text-on-surface flex items-center justify-center hover:bg-on-surface/[0.14] active:scale-95 transition-all"
+            className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 z-50 w-10 h-10 rounded-full bg-on-surface/[0.08] backdrop-blur text-on-surface flex items-center justify-center hover:bg-on-surface/[0.14] active:scale-95 transition-all"
           >
             <ArrowLeft size={18} strokeWidth={2.4} />
           </button>
@@ -1884,7 +1986,7 @@ export const Reels: React.FC = () => {
           type="button"
           onClick={() => navigate(-1)}
           aria-label="Go back"
-          className="fixed top-3 left-3 z-50 w-10 h-10 rounded-full bg-black/55 backdrop-blur text-white flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all"
+          className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-50 w-10 h-10 rounded-full bg-black/55 backdrop-blur text-white flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all"
         >
           <ArrowLeft size={18} strokeWidth={2.4} />
         </button>
@@ -1911,13 +2013,12 @@ export const Reels: React.FC = () => {
         onClose={() => setSharePayload(null)}
       />
 
-      {/* Playback progress bar — sits just above the BottomNav so
-          it reads as part of the viewer chrome without overlapping
-          tab buttons. Computed offset: nav floats at ~12 px from
-          the bottom and is roughly 64 px tall, so 84 px clears it
-          with a small visual gap. */}
+      {/* Playback progress bar — sits directly above the solid
+          BottomNav. The nav is 50 px tall + env(safe-area-inset-bottom)
+          on a real iPhone, so this offset puts the bar flush against
+          its top edge. */}
       {activeVideoEl && (
-        <div className="absolute inset-x-0 bottom-[84px] px-4 z-30">
+        <div className="absolute inset-x-0 bottom-[calc(50px+env(safe-area-inset-bottom))] px-4 z-30">
           <ReelProgressBar videoEl={activeVideoEl} />
         </div>
       )}

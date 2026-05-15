@@ -20,6 +20,7 @@ import { cn } from '../lib/utils';
 import { ScoreBadge } from './RestaurantCard';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
 
 function formatCount(n: number): string {
   if (n >= 1000) {
@@ -45,7 +46,7 @@ const ActionRail: React.FC<{
   onComment: () => void;
   onShare: () => void;
 }> = ({ post, onLike, onSave, onComment, onShare }) => (
-  <div className="absolute right-3 bottom-32 z-20 flex flex-col items-center gap-5 select-none">
+  <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-5 select-none">
     <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
       <motion.span whileTap={{ scale: 0.8 }} className={cn('w-11 h-11 rounded-full flex items-center justify-center transition-colors', post.liked ? 'text-rose-500' : 'text-white group-hover:text-white/80')}>
         <Heart size={30} strokeWidth={2.2} className={cn(post.liked && 'fill-rose-500')} />
@@ -77,12 +78,18 @@ const ActionRail: React.FC<{
 
 const RestaurantCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item, onClick }) => {
   const r = item.restaurant!;
+  const { phoneMode } = useSettings();
   const score = r.score ?? 0;
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full flex items-center gap-3 rounded-2xl bg-white/95 backdrop-blur pl-2 pr-3 py-2 text-left shadow-lg hover:bg-white"
+      className={cn(
+        'w-full flex items-center gap-3 rounded-2xl pl-2 pr-3 py-2 text-left transition-colors',
+        phoneMode
+          ? 'bg-black/40 backdrop-blur-md border border-white/15 shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/50'
+          : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
+      )}
     >
       <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br from-rose-700 to-orange-700 flex items-center justify-center">
         {r.image ? (
@@ -92,25 +99,31 @@ const RestaurantCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ 
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">Featured place</p>
-        <p className="text-[15px] font-bold leading-tight text-stone-900 truncate">{r.name}</p>
-        <p className="text-[11px] text-stone-500 truncate mt-0.5">
+        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-stone-500')}>Featured place</p>
+        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-stone-900')}>{r.name}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-stone-500')}>
           {[r.cuisine, r.price].filter(Boolean).join(' · ')}
         </p>
       </div>
       <ScoreBadge rating={score} size="sm" />
-      <ChevronRight size={16} className="text-stone-400 flex-shrink-0" />
+      <ChevronRight size={16} className={cn('flex-shrink-0', phoneMode ? 'text-white/45' : 'text-stone-400')} />
     </button>
   );
 };
 
 const RecipeCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item, onClick }) => {
   const r = item.recipe!;
+  const { phoneMode } = useSettings();
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full flex items-center gap-3 rounded-2xl bg-white/95 backdrop-blur pl-2 pr-2 py-2 text-left shadow-lg hover:bg-white"
+      className={cn(
+        'w-full flex items-center gap-3 rounded-2xl pl-2 pr-2 py-2 text-left transition-colors',
+        phoneMode
+          ? 'bg-black/40 backdrop-blur-md border border-white/15 shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/50'
+          : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
+      )}
     >
       <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-blue-50 flex items-center justify-center">
         {r.image ? (
@@ -120,11 +133,14 @@ const RecipeCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">Recipe</p>
-        <p className="text-[15px] font-bold leading-tight text-stone-900 truncate">{r.title}</p>
-        <p className="text-[11px] text-stone-500 truncate mt-0.5">{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
+        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-stone-500')}>Recipe</p>
+        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-stone-900')}>{r.title}</p>
+        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-stone-500')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
       </div>
-      <span className="px-3.5 h-9 rounded-full bg-stone-900 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">View</span>
+      <span className={cn(
+        'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
+        phoneMode ? 'bg-white text-stone-900' : 'bg-stone-900 text-white',
+      )}>View</span>
     </button>
   );
 };
@@ -205,6 +221,7 @@ interface PostSlideProps {
   active: boolean;
   muted: boolean;
   isMine: boolean;
+  currentUserId: string | null;
   /** Hide the in-slide action rail (desktop renders one beside the slide). */
   hideActionRail?: boolean;
   hideOwnerDelete?: boolean;
@@ -220,13 +237,40 @@ interface PostSlideProps {
 }
 
 export const PostSlide: React.FC<PostSlideProps> = ({
-  post, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false,
+  post, active, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false,
   onActiveItemChange, onLike, onSave, onComment, onShare, onItemAttachmentClick, onDelete,
 }) => {
   const { getPostItemIndex, setPostItemIndex } = usePosts();
   const { phoneMode } = useSettings();
   const [activeIdx, setActiveIdx] = useState(() => getPostItemIndex(post.id));
   const [infoOpen, setInfoOpen] = useState(true);
+
+  // Follow state for the post's author. Resolved from the DB on mount;
+  // mutated optimistically when the user taps the follow pill.
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentUserId || !post.userId || isMine) return;
+    (async () => {
+      const yes = await isFollowingUser(currentUserId, post.userId);
+      if (!cancelled) setIsFollowing(yes);
+    })();
+    return () => { cancelled = true; };
+  }, [currentUserId, post.userId, isMine]);
+
+  const onToggleFollow = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUserId || isMine || followBusy) return;
+    setFollowBusy(true);
+    const wasFollowing = isFollowing;
+    setIsFollowing(!wasFollowing);
+    const ok = wasFollowing
+      ? await removeFriend(currentUserId, post.userId)
+      : await followPublicAccount(currentUserId, post.userId);
+    if (!ok) setIsFollowing(wasFollowing);
+    setFollowBusy(false);
+  };
   const stripRef = useRef<HTMLDivElement>(null);
 
   // On mount, snap the carousel to the saved item index. This is what
@@ -291,17 +335,25 @@ export const PostSlide: React.FC<PostSlideProps> = ({
   };
 
   return (
-    <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
+    <div className={cn(
+      'relative h-full w-full snap-start snap-always overflow-hidden',
+      // Phone: letterbox blank space picks up the app's surface color
+      // so it reads as part of the page in either light or dark mode,
+      // rather than a hard black backdrop. Desktop keeps black since
+      // the post sits inside a centred column with side panels.
+      phoneMode ? 'bg-surface' : 'bg-black',
+    )}>
       {/* Horizontal carousel of items.
-          touch-action: pan-x makes the browser pass vertical swipes
-          through to the parent feed instead of capturing them here.
-          (overscroll-behavior was previously set to none on the y axis,
-          which silently swallowed vertical scroll attempts inside a
-          post — making the feed look stuck.) */}
+          Default `touch-action: auto` lets the browser scroll the
+          right axis: horizontal pans scroll this carousel (which has
+          overflow-x-auto), vertical pans bubble up to the snap-y feed.
+          Explicit `pan-x` actually *blocks* vertical pans entirely
+          per the touch-action spec, which made the feed feel stuck
+          when swiping on a post's media. */}
       <div
         ref={stripRef}
         className="absolute inset-0 flex overflow-x-auto snap-x snap-mandatory scrollbar-hide"
-        style={{ scrollbarWidth: 'none', touchAction: 'pan-x' }}
+        style={{ scrollbarWidth: 'none' }}
       >
         {post.items.map((it, idx) => {
           const itemActive = active && idx === activeIdx;
@@ -328,9 +380,17 @@ export const PostSlide: React.FC<PostSlideProps> = ({
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/55 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-80 bg-gradient-to-t from-black/80 via-black/35 to-transparent z-10" />
 
-      {/* Page dots (only when more than one item) */}
+      {/* Page dots (only when more than one item).
+          Phone: pushed below the TopBar which itself sits inside the
+          safe area. Without this the dots get covered by the status
+          bar + tabs on iPhone. */}
       {post.items.length > 1 && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5">
+        <div
+          className={cn(
+            'absolute left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5',
+            phoneMode ? 'top-[calc(env(safe-area-inset-top)+56px)]' : 'top-16',
+          )}
+        >
           {post.items.map((it, idx) => (
             <button
               key={it.id}
@@ -387,8 +447,15 @@ export const PostSlide: React.FC<PostSlideProps> = ({
             aria-expanded={hasCollapsibleContent ? infoOpen : undefined}
             aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
             className={cn(
-              'absolute inset-x-0 bottom-0 z-20 px-4 pt-10',
-              phoneMode ? 'pb-20' : 'pb-5',
+              'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10',
+              // Clears the solid 50 px bottom nav + iPhone safe-area
+              // inset, sitting just above the scrub bar.
+              phoneMode ? 'pb-[calc(70px+env(safe-area-inset-bottom))]' : 'pb-5',
+              // Reserve room on the right for the action rail (44 px
+              // wide buttons at right-3) so the featured card stops
+              // short of the share/save/comment column instead of
+              // running underneath it.
+              phoneMode && !hideActionRail ? 'pr-[68px]' : 'pr-4',
               hasCollapsibleContent && 'cursor-pointer',
             )}
           >
@@ -411,7 +478,23 @@ export const PostSlide: React.FC<PostSlideProps> = ({
                   )}
                 </div>
               </Link>
-              <p className="text-white/85 text-[12px] truncate font-mono flex-1 min-w-0">♪ {post.audioLabel}</p>
+              {/* Follow / Unfollow pill — replaces the audio label.
+                  Hidden on the user's own posts and when signed out. */}
+              {!isMine && currentUserId && (
+                <button
+                  type="button"
+                  onClick={onToggleFollow}
+                  disabled={followBusy}
+                  className={cn(
+                    'px-3 py-1 rounded-full text-[12px] font-semibold transition-colors disabled:opacity-60',
+                    isFollowing
+                      ? 'bg-white/10 text-white border border-white/30 hover:bg-white/15'
+                      : 'bg-white text-stone-900 hover:bg-white/90',
+                  )}
+                >
+                  {isFollowing ? 'Unfollow' : 'Follow'}
+                </button>
+              )}
             </div>
 
             <AnimatePresence initial={false}>

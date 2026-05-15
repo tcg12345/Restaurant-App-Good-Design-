@@ -430,7 +430,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const body = (
     <>
       {/* Header */}
-      <div className="px-6 pt-6 pb-2 flex-shrink-0">
+      <div className="px-6 pt-safe-5 pb-2 flex-shrink-0">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="font-serif text-[28px] font-bold leading-tight text-on-surface">Friends</h2>

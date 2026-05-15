@@ -115,6 +115,21 @@
   }
 }
 
+@layer utilities {
+  /* iOS safe-area helpers. Apply to any sticky/fixed top header so
+     content clears the status bar / notch on Capacitor builds while
+     keeping the existing visual padding intact on the web. The base
+     value is the original gap that the header had before the inset
+     was layered in. */
+  .pt-safe-2 { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+  .pt-safe-3 { padding-top: max(0.75rem, env(safe-area-inset-top)); }
+  .pt-safe-4 { padding-top: max(1rem, env(safe-area-inset-top)); }
+  .pt-safe-5 { padding-top: max(1.25rem, env(safe-area-inset-top)); }
+  /* Plain safe-area top — useful when an absolute / fixed overlay
+     already has its own base offset elsewhere. */
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+}
+
 @layer base {
   body {
     @apply bg-surface text-on-surface font-sans;

@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- maximum-scale=1 stops iOS Safari from auto-zooming when the user
+         taps an input whose font-size is under 16 px. The app uses a
+         lot of smaller inputs (search bars, captions, sliders) where
+         bumping the font-size would change the design, so we lock the
+         page zoom instead — matches how native apps behave inside
+         Capacitor. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
     <title>Gourmet Canvas</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

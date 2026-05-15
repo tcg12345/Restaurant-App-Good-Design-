@@ -573,7 +573,7 @@ export const MealRecipePage: React.FC = () => {
 
   // ── Desktop layout: editorial with side-by-side ingredients + directions ──
   return (
-    <div className="max-w-[880px] mx-auto px-3 pb-32 pt-4">
+    <div className="max-w-[880px] mx-auto px-3 pb-32 pt-safe-4">
       {/* Back header */}
       <div className="flex items-center gap-3 mb-6">
         <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors" aria-label="Back">
