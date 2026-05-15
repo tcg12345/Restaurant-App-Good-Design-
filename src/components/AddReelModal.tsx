@@ -572,7 +572,7 @@ export const AddReelModal: React.FC = () => {
               'bg-surface w-full overflow-hidden flex flex-col',
               phoneMode
                 ? 'h-full rounded-none'
-                : 'h-full sm:max-w-lg sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl',
+                : 'h-full sm:max-w-xl sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl',
             )}
           >
             {/* Header */}
@@ -1373,18 +1373,18 @@ const Step3Details: React.FC<{
    connector. Mimics YouTube's upload-flow stepper, tuned for our
    three-step reel program. */
 
-const STEPPER_LABELS: { label: string; sub: string }[] = [
-  { label: 'Video',    sub: 'Upload your clip' },
-  { label: 'Edit',     sub: 'Crop, trim, filters' },
-  { label: 'Featured', sub: 'Type & subject' },
-  { label: 'Details',  sub: 'Caption & visibility' },
+const STEPPER_LABELS: { label: string }[] = [
+  { label: 'Video' },
+  { label: 'Edit' },
+  { label: 'Featured' },
+  { label: 'Details' },
 ];
 
 const DesktopStepper: React.FC<{ currentStep: Step }> = ({ currentStep }) => {
   const total = STEPPER_LABELS.length;
   return (
-    <div className="border-b border-on-surface/[0.06] px-8 py-5 flex-shrink-0 bg-surface">
-      <div className="relative flex items-start justify-between gap-2">
+    <div className="border-b border-on-surface/[0.06] px-8 py-2.5 flex-shrink-0 bg-surface">
+      <div className="relative flex items-center justify-between gap-2">
         {STEPPER_LABELS.map((entry, i) => {
           const stepNum = (i + 1) as Step;
           const status: 'done' | 'current' | 'upcoming' =
@@ -1393,12 +1393,12 @@ const DesktopStepper: React.FC<{ currentStep: Step }> = ({ currentStep }) => {
           const nextDone = stepNum < currentStep;
           return (
             <React.Fragment key={entry.label}>
-              <div className="flex flex-col items-center min-w-0 flex-shrink-0 relative z-10">
+              <div className="flex items-center gap-2 flex-shrink-0 relative z-10">
                 <motion.div
                   className={cn(
-                    'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
+                    'w-6 h-6 rounded-full flex items-center justify-center transition-colors',
                     status === 'done' && 'bg-primary text-white',
-                    status === 'current' && 'bg-primary text-white ring-4 ring-primary/15',
+                    status === 'current' && 'bg-primary text-white ring-[3px] ring-primary/15',
                     status === 'upcoming' && 'bg-on-surface/[0.04] border-2 border-on-surface/15 text-on-surface/35',
                   )}
                   initial={false}
@@ -1406,31 +1406,23 @@ const DesktopStepper: React.FC<{ currentStep: Step }> = ({ currentStep }) => {
                   transition={{ type: 'spring', damping: 22, stiffness: 320 }}
                 >
                   {status === 'done' ? (
-                    <Check size={14} strokeWidth={3} />
+                    <Check size={12} strokeWidth={3} />
                   ) : (
-                    <span className="text-[11px] font-bold tabular-nums">{stepNum}</span>
+                    <span className="text-[10.5px] font-bold tabular-nums">{stepNum}</span>
                   )}
                 </motion.div>
-                <div className="mt-2 text-center px-1 min-w-[88px]">
-                  <p className={cn(
-                    'text-[12px] font-bold leading-tight transition-colors',
-                    status === 'upcoming' ? 'text-on-surface/40' : 'text-on-surface',
-                  )}>
-                    {entry.label}
-                  </p>
-                  <p className={cn(
-                    'text-[10.5px] mt-0.5 leading-snug transition-colors',
-                    status === 'upcoming' ? 'text-on-surface/30' : 'text-on-surface/50',
-                  )}>
-                    {entry.sub}
-                  </p>
-                </div>
+                <span className={cn(
+                  'text-[12px] font-bold leading-tight transition-colors whitespace-nowrap',
+                  status === 'upcoming' ? 'text-on-surface/40' : 'text-on-surface',
+                )}>
+                  {entry.label}
+                </span>
               </div>
               {!isLast && (
-                <div className="flex-1 mt-3 relative">
-                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full bg-on-surface/10" />
+                <div className="flex-1 relative h-[2px]">
+                  <div className="absolute inset-0 rounded-full bg-on-surface/10" />
                   <motion.div
-                    className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full bg-primary"
+                    className="absolute inset-y-0 left-0 rounded-full bg-primary"
                     initial={false}
                     animate={{ width: nextDone ? '100%' : '0%' }}
                     transition={{ duration: 0.35, ease: 'easeOut' }}

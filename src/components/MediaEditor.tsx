@@ -474,7 +474,10 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
                   else slideRefs.current.delete(it.key);
                 }}
                 className={cn(
-                  'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center transition-[opacity,transform] duration-200 ease-out will-change-transform',
+                  // sm:max-h caps the slide on desktop so the trim
+                  // strip / filter chips / Next button stay visible
+                  // without scrolling.
+                  'relative flex-shrink-0 w-[82%] aspect-[3/4] sm:max-h-[48vh] rounded-2xl overflow-hidden snap-center transition-[opacity,transform] duration-200 ease-out will-change-transform',
                   isActive ? 'scale-100 opacity-100' : 'scale-[0.94] opacity-70',
                 )}
               >
