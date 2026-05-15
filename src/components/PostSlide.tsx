@@ -293,15 +293,16 @@ export const PostSlide: React.FC<PostSlideProps> = ({
   return (
     <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
       {/* Horizontal carousel of items.
-          touch-action: pan-x makes the browser pass vertical swipes
-          through to the parent feed instead of capturing them here.
-          (overscroll-behavior was previously set to none on the y axis,
-          which silently swallowed vertical scroll attempts inside a
-          post — making the feed look stuck.) */}
+          Default `touch-action: auto` lets the browser scroll the
+          right axis: horizontal pans scroll this carousel (which has
+          overflow-x-auto), vertical pans bubble up to the snap-y feed.
+          Explicit `pan-x` actually *blocks* vertical pans entirely
+          per the touch-action spec, which made the feed feel stuck
+          when swiping on a post's media. */}
       <div
         ref={stripRef}
         className="absolute inset-0 flex overflow-x-auto snap-x snap-mandatory scrollbar-hide"
-        style={{ scrollbarWidth: 'none', touchAction: 'pan-x' }}
+        style={{ scrollbarWidth: 'none' }}
       >
         {post.items.map((it, idx) => {
           const itemActive = active && idx === activeIdx;
