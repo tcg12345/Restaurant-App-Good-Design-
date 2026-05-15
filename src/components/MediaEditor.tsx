@@ -339,18 +339,38 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
   const carouselRef = useRef<HTMLDivElement | null>(null);
   const slideRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+  // Set on the same tick as the user-driven activeKey change so the
+  // smooth-scroll effect below doesn't fight the native snap. Reset
+  // the moment that effect skips its scrollTo.
+  const userScrollChangeRef = useRef(false);
+  const scrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!active) return;
+    // Skip the programmatic snap when the active item changed because
+    // the user swiped — the browser's native snap is already in
+    // motion, and a competing smooth-scroll causes the visible
+    // jitter.
+    if (userScrollChangeRef.current) {
+      userScrollChangeRef.current = false;
+      return;
+    }
     const slide = slideRefs.current.get(active.key);
     const carousel = carouselRef.current;
     if (!slide || !carousel) return;
     const desired = slide.offsetLeft - (carousel.clientWidth - slide.offsetWidth) / 2;
-    if (Math.abs(carousel.scrollLeft - desired) > 6) {
+    // Larger threshold tolerates the fractional offset the browser
+    // leaves at the end of a snap; only trigger a real correction when
+    // we're far enough away to matter.
+    if (Math.abs(carousel.scrollLeft - desired) > 24) {
       carousel.scrollTo({ left: desired, behavior: 'smooth' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.key, items.length]);
+
+  useEffect(() => () => {
+    if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!active) return;
@@ -415,17 +435,27 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
           ref={carouselRef}
           className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 px-[9%] pb-1"
           onScroll={() => {
-            const el = carouselRef.current;
-            if (!el) return;
-            const center = el.scrollLeft + el.clientWidth / 2;
-            let bestKey: string | null = null;
-            let bestDist = Infinity;
-            slideRefs.current.forEach((slide, key) => {
-              const slideCenter = slide.offsetLeft + slide.offsetWidth / 2;
-              const dist = Math.abs(slideCenter - center);
-              if (dist < bestDist) { bestDist = dist; bestKey = key; }
-            });
-            if (bestKey && bestKey !== active.key) onActiveChange(bestKey);
+            // Debounce until the scroll has actually settled. Without
+            // this, mid-snap onScroll events flip activeKey back and
+            // forth as the dominant slide changes, and the slide
+            // scale/opacity transitions look jittery.
+            if (scrollEndTimerRef.current) clearTimeout(scrollEndTimerRef.current);
+            scrollEndTimerRef.current = setTimeout(() => {
+              const el = carouselRef.current;
+              if (!el) return;
+              const center = el.scrollLeft + el.clientWidth / 2;
+              let bestKey: string | null = null;
+              let bestDist = Infinity;
+              slideRefs.current.forEach((slide, key) => {
+                const slideCenter = slide.offsetLeft + slide.offsetWidth / 2;
+                const dist = Math.abs(slideCenter - center);
+                if (dist < bestDist) { bestDist = dist; bestKey = key; }
+              });
+              if (bestKey && bestKey !== active.key) {
+                userScrollChangeRef.current = true;
+                onActiveChange(bestKey);
+              }
+            }, 90);
           }}
         >
           {items.map((it, idx) => {
@@ -440,7 +470,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
                   else slideRefs.current.delete(it.key);
                 }}
                 className={cn(
-                  'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center bg-black transition-all duration-300',
+                  'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center bg-black transition-[opacity,transform] duration-200 ease-out will-change-transform',
                   isActive ? 'scale-100 opacity-100' : 'scale-[0.94] opacity-70',
                 )}
               >

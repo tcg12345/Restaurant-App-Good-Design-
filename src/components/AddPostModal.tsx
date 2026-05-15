@@ -174,6 +174,10 @@ export const AddPostModal: React.FC = () => {
   // changes from outside (prev / next buttons, multi-apply, etc.).
   const tagCarouselRef = useRef<HTMLDivElement | null>(null);
   const tagSlideRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Flag set when the user swipes — suppresses the smooth-scroll
+  // effect that would otherwise fight the browser's native snap.
+  const tagUserScrollChangeRef = useRef(false);
+  const tagScrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Active <video> element on the Tag carousel — we keep it muted by
   // default but auto-pause neighbours when scrolling so only one clip
   // plays at a time.
@@ -341,17 +345,30 @@ export const AddPostModal: React.FC = () => {
   useEffect(() => {
     if (step !== 3) return;
     if (!activeKey) return;
+    // Skip when the change came from the user swiping; the browser is
+    // already snapping and a competing smooth-scroll causes jitter.
+    if (tagUserScrollChangeRef.current) {
+      tagUserScrollChangeRef.current = false;
+      return;
+    }
     const slide = tagSlideRefs.current.get(activeKey);
     const carousel = tagCarouselRef.current;
     if (!slide || !carousel) return;
     const desiredScrollLeft = slide.offsetLeft - (carousel.clientWidth - slide.offsetWidth) / 2;
-    if (Math.abs(carousel.scrollLeft - desiredScrollLeft) > 6) {
+    // Wider threshold tolerates the sub-pixel offset the browser
+    // leaves at the end of a native snap.
+    if (Math.abs(carousel.scrollLeft - desiredScrollLeft) > 24) {
       carousel.scrollTo({ left: desiredScrollLeft, behavior: 'smooth' });
     }
     // activeIdx is included so a reorder (which doesn't change the
     // active key but does shift its position) re-runs the snap.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, activeKey, items.findIndex((it) => it.key === activeKey)]);
+
+  // Clean up the debounce timer on unmount.
+  useEffect(() => () => {
+    if (tagScrollEndTimerRef.current) clearTimeout(tagScrollEndTimerRef.current);
+  }, []);
 
   // Pause every Tag-carousel video that isn't the active one — playing
   // multiple videos at once is choppy and confusing.
@@ -1093,17 +1110,27 @@ export const AddPostModal: React.FC = () => {
                   ref={tagCarouselRef}
                   className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 px-[9%] pb-1"
                   onScroll={() => {
-                    const el = tagCarouselRef.current;
-                    if (!el) return;
-                    const center = el.scrollLeft + el.clientWidth / 2;
-                    let bestKey: string | null = null;
-                    let bestDist = Infinity;
-                    tagSlideRefs.current.forEach((slide, key) => {
-                      const slideCenter = slide.offsetLeft + slide.offsetWidth / 2;
-                      const dist = Math.abs(slideCenter - center);
-                      if (dist < bestDist) { bestDist = dist; bestKey = key; }
-                    });
-                    if (bestKey && bestKey !== activeKey) setActiveKey(bestKey);
+                    // Debounce until the scroll has settled — mid-snap
+                    // onScroll events otherwise flip activeKey back and
+                    // forth as the dominant slide changes, making the
+                    // scale / opacity transitions stutter.
+                    if (tagScrollEndTimerRef.current) clearTimeout(tagScrollEndTimerRef.current);
+                    tagScrollEndTimerRef.current = setTimeout(() => {
+                      const el = tagCarouselRef.current;
+                      if (!el) return;
+                      const center = el.scrollLeft + el.clientWidth / 2;
+                      let bestKey: string | null = null;
+                      let bestDist = Infinity;
+                      tagSlideRefs.current.forEach((slide, key) => {
+                        const slideCenter = slide.offsetLeft + slide.offsetWidth / 2;
+                        const dist = Math.abs(slideCenter - center);
+                        if (dist < bestDist) { bestDist = dist; bestKey = key; }
+                      });
+                      if (bestKey && bestKey !== activeKey) {
+                        tagUserScrollChangeRef.current = true;
+                        setActiveKey(bestKey);
+                      }
+                    }, 90);
                   }}
                 >
                   {items.map((it, idx) => {
@@ -1121,7 +1148,7 @@ export const AddPostModal: React.FC = () => {
                         }}
                         data-item-key={it.key}
                         className={cn(
-                          'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center bg-black transition-all duration-300',
+                          'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center bg-black transition-[opacity,transform] duration-200 ease-out will-change-transform',
                           isActive ? 'scale-100 opacity-100' : 'scale-[0.94] opacity-70',
                         )}
                         onClick={() => {
