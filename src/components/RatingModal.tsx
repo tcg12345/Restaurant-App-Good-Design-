@@ -182,7 +182,7 @@ export const RatingModal: React.FC = () => {
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col h-full">
-                  <div className="px-5 pt-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
+                  <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
                     <div className="min-w-0">
                       <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Update Rating' : 'Rate Restaurant'}</h2>
                       <p className="text-xs text-on-surface/40 truncate">{ratingModalRestaurant.name}</p>

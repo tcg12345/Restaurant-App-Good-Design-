@@ -88,7 +88,7 @@ export const Create: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-surface text-on-surface">
       {/* Top bar */}
-      <header className="flex-shrink-0 px-4 pt-4 pb-2 grid grid-cols-[1fr_auto_1fr] items-center">
+      <header className="flex-shrink-0 px-4 pt-safe-4 pb-2 grid grid-cols-[1fr_auto_1fr] items-center">
         <div className="flex items-center justify-start">
           <button
             onClick={close}

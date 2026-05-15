@@ -132,7 +132,7 @@ export const RestaurantCircleReviews: React.FC = () => {
     <div className="min-h-screen pb-24" style={{ backgroundColor: '#f7f2ea' }}>
       {/* Top bar */}
       <header className="sticky top-0 z-10 backdrop-blur-md" style={{ backgroundColor: 'rgba(247, 242, 234, 0.92)' }}>
-        <div className="flex items-center gap-3 px-3 pt-4 pb-3">
+        <div className="flex items-center gap-3 px-3 pt-safe-4 pb-3">
           <button
             type="button"
             onClick={() => navigate(-1)}

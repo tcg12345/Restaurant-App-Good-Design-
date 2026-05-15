@@ -188,7 +188,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           hero. Uses glass pills so the icons stay legible both on top
           of the photo and on the cream surface below. ── */}
       <div className="sticky top-0 z-50 h-0">
-        <div className="absolute top-0 inset-x-0 px-4 pt-4 flex items-center justify-between pointer-events-none">
+        <div className="absolute top-0 inset-x-0 px-4 pt-safe-4 flex items-center justify-between pointer-events-none">
           <button
             onClick={() => navigate(-1)}
             aria-label="Back"

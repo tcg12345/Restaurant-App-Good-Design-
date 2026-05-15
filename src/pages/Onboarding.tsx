@@ -81,7 +81,7 @@ export const Onboarding: React.FC = () => {
   const progress = ((currentStep + 1) / STEPS.length) * 100;
 
   return (
-    <div className="min-h-screen bg-surface flex flex-col px-5 py-8">
+    <div className="min-h-screen bg-surface flex flex-col px-5 pt-[max(2rem,env(safe-area-inset-top))] pb-8">
       <header className="flex items-center justify-between mb-12">
         <button
           onClick={() => currentStep > 0 && setCurrentStep(currentStep - 1)}

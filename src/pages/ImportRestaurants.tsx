@@ -210,7 +210,7 @@ export const ImportRestaurants: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface">
-      <div className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm border-b border-primary/10 px-4 py-3">
+      <div className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm border-b border-primary/10 px-4 pt-safe-3 pb-3">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 hover:bg-primary/5 rounded-full transition-colors">
             <ArrowLeft className="w-5 h-5 text-primary" />

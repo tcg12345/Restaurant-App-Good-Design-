@@ -84,7 +84,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
   // doesn't sit awkwardly next to the leftAction.
   if (centerLogo) {
     return (
-      <header className="sticky top-0 w-full px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 grid grid-cols-[1fr_auto_1fr] items-center bg-surface/70 backdrop-blur-md z-40">
+      <header className="sticky top-0 w-full px-4 pt-safe-4 pb-4 grid grid-cols-[1fr_auto_1fr] items-center bg-surface/70 backdrop-blur-md z-40">
         <div className="flex items-center justify-start">
           {leftAction ?? (showBackButton ? backButton : null)}
         </div>
@@ -95,7 +95,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
   }
 
   return (
-    <header className="sticky top-0 w-full px-6 pt-[max(1rem,env(safe-area-inset-top))] pb-4 flex items-center justify-between bg-surface/70 backdrop-blur-md z-40">
+    <header className="sticky top-0 w-full px-6 pt-safe-4 pb-4 flex items-center justify-between bg-surface/70 backdrop-blur-md z-40">
       <div className="flex items-center gap-3">
         {leftAction ?? (showBackButton ? backButton : logo)}
         <h1 className="text-xl font-serif font-bold tracking-tight">{title}</h1>

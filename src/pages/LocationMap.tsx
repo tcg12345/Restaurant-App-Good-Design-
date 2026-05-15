@@ -365,7 +365,7 @@ export const LocationMap: React.FC = () => {
 
       {/* Sticky top bar — back to /location on the left, location picker
           centred so the user can swap cities without leaving the map. */}
-      <div className="absolute top-0 inset-x-0 z-20 px-3 pt-4 pb-3 bg-gradient-to-b from-surface/95 via-surface/85 to-transparent backdrop-blur-sm">
+      <div className="absolute top-0 inset-x-0 z-20 px-3 pt-safe-4 pb-3 bg-gradient-to-b from-surface/95 via-surface/85 to-transparent backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <button
             type="button"

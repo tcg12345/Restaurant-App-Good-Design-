@@ -172,7 +172,7 @@ export const ReorderRatings: React.FC = () => {
     <div className="min-h-screen bg-surface pb-8">
       {/* Header */}
       <div className="sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-on-surface/[0.06]">
-        <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center justify-between px-4 pt-safe-3 pb-3">
           <div className="flex items-center gap-3">
             <button
               onClick={handleCancel}

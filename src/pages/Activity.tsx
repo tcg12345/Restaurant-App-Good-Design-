@@ -244,7 +244,7 @@ const IndexRow: React.FC<IndexRowProps> = ({ icon, label, description, count, lo
 /* ── Top header (back arrow + title) ──────────────────────────────────── */
 
 const ActivityHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => (
-  <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur border-b border-on-surface/[0.07] px-5 py-3 flex items-center gap-3">
+  <header className="sticky top-0 z-20 bg-surface/95 backdrop-blur border-b border-on-surface/[0.07] px-5 pt-safe-3 pb-3 flex items-center gap-3">
     <button
       type="button"
       onClick={onBack}

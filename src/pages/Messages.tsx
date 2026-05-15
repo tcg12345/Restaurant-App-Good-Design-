@@ -1086,7 +1086,7 @@ export const Messages: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface pb-32">
       {/* Header */}
-      <header className="sticky top-0 w-full px-5 py-4 flex items-center justify-between bg-surface/80 backdrop-blur-md z-40">
+      <header className="sticky top-0 w-full px-5 pt-safe-4 pb-4 flex items-center justify-between bg-surface/80 backdrop-blur-md z-40">
         <div className="flex items-center gap-3">
           {phoneMode && (
             <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">

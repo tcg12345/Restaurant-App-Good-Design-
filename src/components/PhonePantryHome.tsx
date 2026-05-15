@@ -90,7 +90,7 @@ export const PhonePantryHome: React.FC<Props> = ({
   );
 
   return (
-    <div className="pt-4 pb-32">
+    <div className="pt-safe-4 pb-32">
       {/* ── Title ── */}
       <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
         Your Collection

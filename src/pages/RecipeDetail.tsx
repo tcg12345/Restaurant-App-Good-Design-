@@ -141,7 +141,7 @@ export const RecipeDetail: React.FC = () => {
 
         {/* Back button */}
         <button onClick={() => navigate(-1)}
-          className="absolute top-4 left-4 p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 z-10">
+          className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80 z-10">
           <ArrowLeft size={18} />
         </button>
 

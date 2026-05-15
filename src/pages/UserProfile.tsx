@@ -444,7 +444,7 @@ export const UserProfile: React.FC = () => {
   if (!profile) {
     return (
       <div className="min-h-screen bg-surface">
-        <header className="sticky top-0 px-4 py-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
+        <header className="sticky top-0 px-4 pt-safe-3 pb-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/50"><ArrowLeft size={20} /></button>
           <h1 className="font-serif font-bold text-lg">User Not Found</h1>
         </header>
@@ -458,7 +458,7 @@ export const UserProfile: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface pb-32">
-      <header className="sticky top-0 px-4 py-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
+      <header className="sticky top-0 px-4 pt-safe-3 pb-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
         <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/50"><ArrowLeft size={20} /></button>
         <h1 className="font-serif font-bold text-lg">@{profile.username}</h1>
       </header>
@@ -1022,7 +1022,7 @@ export const UserProfile: React.FC = () => {
           <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
             transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
             className="fixed inset-0 z-40 bg-surface flex flex-col">
-            <header className="sticky top-0 px-4 py-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
+            <header className="sticky top-0 px-4 pt-safe-3 pb-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
               <button onClick={() => setShowMapPage(false)}
                 className="p-2 -ml-2 text-on-surface/50 hover:text-on-surface"><ArrowLeft size={20} /></button>
               <h1 className="font-serif font-bold text-lg">{profile.display_name}'s Map</h1>

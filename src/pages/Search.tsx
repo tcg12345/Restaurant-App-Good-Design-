@@ -14,7 +14,7 @@ export const Search: React.FC = () => {
     <div className="pb-32 min-h-screen bg-surface">
 
       {/* Tab switcher */}
-      <div className="px-4 pt-5">
+      <div className="px-4 pt-safe-5">
         <div className="flex items-center gap-6">
           {([
             ['discover', 'Discover'],

@@ -1053,7 +1053,7 @@ interface TopBarProps {
 
 const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
   return (
-    <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+    <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-safe-3">
       <div className="relative flex-1 max-w-[280px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
         {([
           { value: 'explore', label: 'Explore' },
@@ -1757,7 +1757,7 @@ export const Reels: React.FC = () => {
             type="button"
             onClick={() => navigate(-1)}
             aria-label="Go back"
-            className="absolute top-4 left-4 z-50 w-10 h-10 rounded-full bg-on-surface/[0.08] backdrop-blur text-on-surface flex items-center justify-center hover:bg-on-surface/[0.14] active:scale-95 transition-all"
+            className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 z-50 w-10 h-10 rounded-full bg-on-surface/[0.08] backdrop-blur text-on-surface flex items-center justify-center hover:bg-on-surface/[0.14] active:scale-95 transition-all"
           >
             <ArrowLeft size={18} strokeWidth={2.4} />
           </button>
@@ -1884,7 +1884,7 @@ export const Reels: React.FC = () => {
           type="button"
           onClick={() => navigate(-1)}
           aria-label="Go back"
-          className="fixed top-3 left-3 z-50 w-10 h-10 rounded-full bg-black/55 backdrop-blur text-white flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all"
+          className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-50 w-10 h-10 rounded-full bg-black/55 backdrop-blur text-white flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all"
         >
           <ArrowLeft size={18} strokeWidth={2.4} />
         </button>

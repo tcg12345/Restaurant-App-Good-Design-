@@ -102,7 +102,7 @@ export const Auth: React.FC = () => {
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.3 }}
           onClick={() => navigate('/')}
-          className="absolute top-6 left-6 z-20 flex items-center gap-2 text-on-surface/50 hover:text-on-surface transition-colors cursor-pointer"
+          className="absolute top-[max(1.5rem,env(safe-area-inset-top))] left-6 z-20 flex items-center gap-2 text-on-surface/50 hover:text-on-surface transition-colors cursor-pointer"
         >
           <ArrowLeft size={20} />
           <span className="text-sm font-medium">Back</span>

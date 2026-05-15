@@ -411,7 +411,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
             )}
           >
             {/* Header */}
-            <div className="px-6 pt-5 sm:pt-6 pb-3 flex items-center justify-between flex-shrink-0">
+            <div className="px-6 pt-safe-5 sm:pt-6 pb-3 flex items-center justify-between flex-shrink-0">
               <div className="min-w-0">
                 <h2 className="font-serif font-bold text-xl truncate">Import Recipes</h2>
                 <p className="text-xs text-on-surface/40 mt-0.5">Upload a CSV or JSON file</p>
