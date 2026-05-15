@@ -433,7 +433,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
       <div className="-mx-5">
         <div
           ref={carouselRef}
-          className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 px-[9%] pb-1"
+          className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 pb-1"
           onScroll={() => {
             // Debounce until the scroll has actually settled. Without
             // this, mid-snap onScroll events flip activeKey back and
@@ -458,6 +458,10 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
             }, 90);
           }}
         >
+          {/* Leading spacer — eats the 9% peek area as real layout so
+              `w-[82%]` resolves against the full container width and a
+              single slide can snap-center exactly. */}
+          <div className="flex-shrink-0 w-[9%]" aria-hidden />
           {items.map((it, idx) => {
             const isActive = it.key === active.key;
             const filter = cssFilterFor(it.edits);
@@ -470,7 +474,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
                   else slideRefs.current.delete(it.key);
                 }}
                 className={cn(
-                  'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center bg-black transition-[opacity,transform] duration-200 ease-out will-change-transform',
+                  'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center transition-[opacity,transform] duration-200 ease-out will-change-transform',
                   isActive ? 'scale-100 opacity-100' : 'scale-[0.94] opacity-70',
                 )}
               >
@@ -496,6 +500,9 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
                     muted
                     loop
                     autoPlay={isActive}
+                    // Native browser controls on the active clip so the
+                    // user can pause / scrub. Peeks stay control-less.
+                    controls={isActive}
                     playsInline
                     preload="metadata"
                     className="absolute inset-0 w-full h-full object-contain"
@@ -532,6 +539,9 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
               </div>
             );
           })}
+          {/* Trailing spacer — mirrors the leading one so the last
+              slide can snap-center without overshoot. */}
+          <div className="flex-shrink-0 w-[9%]" aria-hidden />
         </div>
       </div>
 

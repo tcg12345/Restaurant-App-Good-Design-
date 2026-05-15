@@ -1108,7 +1108,7 @@ export const AddPostModal: React.FC = () => {
               <div className="-mx-5">
                 <div
                   ref={tagCarouselRef}
-                  className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 px-[9%] pb-1"
+                  className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 pb-1"
                   onScroll={() => {
                     // Debounce until the scroll has settled — mid-snap
                     // onScroll events otherwise flip activeKey back and
@@ -1133,6 +1133,11 @@ export const AddPostModal: React.FC = () => {
                     }, 90);
                   }}
                 >
+                  {/* Leading spacer — see MediaEditor for the same
+                      pattern; makes the 82% slide width resolve
+                      against the full container, so single-item /
+                      first / last slides snap-center exactly. */}
+                  <div className="flex-shrink-0 w-[9%]" aria-hidden />
                   {items.map((it, idx) => {
                     const isActive = it.key === activeKey;
                     const hasAttach = it.attachedKind !== null;
@@ -1148,7 +1153,7 @@ export const AddPostModal: React.FC = () => {
                         }}
                         data-item-key={it.key}
                         className={cn(
-                          'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center bg-black transition-[opacity,transform] duration-200 ease-out will-change-transform',
+                          'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center transition-[opacity,transform] duration-200 ease-out will-change-transform',
                           isActive ? 'scale-100 opacity-100' : 'scale-[0.94] opacity-70',
                         )}
                         onClick={() => {
@@ -1223,6 +1228,8 @@ export const AddPostModal: React.FC = () => {
                       </div>
                     );
                   })}
+                  {/* Trailing spacer — pairs with the leading one. */}
+                  <div className="flex-shrink-0 w-[9%]" aria-hidden />
                 </div>
               </div>
 
