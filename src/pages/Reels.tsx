@@ -1748,6 +1748,7 @@ export const Reels: React.FC = () => {
                   active={activeKey === item.key}
                   muted={muted}
                   isMine={!!currentUserId && item.post.userId === currentUserId}
+                  currentUserId={currentUserId}
                   hideActionRail={opts.hideActionRail}
                   hideOwnerDelete={opts.hideOwnerDelete}
                   onLike={() => {
