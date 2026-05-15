@@ -58,6 +58,7 @@ export interface ReelRow {
   videoUrl: string;
   caption: string;
   audioLabel: string;
+  locationLabel: string;
   bgGradient: string;
   durationSeconds: number | null;
   restaurant: ReelRestaurantSnapshot | null;
@@ -102,6 +103,7 @@ const rowToReel = (
     videoUrl: String(row.video_url || ''),
     caption: String(row.caption || ''),
     audioLabel: String(row.audio_label || 'Original audio'),
+    locationLabel: String(row.location_label || ''),
     bgGradient: String(row.bg_gradient || ''),
     durationSeconds: row.duration_seconds == null ? null : Number(row.duration_seconds),
     restaurant: (row.restaurant_data as ReelRestaurantSnapshot | null) || null,
@@ -167,6 +169,8 @@ export interface UploadReelInput {
   kind: ReelKind;
   caption: string;
   audioLabel: string;
+  /** Optional free-text location label (e.g. "Brooklyn, NY"). */
+  locationLabel: string;
   bgGradient: string;
   durationSeconds: number;
   isPublic: boolean;
@@ -203,7 +207,7 @@ export async function readVideoDuration(file: File): Promise<number> {
 /** Upload the video file + insert the reels row. Returns the new reel. */
 export async function createReel(input: UploadReelInput): Promise<ReelRow | null> {
   if (!supabaseConfigured) return null;
-  const { userId, file, kind, caption, audioLabel, bgGradient, durationSeconds, isPublic, restaurant, recipe, onProgress } = input;
+  const { userId, file, kind, caption, audioLabel, locationLabel, bgGradient, durationSeconds, isPublic, restaurant, recipe, onProgress } = input;
 
   const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
@@ -231,6 +235,7 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
     video_url: '',
     caption,
     audio_label: audioLabel,
+    location_label: locationLabel,
     bg_gradient: bgGradient,
     duration_seconds: durationSeconds,
     is_public: isPublic,
@@ -250,6 +255,13 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
   if (insertResult.error && insertResult.error.code === 'PGRST204' && /is_public/i.test(insertResult.error.message || '')) {
     console.warn('[Reels] is_public column missing — falling back to a public-only insert. Run migration 020 to enable per-reel privacy.');
     delete insertPayload.is_public;
+    insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
+  }
+  // Same fallback for migration 025 (location_label). The reel still posts;
+  // the location label just isn't persisted until the column exists.
+  if (insertResult.error && insertResult.error.code === 'PGRST204' && /location_label/i.test(insertResult.error.message || '')) {
+    console.warn('[Reels] location_label column missing — falling back without it. Run migration 025 to enable reel locations.');
+    delete insertPayload.location_label;
     insertResult = await supabase.from('reels').insert(insertPayload).select(insertSelect).single();
   }
 
@@ -428,6 +440,7 @@ export async function setReelVisibility(reelId: string, isPublic: boolean): Prom
 export interface ReelUpdate {
   caption?: string;
   audioLabel?: string;
+  locationLabel?: string;
   /** Pass `null` to clear the attachment, an object to set it,
    *  or omit the key to leave it untouched. */
   restaurant?: ReelRestaurantSnapshot | null;
@@ -439,6 +452,7 @@ export async function updateReel(reelId: string, updates: ReelUpdate): Promise<b
   const payload: Record<string, unknown> = {};
   if (updates.caption !== undefined) payload.caption = updates.caption;
   if (updates.audioLabel !== undefined) payload.audio_label = updates.audioLabel;
+  if (updates.locationLabel !== undefined) payload.location_label = updates.locationLabel;
   if (updates.restaurant !== undefined) {
     payload.restaurant_id = updates.restaurant?.id ?? null;
     payload.restaurant_data = updates.restaurant;
@@ -448,7 +462,15 @@ export async function updateReel(reelId: string, updates: ReelUpdate): Promise<b
     payload.recipe_data = updates.recipe;
   }
   if (Object.keys(payload).length === 0) return true;
-  const { error } = await supabase.from('reels').update(payload).eq('id', reelId);
+  let { error } = await supabase.from('reels').update(payload).eq('id', reelId);
+  // Same fallback as createReel — if the column hasn't been added yet,
+  // drop location_label and retry so the rest of the edit still goes
+  // through.
+  if (error && (error as { code?: string }).code === 'PGRST204' && /location_label/i.test(error.message || '')) {
+    console.warn('[Reels] location_label column missing — retrying update without it. Run migration 025 to enable reel locations.');
+    delete payload.location_label;
+    ({ error } = await supabase.from('reels').update(payload).eq('id', reelId));
+  }
   if (error) {
     console.warn('[Reels] update failed:', error.message);
     return false;
