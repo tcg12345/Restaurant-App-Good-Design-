@@ -169,6 +169,16 @@ export const AddPostModal: React.FC = () => {
   const dragActive = dragDepth > 0;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Step 3 carousel — track scroll position to update the active item
+  // when the user swipes, and scroll-into-view when the active item
+  // changes from outside (prev / next buttons, multi-apply, etc.).
+  const tagCarouselRef = useRef<HTMLDivElement | null>(null);
+  const tagSlideRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Active <video> element on the Tag carousel — we keep it muted by
+  // default but auto-pause neighbours when scrolling so only one clip
+  // plays at a time.
+  const tagVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+
   // Picker state — shared between restaurant and recipe.
   const [pickerOpen, setPickerOpen] = useState<PostAttachedKind | null>(null);
   const [restaurantSearch, setRestaurantSearch] = useState('');
@@ -323,6 +333,35 @@ export const AddPostModal: React.FC = () => {
     }, 250);
     return () => { if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current); };
   }, [addPostModalOpen, locationLabel, pickedLocation]);
+
+  // When the Tag step mounts (or the active item changes for reasons
+  // other than scrolling — prev/next button, removal, etc.) make sure
+  // the carousel snaps to the active slide. Skip when the carousel
+  // is already centred on it so user scrolls aren't fought.
+  useEffect(() => {
+    if (step !== 3) return;
+    if (!activeKey) return;
+    const slide = tagSlideRefs.current.get(activeKey);
+    const carousel = tagCarouselRef.current;
+    if (!slide || !carousel) return;
+    const desiredScrollLeft = slide.offsetLeft - (carousel.clientWidth - slide.offsetWidth) / 2;
+    if (Math.abs(carousel.scrollLeft - desiredScrollLeft) > 6) {
+      carousel.scrollTo({ left: desiredScrollLeft, behavior: 'smooth' });
+    }
+    // activeIdx is included so a reorder (which doesn't change the
+    // active key but does shift its position) re-runs the snap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, activeKey, items.findIndex((it) => it.key === activeKey)]);
+
+  // Pause every Tag-carousel video that isn't the active one — playing
+  // multiple videos at once is choppy and confusing.
+  useEffect(() => {
+    if (step !== 3) return;
+    tagVideoRefs.current.forEach((v, key) => {
+      if (key === activeKey) return;
+      try { v.pause(); } catch { /* ignore */ }
+    });
+  }, [step, activeKey]);
 
   // Click-outside the location field — close the suggestions dropdown.
   useEffect(() => {
@@ -1032,20 +1071,41 @@ export const AddPostModal: React.FC = () => {
 
               {/* ───────── STEP 3: Tag each item ───────── */}
               {step === 3 && items.length > 0 && (<>
-              {/* Compact horizontal strip — same component is rendered
-                  in step 1 to show the items grid; here it stays at the
-                  top for jumping between items while editing. */}
-              <section>
-                <div className="flex items-baseline justify-between mb-2">
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">
-                    Items
-                    <span className="text-on-surface/30 font-medium ml-1.5">{items.length} / {POST_MAX_ITEMS}</span>
-                  </label>
-                  {activeIdx >= 0 && (
-                    <span className="text-[11px] text-on-surface/45 font-mono tabular-nums">#{activeIdx + 1}</span>
-                  )}
-                </div>
-                <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory scrollbar-hide">
+              {/* Section header — count on the left, current position on
+                  the right. */}
+              <div className="flex items-baseline justify-between">
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">
+                  Items
+                  <span className="text-on-surface/30 font-medium ml-1.5">{items.length} / {POST_MAX_ITEMS}</span>
+                </label>
+                {activeIdx >= 0 && (
+                  <span className="text-[11px] text-on-surface/45 font-mono tabular-nums">#{activeIdx + 1}</span>
+                )}
+              </div>
+
+              {/* Media carousel — slides are 82% wide with snap-center so
+                  the active slide is in the middle and the neighbours
+                  peek in from the sides. Scrolling (or tapping a peek)
+                  updates the active key. Each slide is a full media
+                  preview; the active one auto-plays for videos. */}
+              <div className="-mx-5">
+                <div
+                  ref={tagCarouselRef}
+                  className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 px-[9%] pb-1"
+                  onScroll={() => {
+                    const el = tagCarouselRef.current;
+                    if (!el) return;
+                    const center = el.scrollLeft + el.clientWidth / 2;
+                    let bestKey: string | null = null;
+                    let bestDist = Infinity;
+                    tagSlideRefs.current.forEach((slide, key) => {
+                      const slideCenter = slide.offsetLeft + slide.offsetWidth / 2;
+                      const dist = Math.abs(slideCenter - center);
+                      if (dist < bestDist) { bestDist = dist; bestKey = key; }
+                    });
+                    if (bestKey && bestKey !== activeKey) setActiveKey(bestKey);
+                  }}
+                >
                   {items.map((it, idx) => {
                     const isActive = it.key === activeKey;
                     const hasAttach = it.attachedKind !== null;
@@ -1053,52 +1113,109 @@ export const AddPostModal: React.FC = () => {
                     const isSource = inMulti && it.key === multiApply.sourceKey;
                     const isTarget = inMulti && multiApply.targets.has(it.key);
                     return (
-                      <button
+                      <div
                         key={it.key}
-                        type="button"
+                        ref={(el) => {
+                          if (el) tagSlideRefs.current.set(it.key, el);
+                          else tagSlideRefs.current.delete(it.key);
+                        }}
+                        data-item-key={it.key}
+                        className={cn(
+                          'relative flex-shrink-0 w-[82%] aspect-[3/4] rounded-2xl overflow-hidden snap-center bg-black transition-all duration-300',
+                          isActive ? 'scale-100 opacity-100' : 'scale-[0.94] opacity-70',
+                        )}
                         onClick={() => {
                           if (inMulti) toggleMultiApplyTarget(it.key);
-                          else setActiveKey(it.key);
+                          else if (!isActive) setActiveKey(it.key);
                         }}
-                        className={cn(
-                          'relative flex-shrink-0 w-16 aspect-[9/14] rounded-xl overflow-hidden snap-start transition-all',
-                          !inMulti && isActive && 'ring-2 ring-primary ring-offset-2 ring-offset-surface',
-                          !inMulti && !isActive && 'ring-1 ring-on-surface/[0.08]',
-                          inMulti && isSource && 'ring-2 ring-emerald-500 ring-offset-2 ring-offset-surface',
-                          inMulti && isTarget && 'ring-2 ring-primary ring-offset-2 ring-offset-surface',
-                          inMulti && !isSource && !isTarget && 'ring-1 ring-on-surface/[0.08] opacity-70',
-                        )}
                       >
                         {it.mediaType === 'photo' ? (
-                          <img src={it.previewUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                          <img
+                            src={it.previewUrl}
+                            alt=""
+                            loading="lazy"
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
                         ) : (
-                          <video src={it.previewUrl} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
+                          <video
+                            ref={(el) => {
+                              if (el) tagVideoRefs.current.set(it.key, el);
+                              else tagVideoRefs.current.delete(it.key);
+                            }}
+                            src={it.previewUrl}
+                            // Only show full <video> controls for the
+                            // active slide — peeks should look like a
+                            // photo with a play hint, not a row of
+                            // duelling control bars.
+                            controls={isActive}
+                            playsInline
+                            preload="metadata"
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
                         )}
-                        <div className="absolute inset-x-0 bottom-0 p-1 bg-gradient-to-t from-black/70 to-transparent flex items-center justify-between gap-1">
-                          <span className="text-[10px] font-bold text-white/90 tabular-nums">#{idx + 1}</span>
-                          {it.mediaType === 'video' && <VideoIcon size={10} className="text-white/85" />}
+                        {/* Index pill + media-type icon, gradient
+                            scrim for legibility. */}
+                        <div className="absolute inset-x-0 bottom-0 px-3 py-2 bg-gradient-to-t from-black/65 to-transparent flex items-center justify-between gap-2 pointer-events-none">
+                          <span className="text-[12px] font-bold text-white/90 tabular-nums">#{idx + 1}</span>
+                          {it.mediaType === 'video' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-white/85 uppercase tracking-wider">
+                              <VideoIcon size={11} /> Video
+                            </span>
+                          )}
                         </div>
+                        {/* Tap-anywhere overlay for peeks — without it
+                            the click would hit the underlying media
+                            element first and toggle native controls. */}
+                        {!isActive && !inMulti && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveKey(it.key)}
+                            className="absolute inset-0 z-10"
+                            aria-label={`Go to item ${idx + 1}`}
+                          />
+                        )}
+                        {/* Featured indicator pill. */}
                         {hasAttach && !inMulti && (
-                          <span className="absolute top-1 left-1 inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-white">
+                          <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-wider shadow-sm">
                             {it.attachedKind === 'restaurant' ? <MapPin size={10} /> : <ChefHat size={10} />}
+                            Featured
                           </span>
                         )}
+                        {/* Multi-apply visuals. */}
                         {isSource && (
-                          <span className="absolute top-1 left-1 px-1.5 h-4 inline-flex items-center rounded bg-emerald-600 text-white text-[8px] font-bold uppercase tracking-wider">Source</span>
+                          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider">Source</span>
                         )}
                         {inMulti && !isSource && (
                           <span className={cn(
-                            'absolute top-1 right-1 inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors',
+                            'absolute top-2.5 right-2.5 inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors',
                             isTarget ? 'bg-primary text-white' : 'bg-black/55 text-white border border-white/40',
                           )}>
-                            {isTarget && <Check size={11} strokeWidth={3} />}
+                            {isTarget && <Check size={13} strokeWidth={3} />}
                           </span>
                         )}
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
-              </section>
+              </div>
+
+              {/* Pagination dots — small visual hint to the user that
+                  there's a carousel here. */}
+              {items.length > 1 && (
+                <div className="flex items-center justify-center gap-1.5">
+                  {items.map((it) => (
+                    <motion.span
+                      key={it.key}
+                      className={cn(
+                        'h-1.5 rounded-full',
+                        it.key === activeKey ? 'bg-primary' : 'bg-on-surface/15',
+                      )}
+                      animate={{ width: it.key === activeKey ? 18 : 5 }}
+                      transition={{ duration: 0.25, ease: 'easeOut' }}
+                    />
+                  ))}
+                </div>
+              )}
 
               {/* Multi-apply banner — replaces the active-item editor while
                   the user is selecting which thumbnails to copy the
@@ -1242,7 +1359,37 @@ export const AddPostModal: React.FC = () => {
                         </button>
                       </div>
                     ) : (
-                      <div className="flex gap-2">
+                      <>
+                        {/* When the user just navigated and the
+                            previous item has a featured, offer a
+                            one-tap "use the same one" shortcut. */}
+                        {(() => {
+                          const prev = activeIdx > 0 ? items[activeIdx - 1] : null;
+                          if (!prev || !prev.attachedKind) return null;
+                          const prevName = prev.attachedKind === 'restaurant'
+                            ? prev.restaurant?.name
+                            : prev.recipe?.title;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => applyAttachmentToItem(
+                                activeItem.key,
+                                prev.attachedKind!,
+                                { restaurant: prev.restaurant, recipe: prev.recipe },
+                              )}
+                              disabled={submitting}
+                              className="w-full mb-2 inline-flex items-center gap-2 rounded-2xl bg-primary/[0.06] border border-primary/15 px-3 py-2.5 text-left transition-colors hover:bg-primary/[0.1] disabled:opacity-40"
+                            >
+                              <Link2 size={14} className="text-primary flex-shrink-0" />
+                              <span className="flex-1 min-w-0 text-[12.5px] text-on-surface/75 truncate">
+                                Use the same as <span className="font-semibold text-on-surface">#{activeIdx}</span>
+                                {prevName && <> — <span className="font-bold text-on-surface">{prevName}</span></>}
+                              </span>
+                              <Check size={14} className="text-primary/60 flex-shrink-0" />
+                            </button>
+                          );
+                        })()}
+                        <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => { setPickerOpen('restaurant'); setRestaurantSearch(''); }}
@@ -1259,7 +1406,8 @@ export const AddPostModal: React.FC = () => {
                         >
                           <ChefHat size={13} /> Recipe
                         </button>
-                      </div>
+                        </div>
+                      </>
                     )}
 
                     {/* Apply-to-all + Apply-to-specific. The latter
