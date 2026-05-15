@@ -65,7 +65,7 @@ interface ActionRailProps {
 
 const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment, onShare }) => {
   return (
-    <div className="absolute right-3 bottom-32 z-20 flex flex-col items-center gap-5 select-none">
+    <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-5 select-none">
       <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
         <motion.span
           whileTap={{ scale: 0.8 }}
@@ -399,7 +399,9 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
         aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
         className={cn(
           'absolute inset-x-0 bottom-0 z-20 px-4 pt-10',
-          phoneMode ? 'pb-20' : 'pb-5',
+          // Padding clears the solid 50 px bottom nav + the safe-area
+          // inset on a real iPhone, with a ~30 px gap above the scrub bar.
+          phoneMode ? 'pb-[calc(80px+env(safe-area-inset-bottom))]' : 'pb-5',
           hasCollapsibleContent && 'cursor-pointer',
         )}
       >
@@ -622,7 +624,7 @@ const ReelProgressBar: React.FC<{
       )}
     >
       <div
-        className="relative w-full bg-white/25 rounded-full overflow-hidden transition-[height] duration-200 ease-out"
+        className="relative w-full bg-white/25 rounded-full overflow-hidden transition-[height] duration-200 ease-out ring-1 ring-black/35 shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
         style={{ height: dragging ? 4 : 2 }}
       >
         <div
@@ -1911,13 +1913,12 @@ export const Reels: React.FC = () => {
         onClose={() => setSharePayload(null)}
       />
 
-      {/* Playback progress bar — sits just above the BottomNav so
-          it reads as part of the viewer chrome without overlapping
-          tab buttons. Computed offset: nav floats at ~12 px from
-          the bottom and is roughly 64 px tall, so 84 px clears it
-          with a small visual gap. */}
+      {/* Playback progress bar — sits directly above the solid
+          BottomNav. The nav is 50 px tall + env(safe-area-inset-bottom)
+          on a real iPhone, so this offset puts the bar flush against
+          its top edge. */}
       {activeVideoEl && (
-        <div className="absolute inset-x-0 bottom-[84px] px-4 z-30">
+        <div className="absolute inset-x-0 bottom-[calc(50px+env(safe-area-inset-bottom))] px-4 z-30">
           <ReelProgressBar videoEl={activeVideoEl} />
         </div>
       )}
