@@ -26,6 +26,13 @@ import {
   REEL_MAX_DURATION_SECONDS,
   type ReelKind,
 } from '../contexts/ReelsContext';
+import {
+  MediaEditor,
+  applyAllEdits,
+  DEFAULT_EDIT_STATE,
+  isEdited,
+  type EditState,
+} from './MediaEditor';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -64,7 +71,7 @@ function pickFromPool<T>(pool: T[], seed: string): T {
   return pool[h % pool.length];
 }
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 
 /* ── Modal ──────────────────────────────────────────────────────────── */
 
@@ -91,6 +98,11 @@ export const AddReelModal: React.FC = () => {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  const [videoEdits, setVideoEdits] = useState<EditState>(DEFAULT_EDIT_STATE);
+  // Set true while we re-encode the video with the chosen edits on
+  // submission so the user sees a "Finishing edits" status separately
+  // from the upload progress.
+  const [finalizingEdits, setFinalizingEdits] = useState(false);
   const [caption, setCaption] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
   const [pickedLocation, setPickedLocation] = useState<HomeLocation | null>(null);
@@ -128,19 +140,21 @@ export const AddReelModal: React.FC = () => {
       setVideoFile(null);
       setVideoUrl(null);
       setVideoDuration(null);
+      setVideoEdits(DEFAULT_EDIT_STATE);
       setCaption(editingReel.caption);
       setLocationLabel(editingReel.locationLabel || '');
       setPickedLocation(editingReel.locationLabel ? { label: editingReel.locationLabel, lat: 0, lng: 0 } : null);
       setIsPublic(editingReel.isPublic);
       setPickedRestaurantId(editingReel.restaurant?.id ?? null);
       setPickedRecipeId(editingReel.recipe?.id ?? null);
-      // Skip video step in edit mode — video is immutable.
-      setStep(3);
+      // Skip the video + edit steps in edit mode — media is immutable.
+      setStep(4);
     } else {
       setKind(addReelInitialKind ?? 'restaurant');
       setVideoFile(null);
       setVideoUrl(null);
       setVideoDuration(null);
+      setVideoEdits(DEFAULT_EDIT_STATE);
       setCaption('');
       setLocationLabel('');
       setPickedLocation(null);
@@ -149,6 +163,7 @@ export const AddReelModal: React.FC = () => {
       setPickedRecipeId(null);
       setStep(1);
     }
+    setFinalizingEdits(false);
     setDirection(1);
     setRestaurantSearch('');
     setRecipeSearch('');
@@ -207,7 +222,7 @@ export const AddReelModal: React.FC = () => {
   // Debounced Places search for restaurants — only when the user is on
   // step 1 and the restaurant tab.
   useEffect(() => {
-    if (!addReelModalOpen || step !== 2 || kind !== 'restaurant') return;
+    if (!addReelModalOpen || step !== 3 || kind !== 'restaurant') return;
     if (placeDebounceRef.current) clearTimeout(placeDebounceRef.current);
     const q = restaurantSearch.trim();
     if (q.length < 2) {
@@ -234,9 +249,9 @@ export const AddReelModal: React.FC = () => {
     };
   }, [addReelModalOpen, step, kind, restaurantSearch, userLat, userLng]);
 
-  // Debounced location search — runs while the user is typing on step 3.
+  // Debounced location search — runs while the user is typing on step 4.
   useEffect(() => {
-    if (!addReelModalOpen || step !== 3) return;
+    if (!addReelModalOpen || step !== 4) return;
     if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
     const q = locationLabel.trim();
     if (!q || (pickedLocation && pickedLocation.label === locationLabel)) {
@@ -398,6 +413,12 @@ export const AddReelModal: React.FC = () => {
     setVideoFile(file);
     setVideoUrl(URL.createObjectURL(file));
     setVideoDuration(duration);
+    // Reset any prior edits for the new video so the editor opens
+    // with a clean slate.
+    setVideoEdits(DEFAULT_EDIT_STATE);
+    // Auto-advance to the Edit step so the user lands on the editor
+    // without an extra tap, matching the Instagram Reels flow.
+    if (step === 1) goToStep(2);
   };
 
   const clearVideo = () => {
@@ -411,10 +432,13 @@ export const AddReelModal: React.FC = () => {
 
   // ── Step gates ──
   const hasFeatured = kind === 'restaurant' ? !!pickedRestaurant : !!pickedRecipe;
-  // Step 1 (video) gates on a chosen file; step 2 (featured) gates on
-  // having picked a restaurant or recipe.
+  // Step gates:
+  //   1 (video)   → needs a chosen file
+  //   2 (edit)    → always passes (editing is optional)
+  //   3 (featured)→ needs a picked restaurant or recipe
   const canAdvanceFromStep1 = !!videoFile && !!videoUrl;
-  const canAdvanceFromStep2 = hasFeatured;
+  const canAdvanceFromStep2 = true;
+  const canAdvanceFromStep3 = hasFeatured;
   const canSubmit = !!user?.id && hasFeatured && !submitting && (isEditing || !!videoFile);
 
   // ── Submit ──
@@ -466,15 +490,43 @@ export const AddReelModal: React.FC = () => {
     if (!videoFile) { setSubmitting(false); return; }
     setProgress(0.05);
     try {
-      const bgGradient = pickFromPool(BG_GRADIENT_POOL, videoFile.name + user.id);
+      // Bake the user's edits (crop / trim / colour / filter) into a
+      // new video file before uploading. Skipped when no edits were
+      // touched — applyAllEdits returns an empty record in that case.
+      let fileToUpload: File = videoFile;
+      let durationToUpload: number = videoDuration ?? 0;
+      if (videoUrl && isEdited(videoEdits)) {
+        setFinalizingEdits(true);
+        try {
+          const edited = await applyAllEdits([{
+            key: 'reel-video',
+            mediaType: 'video',
+            file: videoFile,
+            previewUrl: videoUrl,
+            durationSeconds: videoDuration,
+            edits: videoEdits,
+          }]);
+          if (edited['reel-video']) {
+            fileToUpload = edited['reel-video'];
+            // Re-derive the duration from the trim window so the reel
+            // metadata matches the edited file.
+            if (videoEdits.trim) {
+              durationToUpload = Math.max(0, videoEdits.trim.end - videoEdits.trim.start);
+            }
+          }
+        } finally {
+          setFinalizingEdits(false);
+        }
+      }
+      const bgGradient = pickFromPool(BG_GRADIENT_POOL, fileToUpload.name + user.id);
       const att = buildAttachment();
       const reel = await postReel({
-        file: videoFile, kind,
+        file: fileToUpload, kind,
         caption: caption.trim(),
         audioLabel: 'Original audio',
         locationLabel: resolvedLocationLabel,
         bgGradient,
-        durationSeconds: videoDuration ?? 0,
+        durationSeconds: durationToUpload,
         isPublic,
         restaurant: att.restaurant, recipe: att.recipe,
         onProgress: (n) => setProgress(n),
@@ -498,7 +550,7 @@ export const AddReelModal: React.FC = () => {
     exit: (dir: number) => ({ x: dir > 0 ? -32 : 32, opacity: 0 }),
   };
 
-  const totalSteps = isEditing ? 1 : 3;
+  const totalSteps = isEditing ? 1 : 4;
   const stepIndex = isEditing ? 0 : step - 1;
 
   return (
@@ -551,15 +603,17 @@ export const AddReelModal: React.FC = () => {
                 <h2 className="font-serif font-bold text-lg leading-tight truncate">
                   {isEditing ? 'Edit reel' : (
                     step === 1 ? 'Upload your video' :
-                    step === 2 ? "What's your reel?" :
+                    step === 2 ? 'Edit your video' :
+                    step === 3 ? "What's your reel?" :
                     'Final touches'
                   )}
                 </h2>
                 {!isEditing && (
                   <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
                     {step === 1 && `Up to ${REEL_MAX_DURATION_SECONDS}s.`}
-                    {step === 2 && 'Pick a type and the featured item.'}
-                    {step === 3 && 'Add a caption and details.'}
+                    {step === 2 && 'Crop, trim, adjust, or pick a filter.'}
+                    {step === 3 && 'Pick a type and the featured item.'}
+                    {step === 4 && 'Add a caption and details.'}
                   </p>
                 )}
               </div>
@@ -614,8 +668,25 @@ export const AddReelModal: React.FC = () => {
                     />
                   )}
 
-                  {/* ───────── STEP 2: TYPE + FEATURED ───────── */}
-                  {step === 2 && !isEditing && (
+                  {/* ───────── STEP 2: EDIT (crop / trim / filters) ─── */}
+                  {step === 2 && !isEditing && videoFile && videoUrl && (
+                    <MediaEditor
+                      items={[{
+                        key: 'reel-video',
+                        mediaType: 'video',
+                        file: videoFile,
+                        previewUrl: videoUrl,
+                        durationSeconds: videoDuration,
+                        edits: videoEdits,
+                      }]}
+                      activeKey="reel-video"
+                      onActiveChange={() => { /* single item */ }}
+                      onEditsChange={(_key, next) => setVideoEdits(next)}
+                    />
+                  )}
+
+                  {/* ───────── STEP 3: TYPE + FEATURED ───────── */}
+                  {step === 3 && !isEditing && (
                     <StepFeatured
                       kind={kind}
                       setKind={(k) => {
@@ -643,8 +714,8 @@ export const AddReelModal: React.FC = () => {
                     />
                   )}
 
-                  {/* ───────── STEP 3 ───────── */}
-                  {step === 3 && (
+                  {/* ───────── STEP 4: FINAL DETAILS ───────── */}
+                  {step === 4 && (
                     <Step3Details
                       videoUrl={videoUrl}
                       existingVideoUrl={editingReel?.videoUrl}
@@ -713,14 +784,25 @@ export const AddReelModal: React.FC = () => {
                   Next <ChevronRight size={15} />
                 </button>
               )}
+              {/* Edit step — editing is always optional. */}
               {!isEditing && step === 2 && (
                 <button
                   type="button"
                   onClick={() => goToStep(3)}
-                  disabled={!canAdvanceFromStep2}
+                  className="flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary/90 transition-colors"
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              )}
+              {/* Featured step — gated on a chosen restaurant or recipe. */}
+              {!isEditing && step === 3 && (
+                <button
+                  type="button"
+                  onClick={() => goToStep(4)}
+                  disabled={!canAdvanceFromStep3}
                   className={cn(
                     'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
-                    canAdvanceFromStep2
+                    canAdvanceFromStep3
                       ? 'bg-primary text-white hover:bg-primary/90'
                       : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
                   )}
@@ -728,7 +810,8 @@ export const AddReelModal: React.FC = () => {
                   Next <ChevronRight size={15} />
                 </button>
               )}
-              {step === 3 && (
+              {/* Final step — Post / Save changes. */}
+              {step === 4 && (
                 <button
                   type="button"
                   onClick={onSubmit}
@@ -743,7 +826,7 @@ export const AddReelModal: React.FC = () => {
                   {submitting ? (
                     <>
                       <Loader2 size={15} className="animate-spin" />
-                      {isEditing ? 'Saving…' : `Uploading… ${Math.round(progress * 100)}%`}
+                      {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing edits…' : `Uploading… ${Math.round(progress * 100)}%`}
                     </>
                   ) : (
                     <>
@@ -751,7 +834,7 @@ export const AddReelModal: React.FC = () => {
                       {isEditing ? 'Save changes' : 'Post reel'}
                     </>
                   )}
-                  {submitting && (
+                  {submitting && !finalizingEdits && (
                     <span
                       className="absolute left-0 bottom-0 h-0.5 bg-white/40"
                       style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }}
@@ -1292,6 +1375,7 @@ const Step3Details: React.FC<{
 
 const STEPPER_LABELS: { label: string; sub: string }[] = [
   { label: 'Video',    sub: 'Upload your clip' },
+  { label: 'Edit',     sub: 'Crop, trim, filters' },
   { label: 'Featured', sub: 'Type & subject' },
   { label: 'Details',  sub: 'Caption & visibility' },
 ];

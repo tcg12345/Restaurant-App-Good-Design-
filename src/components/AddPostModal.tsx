@@ -35,6 +35,13 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { searchLocations, type HomeLocation } from './HomeLocationBar';
+import {
+  MediaEditor,
+  applyAllEdits,
+  DEFAULT_EDIT_STATE,
+  isEdited,
+  type EditState,
+} from './MediaEditor';
 
 const PLACE_TYPE_TO_CUISINE: Record<string, string> = {};
 for (const c of CUISINE_TYPES) {
@@ -82,6 +89,9 @@ interface WorkingItem {
   restaurant?: PostRestaurantSnapshot;
   recipe?: PostRecipeSnapshot;
   bgGradient: string;
+  /** Per-item editor state — crop, trim, colour adjustments, filter
+   *  preset. Lazily applied to produce an edited File during submit. */
+  edits: EditState;
   /** Snapshot of attached/caption from the original post — used to diff
    *  on submit so we only PATCH items that actually changed. */
   original?: {
@@ -103,7 +113,7 @@ function detectMediaType(file: File): PostMediaType | null {
 
 /* ── Step machine type ───────────────────────────────────────────────── */
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 
 const stepVariants = {
   enter: (dir: number) => ({ x: dir > 0 ? 32 : -32, opacity: 0 }),
@@ -152,6 +162,7 @@ export const AddPostModal: React.FC = () => {
   const [isPublic, setIsPublic] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [finalizingEdits, setFinalizingEdits] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
   const [dragDepth, setDragDepth] = useState(0);
@@ -186,6 +197,7 @@ export const AddPostModal: React.FC = () => {
         restaurant: it.restaurant ?? undefined,
         recipe: it.recipe ?? undefined,
         bgGradient: it.bgGradient,
+        edits: DEFAULT_EDIT_STATE,
         original: {
           caption: it.caption,
           attachedKind: it.attachedKind,
@@ -202,9 +214,10 @@ export const AddPostModal: React.FC = () => {
         : null);
       setAudio(editingPost.audioLabel);
       setIsPublic(editingPost.isPublic);
-      // Edit mode: media is locked, so we start at step 2 (per-item
-      // tagging) and let the user advance to step 3 (post-level fields).
-      setStep(2);
+      // Edit mode: media + per-item edits are locked, so we start at
+      // step 3 (per-item tagging) and let the user advance to step 4
+      // (post-level fields).
+      setStep(3);
     } else {
       setItems([]);
       setActiveKey(null);
@@ -220,6 +233,7 @@ export const AddPostModal: React.FC = () => {
     setLocationFocused(false);
     setLocationSearching(false);
     setSubmitting(false);
+    setFinalizingEdits(false);
     setProgress(0);
     setErrorMsg(null);
     setValidationMsg(null);
@@ -408,10 +422,21 @@ export const AddPostModal: React.FC = () => {
         durationSeconds,
         attachedKind: null,
         bgGradient: pickFromPool(BG_GRADIENT_POOL, key),
+        edits: DEFAULT_EDIT_STATE,
       });
     }
     if (accepted.length === 0) return;
-    setItems((prev) => [...prev, ...accepted]);
+    setItems((prev) => {
+      const next = [...prev, ...accepted];
+      // First pick of the session — auto-advance to the Edit step so
+      // the user lands on the editor without an extra tap, matching
+      // Instagram. Subsequent picks (via the strip's "+" tile) stay
+      // put so the user can keep adding before moving on.
+      if (prev.length === 0 && step === 1) {
+        setTimeout(() => goToStep(2), 0);
+      }
+      return next;
+    });
     if (!activeKey) setActiveKey(accepted[0].key);
   };
 
@@ -676,13 +701,39 @@ export const AddPostModal: React.FC = () => {
     // ── Create path ──
     setProgress(0.05);
     try {
+      // Bake the user's per-item edits (crop / trim / colour grading
+      // / filter) into new files before uploading. Items the user
+      // didn't touch in step 2 fall through unchanged.
+      const editable = items.filter((it) => isEdited(it.edits) && it.file && it.previewUrl.startsWith('blob:'));
+      let editedFiles: Record<string, File> = {};
+      if (editable.length > 0) {
+        setFinalizingEdits(true);
+        try {
+          editedFiles = await applyAllEdits(editable.map((it) => ({
+            key: it.key,
+            mediaType: it.mediaType,
+            file: it.file,
+            previewUrl: it.previewUrl,
+            durationSeconds: it.durationSeconds,
+            edits: it.edits,
+          })));
+        } finally {
+          setFinalizingEdits(false);
+        }
+      }
       const newItems: NewPostItem[] = items.map((it) => {
         if (!it.file) throw new Error('Missing file for new item — please re-attach.');
+        const edited = editedFiles[it.key];
+        const file = edited ?? it.file;
+        // If we trimmed a video, the duration must follow.
+        const duration = (edited && it.mediaType === 'video' && it.edits.trim)
+          ? Math.max(0, it.edits.trim.end - it.edits.trim.start)
+          : it.durationSeconds;
         return {
-          file: it.file,
+          file,
           mediaType: it.mediaType,
           caption: it.caption.trim(),
-          durationSeconds: it.durationSeconds,
+          durationSeconds: duration,
           bgGradient: it.bgGradient,
           attachedKind: it.attachedKind,
           restaurant: it.restaurant,
@@ -765,30 +816,32 @@ export const AddPostModal: React.FC = () => {
                 <h2 className="font-serif font-bold text-lg leading-tight truncate">
                   {isEditing ? 'Edit post' : (
                     step === 1 ? 'Choose photos & videos' :
-                    step === 2 ? 'Tag each item' :
+                    step === 2 ? 'Edit each item' :
+                    step === 3 ? 'Tag each item' :
                     'Final details'
                   )}
                 </h2>
                 {!isEditing && (
                   <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
                     {step === 1 && `Up to ${POST_MAX_ITEMS} items.`}
-                    {step === 2 && 'Add a per-item caption and featured restaurant or recipe.'}
-                    {step === 3 && 'Post caption, location, and visibility.'}
+                    {step === 2 && 'Crop, trim, adjust, or pick a filter.'}
+                    {step === 3 && 'Add a per-item caption and featured restaurant or recipe.'}
+                    {step === 4 && 'Post caption, location, and visibility.'}
                   </p>
                 )}
                 {isEditing && (
                   <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
-                    {step === 2 && 'Update per-item captions and featured.'}
-                    {step === 3 && 'Update caption, location, audio, and visibility.'}
+                    {step === 3 && 'Update per-item captions and featured.'}
+                    {step === 4 && 'Update caption, location, audio, and visibility.'}
                   </p>
                 )}
               </div>
               {/* Compact step pip — phone only. Desktop gets the labelled
                   stepper bar below the header. Edit mode shows just two
-                  pips (steps 2 + 3). */}
+                  pips (Tag + Details). */}
               {phoneMode && (
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {(isEditing ? [2, 3] : [1, 2, 3]).map((s) => (
+                  {(isEditing ? [3, 4] : [1, 2, 3, 4]).map((s) => (
                     <motion.span
                       key={s}
                       className={cn(
@@ -960,8 +1013,25 @@ export const AddPostModal: React.FC = () => {
               )}
               </>)}
 
-              {/* ───────── STEP 2: Tag each item ───────── */}
-              {step === 2 && items.length > 0 && (<>
+              {/* ───────── STEP 2: Edit each item (crop / trim / filters) ─── */}
+              {step === 2 && items.length > 0 && (
+                <MediaEditor
+                  items={items.map((it) => ({
+                    key: it.key,
+                    mediaType: it.mediaType,
+                    file: it.file,
+                    previewUrl: it.previewUrl,
+                    durationSeconds: it.durationSeconds,
+                    edits: it.edits,
+                  }))}
+                  activeKey={activeKey ?? items[0].key}
+                  onActiveChange={(k) => setActiveKey(k)}
+                  onEditsChange={(key, next) => setItems((prev) => prev.map((it) => it.key === key ? { ...it, edits: next } : it))}
+                />
+              )}
+
+              {/* ───────── STEP 3: Tag each item ───────── */}
+              {step === 3 && items.length > 0 && (<>
               {/* Compact horizontal strip — same component is rendered
                   in step 1 to show the items grid; here it stays at the
                   top for jumping between items while editing. */}
@@ -1222,8 +1292,8 @@ export const AddPostModal: React.FC = () => {
               )}
               </>)}
 
-              {/* ───────── STEP 3: Final details ───────── */}
-              {step === 3 && items.length > 0 && (
+              {/* ───────── STEP 4: Final details ───────── */}
+              {step === 4 && items.length > 0 && (
                 <>
                   <section>
                     <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Post caption</label>
@@ -1407,7 +1477,7 @@ export const AddPostModal: React.FC = () => {
 
             {/* Footer */}
             <div className="border-t border-on-surface/[0.06] px-5 py-3 bg-surface flex items-center gap-3 flex-shrink-0">
-              {/* Step 1: Next, gated on at least one item. */}
+              {/* Step 1 (Media): Next, gated on at least one item. */}
               {!isEditing && step === 1 && (
                 <button
                   type="button"
@@ -1423,9 +1493,8 @@ export const AddPostModal: React.FC = () => {
                   Next <ChevronRight size={15} />
                 </button>
               )}
-              {/* Step 2: Next → step 3. (No gating — captions and
-                  featured are optional.) */}
-              {step === 2 && (
+              {/* Step 2 (Edit): Next — editing is always optional. */}
+              {!isEditing && step === 2 && (
                 <button
                   type="button"
                   onClick={() => goToStep(3)}
@@ -1434,8 +1503,18 @@ export const AddPostModal: React.FC = () => {
                   Next <ChevronRight size={15} />
                 </button>
               )}
-              {/* Step 3: Post / Save changes. */}
+              {/* Step 3 (Tag): Next — captions and featured are optional. */}
               {step === 3 && (
+                <button
+                  type="button"
+                  onClick={() => goToStep(4)}
+                  className="flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary/90 transition-colors"
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              )}
+              {/* Step 4 (Details): Post / Save changes. */}
+              {step === 4 && (
                 <button
                   type="button"
                   onClick={onSubmit}
@@ -1450,7 +1529,7 @@ export const AddPostModal: React.FC = () => {
                   {submitting ? (
                     <>
                       <Loader2 size={15} className="animate-spin" />
-                      {isEditing ? 'Saving…' : `Uploading… ${Math.round(progress * 100)}%`}
+                      {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing edits…' : `Uploading… ${Math.round(progress * 100)}%`}
                     </>
                   ) : (
                     <>
@@ -1460,7 +1539,7 @@ export const AddPostModal: React.FC = () => {
                         : items.length === 0 ? 'Post' : `Post ${items.length} ${items.length === 1 ? 'item' : 'items'}`}
                     </>
                   )}
-                  {submitting && !isEditing && (
+                  {submitting && !isEditing && !finalizingEdits && (
                     <span className="absolute left-0 bottom-0 h-0.5 bg-white/40" style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }} />
                   )}
                 </button>
@@ -1624,15 +1703,16 @@ export const AddPostModal: React.FC = () => {
 
 const POST_STEPPER_LABELS: { label: string; sub: string }[] = [
   { label: 'Media',   sub: 'Photos & videos' },
+  { label: 'Edit',    sub: 'Crop, trim, filters' },
   { label: 'Tag',     sub: 'Per-item details' },
   { label: 'Details', sub: 'Caption & visibility' },
 ];
 
 const PostDesktopStepper: React.FC<{ currentStep: Step; isEditing: boolean }> = ({ currentStep, isEditing }) => {
-  // Edit mode hides the media step entirely; the stepper becomes a
-  // two-checkpoint bar starting from "Tag".
-  const entries = isEditing ? POST_STEPPER_LABELS.slice(1) : POST_STEPPER_LABELS;
-  const offset = isEditing ? 2 : 1; // step number of the first visible entry
+  // Edit mode hides the media + edit steps entirely; the stepper
+  // collapses to a two-checkpoint bar (Tag + Details).
+  const entries = isEditing ? POST_STEPPER_LABELS.slice(2) : POST_STEPPER_LABELS;
+  const offset = isEditing ? 3 : 1; // step number of the first visible entry
   return (
     <div className="border-b border-on-surface/[0.06] px-8 py-5 flex-shrink-0 bg-surface">
       <div className="relative flex items-start justify-between gap-2">
