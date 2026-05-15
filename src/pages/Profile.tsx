@@ -12,6 +12,7 @@ import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { ProfileReelsSection, ProfilePostsSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
+import { TopBar } from '../components/TopBar';
 import { saveProfile, getFollowCounts, getExpertRecommendationCount, getFriends, getFollowerIds, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
@@ -985,6 +986,25 @@ export const Profile: React.FC = () => {
 
   return (
     <div className="pb-32 min-h-screen bg-surface">
+      {/* Mirror the mobile Discover header — Create shortcut on the
+          left, centered logo, messages/Circle cluster on the right.
+          Hidden on desktop where the sidebar layout owns the chrome. */}
+      {!isDesktop && (
+        <TopBar
+          centerLogo={phoneMode}
+          leftAction={phoneMode ? (
+            <button
+              type="button"
+              onClick={() => navigate('/create')}
+              aria-label="Create"
+              className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/80 transition-colors"
+            >
+              <Plus size={20} />
+            </button>
+          ) : undefined}
+        />
+      )}
+
       {pendingRequestCount > 0 && (
         <div className="mx-5 mt-4 flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200/60">
           <span className="text-xs font-semibold text-amber-900">

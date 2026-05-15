@@ -187,6 +187,13 @@ interface ReelSlideProps {
   hideActionRail?: boolean;
   /** When true, skip the in-reel delete button (desktop puts delete in the side rail's "more" menu). */
   hideOwnerDelete?: boolean;
+  /** When true, skip the bottom info overlay (author / audio label / caption / featured card).
+   *  Desktop moves that into a dedicated side panel to the left of the reel. */
+  hideDetailsOverlay?: boolean;
+  /** Fires with the slide's underlying <video> element when this slide
+   *  becomes active, and with `null` when it deactivates. Used by the
+   *  page-level progress bar to scrub the active reel. */
+  onActiveVideoChange?: (video: HTMLVideoElement | null) => void;
   onLike: () => void;
   onSave: () => void;
   onComment: () => void;
@@ -195,7 +202,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
   // object-cover + heavy blur so phone screens taller than 9:16 letterbox
@@ -233,6 +240,22 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       }
     }
   }, [active, muted]);
+
+  // Publish / withdraw the underlying <video> element to the parent
+  // page when this slide becomes active. The page-level progress bar
+  // uses it to render and scrub playback.
+  useEffect(() => {
+    if (!onActiveVideoChange) return;
+    if (active) {
+      onActiveVideoChange(videoRef.current);
+    }
+    return () => {
+      // When this slide deactivates (or unmounts), only withdraw if
+      // we were the publisher — guards against a new active slide
+      // racing the cleanup of the previous one.
+      if (active) onActiveVideoChange(null);
+    };
+  }, [active, onActiveVideoChange]);
 
   // Clear any in-flight tap-feedback timeout when this slide unmounts
   // (e.g. user scrolls past mid-flash).
@@ -360,6 +383,7 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
           On phone the floating BottomNav sits ~70-90px above the bottom
           edge so we pad-bottom enough to clear it; desktop keeps the
           original tighter padding. */}
+      {!hideDetailsOverlay && (
       <div
         role={hasCollapsibleContent ? 'button' : undefined}
         tabIndex={hasCollapsibleContent ? 0 : undefined}
@@ -436,6 +460,175 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+      )}
+    </div>
+  );
+};
+
+/* ── Side details panel (desktop) ───────────────────────────────────── */
+// YouTube-Shorts-style metadata column that lives to the left of the
+// centered reel: author + audio label, optional caption, and the
+// featured restaurant / recipe card. Mirrors what used to be overlaid
+// at the bottom of the video on phone, just relocated into the blank
+// space beside the column on wide viewports.
+
+const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> = ({ reel, onCardClick }) => {
+  return (
+    <div className="hidden md:flex w-[300px] flex-col gap-3.5 self-end pb-3">
+      {/* Author + expert chip */}
+      <Link
+        to={`/user/${encodeURIComponent(reel.authorUsername)}`}
+        className="flex items-center gap-3 group min-w-0"
+      >
+        <div className={cn(
+          'w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-on-surface/[0.06] transition-transform group-hover:scale-[1.04] group-active:scale-[0.96] flex-shrink-0',
+          reel.authorAvatarColor,
+        )}>
+          {reel.authorInitials}
+        </div>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-bold text-[15px] truncate text-on-surface group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
+          {reel.isExpert && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold flex-shrink-0">
+              <Star size={9} className="fill-stone-900" />
+              EXPERT
+            </span>
+          )}
+        </div>
+      </Link>
+
+      {/* Audio label */}
+      <p className="text-on-surface/55 text-[12.5px] font-mono truncate">♪ {reel.audioLabel}</p>
+
+      {/* Caption */}
+      {reel.caption && (
+        <p className="text-on-surface/85 text-[14.5px] font-serif italic leading-snug line-clamp-5">
+          {reel.caption}
+        </p>
+      )}
+
+      {/* Featured restaurant / recipe — re-uses the existing card
+          components. The cards use bg-white/95 which sits cleanly on
+          the cream app surface without retuning. */}
+      {reel.kind === 'restaurant' && reel.restaurant && (
+        <div className="mt-1">
+          <RestaurantCard reel={reel} onClick={onCardClick} />
+        </div>
+      )}
+      {reel.kind === 'recipe' && reel.recipe && (
+        <div className="mt-1">
+          <RecipeCard reel={reel} onClick={onCardClick} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ── Playback progress bar ───────────────────────────────────────────── */
+// A thin, draggable progress bar that sits at the bottom of the page
+// and tracks the active reel's playback. Dragging scrubs and pauses
+// playback for the duration of the drag; on release, playback resumes
+// if it was running before. The bar thickens while dragging.
+
+const ReelProgressBar: React.FC<{
+  videoEl: HTMLVideoElement | null;
+  className?: string;
+}> = ({ videoEl, className }) => {
+  const [progress, setProgress] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const wasPlayingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // rAF loop sync — using requestAnimationFrame instead of timeupdate
+  // gives a smooth 60 Hz fill animation without needing a CSS
+  // transition (which would fight per-frame width updates).
+  useEffect(() => {
+    if (!videoEl) {
+      setProgress(0);
+      return;
+    }
+    let raf = 0;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      if (!dragging && videoEl.duration && Number.isFinite(videoEl.duration)) {
+        setProgress(Math.max(0, Math.min(1, videoEl.currentTime / videoEl.duration)));
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [videoEl, dragging]);
+
+  const pointerToProgress = (clientX: number): number => {
+    const el = containerRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0) return 0;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  };
+
+  const seekTo = (frac: number) => {
+    if (!videoEl) return;
+    const dur = videoEl.duration;
+    if (!Number.isFinite(dur) || dur <= 0) return;
+    try { videoEl.currentTime = frac * dur; } catch { /* ignore */ }
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!videoEl) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    wasPlayingRef.current = !videoEl.paused;
+    try { videoEl.pause(); } catch { /* ignore */ }
+    setDragging(true);
+    const p = pointerToProgress(e.clientX);
+    setProgress(p);
+    seekTo(p);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    const p = pointerToProgress(e.clientX);
+    setProgress(p);
+    seekTo(p);
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    setDragging(false);
+    if (videoEl && wasPlayingRef.current) {
+      videoEl.play().catch(() => { /* autoplay may be blocked */ });
+    }
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      className={cn(
+        'relative w-full select-none touch-none cursor-pointer group',
+        // 14 px tall hit area centred on the visible bar so the
+        // drag target is easy to grab on touch + mouse.
+        'py-[6px]',
+        className,
+      )}
+    >
+      <div
+        className="relative w-full bg-white/25 rounded-full overflow-hidden transition-[height] duration-200 ease-out"
+        style={{ height: dragging ? 4 : 2 }}
+      >
+        <div
+          className="absolute inset-y-0 left-0 bg-white rounded-full"
+          style={{ width: `${progress * 100}%` }}
+        />
       </div>
     </div>
   );
@@ -934,6 +1127,9 @@ export const Reels: React.FC = () => {
   })();
   const [kind, setKind] = useState<FeedKind>(initialKind);
   const [muted, setMuted] = useState(true);
+  // The active reel's <video> element, published by ReelSlide via
+  // onActiveVideoChange. Drives the page-level scrub progress bar.
+  const [activeVideoEl, setActiveVideoEl] = useState<HTMLVideoElement | null>(null);
   // Single "active feed item" key — `reel-<id>` or `post-<id>` — so the
   // unified scroll-snap feed can track exactly one playing slide.
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -1384,7 +1580,7 @@ export const Reels: React.FC = () => {
   const commentsAdd = commentsKind === 'post' ? addPostComment : reelAddComment;
   const commentsDelete = commentsKind === 'post' ? deletePostComment : reelDeleteComment;
 
-  const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean }) => (
+  const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean; hideDetailsOverlay?: boolean; onActiveVideoChange?: (video: HTMLVideoElement | null) => void }) => (
     <div
       ref={containerRef}
       className="h-full w-full overflow-y-auto snap-y snap-mandatory bg-black scrollbar-hide"
@@ -1437,6 +1633,8 @@ export const Reels: React.FC = () => {
                   isMine={!!currentUserId && item.reel.authorId === currentUserId}
                   hideActionRail={opts.hideActionRail}
                   hideOwnerDelete={opts.hideOwnerDelete}
+                  hideDetailsOverlay={opts.hideDetailsOverlay}
+                  onActiveVideoChange={opts.onActiveVideoChange}
                   onLike={() => {
                     if (!currentUserId) { showToast('Sign in to like reels'); return; }
                     toggleLike(item.reel.id);
@@ -1564,6 +1762,18 @@ export const Reels: React.FC = () => {
             <ArrowLeft size={18} strokeWidth={2.4} />
           </button>
         )}
+
+        {/* Left details panel — author / audio label / caption /
+            featured card for the active reel. Lives in the blank space
+            to the left of the centered reel column, mirroring how
+            YouTube Shorts surfaces metadata on desktop. */}
+        {activeReel && (
+          <DesktopReelSideDetails
+            reel={activeReel}
+            onCardClick={() => handleCardClick(activeReel)}
+          />
+        )}
+
         {/* Reel column — full available height; aspect ratio drives width.
             9/16 matches the native reels video ratio and Instagram's desktop
             reels column, so the frame reads as a proper short-form video
@@ -1573,7 +1783,7 @@ export const Reels: React.FC = () => {
           style={{ aspectRatio: '9 / 16' }}
         >
           <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
-          {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true })}
+          {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true, hideDetailsOverlay: true, onActiveVideoChange: setActiveVideoEl })}
         </div>
 
         {/* Side actions — bottom-aligned, dispatched to reel or post APIs
@@ -1653,6 +1863,14 @@ export const Reels: React.FC = () => {
           payload={sharePayload}
           onClose={() => setSharePayload(null)}
         />
+
+        {/* Playback progress bar — pinned to the very bottom of the
+            desktop frame so it spans the full width. */}
+        {activeVideoEl && (
+          <div className="absolute inset-x-0 bottom-0 px-4 pb-1 z-30">
+            <ReelProgressBar videoEl={activeVideoEl} />
+          </div>
+        )}
       </div>
     );
   }
@@ -1671,7 +1889,7 @@ export const Reels: React.FC = () => {
           <ArrowLeft size={18} strokeWidth={2.4} />
         </button>
       )}
-      {renderFeed({})}
+      {renderFeed({ onActiveVideoChange: setActiveVideoEl })}
       {/* Restaurant sheet — mobile counterpart of the desktop panel. Slides
           up from the bottom over the feed. */}
       <RestaurantPanel
@@ -1692,6 +1910,17 @@ export const Reels: React.FC = () => {
         payload={sharePayload}
         onClose={() => setSharePayload(null)}
       />
+
+      {/* Playback progress bar — sits just above the BottomNav so
+          it reads as part of the viewer chrome without overlapping
+          tab buttons. Computed offset: nav floats at ~12 px from
+          the bottom and is roughly 64 px tall, so 84 px clears it
+          with a small visual gap. */}
+      {activeVideoEl && (
+        <div className="absolute inset-x-0 bottom-[84px] px-4 z-30">
+          <ReelProgressBar videoEl={activeVideoEl} />
+        </div>
+      )}
     </div>
   );
 };

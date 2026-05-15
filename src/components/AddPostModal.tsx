@@ -1,21 +1,18 @@
 /**
- * AddPostModal — create a multi-media post (1–15 photos / videos, mixed)
- * with per-item captions and per-item featured restaurant or recipe.
+ * AddPostModal — three-step flow for creating a multi-media post.
  *
- * UX:
- *   1. Empty state: a drop zone for files (multi-select, drag-and-drop).
- *   2. With items present: a horizontal strip of thumbnails. Tap one to
- *      make it the "active" item. The strip has a "+" tile to add more.
- *   3. The active-item editor shows below the strip:
- *        • Per-item caption.
- *        • Per-item featured attachment (restaurant or recipe). Once an
- *          item has an attachment, an "Apply to all" pill appears so the
- *          user can clone it onto the rest in one tap. There's also an
- *          "Apply to next…" affordance for partial cloning.
- *        • Reorder buttons + remove.
- *   4. Post-level fields below: location (free-text label that surfaces
- *      under the caption when viewing), audio label, post-level caption,
- *      visibility toggle.
+ *   Step 1: Media — pick / arrange 1–15 photos and videos.
+ *   Step 2: Tag — per-item caption + featured restaurant or recipe
+ *           attachment, with the same apply-to-all / apply-to-specific
+ *           power-tools from the previous single-page flow.
+ *   Step 3: Details — post-level caption, location, audio, visibility.
+ *
+ * Edit mode jumps straight to step 2 (media is immutable on existing
+ * posts) and the back button on step 2 closes the modal.
+ *
+ * The step body slides horizontally between steps via motion's
+ * direction variant. Phone shows a compact pip indicator in the
+ * header; wide viewports get a full YouTube-style labelled stepper.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -38,6 +35,13 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { searchLocations, type HomeLocation } from './HomeLocationBar';
+import {
+  MediaEditor,
+  applyAllEdits,
+  DEFAULT_EDIT_STATE,
+  isEdited,
+  type EditState,
+} from './MediaEditor';
 
 const PLACE_TYPE_TO_CUISINE: Record<string, string> = {};
 for (const c of CUISINE_TYPES) {
@@ -85,6 +89,9 @@ interface WorkingItem {
   restaurant?: PostRestaurantSnapshot;
   recipe?: PostRecipeSnapshot;
   bgGradient: string;
+  /** Per-item editor state — crop, trim, colour adjustments, filter
+   *  preset. Lazily applied to produce an edited File during submit. */
+  edits: EditState;
   /** Snapshot of attached/caption from the original post — used to diff
    *  on submit so we only PATCH items that actually changed. */
   original?: {
@@ -104,6 +111,16 @@ function detectMediaType(file: File): PostMediaType | null {
   return null;
 }
 
+/* ── Step machine type ───────────────────────────────────────────────── */
+
+type Step = 1 | 2 | 3 | 4;
+
+const stepVariants = {
+  enter: (dir: number) => ({ x: dir > 0 ? 32 : -32, opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (dir: number) => ({ x: dir > 0 ? -32 : 32, opacity: 0 }),
+};
+
 /* ── The modal ──────────────────────────────────────────────────────── */
 
 export const AddPostModal: React.FC = () => {
@@ -117,6 +134,15 @@ export const AddPostModal: React.FC = () => {
   const { profile, user } = useAuth();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
+
+  // Step machine. Create flow walks 1 → 2 → 3; edit flow enters at 2
+  // (media is locked) and goes 2 → 3.
+  const [step, setStep] = useState<Step>(1);
+  const [direction, setDirection] = useState<1 | -1>(1);
+  const goToStep = (next: Step) => {
+    setDirection(next > step ? 1 : -1);
+    setStep(next);
+  };
 
   const [items, setItems] = useState<WorkingItem[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -136,11 +162,26 @@ export const AddPostModal: React.FC = () => {
   const [isPublic, setIsPublic] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [finalizingEdits, setFinalizingEdits] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
   const [dragDepth, setDragDepth] = useState(0);
   const dragActive = dragDepth > 0;
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Step 3 carousel — track scroll position to update the active item
+  // when the user swipes, and scroll-into-view when the active item
+  // changes from outside (prev / next buttons, multi-apply, etc.).
+  const tagCarouselRef = useRef<HTMLDivElement | null>(null);
+  const tagSlideRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  // Flag set when the user swipes — suppresses the smooth-scroll
+  // effect that would otherwise fight the browser's native snap.
+  const tagUserScrollChangeRef = useRef(false);
+  const tagScrollEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Active <video> element on the Tag carousel — we keep it muted by
+  // default but auto-pause neighbours when scrolling so only one clip
+  // plays at a time.
+  const tagVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
 
   // Picker state — shared between restaurant and recipe.
   const [pickerOpen, setPickerOpen] = useState<PostAttachedKind | null>(null);
@@ -170,6 +211,7 @@ export const AddPostModal: React.FC = () => {
         restaurant: it.restaurant ?? undefined,
         recipe: it.recipe ?? undefined,
         bgGradient: it.bgGradient,
+        edits: DEFAULT_EDIT_STATE,
         original: {
           caption: it.caption,
           attachedKind: it.attachedKind,
@@ -186,6 +228,10 @@ export const AddPostModal: React.FC = () => {
         : null);
       setAudio(editingPost.audioLabel);
       setIsPublic(editingPost.isPublic);
+      // Edit mode: media + per-item edits are locked, so we start at
+      // step 3 (per-item tagging) and let the user advance to step 4
+      // (post-level fields).
+      setStep(3);
     } else {
       setItems([]);
       setActiveKey(null);
@@ -194,11 +240,14 @@ export const AddPostModal: React.FC = () => {
       setPickedLocation(null);
       setAudio('Original audio');
       setIsPublic(true);
+      setStep(1);
     }
+    setDirection(1);
     setLocationSuggestions([]);
     setLocationFocused(false);
     setLocationSearching(false);
     setSubmitting(false);
+    setFinalizingEdits(false);
     setProgress(0);
     setErrorMsg(null);
     setValidationMsg(null);
@@ -222,6 +271,23 @@ export const AddPostModal: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // On phone, auto-open the OS picker the first time step 1 mounts so
+  // the user lands on the camera roll without an extra tap. Same
+  // best-effort approach as AddReelModal: the "Create" tap that opened
+  // the modal keeps the user-gesture context alive on iOS / Android
+  // Chrome. Bails out in edit mode (media is locked) or once items
+  // exist (going back to add more is an explicit user action).
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!addPostModalOpen) { autoOpenedRef.current = false; return; }
+    if (!phoneMode || isEditing || step !== 1 || items.length > 0 || autoOpenedRef.current) return;
+    autoOpenedRef.current = true;
+    const id = window.setTimeout(() => {
+      try { fileInputRef.current?.click(); } catch { /* user gesture lost */ }
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [addPostModalOpen, phoneMode, isEditing, step, items.length]);
 
   // Geolocation bias for the Places query.
   useEffect(() => {
@@ -271,6 +337,48 @@ export const AddPostModal: React.FC = () => {
     }, 250);
     return () => { if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current); };
   }, [addPostModalOpen, locationLabel, pickedLocation]);
+
+  // When the Tag step mounts (or the active item changes for reasons
+  // other than scrolling — prev/next button, removal, etc.) make sure
+  // the carousel snaps to the active slide. Skip when the carousel
+  // is already centred on it so user scrolls aren't fought.
+  useEffect(() => {
+    if (step !== 3) return;
+    if (!activeKey) return;
+    // Skip when the change came from the user swiping; the browser is
+    // already snapping and a competing smooth-scroll causes jitter.
+    if (tagUserScrollChangeRef.current) {
+      tagUserScrollChangeRef.current = false;
+      return;
+    }
+    const slide = tagSlideRefs.current.get(activeKey);
+    const carousel = tagCarouselRef.current;
+    if (!slide || !carousel) return;
+    const desiredScrollLeft = slide.offsetLeft - (carousel.clientWidth - slide.offsetWidth) / 2;
+    // Wider threshold tolerates the sub-pixel offset the browser
+    // leaves at the end of a native snap.
+    if (Math.abs(carousel.scrollLeft - desiredScrollLeft) > 24) {
+      carousel.scrollTo({ left: desiredScrollLeft, behavior: 'smooth' });
+    }
+    // activeIdx is included so a reorder (which doesn't change the
+    // active key but does shift its position) re-runs the snap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, activeKey, items.findIndex((it) => it.key === activeKey)]);
+
+  // Clean up the debounce timer on unmount.
+  useEffect(() => () => {
+    if (tagScrollEndTimerRef.current) clearTimeout(tagScrollEndTimerRef.current);
+  }, []);
+
+  // Pause every Tag-carousel video that isn't the active one — playing
+  // multiple videos at once is choppy and confusing.
+  useEffect(() => {
+    if (step !== 3) return;
+    tagVideoRefs.current.forEach((v, key) => {
+      if (key === activeKey) return;
+      try { v.pause(); } catch { /* ignore */ }
+    });
+  }, [step, activeKey]);
 
   // Click-outside the location field — close the suggestions dropdown.
   useEffect(() => {
@@ -322,6 +430,9 @@ export const AddPostModal: React.FC = () => {
   const onPickFiles = async (incoming: File[]) => {
     // Editing an existing post — media is locked. Bail.
     if (isEditing) return;
+    // Media can only be added on step 1; ignore drops that arrive while
+    // the user is on the tagging or details step.
+    if (step !== 1) return;
     setValidationMsg(null);
     setErrorMsg(null);
 
@@ -367,10 +478,21 @@ export const AddPostModal: React.FC = () => {
         durationSeconds,
         attachedKind: null,
         bgGradient: pickFromPool(BG_GRADIENT_POOL, key),
+        edits: DEFAULT_EDIT_STATE,
       });
     }
     if (accepted.length === 0) return;
-    setItems((prev) => [...prev, ...accepted]);
+    setItems((prev) => {
+      const next = [...prev, ...accepted];
+      // First pick of the session — auto-advance to the Edit step so
+      // the user lands on the editor without an extra tap, matching
+      // Instagram. Subsequent picks (via the strip's "+" tile) stay
+      // put so the user can keep adding before moving on.
+      if (prev.length === 0 && step === 1) {
+        setTimeout(() => goToStep(2), 0);
+      }
+      return next;
+    });
     if (!activeKey) setActiveKey(accepted[0].key);
   };
 
@@ -635,13 +757,39 @@ export const AddPostModal: React.FC = () => {
     // ── Create path ──
     setProgress(0.05);
     try {
+      // Bake the user's per-item edits (crop / trim / colour grading
+      // / filter) into new files before uploading. Items the user
+      // didn't touch in step 2 fall through unchanged.
+      const editable = items.filter((it) => isEdited(it.edits) && it.file && it.previewUrl.startsWith('blob:'));
+      let editedFiles: Record<string, File> = {};
+      if (editable.length > 0) {
+        setFinalizingEdits(true);
+        try {
+          editedFiles = await applyAllEdits(editable.map((it) => ({
+            key: it.key,
+            mediaType: it.mediaType,
+            file: it.file,
+            previewUrl: it.previewUrl,
+            durationSeconds: it.durationSeconds,
+            edits: it.edits,
+          })));
+        } finally {
+          setFinalizingEdits(false);
+        }
+      }
       const newItems: NewPostItem[] = items.map((it) => {
         if (!it.file) throw new Error('Missing file for new item — please re-attach.');
+        const edited = editedFiles[it.key];
+        const file = edited ?? it.file;
+        // If we trimmed a video, the duration must follow.
+        const duration = (edited && it.mediaType === 'video' && it.edits.trim)
+          ? Math.max(0, it.edits.trim.end - it.edits.trim.start)
+          : it.durationSeconds;
         return {
-          file: it.file,
+          file,
           mediaType: it.mediaType,
           caption: it.caption.trim(),
-          durationSeconds: it.durationSeconds,
+          durationSeconds: duration,
           bgGradient: it.bgGradient,
           attachedKind: it.attachedKind,
           restaurant: it.restaurant,
@@ -692,34 +840,86 @@ export const AddPostModal: React.FC = () => {
               'bg-surface w-full overflow-hidden flex flex-col',
               phoneMode
                 ? 'h-full rounded-none'
-                : 'h-full sm:max-w-xl sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl',
+                : 'h-full sm:max-w-2xl sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl',
             )}
           >
             {/* Header */}
-            <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-on-surface/[0.06] flex-shrink-0">
-              <div>
-                <h2 className="font-serif font-bold text-lg leading-tight">
-                  {isEditing ? 'Edit post' : 'New post'}
+            <div className="px-5 pt-4 pb-3 flex items-center gap-3 border-b border-on-surface/[0.06] flex-shrink-0">
+              {/* Back when there's a previous step, else close. Edit mode
+                  starts at step 2 so its "back" closes the modal. */}
+              {!isEditing && step > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => { if (!submitting) goToStep((step - 1) as Step); }}
+                  disabled={submitting}
+                  className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0"
+                  aria-label="Back"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { if (!submitting) closeAddPostModal(); }}
+                  disabled={submitting}
+                  className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40 flex-shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              )}
+              <div className="flex-1 min-w-0">
+                <h2 className="font-serif font-bold text-lg leading-tight truncate">
+                  {isEditing ? 'Edit post' : (
+                    step === 1 ? 'Choose photos & videos' :
+                    step === 2 ? 'Edit each item' :
+                    step === 3 ? 'Tag each item' :
+                    'Final details'
+                  )}
                 </h2>
-                <p className="text-[12px] text-on-surface/45 mt-0.5">
-                  {isEditing
-                    ? 'Update captions, location, audio, and per-item featured. The photos / videos themselves stay the same.'
-                    : `Up to ${POST_MAX_ITEMS} photos / videos. Each can have its own caption + featured.`}
-                </p>
+                {!isEditing && (
+                  <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
+                    {step === 1 && `Up to ${POST_MAX_ITEMS} items.`}
+                    {step === 2 && 'Crop, trim, adjust, or pick a filter.'}
+                    {step === 3 && 'Add a per-item caption and featured restaurant or recipe.'}
+                    {step === 4 && 'Post caption, location, and visibility.'}
+                  </p>
+                )}
+                {isEditing && (
+                  <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
+                    {step === 3 && 'Update per-item captions and featured.'}
+                    {step === 4 && 'Update caption, location, audio, and visibility.'}
+                  </p>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={() => { if (!submitting) closeAddPostModal(); }}
-                disabled={submitting}
-                className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 disabled:opacity-40"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
+              {/* Compact step pip — phone only. Desktop gets the labelled
+                  stepper bar below the header. Edit mode shows just two
+                  pips (Tag + Details). */}
+              {phoneMode && (
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {(isEditing ? [3, 4] : [1, 2, 3, 4]).map((s) => (
+                    <motion.span
+                      key={s}
+                      className={cn(
+                        'h-1.5 rounded-full',
+                        s <= step ? 'bg-primary' : 'bg-on-surface/10',
+                      )}
+                      animate={{ width: s === step ? 20 : 6 }}
+                      transition={{ duration: 0.25, ease: 'easeOut' }}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
+            {/* Desktop stepper — full-width labelled checkpoints, hidden
+                on phone (the header pip is enough). */}
+            {!phoneMode && (
+              <PostDesktopStepper currentStep={step} isEditing={isEditing} />
+            )}
+
             <div
-              className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 pb-32 space-y-5 relative"
+              className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden relative"
               onDragEnter={onDragEnter}
               onDragOver={onDragOver}
               onDragLeave={onDragLeave}
@@ -734,6 +934,24 @@ export const AddPostModal: React.FC = () => {
                 onChange={(e) => onPickFiles(Array.from(e.target.files || []))}
               />
 
+              {/* Animated step content. AnimatePresence + key={step} drives
+                  the horizontal slide; the inner motion.div uses
+                  direction-aware variants so forward swipes right-to-left
+                  and back swipes the other way. */}
+              <AnimatePresence mode="wait" initial={false} custom={direction}>
+                <motion.div
+                  key={step}
+                  custom={direction}
+                  variants={stepVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                  className="px-5 pt-4 pb-6 space-y-5"
+                >
+
+              {/* ───────── STEP 1: Media ───────── */}
+              {step === 1 && (<>
               {/* Empty state vs items strip */}
               {items.length === 0 ? (
                 <button
@@ -848,6 +1066,193 @@ export const AddPostModal: React.FC = () => {
                     </div>
                   )}
                 </section>
+              )}
+              </>)}
+
+              {/* ───────── STEP 2: Edit each item (crop / trim / filters) ─── */}
+              {step === 2 && items.length > 0 && (
+                <MediaEditor
+                  items={items.map((it) => ({
+                    key: it.key,
+                    mediaType: it.mediaType,
+                    file: it.file,
+                    previewUrl: it.previewUrl,
+                    durationSeconds: it.durationSeconds,
+                    edits: it.edits,
+                  }))}
+                  activeKey={activeKey ?? items[0].key}
+                  onActiveChange={(k) => setActiveKey(k)}
+                  onEditsChange={(key, next) => setItems((prev) => prev.map((it) => it.key === key ? { ...it, edits: next } : it))}
+                />
+              )}
+
+              {/* ───────── STEP 3: Tag each item ───────── */}
+              {step === 3 && items.length > 0 && (<>
+              {/* Section header — count on the left, current position on
+                  the right. */}
+              <div className="flex items-baseline justify-between">
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45">
+                  Items
+                  <span className="text-on-surface/30 font-medium ml-1.5">{items.length} / {POST_MAX_ITEMS}</span>
+                </label>
+                {activeIdx >= 0 && (
+                  <span className="text-[11px] text-on-surface/45 font-mono tabular-nums">#{activeIdx + 1}</span>
+                )}
+              </div>
+
+              {/* Media carousel — slides are 82% wide with snap-center so
+                  the active slide is in the middle and the neighbours
+                  peek in from the sides. Scrolling (or tapping a peek)
+                  updates the active key. Each slide is a full media
+                  preview; the active one auto-plays for videos. */}
+              <div className="-mx-5">
+                <div
+                  ref={tagCarouselRef}
+                  className="flex overflow-x-auto snap-x snap-mandatory scrollbar-hide gap-3 pb-1"
+                  onScroll={() => {
+                    // Debounce until the scroll has settled — mid-snap
+                    // onScroll events otherwise flip activeKey back and
+                    // forth as the dominant slide changes, making the
+                    // scale / opacity transitions stutter.
+                    if (tagScrollEndTimerRef.current) clearTimeout(tagScrollEndTimerRef.current);
+                    tagScrollEndTimerRef.current = setTimeout(() => {
+                      const el = tagCarouselRef.current;
+                      if (!el) return;
+                      const center = el.scrollLeft + el.clientWidth / 2;
+                      let bestKey: string | null = null;
+                      let bestDist = Infinity;
+                      tagSlideRefs.current.forEach((slide, key) => {
+                        const slideCenter = slide.offsetLeft + slide.offsetWidth / 2;
+                        const dist = Math.abs(slideCenter - center);
+                        if (dist < bestDist) { bestDist = dist; bestKey = key; }
+                      });
+                      if (bestKey && bestKey !== activeKey) {
+                        tagUserScrollChangeRef.current = true;
+                        setActiveKey(bestKey);
+                      }
+                    }, 90);
+                  }}
+                >
+                  {/* Leading spacer — see MediaEditor for the same
+                      pattern; makes the 82% slide width resolve
+                      against the full container, so single-item /
+                      first / last slides snap-center exactly. */}
+                  <div className="flex-shrink-0 w-[9%]" aria-hidden />
+                  {items.map((it, idx) => {
+                    const isActive = it.key === activeKey;
+                    const hasAttach = it.attachedKind !== null;
+                    const inMulti = !!multiApply;
+                    const isSource = inMulti && it.key === multiApply.sourceKey;
+                    const isTarget = inMulti && multiApply.targets.has(it.key);
+                    return (
+                      <div
+                        key={it.key}
+                        ref={(el) => {
+                          if (el) tagSlideRefs.current.set(it.key, el);
+                          else tagSlideRefs.current.delete(it.key);
+                        }}
+                        data-item-key={it.key}
+                        className={cn(
+                          // sm:max-h caps the slide on desktop so the
+                          // caption / featured controls + Next button
+                          // below the carousel stay visible without
+                          // scrolling.
+                          'relative flex-shrink-0 w-[82%] aspect-[3/4] sm:max-h-[48vh] rounded-2xl overflow-hidden snap-center transition-[opacity,transform] duration-200 ease-out will-change-transform',
+                          isActive ? 'scale-100 opacity-100' : 'scale-[0.94] opacity-70',
+                        )}
+                        onClick={() => {
+                          if (inMulti) toggleMultiApplyTarget(it.key);
+                          else if (!isActive) setActiveKey(it.key);
+                        }}
+                      >
+                        {it.mediaType === 'photo' ? (
+                          <img
+                            src={it.previewUrl}
+                            alt=""
+                            loading="lazy"
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
+                        ) : (
+                          <video
+                            ref={(el) => {
+                              if (el) tagVideoRefs.current.set(it.key, el);
+                              else tagVideoRefs.current.delete(it.key);
+                            }}
+                            src={it.previewUrl}
+                            // Only show full <video> controls for the
+                            // active slide — peeks should look like a
+                            // photo with a play hint, not a row of
+                            // duelling control bars.
+                            controls={isActive}
+                            playsInline
+                            preload="metadata"
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
+                        )}
+                        {/* Index pill + media-type icon, gradient
+                            scrim for legibility. */}
+                        <div className="absolute inset-x-0 bottom-0 px-3 py-2 bg-gradient-to-t from-black/65 to-transparent flex items-center justify-between gap-2 pointer-events-none">
+                          <span className="text-[12px] font-bold text-white/90 tabular-nums">#{idx + 1}</span>
+                          {it.mediaType === 'video' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-white/85 uppercase tracking-wider">
+                              <VideoIcon size={11} /> Video
+                            </span>
+                          )}
+                        </div>
+                        {/* Tap-anywhere overlay for peeks — without it
+                            the click would hit the underlying media
+                            element first and toggle native controls. */}
+                        {!isActive && !inMulti && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveKey(it.key)}
+                            className="absolute inset-0 z-10"
+                            aria-label={`Go to item ${idx + 1}`}
+                          />
+                        )}
+                        {/* Featured indicator pill. */}
+                        {hasAttach && !inMulti && (
+                          <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-wider shadow-sm">
+                            {it.attachedKind === 'restaurant' ? <MapPin size={10} /> : <ChefHat size={10} />}
+                            Featured
+                          </span>
+                        )}
+                        {/* Multi-apply visuals. */}
+                        {isSource && (
+                          <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-wider">Source</span>
+                        )}
+                        {inMulti && !isSource && (
+                          <span className={cn(
+                            'absolute top-2.5 right-2.5 inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors',
+                            isTarget ? 'bg-primary text-white' : 'bg-black/55 text-white border border-white/40',
+                          )}>
+                            {isTarget && <Check size={13} strokeWidth={3} />}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Trailing spacer — pairs with the leading one. */}
+                  <div className="flex-shrink-0 w-[9%]" aria-hidden />
+                </div>
+              </div>
+
+              {/* Pagination dots — small visual hint to the user that
+                  there's a carousel here. */}
+              {items.length > 1 && (
+                <div className="flex items-center justify-center gap-1.5">
+                  {items.map((it) => (
+                    <motion.span
+                      key={it.key}
+                      className={cn(
+                        'h-1.5 rounded-full',
+                        it.key === activeKey ? 'bg-primary' : 'bg-on-surface/15',
+                      )}
+                      animate={{ width: it.key === activeKey ? 18 : 5 }}
+                      transition={{ duration: 0.25, ease: 'easeOut' }}
+                    />
+                  ))}
+                </div>
               )}
 
               {/* Multi-apply banner — replaces the active-item editor while
@@ -992,7 +1397,37 @@ export const AddPostModal: React.FC = () => {
                         </button>
                       </div>
                     ) : (
-                      <div className="flex gap-2">
+                      <>
+                        {/* When the user just navigated and the
+                            previous item has a featured, offer a
+                            one-tap "use the same one" shortcut. */}
+                        {(() => {
+                          const prev = activeIdx > 0 ? items[activeIdx - 1] : null;
+                          if (!prev || !prev.attachedKind) return null;
+                          const prevName = prev.attachedKind === 'restaurant'
+                            ? prev.restaurant?.name
+                            : prev.recipe?.title;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => applyAttachmentToItem(
+                                activeItem.key,
+                                prev.attachedKind!,
+                                { restaurant: prev.restaurant, recipe: prev.recipe },
+                              )}
+                              disabled={submitting}
+                              className="w-full mb-2 inline-flex items-center gap-2 rounded-2xl bg-primary/[0.06] border border-primary/15 px-3 py-2.5 text-left transition-colors hover:bg-primary/[0.1] disabled:opacity-40"
+                            >
+                              <Link2 size={14} className="text-primary flex-shrink-0" />
+                              <span className="flex-1 min-w-0 text-[12.5px] text-on-surface/75 truncate">
+                                Use the same as <span className="font-semibold text-on-surface">#{activeIdx}</span>
+                                {prevName && <> — <span className="font-bold text-on-surface">{prevName}</span></>}
+                              </span>
+                              <Check size={14} className="text-primary/60 flex-shrink-0" />
+                            </button>
+                          );
+                        })()}
+                        <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => { setPickerOpen('restaurant'); setRestaurantSearch(''); }}
@@ -1009,7 +1444,8 @@ export const AddPostModal: React.FC = () => {
                         >
                           <ChefHat size={13} /> Recipe
                         </button>
-                      </div>
+                        </div>
+                      </>
                     )}
 
                     {/* Apply-to-all + Apply-to-specific. The latter
@@ -1040,9 +1476,10 @@ export const AddPostModal: React.FC = () => {
                   </div>
                 </section>
               )}
+              </>)}
 
-              {/* Post-level fields */}
-              {items.length > 0 && (
+              {/* ───────── STEP 4: Final details ───────── */}
+              {step === 4 && items.length > 0 && (
                 <>
                   <section>
                     <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Post caption</label>
@@ -1201,60 +1638,98 @@ export const AddPostModal: React.FC = () => {
                 </>
               )}
 
-              {/* Auth notice */}
-              {!user?.id && (
-                <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
-                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                  <span>Sign in to post.</span>
-                </div>
-              )}
-
-              {errorMsg && (
-                <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
-                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                  <span>{errorMsg}</span>
-                </div>
-              )}
+                </motion.div>
+              </AnimatePresence>
             </div>
+
+            {/* Auth + submit-error banners — pinned between the body and
+                the footer so they stay visible across all steps. */}
+            {(!user?.id || errorMsg) && (
+              <div className="px-5 pb-2 flex-shrink-0 space-y-2">
+                {!user?.id && (
+                  <div className="flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[12px] text-amber-800">
+                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                    <span>Sign in to post.</span>
+                  </div>
+                )}
+                {errorMsg && (
+                  <div className="flex items-start gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-[12px] text-rose-700">
+                    <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                    <span>{errorMsg}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Footer */}
             <div className="border-t border-on-surface/[0.06] px-5 py-3 bg-surface flex items-center gap-3 flex-shrink-0">
-              <button
-                type="button"
-                onClick={() => { if (!submitting) closeAddPostModal(); }}
-                disabled={submitting}
-                className="px-4 h-11 rounded-full text-sm font-semibold text-on-surface/65 hover:bg-on-surface/[0.05] disabled:opacity-40"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onSubmit}
-                disabled={!canSubmit}
-                className={cn(
-                  'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors relative overflow-hidden',
-                  canSubmit
-                    ? 'bg-primary text-white hover:bg-primary/90'
-                    : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
-                )}
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 size={15} className="animate-spin" />
-                    {isEditing ? 'Saving…' : `Uploading… ${Math.round(progress * 100)}%`}
-                  </>
-                ) : (
-                  <>
-                    <Upload size={15} />
-                    {isEditing
-                      ? 'Save changes'
-                      : items.length === 0 ? 'Post' : `Post ${items.length} ${items.length === 1 ? 'item' : 'items'}`}
-                  </>
-                )}
-                {submitting && !isEditing && (
-                  <span className="absolute left-0 bottom-0 h-0.5 bg-white/40" style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }} />
-                )}
-              </button>
+              {/* Step 1 (Media): Next, gated on at least one item. */}
+              {!isEditing && step === 1 && (
+                <button
+                  type="button"
+                  onClick={() => goToStep(2)}
+                  disabled={items.length === 0}
+                  className={cn(
+                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
+                    items.length > 0
+                      ? 'bg-primary text-white hover:bg-primary/90'
+                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
+                  )}
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              )}
+              {/* Step 2 (Edit): Next — editing is always optional. */}
+              {!isEditing && step === 2 && (
+                <button
+                  type="button"
+                  onClick={() => goToStep(3)}
+                  className="flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary/90 transition-colors"
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              )}
+              {/* Step 3 (Tag): Next — captions and featured are optional. */}
+              {step === 3 && (
+                <button
+                  type="button"
+                  onClick={() => goToStep(4)}
+                  className="flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 bg-primary text-white hover:bg-primary/90 transition-colors"
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              )}
+              {/* Step 4 (Details): Post / Save changes. */}
+              {step === 4 && (
+                <button
+                  type="button"
+                  onClick={onSubmit}
+                  disabled={!canSubmit}
+                  className={cn(
+                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors relative overflow-hidden',
+                    canSubmit
+                      ? 'bg-primary text-white hover:bg-primary/90'
+                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
+                  )}
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" />
+                      {isEditing ? 'Saving…' : finalizingEdits ? 'Finishing edits…' : `Uploading… ${Math.round(progress * 100)}%`}
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={15} />
+                      {isEditing
+                        ? 'Save changes'
+                        : items.length === 0 ? 'Post' : `Post ${items.length} ${items.length === 1 ? 'item' : 'items'}`}
+                    </>
+                  )}
+                  {submitting && !isEditing && !finalizingEdits && (
+                    <span className="absolute left-0 bottom-0 h-0.5 bg-white/40" style={{ width: `${Math.round(progress * 100)}%`, transition: 'width 200ms ease-out' }} />
+                  )}
+                </button>
+              )}
             </div>
           </motion.div>
 
@@ -1401,5 +1876,80 @@ export const AddPostModal: React.FC = () => {
         </motion.div>
       )}
     </AnimatePresence>
+  );
+};
+
+/* ── Desktop stepper ──────────────────────────────────────────────────
+   Mirrors the YouTube-style stepper used in AddReelModal — three
+   labelled checkpoints (Media · Tag · Details) with a primary-filled
+   circle + check for completed steps, a primary ring for the current
+   step, and outlined circles for upcoming ones. The connector between
+   each pair fills with primary color as the user advances. Edit mode
+   collapses to two checkpoints since the media step is hidden. */
+
+const POST_STEPPER_LABELS: { label: string }[] = [
+  { label: 'Media' },
+  { label: 'Edit' },
+  { label: 'Tag' },
+  { label: 'Details' },
+];
+
+const PostDesktopStepper: React.FC<{ currentStep: Step; isEditing: boolean }> = ({ currentStep, isEditing }) => {
+  // Edit mode hides the media + edit steps entirely; the stepper
+  // collapses to a two-checkpoint bar (Tag + Details).
+  const entries = isEditing ? POST_STEPPER_LABELS.slice(2) : POST_STEPPER_LABELS;
+  const offset = isEditing ? 3 : 1; // step number of the first visible entry
+  return (
+    <div className="border-b border-on-surface/[0.06] px-8 py-2.5 flex-shrink-0 bg-surface">
+      <div className="relative flex items-center justify-between gap-2">
+        {entries.map((entry, i) => {
+          const stepNum = (offset + i) as Step;
+          const status: 'done' | 'current' | 'upcoming' =
+            stepNum < currentStep ? 'done' : stepNum === currentStep ? 'current' : 'upcoming';
+          const isLast = i === entries.length - 1;
+          const nextDone = stepNum < currentStep;
+          return (
+            <React.Fragment key={entry.label}>
+              <div className="flex items-center gap-2 flex-shrink-0 relative z-10">
+                <motion.div
+                  className={cn(
+                    'w-6 h-6 rounded-full flex items-center justify-center transition-colors',
+                    status === 'done' && 'bg-primary text-white',
+                    status === 'current' && 'bg-primary text-white ring-[3px] ring-primary/15',
+                    status === 'upcoming' && 'bg-on-surface/[0.04] border-2 border-on-surface/15 text-on-surface/35',
+                  )}
+                  initial={false}
+                  animate={status === 'current' ? { scale: 1.04 } : { scale: 1 }}
+                  transition={{ type: 'spring', damping: 22, stiffness: 320 }}
+                >
+                  {status === 'done' ? (
+                    <Check size={12} strokeWidth={3} />
+                  ) : (
+                    <span className="text-[10.5px] font-bold tabular-nums">{stepNum}</span>
+                  )}
+                </motion.div>
+                <span className={cn(
+                  'text-[12px] font-bold leading-tight transition-colors whitespace-nowrap',
+                  status === 'upcoming' ? 'text-on-surface/40' : 'text-on-surface',
+                )}>
+                  {entry.label}
+                </span>
+              </div>
+              {!isLast && (
+                <div className="flex-1 relative h-[2px]">
+                  <div className="absolute inset-0 rounded-full bg-on-surface/10" />
+                  <motion.div
+                    className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                    initial={false}
+                    animate={{ width: nextDone ? '100%' : '0%' }}
+                    transition={{ duration: 0.35, ease: 'easeOut' }}
+                  />
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
   );
 };

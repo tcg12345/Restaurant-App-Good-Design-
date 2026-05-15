@@ -16,6 +16,7 @@ import { Reels } from './pages/Reels';
 import { Activity } from './pages/Activity';
 import { RestaurantDetail } from './pages/RestaurantDetail';
 import { Onboarding } from './pages/Onboarding';
+import { Create } from './pages/Create';
 import { BottomNav } from './components/BottomNav';
 import { Sidebar } from './components/Sidebar';
 import { DesktopHeader } from './components/DesktopHeader';
@@ -100,7 +101,7 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !isFocusedReel;
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !isFocusedReel;
   const { phoneMode } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
@@ -163,20 +164,37 @@ const AppContent: React.FC = () => {
   }
 
   // ── Routes block, shared between sidebar and phone/narrow layouts ──
+  // The Create page slides in horizontally from the left and overlays
+  // the route underneath, so the swipe-from-edge gesture on Discover
+  // feels native rather than waiting for a fade-out first. Other routes
+  // keep the existing fade + small vertical lift in `mode="wait"`.
+  const isCreateRoute = location.pathname === '/create';
+  const motionInitial = isCreateRoute ? { x: '-100%', opacity: 1 } : { opacity: 0, y: 6 };
+  const motionAnimate = isCreateRoute ? { x: 0, opacity: 1 } : { opacity: 1, y: 0 };
+  const motionExit = isCreateRoute ? { x: '-100%', opacity: 1 } : { opacity: 0, y: -4 };
+  const motionTransition = isCreateRoute
+    ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
+    : { duration: 0.18, ease: 'easeOut' as const };
+
   const routesBlock = (
-    <AnimatePresence mode="wait" initial={false}>
+    <AnimatePresence mode={isCreateRoute ? 'sync' : 'wait'} initial={false}>
       <motion.div
         key={location.pathname}
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -4 }}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
+        initial={motionInitial}
+        animate={motionAnimate}
+        exit={motionExit}
+        transition={motionTransition}
+        // While /create is the current path its motion.div overlays the
+        // page underneath; for every other route the wrapper is a normal
+        // in-flow block so layout doesn't shift.
+        className={isCreateRoute ? 'absolute inset-0 z-30' : undefined}
       >
         <Routes location={location}>
           <Route path="/" element={<Discover mode="home" />} />
           <Route path="/map" element={<Discover mode="map" />} />
           <Route path="/auth" element={<Navigate to="/" replace />} />
           <Route path="/circle" element={<Circle />} />
+          <Route path="/create" element={<Create />} />
           <Route path="/search" element={<Search />} />
           <Route path="/search/main" element={<SearchMain />} />
           <Route path="/reels" element={<Reels />} />
@@ -235,7 +253,7 @@ const AppContent: React.FC = () => {
         <Sidebar />
         <main className="flex-1 min-w-0 min-h-screen flex flex-col">
           {!hideHeader && <DesktopHeader />}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 relative">
             {routesBlock}
           </div>
         </main>
@@ -260,7 +278,7 @@ const AppContent: React.FC = () => {
             : undefined
         }
       >
-        <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
+        <div className={phoneMode ? "relative h-full overflow-y-auto overflow-x-hidden" : "relative"}>
           {routesBlock}
         </div>
         <AnimatePresence>

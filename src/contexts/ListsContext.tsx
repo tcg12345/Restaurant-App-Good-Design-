@@ -54,6 +54,12 @@ export interface RestaurantMeta {
    *  Google's Places components don't include neighborhood data for
    *  most cities. */
   neighborhood?: string;
+  /** Google Places weekday opening-hour descriptions
+   *  (e.g. `"Monday: 10:00 AM – 10:00 PM"`). Backfilled by the location
+   *  enricher alongside coordinates; empty array means we tried and the
+   *  place doesn't publish hours. Cards read this to show today's hours
+   *  inline. */
+  hours?: string[];
 }
 
 export interface RecipeIngredient {
@@ -1128,6 +1134,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             lng: cleaned.lng ?? existing.lng,
             addressComponents: cleaned.addressComponents ?? existing.addressComponents,
             neighborhood: cleaned.neighborhood ?? existing.neighborhood,
+            hours: cleaned.hours ?? existing.hours,
           } as RestaurantMeta
         : ({
             id: cleaned.id,

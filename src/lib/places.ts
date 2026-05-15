@@ -1141,6 +1141,9 @@ interface BackfilledLocationData {
   neighborhood?: string;
   lat?: number;
   lng?: number;
+  /** Weekday opening hour descriptions (empty array = Google has no
+   *  hours data for this place; undefined = we haven't tried). */
+  hours?: string[];
 }
 
 const locationInflight = new Map<string, Promise<BackfilledLocationData>>();
@@ -1175,7 +1178,9 @@ export function fetchLocationDataForPlace(placeId: string): Promise<BackfilledLo
       if (lat != null && lng != null) {
         neighborhood = await fetchMapboxNeighborhood(lat, lng);
       }
-      return { addressComponents: components, neighborhood, lat, lng };
+      // Hours come back from the same Places call (free), so include them
+      // here so the location backfill warms hours too.
+      return { addressComponents: components, neighborhood, lat, lng, hours: details.hours ?? [] };
     } catch (err) {
       console.warn('[Places] backfill failed for', placeId, err);
       return {} as BackfilledLocationData;

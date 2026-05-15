@@ -42,6 +42,7 @@ export interface Reel {
   bgLabel?: string;
   caption: string;
   audioLabel: string;
+  locationLabel: string;
   restaurant?: ReelRestaurantSnapshot;
   recipe?: ReelRecipeSnapshot;
   likes: number;
@@ -81,6 +82,7 @@ function rowToUi(row: ReelRow): Reel {
     bgGradient: row.bgGradient || DEFAULT_BG,
     caption: row.caption,
     audioLabel: row.audioLabel,
+    locationLabel: row.locationLabel,
     restaurant: row.restaurant ?? undefined,
     recipe: row.recipe ?? undefined,
     likes: row.likesCount,
@@ -108,6 +110,7 @@ interface ReelsContextValue {
     kind: ReelKind;
     caption: string;
     audioLabel: string;
+    locationLabel: string;
     bgGradient: string;
     durationSeconds: number;
     isPublic: boolean;
@@ -246,6 +249,7 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const next = { ...r };
       if (updates.caption !== undefined) next.caption = updates.caption;
       if (updates.audioLabel !== undefined) next.audioLabel = updates.audioLabel;
+      if (updates.locationLabel !== undefined) next.locationLabel = updates.locationLabel;
       if (updates.restaurant !== undefined) next.restaurant = updates.restaurant ?? undefined;
       if (updates.recipe !== undefined) next.recipe = updates.recipe ?? undefined;
       return next;

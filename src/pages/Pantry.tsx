@@ -426,6 +426,17 @@ const AddFromRatedSheet: React.FC<{
   );
 };
 
+// Find today's entry in a `weekdayDescriptions` array (Google Places).
+// Strings look like "Monday: 10:00 AM – 10:00 PM" or "Monday: Closed";
+// returns the right-hand side, or "" if today isn't published.
+function formatTodayHours(hours: string[] | undefined): string {
+  if (!hours || hours.length === 0) return '';
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const line = hours.find((entry) => entry.startsWith(`${today}:`));
+  if (!line) return '';
+  return line.slice(today.length + 1).trim();
+}
+
 // Backfill location data on saved restaurants so cards can render the
 // Beli-style "Neighborhood, Borough" / "Neighborhood, City, ST" label.
 // One Places call (deduped via inflight + cache) gives us the address
@@ -438,17 +449,20 @@ function useBackfillLocationComponents(restaurantId: string, hasFullData: boolea
   useEffect(() => {
     if (!restaurantId || hasFullData) return;
     let cancelled = false;
-    fetchLocationDataForPlace(restaurantId).then(({ addressComponents, neighborhood, lat, lng }) => {
+    fetchLocationDataForPlace(restaurantId).then(({ addressComponents, neighborhood, lat, lng, hours }) => {
       if (cancelled) return;
-      // Skip the meta write if both fields are empty so we don't
+      // Skip the meta write if every field is empty so we don't
       // pointlessly bump the cache.
-      if (!addressComponents?.length && !neighborhood && lat == null && lng == null) return;
+      if (!addressComponents?.length && !neighborhood && lat == null && lng == null && hours == null) return;
       cacheRestaurantMeta({
         id: restaurantId,
         ...(addressComponents?.length ? { addressComponents } : {}),
         ...(neighborhood ? { neighborhood } : {}),
         ...(lat != null ? { lat } : {}),
         ...(lng != null ? { lng } : {}),
+        // Persist an empty array too — that's the signal "we asked and
+        // the place doesn't publish hours" so we don't keep refetching.
+        ...(hours != null ? { hours } : {}),
       });
     });
     return () => { cancelled = true; };
@@ -486,7 +500,7 @@ const RestaurantRow: React.FC<{
   // when address components are cached, falls back to formatted-address
   // parsing for older saved restaurants.
   const meta = restaurantMeta[restaurantId];
-  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined);
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   const location = address || meta?.address
     ? formatLocationLabel(meta?.addressComponents, address || meta?.address || '', meta?.neighborhood)
     : '';
@@ -670,7 +684,7 @@ const WishlistRow: React.FC<{
   // Beli-style label: neighborhood + borough/city + state, falling back
   // to formatted-address parsing when no addressComponents are cached.
   const wlMeta = restaurantMeta[restaurantId];
-  useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined);
+  useBackfillLocationComponents(restaurantId, !!wlMeta?.addressComponents && wlMeta?.neighborhood !== undefined && wlMeta?.hours !== undefined);
   const fullAddr = address || wlMeta?.address || '';
   const location = fullAddr ? formatLocationLabel(wlMeta?.addressComponents, fullAddr, wlMeta?.neighborhood) : '';
 
@@ -748,7 +762,7 @@ const WishlistGridCard: React.FC<{
   const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
 
   const meta = restaurantMeta[restaurantId];
-  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined);
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   const fullAddress = address || meta?.address || '';
   // Beli-style hierarchical label using Google's address components plus
   // Mapbox-derived neighborhood when available; falls back to
@@ -862,7 +876,7 @@ const RestaurantGridCard: React.FC<{
   // the meta entry — that way we still show a location for restaurants
   // re-hydrated from cloud where the rating may not include an address.
   const meta = restaurantMeta[restaurantId];
-  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined);
+  useBackfillLocationComponents(restaurantId, !!meta?.addressComponents && meta?.neighborhood !== undefined && meta?.hours !== undefined);
   const fullAddress = address || meta?.address || '';
   // Hierarchical Beli-style label — neighborhood + borough/city + state
   // when components are cached, falling back to the formatted address.
@@ -879,6 +893,8 @@ const RestaurantGridCard: React.FC<{
     if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return '';
     return formatDistance(haversineDistanceMi(home.lat, home.lng, meta.lat!, meta.lng!));
   }, [meta?.lat, meta?.lng]);
+  // Today's opening hours pulled from the cached Places weekday list.
+  const todayHours = useMemo(() => formatTodayHours(meta?.hours), [meta?.hours]);
 
   // Close the more menu on outside click
   useEffect(() => {
@@ -946,8 +962,22 @@ const RestaurantGridCard: React.FC<{
               <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
             </div>
             <div className="mt-1 pl-[20px] flex items-center justify-between gap-2 min-h-[28px]">
-              {distanceLabel ? (
-                <span className="tabular-nums text-on-surface/45">{distanceLabel}</span>
+              {(todayHours || distanceLabel) ? (
+                <span className="flex items-center gap-1.5 min-w-0">
+                  {todayHours && (
+                    <span className={cn(
+                      'inline-flex items-center gap-1 min-w-0',
+                      todayHours.toLowerCase() === 'closed' ? 'text-on-surface/40' : 'text-on-surface/55',
+                    )}>
+                      <Clock size={11} className="flex-shrink-0" />
+                      <span className="truncate">{todayHours}</span>
+                    </span>
+                  )}
+                  {todayHours && distanceLabel && <span className="text-on-surface/20 flex-shrink-0">·</span>}
+                  {distanceLabel && (
+                    <span className="tabular-nums text-on-surface/45 flex-shrink-0">{distanceLabel}</span>
+                  )}
+                </span>
               ) : <span />}
               {(onEdit || onRemove) && (
                 <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
