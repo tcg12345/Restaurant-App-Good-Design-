@@ -373,9 +373,17 @@ export const PostSlide: React.FC<PostSlideProps> = ({
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/55 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-80 bg-gradient-to-t from-black/80 via-black/35 to-transparent z-10" />
 
-      {/* Page dots (only when more than one item) */}
+      {/* Page dots (only when more than one item).
+          Phone: pushed below the TopBar which itself sits inside the
+          safe area. Without this the dots get covered by the status
+          bar + tabs on iPhone. */}
       {post.items.length > 1 && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5">
+        <div
+          className={cn(
+            'absolute left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5',
+            phoneMode ? 'top-[calc(env(safe-area-inset-top)+56px)]' : 'top-16',
+          )}
+        >
           {post.items.map((it, idx) => (
             <button
               key={it.id}
