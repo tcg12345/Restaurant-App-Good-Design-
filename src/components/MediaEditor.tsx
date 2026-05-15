@@ -304,11 +304,48 @@ export function isEdited(edits: EditState): boolean {
     edits.contrast !== 100 ||
     edits.saturation !== 100 ||
     edits.filterPreset !== 'none' ||
-    edits.aspectRatio !== 'free' ||
-    edits.crop.x !== 0 || edits.crop.y !== 0 ||
-    edits.crop.width !== 1 || edits.crop.height !== 1 ||
+    hasCustomCrop(edits) ||
     (edits.trim != null && (edits.trim.start > 0.05 || (edits.trim.end != null && edits.trim.end > 0)))
   );
+}
+
+/** True when the crop diverges from the default full-frame
+ *  selection. Used to decide whether to render the static crop
+ *  overlay on peeks / non-crop tabs. */
+export function hasCustomCrop(edits: EditState): boolean {
+  return (
+    edits.aspectRatio !== 'free' ||
+    edits.crop.x > 0.001 ||
+    edits.crop.y > 0.001 ||
+    edits.crop.width < 0.999 ||
+    edits.crop.height < 0.999
+  );
+}
+
+/** Compute the on-screen pixel rectangle of an `object-contain`
+ *  media element inside its container. Used by both the static and
+ *  interactive crop overlays so the crop rect anchors to the photo
+ *  itself, not the slide's letterboxed area. */
+function computeMediaRect(
+  containerW: number,
+  containerH: number,
+  mediaW: number | undefined,
+  mediaH: number | undefined,
+): { left: number; top: number; width: number; height: number } {
+  if (!containerW || !containerH) return { left: 0, top: 0, width: containerW, height: containerH };
+  if (!mediaW || !mediaH) return { left: 0, top: 0, width: containerW, height: containerH };
+  const containerAspect = containerW / containerH;
+  const mediaAspect = mediaW / mediaH;
+  if (mediaAspect > containerAspect) {
+    // Media is wider — letterbox top + bottom.
+    const w = containerW;
+    const h = containerW / mediaAspect;
+    return { left: 0, top: (containerH - h) / 2, width: w, height: h };
+  }
+  // Media is taller (or equal) — letterbox left + right.
+  const h = containerH;
+  const w = containerH * mediaAspect;
+  return { left: (containerW - w) / 2, top: 0, width: w, height: h };
 }
 
 /* ── Editor UI ───────────────────────────────────────────────────────── */
@@ -542,10 +579,24 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
                     }}
                   />
                 )}
-                {/* Crop overlay — same dimmed-outside-the-rect look as
-                    the original viewport. Only renders when the user
-                    has picked a non-free aspect. */}
-                {it.edits.aspectRatio !== 'free' && <CropOverlay edits={it.edits} />}
+                {/* Crop overlay.
+                    - The active slide on the Crop tab gets the
+                      interactive overlay so the user can drag the
+                      corners / sides / interior.
+                    - Other slides (peeks) and the active slide on
+                      other tabs fall back to the static read-only
+                      overlay so the user still sees what their crop
+                      looks like, but without grab handles getting
+                      in the way of the photo. */}
+                {isActive && tab === 'crop' && it.mediaType === 'photo' ? (
+                  <InteractiveCropOverlay
+                    crop={it.edits.crop}
+                    natural={naturalSizes[it.key]}
+                    onChange={(nextCrop) => onEditsChange(it.key, { ...it.edits, crop: nextCrop, aspectRatio: 'free' })}
+                  />
+                ) : (
+                  hasCustomCrop(it.edits) && <CropOverlay edits={it.edits} natural={naturalSizes[it.key]} />
+                )}
                 {/* Index pill + edit indicator on the corner. */}
                 <div className="absolute inset-x-0 bottom-0 px-3 py-2 bg-gradient-to-t from-black/65 to-transparent flex items-center justify-between gap-2 pointer-events-none">
                   <span className="text-[12px] font-bold text-white/90 tabular-nums">#{idx + 1}</span>
@@ -644,27 +695,235 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
   );
 };
 
-/* ── Viewport — preview with crop overlay + pan ──────────────────────── */
+/* ── Static crop overlay — read-only ──────────────────────────────────
+ *
+ * Anchored to the on-screen rect of the media itself (computed from
+ * the natural size) so the crop indicator lands on the photo, not on
+ * any letterbox area inside the slide. */
 
-
-const CropOverlay: React.FC<{ edits: EditState }> = ({ edits }) => {
+const CropOverlay: React.FC<{ edits: EditState; natural?: { w: number; h: number } }> = ({ edits, natural }) => {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setSize({ w: r.width, h: r.height });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const mediaRect = computeMediaRect(size.w, size.h, natural?.w, natural?.h);
   const { x, y, width, height } = edits.crop;
-  // Top, right, bottom, left dim rectangles plus the boundary.
+  const cropPx = {
+    left: mediaRect.left + x * mediaRect.width,
+    top: mediaRect.top + y * mediaRect.height,
+    width: width * mediaRect.width,
+    height: height * mediaRect.height,
+  };
   return (
-    <div className="absolute inset-0 pointer-events-none">
-      <div className="absolute inset-x-0 top-0 bg-black/45" style={{ height: `${y * 100}%` }} />
-      <div className="absolute inset-x-0 bottom-0 bg-black/45" style={{ height: `${(1 - y - height) * 100}%` }} />
-      <div className="absolute bg-black/45" style={{ left: 0, top: `${y * 100}%`, height: `${height * 100}%`, width: `${x * 100}%` }} />
-      <div className="absolute bg-black/45" style={{ right: 0, top: `${y * 100}%`, height: `${height * 100}%`, width: `${(1 - x - width) * 100}%` }} />
+    <div ref={wrapRef} className="absolute inset-0 pointer-events-none">
+      {/* Dim every pixel outside the crop, anchored to the media rect. */}
+      <div className="absolute bg-black/45" style={{ left: mediaRect.left, top: mediaRect.top, width: mediaRect.width, height: cropPx.top - mediaRect.top }} />
+      <div className="absolute bg-black/45" style={{ left: mediaRect.left, top: cropPx.top + cropPx.height, width: mediaRect.width, height: (mediaRect.top + mediaRect.height) - (cropPx.top + cropPx.height) }} />
+      <div className="absolute bg-black/45" style={{ left: mediaRect.left, top: cropPx.top, width: cropPx.left - mediaRect.left, height: cropPx.height }} />
+      <div className="absolute bg-black/45" style={{ left: cropPx.left + cropPx.width, top: cropPx.top, width: (mediaRect.left + mediaRect.width) - (cropPx.left + cropPx.width), height: cropPx.height }} />
       <div
         className="absolute border border-white/85 rounded-sm"
-        style={{
-          left: `${x * 100}%`,
-          top: `${y * 100}%`,
-          width: `${width * 100}%`,
-          height: `${height * 100}%`,
-        }}
+        style={{ left: cropPx.left, top: cropPx.top, width: cropPx.width, height: cropPx.height }}
       />
+    </div>
+  );
+};
+
+/* ── Interactive crop overlay ─────────────────────────────────────────
+ *
+ * Drag the crop window or its 4 corner + 4 side handles to set a
+ * custom crop. Every drag normalises against the media's on-screen
+ * rect so the stored coords map cleanly back to the source pixels
+ * regardless of how the media is letterboxed inside the slide.
+ * Manual edits set aspectRatio: 'free' upstream so the aspect chips
+ * stop highlighting until the user re-picks one. */
+
+type CropDragMode = 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 'e' | 's' | 'w';
+
+const MIN_CROP_FRACTION = 0.08;
+
+const InteractiveCropOverlay: React.FC<{
+  crop: CropRect;
+  natural?: { w: number; h: number };
+  onChange: (next: CropRect) => void;
+}> = ({ crop, natural, onChange }) => {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setSize({ w: r.width, h: r.height });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const mediaRect = computeMediaRect(size.w, size.h, natural?.w, natural?.h);
+
+  const dragRef = useRef<{
+    mode: CropDragMode;
+    pointerId: number;
+    startCrop: CropRect;
+    startClient: { x: number; y: number };
+  } | null>(null);
+
+  const onPointerDown = (mode: CropDragMode) => (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    dragRef.current = {
+      mode,
+      pointerId: e.pointerId,
+      startCrop: { ...crop },
+      startClient: { x: e.clientX, y: e.clientY },
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    if (!mediaRect.width || !mediaRect.height) return;
+    const dx = (e.clientX - d.startClient.x) / mediaRect.width;
+    const dy = (e.clientY - d.startClient.y) / mediaRect.height;
+    const c = d.startCrop;
+    let nx = c.x, ny = c.y, nw = c.width, nh = c.height;
+    switch (d.mode) {
+      case 'move':
+        nx = Math.max(0, Math.min(c.x + dx, 1 - c.width));
+        ny = Math.max(0, Math.min(c.y + dy, 1 - c.height));
+        break;
+      case 'nw':
+        nx = Math.max(0, Math.min(c.x + dx, c.x + c.width - MIN_CROP_FRACTION));
+        ny = Math.max(0, Math.min(c.y + dy, c.y + c.height - MIN_CROP_FRACTION));
+        nw = c.x + c.width - nx;
+        nh = c.y + c.height - ny;
+        break;
+      case 'ne':
+        ny = Math.max(0, Math.min(c.y + dy, c.y + c.height - MIN_CROP_FRACTION));
+        nh = c.y + c.height - ny;
+        nw = Math.max(MIN_CROP_FRACTION, Math.min(c.width + dx, 1 - c.x));
+        break;
+      case 'sw':
+        nx = Math.max(0, Math.min(c.x + dx, c.x + c.width - MIN_CROP_FRACTION));
+        nw = c.x + c.width - nx;
+        nh = Math.max(MIN_CROP_FRACTION, Math.min(c.height + dy, 1 - c.y));
+        break;
+      case 'se':
+        nw = Math.max(MIN_CROP_FRACTION, Math.min(c.width + dx, 1 - c.x));
+        nh = Math.max(MIN_CROP_FRACTION, Math.min(c.height + dy, 1 - c.y));
+        break;
+      case 'n':
+        ny = Math.max(0, Math.min(c.y + dy, c.y + c.height - MIN_CROP_FRACTION));
+        nh = c.y + c.height - ny;
+        break;
+      case 's':
+        nh = Math.max(MIN_CROP_FRACTION, Math.min(c.height + dy, 1 - c.y));
+        break;
+      case 'w':
+        nx = Math.max(0, Math.min(c.x + dx, c.x + c.width - MIN_CROP_FRACTION));
+        nw = c.x + c.width - nx;
+        break;
+      case 'e':
+        nw = Math.max(MIN_CROP_FRACTION, Math.min(c.width + dx, 1 - c.x));
+        break;
+    }
+    onChange({ x: nx, y: ny, width: nw, height: nh });
+  };
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    dragRef.current = null;
+  };
+
+  const cropPx = {
+    left: mediaRect.left + crop.x * mediaRect.width,
+    top: mediaRect.top + crop.y * mediaRect.height,
+    width: crop.width * mediaRect.width,
+    height: crop.height * mediaRect.height,
+  };
+
+  return (
+    <div ref={wrapRef} className="absolute inset-0 select-none">
+      {/* Dim outside the crop, anchored to the media's on-screen rect. */}
+      <div className="absolute bg-black/45 pointer-events-none" style={{ left: mediaRect.left, top: mediaRect.top, width: mediaRect.width, height: Math.max(0, cropPx.top - mediaRect.top) }} />
+      <div className="absolute bg-black/45 pointer-events-none" style={{ left: mediaRect.left, top: cropPx.top + cropPx.height, width: mediaRect.width, height: Math.max(0, (mediaRect.top + mediaRect.height) - (cropPx.top + cropPx.height)) }} />
+      <div className="absolute bg-black/45 pointer-events-none" style={{ left: mediaRect.left, top: cropPx.top, width: Math.max(0, cropPx.left - mediaRect.left), height: cropPx.height }} />
+      <div className="absolute bg-black/45 pointer-events-none" style={{ left: cropPx.left + cropPx.width, top: cropPx.top, width: Math.max(0, (mediaRect.left + mediaRect.width) - (cropPx.left + cropPx.width)), height: cropPx.height }} />
+
+      {/* Crop rect frame + thirds rule-of-thirds guides. */}
+      <div
+        className="absolute border-2 border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+        style={{ left: cropPx.left, top: cropPx.top, width: cropPx.width, height: cropPx.height }}
+      >
+        {/* Move handle: interior of the crop window. */}
+        <div
+          onPointerDown={onPointerDown('move')}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          className="absolute inset-0 cursor-move touch-none"
+          aria-label="Drag crop"
+        />
+        {/* Rule-of-thirds guides. Pointer events disabled so the
+            interior move handle keeps receiving drags. */}
+        <div className="absolute inset-y-0 left-1/3 w-px bg-white/35 pointer-events-none" />
+        <div className="absolute inset-y-0 left-2/3 w-px bg-white/35 pointer-events-none" />
+        <div className="absolute inset-x-0 top-1/3 h-px bg-white/35 pointer-events-none" />
+        <div className="absolute inset-x-0 top-2/3 h-px bg-white/35 pointer-events-none" />
+
+        {/* Corner handles — square knobs that sit on the corners. */}
+        {([
+          { mode: 'nw', cls: '-top-2 -left-2 cursor-nwse-resize' },
+          { mode: 'ne', cls: '-top-2 -right-2 cursor-nesw-resize' },
+          { mode: 'sw', cls: '-bottom-2 -left-2 cursor-nesw-resize' },
+          { mode: 'se', cls: '-bottom-2 -right-2 cursor-nwse-resize' },
+        ] as const).map((h) => (
+          <div
+            key={h.mode}
+            onPointerDown={onPointerDown(h.mode)}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            className={cn('absolute w-4 h-4 touch-none', h.cls)}
+            aria-label={`Resize ${h.mode}`}
+          >
+            <span className="block w-full h-full bg-white rounded-[3px] shadow-[0_1px_3px_rgba(0,0,0,0.5)] border border-on-surface/30" />
+          </div>
+        ))}
+
+        {/* Side handles — thin pills for nudging one edge at a time. */}
+        {([
+          { mode: 'n', cls: '-top-1.5 left-1/2 -translate-x-1/2 w-8 h-1.5 cursor-ns-resize' },
+          { mode: 's', cls: '-bottom-1.5 left-1/2 -translate-x-1/2 w-8 h-1.5 cursor-ns-resize' },
+          { mode: 'w', cls: '-left-1.5 top-1/2 -translate-y-1/2 h-8 w-1.5 cursor-ew-resize' },
+          { mode: 'e', cls: '-right-1.5 top-1/2 -translate-y-1/2 h-8 w-1.5 cursor-ew-resize' },
+        ] as const).map((h) => (
+          <div
+            key={h.mode}
+            onPointerDown={onPointerDown(h.mode)}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            className={cn('absolute touch-none', h.cls)}
+            aria-label={`Resize ${h.mode}`}
+          >
+            <span className="block w-full h-full bg-white rounded-full shadow-[0_1px_3px_rgba(0,0,0,0.5)]" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -709,11 +968,11 @@ const CropTab: React.FC<{ edits: EditState; setEdits: (n: Partial<EditState>) =>
           );
         })}
       </div>
-      {edits.aspectRatio !== 'free' && (
-        <p className="text-[11px] text-on-surface/45 mt-2 leading-relaxed">
-          The crop is centred. Pick "Original" to keep the full frame.
-        </p>
-      )}
+      <p className="text-[11px] text-on-surface/45 mt-2 leading-relaxed">
+        {edits.aspectRatio !== 'free'
+          ? 'The crop is centred. Drag the corners or sides on the photo above to fine-tune — that switches you to a free crop.'
+          : 'Drag the corners or sides on the photo above to crop. Pick a chip above to snap to a preset aspect ratio.'}
+      </p>
     </div>
   );
 };
