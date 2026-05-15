@@ -301,17 +301,25 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, is
       <div className="absolute inset-0">
         {reel.videoUrl ? (
           <>
-            <video
-              ref={backdropRef}
-              src={reel.videoUrl}
-              playsInline
-              loop
-              muted
-              preload="metadata"
-              aria-hidden
-              tabIndex={-1}
-              className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 pointer-events-none"
-            />
+            {/* Blurred backdrop only on desktop where the reel sits
+                inside a column with side panels — letterboxing reads
+                as intentional there. On phone we want Instagram-style
+                edge-to-edge: the foreground video uses object-cover
+                and fills under the status bar, so the backdrop would
+                just be wasted bandwidth. */}
+            {!phoneMode && (
+              <video
+                ref={backdropRef}
+                src={reel.videoUrl}
+                playsInline
+                loop
+                muted
+                preload="metadata"
+                aria-hidden
+                tabIndex={-1}
+                className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 pointer-events-none"
+              />
+            )}
             <video
               ref={videoRef}
               src={reel.videoUrl}
@@ -321,7 +329,10 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, is
               muted={muted}
               preload="metadata"
               onClick={onTapVideo}
-              className="absolute inset-0 w-full h-full object-contain"
+              className={cn(
+                'absolute inset-0 w-full h-full',
+                phoneMode ? 'object-cover' : 'object-contain',
+              )}
             />
           </>
         ) : (
