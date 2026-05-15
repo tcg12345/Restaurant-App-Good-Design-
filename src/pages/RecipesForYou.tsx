@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowUpDown, ChefHat, Check, ChevronDown, Clock, Crown, Search, Users, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpDown, ChefHat, Check, ChevronDown, Clock, Crown, Search, Users, X, SlidersHorizontal, UtensilsCrossed, BookOpen } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -60,6 +61,20 @@ export const RecipesForYou: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortKey>('recent');
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const sortMenuRef = useRef<HTMLDivElement>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Desktop vs phone — the Filters overlay opens as a centered modal on
+  // wide viewports and a bottom sheet on narrow ones.
+  const [isWideViewport, setIsWideViewport] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsWideViewport(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  const isDesktop = isWideViewport && !phoneMode;
 
   // ── Data load ──
   useEffect(() => {
@@ -260,27 +275,29 @@ export const RecipesForYou: React.FC = () => {
           </div>
         )}
 
-        {/* Source pills + sort */}
-        <div className="px-4 pb-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
-          {(['all', 'friends', 'chefs', 'cooks'] as SourceFilter[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSource(s)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap',
-                source === s
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-white text-on-surface/60 border-on-surface/8 hover:border-on-surface/20',
-              )}
-            >
-              {s === 'friends' && <Users size={12} />}
-              {s === 'chefs' && <Crown size={12} />}
-              {s === 'cooks' && <ChefHat size={12} />}
-              {SOURCE_LABELS[s]}
-            </button>
-          ))}
-
-          <div className="flex-1 min-w-[8px]" />
+        {/* Filter bar — source pills on the left, sort + Filters button on
+            the right. All secondary filters (cuisine, difficulty, quick)
+            now live behind the Filters button so the bar stays tidy. */}
+        <div className="px-4 pb-3 flex items-center gap-2">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar flex-1 min-w-0">
+            {(['all', 'friends', 'chefs', 'cooks'] as SourceFilter[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => setSource(s)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap',
+                  source === s
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-white text-on-surface/60 border-on-surface/8 hover:border-on-surface/20',
+                )}
+              >
+                {s === 'friends' && <Users size={12} />}
+                {s === 'chefs' && <Crown size={12} />}
+                {s === 'cooks' && <ChefHat size={12} />}
+                {SOURCE_LABELS[s]}
+              </button>
+            ))}
+          </div>
 
           <div ref={sortMenuRef} className="relative flex-shrink-0">
             <button
@@ -288,7 +305,7 @@ export const RecipesForYou: React.FC = () => {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white border border-on-surface/8 text-on-surface/70 hover:border-on-surface/20 whitespace-nowrap"
             >
               <ArrowUpDown size={12} />
-              {SORT_LABELS[sortBy]}
+              <span className="hidden sm:inline">{SORT_LABELS[sortBy]}</span>
               <ChevronDown size={12} className={cn('transition-transform', sortMenuOpen && 'rotate-180')} />
             </button>
             {sortMenuOpen && (
@@ -309,69 +326,74 @@ export const RecipesForYou: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
 
-        {/* Secondary filters */}
-        <div className="px-4 pb-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
           <button
-            onClick={() => setQuickOnly((v) => !v)}
+            onClick={() => setFiltersOpen(true)}
             className={cn(
-              'flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all whitespace-nowrap',
-              quickOnly
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all whitespace-nowrap flex-shrink-0',
+              activeFilterCount > 0
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-white text-on-surface/55 border-on-surface/8',
+                : 'bg-white text-on-surface/70 border-on-surface/8 hover:border-on-surface/20',
             )}
           >
-            <Clock size={11} />
-            Under 30m
+            <SlidersHorizontal size={12} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] rounded-full bg-emerald-600 text-white text-[10px] font-bold tabular-nums px-1">
+                {activeFilterCount}
+              </span>
+            )}
           </button>
-          {(['easy', 'medium', 'hard'] as Recipe['difficulty'][]).map((d) => (
-            <button
-              key={d}
-              onClick={() => setDifficultyFilter((cur) => (cur === d ? null : d))}
-              className={cn(
-                'px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all whitespace-nowrap',
-                difficultyFilter === d
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-white text-on-surface/55 border-on-surface/8',
-              )}
-            >
-              {DIFFICULTY_LABEL[d]}
-            </button>
-          ))}
-          {allCuisines.length > 0 && <span className="w-px h-4 bg-on-surface/10 mx-1 flex-shrink-0" />}
-          {allCuisines.slice(0, 14).map((c) => (
-            <button
-              key={c}
-              onClick={() => setCuisineFilter((cur) => (cur === c ? null : c))}
-              className={cn(
-                'px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all whitespace-nowrap',
-                cuisineFilter === c
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : 'bg-white text-on-surface/55 border-on-surface/8',
-              )}
-            >
-              {c}
-            </button>
-          ))}
-          {activeFilterCount > 0 && (
+        </div>
+
+        {/* Active filter chips — only renders when any secondary filter is
+            on, so the bar above stays clean. Each chip is a tap-to-remove. */}
+        {activeFilterCount > 0 && (
+          <div className="px-4 pb-3 flex items-center gap-1.5 flex-wrap">
+            {quickOnly && (
+              <button
+                onClick={() => setQuickOnly(false)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+              >
+                <Clock size={10} />
+                Under 30m
+                <X size={11} className="-mr-0.5 opacity-60" />
+              </button>
+            )}
+            {difficultyFilter && (
+              <button
+                onClick={() => setDifficultyFilter(null)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+              >
+                {DIFFICULTY_LABEL[difficultyFilter]}
+                <X size={11} className="-mr-0.5 opacity-60" />
+              </button>
+            )}
+            {cuisineFilter && (
+              <button
+                onClick={() => setCuisineFilter(null)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+              >
+                {cuisineFilter}
+                <X size={11} className="-mr-0.5 opacity-60" />
+              </button>
+            )}
             <button
               onClick={clearAllFilters}
-              className="ml-1 flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-semibold text-on-surface/50 hover:text-on-surface/80 whitespace-nowrap flex-shrink-0"
+              className="ml-1 text-[11px] font-semibold text-on-surface/50 hover:text-on-surface/80 underline-offset-2 hover:underline"
             >
-              <X size={11} />
-              Clear
+              Clear all
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Body */}
-      <div className="max-w-5xl mx-auto p-4">
+      <div className="px-4 sm:px-6 lg:px-8 py-4">
         {loading ? (
-          <div className={cn('grid gap-4', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4')}>
+          <div className={cn('grid gap-3', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6')}>
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="aspect-[3/4] rounded-2xl bg-on-surface/[0.04] animate-pulse" />
+              <div key={i} className="h-[260px] rounded-2xl bg-on-surface/[0.04] animate-pulse" />
             ))}
           </div>
         ) : filtered.length === 0 ? (
@@ -389,77 +411,106 @@ export const RecipesForYou: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className={cn('grid gap-4', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4')}>
+          <div className={cn('grid gap-3', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6')}>
             {filtered.map((r) => {
               const author = authors[r.userId];
-              const cover = r.photos?.[0];
               const total = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
               const totalLabel = formatDuration(total);
               const isFriend = friendIds.has(r.userId);
               const isExpert = !!author?.is_expert;
+              const ingCount = r.ingredients?.length || 0;
+              const stepCount = r.steps?.length || 0;
+              const sourceCls = isExpert
+                ? 'bg-amber-500/95 text-white'
+                : isFriend
+                  ? 'bg-blue-500/95 text-white'
+                  : 'bg-on-surface/[0.06] text-on-surface/70';
+              const sourceLabel = isExpert ? 'Chef' : isFriend ? 'Friend' : 'Home cook';
+              const SourceIcon = isExpert ? Crown : isFriend ? Users : ChefHat;
               return (
                 <Link
                   key={r.id}
                   to={`/recipe/${r.id}`}
-                  className="group flex flex-col"
+                  className="group relative rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.18] hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden"
                 >
-                  <div className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05]">
-                    {cover ? (
-                      <img
-                        src={cover}
-                        alt={r.title}
-                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center bg-emerald-50">
-                        <ChefHat size={32} className="text-emerald-300" />
-                      </div>
-                    )}
-                    <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+                  {/* Top emerald accent strip */}
+                  <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/80" />
 
-                    {/* Source badge */}
-                    {(isExpert || isFriend) && (
-                      <div className="absolute top-2 left-2 flex items-center gap-1">
-                        {isExpert && (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-500/95 text-white backdrop-blur-sm">
-                            <Crown size={9} />
-                            Chef
-                          </span>
-                        )}
-                        {!isExpert && isFriend && (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-blue-500/95 text-white backdrop-blur-sm">
-                            <Users size={9} />
-                            Friend
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Title block */}
-                    <div className="absolute inset-x-0 bottom-0 p-3">
-                      <p className="text-white text-sm font-bold leading-tight drop-shadow-sm line-clamp-2">{r.title}</p>
-                      <div className="flex items-center gap-1.5 mt-1 text-[10.5px] text-white/85 font-medium">
-                        {totalLabel && (
-                          <span className="inline-flex items-center gap-0.5">
-                            <Clock size={10} /> {totalLabel}
-                          </span>
-                        )}
-                        {totalLabel && r.cuisine && <span className="text-white/40">·</span>}
-                        {r.cuisine && <span>{r.cuisine}</span>}
-                      </div>
-                    </div>
+                  {/* Top row: source chip + chef icon */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] truncate min-w-0', sourceCls)}>
+                      <SourceIcon size={11} />
+                      {sourceLabel}
+                    </span>
+                    <ChefHat size={15} className="text-emerald-500/70 flex-shrink-0" />
                   </div>
 
-                  {/* Author row below the card so it doesn't overlap the title */}
-                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-on-surface/55 min-w-0">
-                    <div className="w-5 h-5 rounded-full bg-on-surface/10 flex items-center justify-center text-[9px] font-serif font-bold text-on-surface/45 flex-shrink-0">
+                  {/* Title + cuisine row */}
+                  <div className="mt-3.5">
+                    <h3 className="font-serif text-[17px] font-bold leading-[1.18] line-clamp-2 text-on-surface group-hover:text-primary transition-colors">
+                      {r.title}
+                    </h3>
+                    {(r.cuisine || r.difficulty) && (
+                      <p className="mt-1.5 text-[11.5px] text-on-surface/55 font-medium uppercase tracking-[0.08em] truncate">
+                        {[r.cuisine, DIFFICULTY_LABEL[r.difficulty]].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Short description preview when available */}
+                  {r.description && (
+                    <p className="mt-2.5 text-[13px] text-on-surface/55 italic leading-snug line-clamp-2">
+                      {r.description}
+                    </p>
+                  )}
+
+                  {/* Tag pips (max 2) so the page reads scannable */}
+                  {r.tags && r.tags.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {r.tags.slice(0, 2).map((t) => (
+                        <span key={t} className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700/85">
+                          {t}
+                        </span>
+                      ))}
+                      {r.tags.length > 2 && (
+                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full text-on-surface/45">
+                          +{r.tags.length - 2}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Spacer so the footer pins to the bottom */}
+                  <div className="flex-1" />
+
+                  {/* Stats footer */}
+                  {(totalLabel || ingCount > 0 || stepCount > 0) && (
+                    <div className="mt-3 pt-3 border-t border-on-surface/[0.06] flex items-center justify-between text-[12px] text-on-surface/70 font-semibold tabular-nums">
+                      {totalLabel ? (
+                        <span className="inline-flex items-center gap-1.5"><Clock size={13} />{totalLabel}</span>
+                      ) : <span />}
+                      {ingCount > 0 ? (
+                        <span className="inline-flex items-center gap-1.5" title={`${ingCount} ingredient${ingCount === 1 ? '' : 's'}`}>
+                          <UtensilsCrossed size={13} />{ingCount}
+                        </span>
+                      ) : <span />}
+                      {stepCount > 0 ? (
+                        <span className="inline-flex items-center gap-1.5" title={`${stepCount} step${stepCount === 1 ? '' : 's'}`}>
+                          <BookOpen size={13} />{stepCount}
+                        </span>
+                      ) : <span />}
+                    </div>
+                  )}
+
+                  {/* Author footer */}
+                  <div className="mt-2.5 pt-2.5 border-t border-on-surface/[0.04] flex items-center gap-2 text-[12.5px] text-on-surface/65 min-w-0">
+                    <div className="w-6 h-6 rounded-full bg-on-surface/10 flex items-center justify-center text-[10px] font-serif font-bold text-on-surface/60 flex-shrink-0">
                       {(author?.display_name?.charAt(0) || author?.username?.charAt(0) || '?').toUpperCase()}
                     </div>
-                    <span className="truncate">
+                    <span className="truncate font-medium">
                       {author?.display_name || author?.username || 'Unknown'}
                     </span>
-                    {isExpert && <Crown size={10} className="text-amber-500 flex-shrink-0" />}
+                    {isExpert && <Crown size={12} className="text-amber-500 flex-shrink-0" />}
                   </div>
                 </Link>
               );
@@ -467,6 +518,182 @@ export const RecipesForYou: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ─── Filters popup ─────────────────────────────────────────────
+          Centered modal on desktop, bottom sheet on phone/mobile.
+          Hosts every secondary filter: cooking time, difficulty, and the
+          full cuisine list. The bar above the grid only shows source +
+          sort + an active-chip preview, keeping the page chrome tight. */}
+      <AnimatePresence>
+        {filtersOpen && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className={cn(
+              'fixed inset-0 z-50 bg-black/45 backdrop-blur-sm flex justify-center',
+              isDesktop ? 'items-center px-4' : 'items-end',
+            )}
+            onClick={() => setFiltersOpen(false)}
+          >
+            <motion.div
+              initial={isDesktop ? { opacity: 0, y: 12, scale: 0.98 } : { y: '100%' }}
+              animate={isDesktop ? { opacity: 1, y: 0, scale: 1 } : { y: 0 }}
+              exit={isDesktop ? { opacity: 0, y: 12, scale: 0.98 } : { y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className={cn(
+                'bg-surface flex flex-col w-full',
+                isDesktop
+                  ? 'max-w-md rounded-2xl shadow-2xl border border-on-surface/[0.08] max-h-[80vh]'
+                  : 'rounded-t-3xl max-h-[88vh]',
+              )}
+            >
+              {!isDesktop && (
+                <div className="pt-2 pb-1 flex justify-center">
+                  <span className="w-10 h-1 rounded-full bg-on-surface/15" />
+                </div>
+              )}
+
+              {/* Header */}
+              <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-on-surface/[0.06]">
+                <h3 className="font-serif font-bold text-[18px] text-on-surface">Filters</h3>
+                <button
+                  onClick={() => setFiltersOpen(false)}
+                  className="w-8 h-8 rounded-full hover:bg-on-surface/[0.05] flex items-center justify-center text-on-surface/60"
+                  aria-label="Close filters"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
+                {/* Cooking time */}
+                <section>
+                  <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45 mb-2.5">Cooking time</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setQuickOnly(false)}
+                      className={cn(
+                        'inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
+                        !quickOnly
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-white text-on-surface/65 border-on-surface/8',
+                      )}
+                    >
+                      Any
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuickOnly(true)}
+                      className={cn(
+                        'inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
+                        quickOnly
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-white text-on-surface/65 border-on-surface/8',
+                      )}
+                    >
+                      <Clock size={11} />
+                      Under 30m
+                    </button>
+                  </div>
+                </section>
+
+                {/* Difficulty */}
+                <section>
+                  <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45 mb-2.5">Difficulty</p>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setDifficultyFilter(null)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
+                        !difficultyFilter
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-white text-on-surface/65 border-on-surface/8',
+                      )}
+                    >
+                      Any
+                    </button>
+                    {(['easy', 'medium', 'hard'] as Recipe['difficulty'][]).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setDifficultyFilter(d)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
+                          difficultyFilter === d
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-white text-on-surface/65 border-on-surface/8',
+                        )}
+                      >
+                        {DIFFICULTY_LABEL[d]}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {/* Cuisine */}
+                {allCuisines.length > 0 && (
+                  <section>
+                    <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45 mb-2.5">Cuisine</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setCuisineFilter(null)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
+                          !cuisineFilter
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-white text-on-surface/65 border-on-surface/8',
+                        )}
+                      >
+                        Any
+                      </button>
+                      {allCuisines.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setCuisineFilter(c)}
+                          className={cn(
+                            'px-3 py-1.5 rounded-full text-xs font-semibold border transition-all',
+                            cuisineFilter === c
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-white text-on-surface/65 border-on-surface/8',
+                          )}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </div>
+
+              {/* Footer — clear + apply */}
+              <div className="px-5 py-4 border-t border-on-surface/[0.06] flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  disabled={activeFilterCount === 0}
+                  className="px-4 py-2.5 text-sm font-semibold text-on-surface/65 hover:text-on-surface disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Clear all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen(false)}
+                  className="flex-1 h-11 rounded-full bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700 transition-colors"
+                >
+                  {activeFilterCount > 0
+                    ? `Show ${filtered.length} ${filtered.length === 1 ? 'recipe' : 'recipes'}`
+                    : 'Done'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

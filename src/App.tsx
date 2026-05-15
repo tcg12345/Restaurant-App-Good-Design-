@@ -52,11 +52,36 @@ import { ReelsProvider } from './contexts/ReelsContext';
 import { PostsProvider } from './contexts/PostsContext';
 import { PageSearchProvider } from './contexts/PageSearchContext';
 import { PageAddActionProvider } from './contexts/PageAddActionContext';
+import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelContext';
+import { CirclePanel } from './components/CirclePanel';
 
 /**
  * Track whether the viewport is wide enough to render the desktop sidebar.
  * Falls back to false during SSR / before the first matchMedia read.
  */
+/**
+ * Renders the Instagram-style Circle slide-out next to the desktop
+ * sidebar with a dim backdrop. Only renders when the panel context says
+ * it's open; mobile / phone-frame layouts don't use this helper at all.
+ */
+const CircleDesktopOverlay: React.FC = () => {
+  const { open, setOpen } = useCirclePanel();
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            key="circle-panel-backdrop"
+            className="fixed inset-0 z-40"
+            onClick={() => setOpen(false)}
+          />
+          <CirclePanel variant="overlay" onClose={() => setOpen(false)} />
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
 function useIsDesktop(): boolean {
   const [isDesktop, setIsDesktop] = React.useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
@@ -214,6 +239,7 @@ const AppContent: React.FC = () => {
             {routesBlock}
           </div>
         </main>
+        <CircleDesktopOverlay />
         {modals}
       </div>
     );
@@ -268,7 +294,9 @@ export default function App() {
                     <PostsProvider>
                       <PageSearchProvider>
                         <PageAddActionProvider>
-                          <AppContent />
+                          <CirclePanelProvider>
+                            <AppContent />
+                          </CirclePanelProvider>
                         </PageAddActionProvider>
                       </PageSearchProvider>
                     </PostsProvider>

@@ -559,6 +559,14 @@ export interface ActivityComment {
   rating_id: string;
   text: string;
   created_at: string;
+  /** Null = top-level comment. Set = reply to that comment. One level
+   *  of nesting only — replies to replies still attach to the same
+   *  parent (YouTube-style). */
+  parent_id?: string | null;
+  /** Aggregated count of comment likes; populated by getComments. */
+  like_count?: number;
+  /** True iff the current user has liked this comment. */
+  liked_by_me?: boolean;
   profile?: UserProfile;
 }
 
@@ -609,23 +617,83 @@ export async function getLikesForRatings(userId: string, ratingIds: string[]): P
   } catch { return { likes: {}, userLiked: new Set() }; }
 }
 
-export async function addComment(userId: string, ratingId: string, text: string): Promise<boolean> {
+export async function addComment(
+  userId: string,
+  ratingId: string,
+  text: string,
+  parentId: string | null = null,
+): Promise<boolean> {
   if (!supabaseConfigured || !userId || !text.trim()) return false;
   try {
-    const { error } = await supabase.from('activity_comments')
-      .insert({ user_id: userId, rating_id: ratingId, text: text.trim() });
+    const payload: Record<string, unknown> = {
+      user_id: userId,
+      rating_id: ratingId,
+      text: text.trim(),
+    };
+    if (parentId) payload.parent_id = parentId;
+    const { error } = await supabase.from('activity_comments').insert(payload);
     return !error;
   } catch { return false; }
 }
 
-export async function getComments(ratingId: string): Promise<ActivityComment[]> {
+/**
+ * Fetches every comment for a rating (top-level + replies) plus per-comment
+ * like counts and whether the calling user liked each one. Replies are
+ * identified by their `parent_id`; the caller is responsible for grouping
+ * them under their parents in the UI.
+ *
+ * Falls back gracefully if the migration adding parent_id /
+ * activity_comment_likes hasn't been applied — comments still render, just
+ * without like counts or replies.
+ */
+export async function getComments(ratingId: string, currentUserId?: string | null): Promise<ActivityComment[]> {
   if (!supabaseConfigured) return [];
   try {
     const { data, error } = await supabase.from('activity_comments')
       .select('*').eq('rating_id', ratingId).order('created_at', { ascending: true });
     if (error) return [];
-    return (data || []) as ActivityComment[];
+    const comments = (data || []) as ActivityComment[];
+    if (comments.length === 0) return comments;
+
+    // Pull all likes for these comments in one shot, then fold into each row.
+    const ids = comments.map((c) => c.id);
+    try {
+      const { data: likeRows } = await supabase.from('activity_comment_likes')
+        .select('comment_id, user_id').in('comment_id', ids);
+      const counts: Record<string, number> = {};
+      const mine = new Set<string>();
+      (likeRows || []).forEach((row: { comment_id: string; user_id: string }) => {
+        counts[row.comment_id] = (counts[row.comment_id] || 0) + 1;
+        if (currentUserId && row.user_id === currentUserId) mine.add(row.comment_id);
+      });
+      return comments.map((c) => ({
+        ...c,
+        like_count: counts[c.id] || 0,
+        liked_by_me: mine.has(c.id),
+      }));
+    } catch {
+      // Likes table not available yet — return comments without like info.
+      return comments;
+    }
   } catch { return []; }
+}
+
+/**
+ * Toggle the calling user's like on a single comment. Returns the new
+ * liked state (true if it ended up liked).
+ */
+export async function toggleCommentLike(userId: string, commentId: string): Promise<boolean | null> {
+  if (!supabaseConfigured || !userId) return null;
+  try {
+    const { data } = await supabase.from('activity_comment_likes')
+      .select('id').eq('user_id', userId).eq('comment_id', commentId).single();
+    if (data) {
+      await supabase.from('activity_comment_likes').delete().eq('id', data.id);
+      return false;
+    }
+    await supabase.from('activity_comment_likes').insert({ user_id: userId, comment_id: commentId });
+    return true;
+  } catch { return null; }
 }
 
 export async function getCommentCounts(ratingIds: string[]): Promise<Record<string, number>> {
@@ -662,6 +730,22 @@ export async function getFriends(userId: string): Promise<FriendInfo[]> {
     if (error) { console.error('[Friends] getFriends error:', error); return []; }
     return (data || []) as FriendInfo[];
   } catch (err) { console.error('[Friends] getFriends exception:', err); return []; }
+}
+
+/**
+ * IDs of every user who follows the given userId — i.e. the "followers"
+ * side of the user_friends edge. Mirrors getFriends but flipped: we look
+ * up accepted rows where friend_id = userId and return the user_ids of
+ * the rows.
+ */
+export async function getFollowerIds(userId: string): Promise<string[]> {
+  if (!supabaseConfigured || !userId) return [];
+  try {
+    const { data, error } = await supabase.from('user_friends')
+      .select('user_id').eq('friend_id', userId).eq('status', 'accepted');
+    if (error) { console.error('[Friends] getFollowerIds error:', error); return []; }
+    return (data || []).map((r) => (r as { user_id: string }).user_id);
+  } catch (err) { console.error('[Friends] getFollowerIds exception:', err); return []; }
 }
 
 /** Get pending friend requests sent TO you */

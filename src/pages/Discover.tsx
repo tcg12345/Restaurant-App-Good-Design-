@@ -777,13 +777,43 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       }
     };
 
+    // Friends post recipes via two paths: the formal /recipes flow
+    // (Recipe rows in `recipes`) and the meal logger (HomeMeal rows
+    // stored in user_app_data.home_meals). Both count as "friend
+    // recipes" for the home rail — adapt the HomeMeal shape into the
+    // Recipe contract on the fly so the same scoring works for both.
+    const friendHomeMealsAsRecipes: Recipe[] = (friendRecipes || [])
+      .filter((m) => m.isPublic !== false && (m.name || '').trim().length > 0)
+      .map((m) => ({
+        id: `homemeal-${m.id}`,
+        userId: m.userId,
+        title: m.name,
+        description: m.description || '',
+        ingredients: m.ingredients || [],
+        steps: (m.steps || []).map((text, i) => ({ order: i, text })),
+        prepTimeMinutes: m.prepTime ?? null,
+        cookTimeMinutes: m.cookTime ?? null,
+        servings: m.servings ?? null,
+        difficulty: (m.difficulty?.toLowerCase() ?? 'medium') as 'easy' | 'medium' | 'hard',
+        cuisine: m.cuisine || '',
+        tags: m.tags || [],
+        photos: m.coverPhoto ? [m.coverPhoto] : (m.photos?.map((p) => p.url).filter(Boolean) || []),
+        isPublic: true,
+        sourceType: 'user',
+        linkedRestaurantId: null,
+        linkedMealId: null,
+        createdAt: new Date(m.createdAt ?? Date.now()).toISOString(),
+        updatedAt: new Date(m.createdAt ?? Date.now()).toISOString(),
+      }));
+
     consume(friendPublishedRecipes, 'friend', 8);
+    consume(friendHomeMealsAsRecipes, 'friend', 8);
     consume(expertPublishedRecipes, 'expert', 5);
     consume(publicPublishedRecipes, 'public', 1);
 
     scored.sort((a, b) => b._score - a._score);
     return scored.slice(0, 8);
-  }, [friendPublishedRecipes, expertPublishedRecipes, publicPublishedRecipes, homeMeals, recipePreferences]);
+  }, [friendPublishedRecipes, friendRecipes, expertPublishedRecipes, publicPublishedRecipes, homeMeals, recipePreferences]);
 
   // Map each city the user eats in to a representative lat/lng, computed as
   // the centroid of that city's high-rated community ratings. Used so that
@@ -2226,11 +2256,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     if (mapMode === 'hotels' && !tabDataCache.hotelsLoaded) fetchHotels();
   }, [mapMode, isFocusOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch friends' public home meals when entering recipes mode. Loads
-  // lazily the first time the tab is opened in a session; subsequent
-  // visits reuse the cached list rather than re-firing the API call.
+  // Fetch friends' public home meals — eagerly, not gated by the map's
+  // recipes tab, because the home page "Recipes for you" rail also pulls
+  // from this pool (home-cooked entries posted via the meal logger are a
+  // valid source of friend recipes alongside the formal `recipes` table).
+  // Loads lazily the first time per session; subsequent visits reuse the
+  // cached list rather than re-firing the API call.
   useEffect(() => {
-    if (mapMode !== 'recipes' || !userId) return;
+    if (!userId) return;
     if (tabDataCache.friendRecipesLoaded) return;
     let cancelled = false;
     setFriendRecipesLoading(true);
@@ -2267,7 +2300,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
       }
     })();
     return () => { cancelled = true; };
-  }, [mapMode, userId]);
+  }, [userId]);
 
   // Add/remove hotel markers
   useEffect(() => {
@@ -4321,7 +4354,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               {!discoverSearchActive && mode === 'home' && (
                 <div className={cn(
                   'flex items-end justify-between gap-4',
-                  usingDesktopHeader ? 'mt-4 pb-2 mb-2 border-b border-on-surface/[0.06]' : 'mt-2',
+                  usingDesktopHeader ? 'mt-2 pb-1.5 mb-0 border-b border-on-surface/[0.06]' : 'mt-2',
                 )}>
                   {/* On phone the location bar is capped to ~60% of the row so
                       long addresses wrap onto a second line instead of
@@ -4361,8 +4394,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               >
               {/* Recommendations */}
               {recsLoading ? (
-                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
-                  <div className="flex items-end justify-between gap-4 mb-5">
+                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                  <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
                         'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4371,11 +4404,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         Recommended
                       </h2>
                     </div>
-                    {mode === 'home' && (
-                      <div className="flex-shrink-0 pb-1">
-                        <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
-                      </div>
-                    )}
                   </div>
                   <div className="flex items-center justify-center py-10">
                     <Loader2 size={18} className="text-primary/40 animate-spin" />
@@ -4383,8 +4411,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
                 </section>
               ) : recommendations.length > 0 ? (
-                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
-                  <div className="flex items-end justify-between gap-4 mb-5">
+                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                  <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
                         'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4393,11 +4421,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         Recommended
                       </h2>
                     </div>
-                    {mode === 'home' && (
-                      <div className="flex-shrink-0 pb-1">
-                        <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
-                      </div>
-                    )}
                   </div>
                   <div
                     className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
@@ -4543,8 +4566,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 // came back narrower than the radius allows. We keep the
                 // header visible so the radius picker stays reachable —
                 // bumping the chip is usually the fix.
-                <section className={cn(usingDesktopHeader ? 'mt-10' : 'mt-7')}>
-                  <div className="flex items-end justify-between gap-4 mb-5">
+                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                  <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
                         'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4552,9 +4575,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       )}>
                         Recommended
                       </h2>
-                    </div>
-                    <div className="flex-shrink-0 pb-1">
-                      <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />
                     </div>
                   </div>
                   <div className="rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] py-10 px-6 text-center">
@@ -4565,8 +4585,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               ) : null}
 
               {/* Guides — curated lists published by experts and members */}
-              <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
-                <div className="flex items-end justify-between gap-4 mb-5">
+              <section className={cn(usingDesktopHeader ? 'mt-6' : 'mt-4')}>
+                <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
                       'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4610,8 +4630,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                    source + cuisine/tag overlap with the user's logged Home
                    Cooking meals. Always renders the section so the View all
                    affordance is reachable even before the pools load. */}
-              <section className={cn(usingDesktopHeader ? 'mt-12' : 'mt-8')}>
-                <div className="flex items-end justify-between gap-4 mb-5">
+              <section className={cn(usingDesktopHeader ? 'mt-6' : 'mt-4')}>
+                <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
                       'font-serif font-bold text-on-surface leading-[1.05]',
@@ -4644,11 +4664,32 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
                     {recommendedRecipes.map((r) => {
                       const cover = r.photos?.[0];
-                      const sourceLabel = r._source === 'friend' ? 'Friend' : r._source === 'expert' ? 'Chef' : 'Community';
+                      const authorProfile =
+                        r._source === 'friend'
+                          ? (friendProfiles[r.userId] || recipeAuthorProfiles[r.userId])
+                          : r._source === 'expert'
+                            ? (expertProfiles[r.userId] || recipeAuthorProfiles[r.userId])
+                            : undefined;
+                      const authorName = authorProfile?.display_name
+                        || (authorProfile?.username ? `@${authorProfile.username}` : '');
+                      const sourceLabel =
+                        r._source === 'public' ? 'Community'
+                        : authorName
+                          ? (r._source === 'expert' ? `By ${authorName}` : `From ${authorName}`)
+                          : (r._source === 'expert' ? 'Chef' : 'Friend');
                       const sourceCls =
                         r._source === 'friend' ? 'bg-blue-500/95 text-white'
                         : r._source === 'expert' ? 'bg-amber-500/95 text-white'
                         : 'bg-white/90 text-on-surface/70';
+                      // Stats row: time + ingredient count + step count
+                      const totalMin = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
+                      const timeLabel = totalMin > 0
+                        ? totalMin >= 60
+                          ? `${Math.floor(totalMin / 60)}h${totalMin % 60 ? ` ${totalMin % 60}m` : ''}`
+                          : `${totalMin}m`
+                        : '';
+                      const ingCount = r.ingredients?.length || 0;
+                      const stepCount = r.steps?.length || 0;
                       return (
                         <Link
                           key={r.id}
@@ -4657,42 +4698,82 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         >
                           {cover ? (
                             /* Photo card — text overlaid on bottom gradient */
-                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
+                            <div className="relative w-[178px] h-[172px] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
                               <img
                                 src={cover}
-                                alt={r.title}
+                                alt=""
                                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
                                 referrerPolicy="no-referrer"
                               />
                               <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
-                              <span className={cn('absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full backdrop-blur px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]', sourceCls)}>
+                              <span className={cn('absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full backdrop-blur px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] max-w-[148px] truncate', sourceCls)}>
                                 {sourceLabel}
                               </span>
-                              <div className="absolute inset-x-0 bottom-0 p-3">
+                              <div className="absolute inset-x-0 bottom-0 p-3 space-y-1.5">
                                 <p className="text-white text-[13px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{r.title}</p>
                                 {r.cuisine && (
-                                  <p className="text-white/80 text-[10px] font-medium mt-1 truncate">{r.cuisine}</p>
+                                  <p className="text-white/80 text-[10px] font-medium truncate">{r.cuisine}</p>
+                                )}
+                                {(timeLabel || ingCount > 0 || stepCount > 0) && (
+                                  <div className="flex items-center gap-2 text-white/85 text-[10px] font-semibold pt-0.5">
+                                    {timeLabel && (
+                                      <span className="inline-flex items-center gap-0.5"><Clock size={10} />{timeLabel}</span>
+                                    )}
+                                    {ingCount > 0 && (
+                                      <span className="inline-flex items-center gap-0.5"><UtensilsCrossed size={10} />{ingCount}</span>
+                                    )}
+                                    {stepCount > 0 && (
+                                      <span className="inline-flex items-center gap-0.5"><BookOpen size={10} />{stepCount}</span>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>
                           ) : (
-                            /* Text-rich card — no broken placeholder. Soft emerald
-                               accent identifies it as a recipe at a glance. */
-                            <div className="relative w-[178px] aspect-[3/4] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden">
+                            /* Text-rich card — no broken placeholder. Sized to
+                               match the Recommended rail (h-[172px]) so the
+                               two rails read consistently and the card has no
+                               empty middle band. */
+                            <div className="relative w-[178px] h-[172px] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-3.5 flex flex-col overflow-hidden">
                               <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/80" />
-                              <div className="flex items-center justify-between gap-2">
-                                <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em]', sourceCls)}>
+
+                              {/* Source chip + chef icon */}
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] truncate min-w-0', sourceCls)}>
                                   {sourceLabel}
                                 </span>
-                                <ChefHat size={14} className="text-emerald-500/70" />
+                                <ChefHat size={13} className="text-emerald-500/70 flex-shrink-0" />
                               </div>
-                              <div className="flex-1 flex items-end mt-3">
-                                <p className="font-serif text-[16px] font-bold text-on-surface leading-[1.2] line-clamp-4">
+
+                              {/* Title + cuisine — fills the middle band */}
+                              <div className="flex-1 flex flex-col justify-center mt-2 min-h-0">
+                                <p className="font-serif text-[15px] font-bold text-on-surface leading-[1.18] line-clamp-2">
                                   {r.title}
                                 </p>
+                                {r.cuisine && (
+                                  <p className="text-[11px] text-on-surface/55 font-medium mt-1 truncate">
+                                    {r.cuisine}
+                                  </p>
+                                )}
                               </div>
-                              {r.cuisine && (
-                                <p className="text-[11px] text-on-surface/55 font-medium mt-2 truncate">{r.cuisine}</p>
+
+                              {/* Stats footer pinned to the bottom */}
+                              {(timeLabel || ingCount > 0 || stepCount > 0) && (
+                                <div className="pt-2 border-t border-on-surface/[0.06] flex items-center justify-between text-[10.5px] text-on-surface/65 font-semibold tabular-nums">
+                                  {timeLabel ? (
+                                    <span className="inline-flex items-center gap-1"><Clock size={11} />{timeLabel}</span>
+                                  ) : <span />}
+                                  {ingCount > 0 ? (
+                                    <span className="inline-flex items-center gap-1" title={`${ingCount} ingredient${ingCount === 1 ? '' : 's'}`}>
+                                      <UtensilsCrossed size={11} />{ingCount}
+                                    </span>
+                                  ) : <span />}
+                                  {stepCount > 0 ? (
+                                    <span className="inline-flex items-center gap-1" title={`${stepCount} step${stepCount === 1 ? '' : 's'}`}>
+                                      <BookOpen size={11} />{stepCount}
+                                    </span>
+                                  ) : <span />}
+                                </div>
                               )}
                             </div>
                           )}
@@ -4704,7 +4785,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               </section>
 
               {/* Social Feed */}
-              <div className="mt-8">
+              <div className="mt-5">
                 <SocialFeed
                   centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
                   centerLng={mode === 'home' ? homeLocation?.lng ?? null : null}
@@ -5218,7 +5299,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div className="flex items-center justify-center py-6">
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
@@ -5232,7 +5312,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           <Sparkles size={13} className="text-primary/60" />
                           <h3 className="text-xs font-bold text-on-surface/60 uppercase tracking-wider">Recommended For You</h3>
                         </div>
-                        {mode === 'home' && <RecRefreshButton onRefresh={refreshRecs} refreshing={recsLoading} />}
                       </div>
                       <div
                         className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"

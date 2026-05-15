@@ -8,6 +8,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { usePageSearch } from '../contexts/PageSearchContext';
+import { useCirclePanel } from '../contexts/CirclePanelContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
@@ -88,6 +89,7 @@ export const DesktopHeader: React.FC = () => {
   const { unreadCount } = useChat();
   const { pendingRequestCount } = useAuth();
   const { scopedSearch, setScopedSearch, focusBump } = usePageSearch();
+  const { open: circleOpen, toggle: toggleCircle } = useCirclePanel();
   const { override: addActionOverride } = usePageAddAction();
   // True while a page (Pantry) has hijacked this input as a list filter.
   const isScoped = scopedSearch !== null;
@@ -473,9 +475,14 @@ export const DesktopHeader: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => navigate('/circle')}
+            onClick={toggleCircle}
             aria-label="Your circle"
-            className="relative w-10 h-10 rounded-full text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.05] flex items-center justify-center transition-colors"
+            className={cn(
+              'relative w-10 h-10 rounded-full flex items-center justify-center transition-colors',
+              circleOpen
+                ? 'bg-on-surface/[0.08] text-on-surface'
+                : 'text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.05]',
+            )}
           >
             <Users size={18} />
             {pendingRequestCount > 0 && (
