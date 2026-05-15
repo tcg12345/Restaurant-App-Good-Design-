@@ -45,7 +45,7 @@ const ActionRail: React.FC<{
   onComment: () => void;
   onShare: () => void;
 }> = ({ post, onLike, onSave, onComment, onShare }) => (
-  <div className="absolute right-3 bottom-32 z-20 flex flex-col items-center gap-5 select-none">
+  <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-5 select-none">
     <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
       <motion.span whileTap={{ scale: 0.8 }} className={cn('w-11 h-11 rounded-full flex items-center justify-center transition-colors', post.liked ? 'text-rose-500' : 'text-white group-hover:text-white/80')}>
         <Heart size={30} strokeWidth={2.2} className={cn(post.liked && 'fill-rose-500')} />
@@ -388,7 +388,9 @@ export const PostSlide: React.FC<PostSlideProps> = ({
             aria-label={hasCollapsibleContent ? (infoOpen ? 'Collapse details' : 'Expand details') : undefined}
             className={cn(
               'absolute inset-x-0 bottom-0 z-20 px-4 pt-10',
-              phoneMode ? 'pb-20' : 'pb-5',
+              // Clears the solid 50 px bottom nav + iPhone safe-area
+              // inset, leaving room above the scrub bar.
+              phoneMode ? 'pb-[calc(80px+env(safe-area-inset-bottom))]' : 'pb-5',
               hasCollapsibleContent && 'cursor-pointer',
             )}
           >
