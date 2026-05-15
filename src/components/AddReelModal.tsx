@@ -564,8 +564,9 @@ export const AddReelModal: React.FC = () => {
                   </p>
                 )}
               </div>
-              {/* Step pip indicator — hidden in edit mode (single step). */}
-              {!isEditing && (
+              {/* Step pip indicator — phone only. Wide viewports get the
+                  fuller horizontal stepper below the header. */}
+              {!isEditing && phoneMode && (
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   {Array.from({ length: totalSteps }).map((_, i) => (
                     <motion.span
@@ -581,6 +582,13 @@ export const AddReelModal: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Desktop stepper — full-width progress bar with labelled
+                checkpoints, like YouTube's upload flow. Hidden on phone
+                (header pip is enough) and in edit mode (single step). */}
+            {!isEditing && !phoneMode && (
+              <DesktopStepper currentStep={step} />
+            )}
 
             {/* Body — animated step content */}
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden relative">
@@ -1285,6 +1293,85 @@ const Step3Details: React.FC<{
           })}
         </div>
       </section>
+    </div>
+  );
+};
+
+/* ── Desktop stepper ──────────────────────────────────────────────────
+   Horizontal progress bar with labelled checkpoints. Steps before the
+   current one render a primary-filled circle with a check mark and a
+   filled connector to the right; the current step is a primary ring
+   with a filled dot; upcoming steps are outline-only with a muted
+   connector. Mimics YouTube's upload-flow stepper, tuned for our
+   three-step reel program. */
+
+const STEPPER_LABELS: { label: string; sub: string }[] = [
+  { label: 'Featured', sub: 'Type & subject' },
+  { label: 'Video',    sub: 'Upload your clip' },
+  { label: 'Details',  sub: 'Caption & visibility' },
+];
+
+const DesktopStepper: React.FC<{ currentStep: Step }> = ({ currentStep }) => {
+  const total = STEPPER_LABELS.length;
+  return (
+    <div className="border-b border-on-surface/[0.06] px-8 py-5 flex-shrink-0 bg-surface">
+      <div className="relative flex items-start justify-between gap-2">
+        {STEPPER_LABELS.map((entry, i) => {
+          const stepNum = (i + 1) as Step;
+          const status: 'done' | 'current' | 'upcoming' =
+            stepNum < currentStep ? 'done' : stepNum === currentStep ? 'current' : 'upcoming';
+          const isLast = i === total - 1;
+          const nextDone = stepNum < currentStep;
+          return (
+            <React.Fragment key={entry.label}>
+              <div className="flex flex-col items-center min-w-0 flex-shrink-0 relative z-10">
+                <motion.div
+                  className={cn(
+                    'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
+                    status === 'done' && 'bg-primary text-white',
+                    status === 'current' && 'bg-primary text-white ring-4 ring-primary/15',
+                    status === 'upcoming' && 'bg-on-surface/[0.04] border-2 border-on-surface/15 text-on-surface/35',
+                  )}
+                  initial={false}
+                  animate={status === 'current' ? { scale: 1.04 } : { scale: 1 }}
+                  transition={{ type: 'spring', damping: 22, stiffness: 320 }}
+                >
+                  {status === 'done' ? (
+                    <Check size={14} strokeWidth={3} />
+                  ) : (
+                    <span className="text-[11px] font-bold tabular-nums">{stepNum}</span>
+                  )}
+                </motion.div>
+                <div className="mt-2 text-center px-1 min-w-[88px]">
+                  <p className={cn(
+                    'text-[12px] font-bold leading-tight transition-colors',
+                    status === 'upcoming' ? 'text-on-surface/40' : 'text-on-surface',
+                  )}>
+                    {entry.label}
+                  </p>
+                  <p className={cn(
+                    'text-[10.5px] mt-0.5 leading-snug transition-colors',
+                    status === 'upcoming' ? 'text-on-surface/30' : 'text-on-surface/50',
+                  )}>
+                    {entry.sub}
+                  </p>
+                </div>
+              </div>
+              {!isLast && (
+                <div className="flex-1 mt-3 relative">
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full bg-on-surface/10" />
+                  <motion.div
+                    className="absolute inset-y-0 left-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full bg-primary"
+                    initial={false}
+                    animate={{ width: nextDone ? '100%' : '0%' }}
+                    transition={{ duration: 0.35, ease: 'easeOut' }}
+                  />
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
     </div>
   );
 };
