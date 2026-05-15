@@ -326,6 +326,49 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // panel that sits between the nav rail and the map. Width is persisted
   // to localStorage so the user's preferred split survives reloads.
   const isDesktopMapMode = mode === 'map' && usingDesktopHeader;
+
+  // Edge-swipe-from-left → /create. Touches that start within ~24px of
+  // the page's left edge and move >60px right (more horizontal than
+  // vertical) open the Create page so it slides in alongside the App
+  // route transition. Mobile-only — the gesture is opt-in via phoneMode
+  // so it doesn't fight desktop pointer interactions.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!phoneMode) return;
+    const el = rootRef.current;
+    if (!el) return;
+    let startX = 0;
+    let startY = 0;
+    let armed = false;
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      const rect = el.getBoundingClientRect();
+      const localX = t.clientX - rect.left;
+      armed = localX <= 24;
+      if (armed) {
+        startX = t.clientX;
+        startY = t.clientY;
+      }
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!armed) return;
+      armed = false;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      if (dx > 60 && Math.abs(dx) > Math.abs(dy)) {
+        navigate('/create');
+      }
+    };
+    el.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    el.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart, { capture: true } as EventListenerOptions);
+      el.removeEventListener('touchend', onTouchEnd, { capture: true } as EventListenerOptions);
+    };
+  }, [phoneMode, navigate]);
   const MAP_PANEL_MIN = 320;
   const MAP_PANEL_MAX = 600;
   const MAP_PANEL_DEFAULT = 400;
@@ -3207,12 +3250,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   ) : null;
 
   return (
-    <div className={cn(
-      "relative h-screen w-full overflow-hidden bg-muted",
-      // Desktop map mode lays out as a horizontal flex row so the new
-      // results sidebar takes the left strip and the map fills the rest.
-      isDesktopMapMode && "flex",
-    )}>
+    <div
+      ref={rootRef}
+      className={cn(
+        "relative h-screen w-full overflow-hidden bg-muted",
+        // Desktop map mode lays out as a horizontal flex row so the new
+        // results sidebar takes the left strip and the map fills the rest.
+        isDesktopMapMode && "flex",
+      )}
+    >
       {/* Desktop map results sidebar — draggable width, replaces the
           bottom sheet pop-up on wide viewports. */}
       {desktopPanel}
@@ -4242,7 +4288,22 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             {/* TopBar + the inline search button are only rendered on
                 phone-frame / narrow viewports. On desktop the global
                 DesktopHeader (sidebar layout) owns both. */}
-            {!usingDesktopHeader && <TopBar title="Home" />}
+            {!usingDesktopHeader && (
+              <TopBar
+                title="Home"
+                centerLogo={phoneMode}
+                leftAction={phoneMode ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/create')}
+                    aria-label="Create"
+                    className="w-10 h-10 rounded-full bg-on-surface/5 hover:bg-on-surface/10 flex items-center justify-center text-on-surface/80 transition-colors"
+                  >
+                    <Plus size={20} />
+                  </button>
+                ) : undefined}
+              />
+            )}
             {!usingDesktopHeader && (
               <div className={cn("flex items-center gap-3 flex-shrink-0", phoneMode ? "px-3 pt-2 pb-2" : "px-6 pt-2 pb-3")}>
                 <button
