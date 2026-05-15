@@ -3,7 +3,7 @@
  *
  *   Step 1: pick reel type (restaurant / recipe) and the featured item.
  *   Step 2: upload the video (skipped in edit mode — video is locked).
- *   Step 3: caption, location, audio, visibility — with a preview of
+ *   Step 3: caption, location, visibility — with a preview of
  *           the video pinned to the top so the user sees what they're
  *           captioning.
  *
@@ -15,7 +15,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  X, Film, ChefHat, MapPin, Search, Check, Upload, Music2, AlertCircle,
+  X, Film, ChefHat, MapPin, Search, Check, Upload, AlertCircle,
   Loader2, Globe, Users as UsersIcon, Star, ChevronLeft, ChevronRight,
   Image as ImageIcon, Trash2,
 } from 'lucide-react';
@@ -92,7 +92,6 @@ export const AddReelModal: React.FC = () => {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const [caption, setCaption] = useState('');
-  const [audio, setAudio] = useState('Original audio');
   const [locationLabel, setLocationLabel] = useState('');
   const [pickedLocation, setPickedLocation] = useState<HomeLocation | null>(null);
   const [isPublic, setIsPublic] = useState(true);
@@ -130,7 +129,6 @@ export const AddReelModal: React.FC = () => {
       setVideoUrl(null);
       setVideoDuration(null);
       setCaption(editingReel.caption);
-      setAudio(editingReel.audioLabel);
       setLocationLabel(editingReel.locationLabel || '');
       setPickedLocation(editingReel.locationLabel ? { label: editingReel.locationLabel, lat: 0, lng: 0 } : null);
       setIsPublic(editingReel.isPublic);
@@ -144,7 +142,6 @@ export const AddReelModal: React.FC = () => {
       setVideoUrl(null);
       setVideoDuration(null);
       setCaption('');
-      setAudio('Original audio');
       setLocationLabel('');
       setPickedLocation(null);
       setIsPublic(true);
@@ -445,7 +442,6 @@ export const AddReelModal: React.FC = () => {
         const att = buildAttachment();
         const ok = await updateReel(editingReel.id, {
           caption: caption.trim(),
-          audioLabel: audio.trim() || 'Original audio',
           locationLabel: resolvedLocationLabel,
           restaurant: att.restaurant ?? null,
           recipe: att.recipe ?? null,
@@ -472,7 +468,7 @@ export const AddReelModal: React.FC = () => {
       const reel = await postReel({
         file: videoFile, kind,
         caption: caption.trim(),
-        audioLabel: audio.trim() || 'Original audio',
+        audioLabel: 'Original audio',
         locationLabel: resolvedLocationLabel,
         bgGradient,
         durationSeconds: videoDuration ?? 0,
@@ -651,8 +647,6 @@ export const AddReelModal: React.FC = () => {
                       existingVideoUrl={editingReel?.videoUrl}
                       caption={caption}
                       setCaption={setCaption}
-                      audio={audio}
-                      setAudio={setAudio}
                       locationLabel={locationLabel}
                       setLocationLabel={(v) => {
                         setLocationLabel(v);
@@ -1131,15 +1125,13 @@ const Step2Video: React.FC<{
   );
 };
 
-/* ── Step 3: Final touches (caption + location + audio + visibility) ── */
+/* ── Step 3: Final touches (caption + location + visibility) ── */
 
 const Step3Details: React.FC<{
   videoUrl: string | null;
   existingVideoUrl: string | undefined;
   caption: string;
   setCaption: (v: string) => void;
-  audio: string;
-  setAudio: (v: string) => void;
   locationLabel: string;
   setLocationLabel: (v: string) => void;
   pickedLocation: HomeLocation | null;
@@ -1152,7 +1144,7 @@ const Step3Details: React.FC<{
   isPublic: boolean;
   setIsPublic: (v: boolean) => void;
 }> = ({
-  videoUrl, existingVideoUrl, caption, setCaption, audio, setAudio,
+  videoUrl, existingVideoUrl, caption, setCaption,
   locationLabel, setLocationLabel, pickedLocation, onPickLocation, onClearLocation,
   locationFocused, setLocationFocused, locationSuggestions, locationWrapRef,
   isPublic, setIsPublic,
@@ -1243,21 +1235,6 @@ const Step3Details: React.FC<{
               </motion.ul>
             )}
           </AnimatePresence>
-        </div>
-      </section>
-
-      {/* Audio */}
-      <section>
-        <label className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-2 block">Audio</label>
-        <div className="flex items-center gap-2 h-11 rounded-full bg-on-surface/[0.05] focus-within:bg-on-surface/[0.08] px-3 transition-colors">
-          <Music2 size={15} className="text-on-surface/45 flex-shrink-0" />
-          <input
-            type="text"
-            value={audio}
-            onChange={(e) => setAudio(e.target.value.slice(0, 60))}
-            placeholder="Original audio"
-            className="flex-1 bg-transparent outline-none text-sm min-w-0"
-          />
         </div>
       </section>
 
