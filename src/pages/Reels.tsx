@@ -187,6 +187,9 @@ interface ReelSlideProps {
   hideActionRail?: boolean;
   /** When true, skip the in-reel delete button (desktop puts delete in the side rail's "more" menu). */
   hideOwnerDelete?: boolean;
+  /** When true, skip the bottom info overlay (author / audio label / caption / featured card).
+   *  Desktop moves that into a dedicated side panel to the left of the reel. */
+  hideDetailsOverlay?: boolean;
   onLike: () => void;
   onSave: () => void;
   onComment: () => void;
@@ -195,7 +198,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
   // object-cover + heavy blur so phone screens taller than 9:16 letterbox
@@ -360,6 +363,7 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
           On phone the floating BottomNav sits ~70-90px above the bottom
           edge so we pad-bottom enough to clear it; desktop keeps the
           original tighter padding. */}
+      {!hideDetailsOverlay && (
       <div
         role={hasCollapsibleContent ? 'button' : undefined}
         tabIndex={hasCollapsibleContent ? 0 : undefined}
@@ -437,6 +441,66 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
           )}
         </AnimatePresence>
       </div>
+      )}
+    </div>
+  );
+};
+
+/* ── Side details panel (desktop) ───────────────────────────────────── */
+// YouTube-Shorts-style metadata column that lives to the left of the
+// centered reel: author + audio label, optional caption, and the
+// featured restaurant / recipe card. Mirrors what used to be overlaid
+// at the bottom of the video on phone, just relocated into the blank
+// space beside the column on wide viewports.
+
+const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> = ({ reel, onCardClick }) => {
+  return (
+    <div className="hidden md:flex w-[300px] flex-col gap-3.5 self-end pb-3">
+      {/* Author + expert chip */}
+      <Link
+        to={`/user/${encodeURIComponent(reel.authorUsername)}`}
+        className="flex items-center gap-3 group min-w-0"
+      >
+        <div className={cn(
+          'w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-on-surface/[0.06] transition-transform group-hover:scale-[1.04] group-active:scale-[0.96] flex-shrink-0',
+          reel.authorAvatarColor,
+        )}>
+          {reel.authorInitials}
+        </div>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-bold text-[15px] truncate text-on-surface group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
+          {reel.isExpert && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold flex-shrink-0">
+              <Star size={9} className="fill-stone-900" />
+              EXPERT
+            </span>
+          )}
+        </div>
+      </Link>
+
+      {/* Audio label */}
+      <p className="text-on-surface/55 text-[12.5px] font-mono truncate">♪ {reel.audioLabel}</p>
+
+      {/* Caption */}
+      {reel.caption && (
+        <p className="text-on-surface/85 text-[14.5px] font-serif italic leading-snug line-clamp-5">
+          {reel.caption}
+        </p>
+      )}
+
+      {/* Featured restaurant / recipe — re-uses the existing card
+          components. The cards use bg-white/95 which sits cleanly on
+          the cream app surface without retuning. */}
+      {reel.kind === 'restaurant' && reel.restaurant && (
+        <div className="mt-1">
+          <RestaurantCard reel={reel} onClick={onCardClick} />
+        </div>
+      )}
+      {reel.kind === 'recipe' && reel.recipe && (
+        <div className="mt-1">
+          <RecipeCard reel={reel} onClick={onCardClick} />
+        </div>
+      )}
     </div>
   );
 };
@@ -1384,7 +1448,7 @@ export const Reels: React.FC = () => {
   const commentsAdd = commentsKind === 'post' ? addPostComment : reelAddComment;
   const commentsDelete = commentsKind === 'post' ? deletePostComment : reelDeleteComment;
 
-  const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean }) => (
+  const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean; hideDetailsOverlay?: boolean }) => (
     <div
       ref={containerRef}
       className="h-full w-full overflow-y-auto snap-y snap-mandatory bg-black scrollbar-hide"
@@ -1437,6 +1501,7 @@ export const Reels: React.FC = () => {
                   isMine={!!currentUserId && item.reel.authorId === currentUserId}
                   hideActionRail={opts.hideActionRail}
                   hideOwnerDelete={opts.hideOwnerDelete}
+                  hideDetailsOverlay={opts.hideDetailsOverlay}
                   onLike={() => {
                     if (!currentUserId) { showToast('Sign in to like reels'); return; }
                     toggleLike(item.reel.id);
@@ -1458,6 +1523,7 @@ export const Reels: React.FC = () => {
                   isMine={!!currentUserId && item.post.userId === currentUserId}
                   hideActionRail={opts.hideActionRail}
                   hideOwnerDelete={opts.hideOwnerDelete}
+                  hideDetailsOverlay={opts.hideDetailsOverlay}
                   onLike={() => {
                     if (!currentUserId) { showToast('Sign in to like posts'); return; }
                     togglePostLike(item.post.id);
@@ -1564,6 +1630,18 @@ export const Reels: React.FC = () => {
             <ArrowLeft size={18} strokeWidth={2.4} />
           </button>
         )}
+
+        {/* Left details panel — author / audio label / caption /
+            featured card for the active reel. Lives in the blank space
+            to the left of the centered reel column, mirroring how
+            YouTube Shorts surfaces metadata on desktop. */}
+        {activeReel && (
+          <DesktopReelSideDetails
+            reel={activeReel}
+            onCardClick={() => handleCardClick(activeReel)}
+          />
+        )}
+
         {/* Reel column — full available height; aspect ratio drives width.
             9/16 matches the native reels video ratio and Instagram's desktop
             reels column, so the frame reads as a proper short-form video
@@ -1573,7 +1651,7 @@ export const Reels: React.FC = () => {
           style={{ aspectRatio: '9 / 16' }}
         >
           <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
-          {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true })}
+          {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true, hideDetailsOverlay: true })}
         </div>
 
         {/* Side actions — bottom-aligned, dispatched to reel or post APIs
