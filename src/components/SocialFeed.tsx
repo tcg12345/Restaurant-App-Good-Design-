@@ -1219,7 +1219,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 </p>
               </div>
 
-              <div className="flex gap-4">
+              <div className="flex gap-4 items-start">
                 {/* Left: content (tappable) */}
                 <button
                   type="button"
@@ -1250,9 +1250,41 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   )}
                 </button>
 
-                {/* Right rail: score + rate + wishlist stacked */}
-                <div className="flex-shrink-0 flex flex-col items-center gap-3 pt-0.5">
+                {/* Right rail: score only — rate/wishlist moved to bottom row */}
+                <div className="flex-shrink-0 pt-0.5">
                   <ScoreBadge rating={Number(r.score)} size="xl" />
+                </div>
+              </div>
+
+              {/* Bottom row: like + comment on the left, rate + wishlist on the right */}
+              <div className="flex items-center mt-3 -mx-2">
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleLike(r.id)}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full transition-colors",
+                      userLiked.has(r.id)
+                        ? "text-red-500"
+                        : "text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]"
+                    )}
+                  >
+                    <Heart size={17} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
+                    <span className="text-[12px] font-bold tabular-nums">{likes[r.id] || 0}</span>
+                  </button>
+                  <button
+                    onClick={() => handleOpenComments(r.id)}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full transition-colors",
+                      openComments === r.id
+                        ? "text-primary"
+                        : "text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04]"
+                    )}
+                  >
+                    <MessageSquare size={17} />
+                    <span className="text-[12px] font-bold tabular-nums">{commentCounts[r.id] || 0}</span>
+                  </button>
+                </div>
+                <div className="ml-auto flex items-center gap-1">
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); openAddRestaurantModal(meta); }}
@@ -1275,34 +1307,6 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                     <Heart size={18} className={wishlisted ? 'fill-red-500' : ''} />
                   </button>
                 </div>
-              </div>
-
-              {/* Bottom row: like + comment counts (flat, no top border) */}
-              <div className="flex items-center gap-1 mt-3 -ml-2">
-                <button
-                  onClick={() => handleLike(r.id)}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full transition-colors",
-                    userLiked.has(r.id)
-                      ? "text-red-500"
-                      : "text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]"
-                  )}
-                >
-                  <Heart size={17} className={userLiked.has(r.id) ? 'fill-red-500' : ''} />
-                  <span className="text-[12px] font-bold tabular-nums">{likes[r.id] || 0}</span>
-                </button>
-                <button
-                  onClick={() => handleOpenComments(r.id)}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full transition-colors",
-                    openComments === r.id
-                      ? "text-primary"
-                      : "text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.04]"
-                  )}
-                >
-                  <MessageSquare size={17} />
-                  <span className="text-[12px] font-bold tabular-nums">{commentCounts[r.id] || 0}</span>
-                </button>
               </div>
 
               {/* Comments — nested INSIDE the card as an indented subsection.
