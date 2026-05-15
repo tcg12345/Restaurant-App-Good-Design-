@@ -335,7 +335,14 @@ export const PostSlide: React.FC<PostSlideProps> = ({
   };
 
   return (
-    <div className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
+    <div className={cn(
+      'relative h-full w-full snap-start snap-always overflow-hidden',
+      // Phone: letterbox blank space picks up the app's surface color
+      // so it reads as part of the page in either light or dark mode,
+      // rather than a hard black backdrop. Desktop keeps black since
+      // the post sits inside a centred column with side panels.
+      phoneMode ? 'bg-surface' : 'bg-black',
+    )}>
       {/* Horizontal carousel of items.
           Default `touch-action: auto` lets the browser scroll the
           right axis: horizontal pans scroll this carousel (which has
