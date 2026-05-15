@@ -102,9 +102,14 @@ const AppContent: React.FC = () => {
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
   const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !isFocusedReel;
-  const { phoneMode } = useSettings();
+  const { phoneMode, isNative } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
+  // `phoneMode` does two jobs: gate the mobile UI everywhere, and (only
+  // here in App.tsx) render the desktop "phone preview" frame around
+  // the app. On Capacitor / real mobile we want the first job but not
+  // the second — the OS already gives us a phone-shaped viewport.
+  const showPhoneFrame = phoneMode && !isNative;
   // Sidebar mode: real desktop viewport AND not in the phone-frame preview.
   // The Onboarding flow is intentionally pre-auth-only so this gate isn't
   // needed for it; we just keep the sidebar off the few pages where it
@@ -113,7 +118,7 @@ const AppContent: React.FC = () => {
 
   if (loading) {
     return (
-      <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : "min-h-screen bg-surface flex items-center justify-center"}>
+      <div className={showPhoneFrame ? "min-h-screen bg-black flex items-center justify-center" : "min-h-screen bg-surface flex items-center justify-center"}>
         <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-2xl animate-pulse">
           G
         </div>
@@ -123,20 +128,20 @@ const AppContent: React.FC = () => {
 
   if (!isSignedIn) {
     return (
-      <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : ""}>
+      <div className={showPhoneFrame ? "min-h-screen bg-black flex items-center justify-center" : ""}>
         <div
           className={
-            phoneMode
+            showPhoneFrame
               ? "relative bg-surface selection:bg-primary/20 selection:text-primary overflow-hidden rounded-3xl shadow-2xl border border-white/10"
               : "min-h-screen bg-surface selection:bg-primary/20 selection:text-primary"
           }
           style={
-            phoneMode
+            showPhoneFrame
               ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' }
               : undefined
           }
         >
-          <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
+          <div className={showPhoneFrame ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
             <Routes location={location}>
               <Route path="/auth" element={<Auth />} />
               <Route path="/import" element={<ImportRestaurants />} />
@@ -150,12 +155,12 @@ const AppContent: React.FC = () => {
 
   if (isSignedIn && !profileComplete) {
     return (
-      <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : ""}>
+      <div className={showPhoneFrame ? "min-h-screen bg-black flex items-center justify-center" : ""}>
         <div
-          className={phoneMode ? "relative bg-surface overflow-hidden rounded-3xl shadow-2xl border border-white/10" : "min-h-screen bg-surface"}
-          style={phoneMode ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' } : undefined}
+          className={showPhoneFrame ? "relative bg-surface overflow-hidden rounded-3xl shadow-2xl border border-white/10" : "min-h-screen bg-surface"}
+          style={showPhoneFrame ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' } : undefined}
         >
-          <div className={phoneMode ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
+          <div className={showPhoneFrame ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
             <ProfileSetup />
           </div>
         </div>
@@ -265,20 +270,20 @@ const AppContent: React.FC = () => {
 
   // ── Phone-frame preview / narrow viewport layout (existing) ──────────
   return (
-    <div className={phoneMode ? "min-h-screen bg-black flex items-center justify-center" : ""}>
+    <div className={showPhoneFrame ? "min-h-screen bg-black flex items-center justify-center" : ""}>
       <div
         className={
-          phoneMode
+          showPhoneFrame
             ? "relative bg-surface selection:bg-primary/20 selection:text-primary overflow-hidden rounded-3xl shadow-2xl border border-white/10"
             : "min-h-screen bg-surface selection:bg-primary/20 selection:text-primary"
         }
         style={
-          phoneMode
+          showPhoneFrame
             ? { width: 'min(100vw, calc(100vh * 9 / 19.5))', height: '100vh', maxHeight: '100vh', transform: 'translateZ(0)' }
             : undefined
         }
       >
-        <div className={phoneMode ? "relative h-full overflow-y-auto overflow-x-hidden" : "relative"}>
+        <div className={showPhoneFrame ? "relative h-full overflow-y-auto overflow-x-hidden" : "relative"}>
           {routesBlock}
         </div>
         <AnimatePresence>

@@ -1053,7 +1053,7 @@ interface TopBarProps {
 
 const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
   return (
-    <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-3">
+    <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
       <div className="relative flex-1 max-w-[280px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
         {([
           { value: 'explore', label: 'Explore' },
