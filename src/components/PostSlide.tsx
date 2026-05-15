@@ -449,8 +449,8 @@ export const PostSlide: React.FC<PostSlideProps> = ({
             className={cn(
               'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10',
               // Clears the solid 50 px bottom nav + iPhone safe-area
-              // inset, leaving room above the scrub bar.
-              phoneMode ? 'pb-[calc(80px+env(safe-area-inset-bottom))]' : 'pb-5',
+              // inset, sitting just above the scrub bar.
+              phoneMode ? 'pb-[calc(70px+env(safe-area-inset-bottom))]' : 'pb-5',
               // Reserve room on the right for the action rail (44 px
               // wide buttons at right-3) so the featured card stops
               // short of the share/save/comment column instead of

@@ -464,8 +464,8 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, is
         className={cn(
           'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10',
           // Padding clears the solid 50 px bottom nav + the safe-area
-          // inset on a real iPhone, with a ~30 px gap above the scrub bar.
-          phoneMode ? 'pb-[calc(80px+env(safe-area-inset-bottom))]' : 'pb-5',
+          // inset on a real iPhone, sitting just above the scrub bar.
+          phoneMode ? 'pb-[calc(70px+env(safe-area-inset-bottom))]' : 'pb-5',
           // Keep the author row + featured card out from under the
           // right-side action rail. The rail sits at right-3 (12 px)
           // with 44 px-wide buttons, so 68 px on phone leaves a
