@@ -16,7 +16,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Check } from 'lucide-react';
+import { Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Check, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 /* ── Types ───────────────────────────────────────────────────────────── */
@@ -714,45 +714,254 @@ const FilterTab: React.FC<{ edits: EditState; setEdits: (n: Partial<EditState>) 
   );
 };
 
+/** Minimum trim duration so we never collapse the handles. */
+const MIN_TRIM_SECONDS = 0.5;
+const FRAME_COUNT = 10;
+const STRIP_HEIGHT_PX = 64;
+
+function formatTrimTime(seconds: number): string {
+  const safe = Math.max(0, seconds);
+  const m = Math.floor(safe / 60);
+  const s = safe - m * 60;
+  return `${m}:${s.toFixed(2).padStart(5, '0')}`;
+}
+
+/**
+ * Extract `FRAME_COUNT` evenly-spaced thumbnails from a video by
+ * seeking + drawing each frame to a canvas. Cached per source URL so
+ * tab switches and remounts don't pay the seek cost again.
+ */
+const framesCache = new Map<string, string[]>();
+async function extractFrames(src: string, duration: number): Promise<string[]> {
+  const cached = framesCache.get(src);
+  if (cached) return cached;
+  const v = document.createElement('video');
+  v.src = src;
+  v.crossOrigin = 'anonymous';
+  v.muted = true;
+  v.playsInline = true;
+  v.preload = 'auto';
+  await new Promise<void>((resolve, reject) => {
+    v.onloadedmetadata = () => resolve();
+    v.onerror = () => reject(new Error('video metadata load failed'));
+  });
+  const ratio = (v.videoWidth || 16) / (v.videoHeight || 9);
+  const h = 96;
+  const w = Math.max(48, Math.round(h * ratio));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('canvas 2d unavailable');
+  const out: string[] = [];
+  const total = Math.max(1, duration);
+  for (let i = 0; i < FRAME_COUNT; i++) {
+    const t = (total * (i + 0.5)) / FRAME_COUNT;
+    v.currentTime = Math.min(total - 0.05, t);
+    await new Promise<void>((resolve) => { v.onseeked = () => resolve(); });
+    ctx.drawImage(v, 0, 0, w, h);
+    out.push(canvas.toDataURL('image/jpeg', 0.6));
+  }
+  framesCache.set(src, out);
+  return out;
+}
+
 const TrimTab: React.FC<{ item: EditableItem; edits: EditState; setEdits: (n: Partial<EditState>) => void }> = ({ item, edits, setEdits }) => {
-  const duration = item.durationSeconds ?? 0;
+  const duration = Math.max(MIN_TRIM_SECONDS, item.durationSeconds ?? 0);
   const trim = edits.trim ?? { start: 0, end: duration };
-  const start = Math.max(0, Math.min(trim.start, duration));
-  const end = Math.max(start + 0.5, Math.min(trim.end || duration, duration));
-  const set = (next: Partial<typeof trim>) => setEdits({ trim: { start: next.start ?? start, end: next.end ?? end } });
+  const start = Math.max(0, Math.min(trim.start, duration - MIN_TRIM_SECONDS));
+  const end = Math.max(start + MIN_TRIM_SECONDS, Math.min(trim.end || duration, duration));
+
+  // Extract filmstrip thumbnails for the current source. Cached per
+  // URL so tab/back-forth doesn't re-seek the whole video.
+  const [frames, setFrames] = useState<string[] | null>(() => framesCache.get(item.previewUrl) ?? null);
+  const [framesError, setFramesError] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setFramesError(false);
+    const cached = framesCache.get(item.previewUrl);
+    if (cached) { setFrames(cached); return; }
+    setFrames(null);
+    extractFrames(item.previewUrl, duration)
+      .then((out) => { if (!cancelled) setFrames(out); })
+      .catch(() => { if (!cancelled) setFramesError(true); });
+    return () => { cancelled = true; };
+  }, [item.previewUrl, duration]);
+
+  // Drag state — `dragging` is which handle (or the whole window) is
+  // being dragged, along with the offset between the pointer and the
+  // handle so the user feels precise control instead of the handle
+  // snapping under their finger.
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef<{ which: 'start' | 'end' | 'window'; pointerId: number; grabOffsetSec: number } | null>(null);
+
+  const pointerXToTime = (clientX: number): number => {
+    const el = stripRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return ratio * duration;
+  };
+
+  const onPointerDown = (which: 'start' | 'end' | 'window') => (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    const t = pointerXToTime(e.clientX);
+    const anchor = which === 'start' ? start : which === 'end' ? end : start;
+    draggingRef.current = { which, pointerId: e.pointerId, grabOffsetSec: t - anchor };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = draggingRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    const t = pointerXToTime(e.clientX) - d.grabOffsetSec;
+    if (d.which === 'start') {
+      const next = Math.max(0, Math.min(t, end - MIN_TRIM_SECONDS));
+      if (Math.abs(next - start) > 0.02) setEdits({ trim: { start: next, end } });
+    } else if (d.which === 'end') {
+      const next = Math.max(start + MIN_TRIM_SECONDS, Math.min(t, duration));
+      if (Math.abs(next - end) > 0.02) setEdits({ trim: { start, end: next } });
+    } else {
+      // Dragging the trim window — move both handles together.
+      const len = end - start;
+      const nextStart = Math.max(0, Math.min(t, duration - len));
+      const nextEnd = nextStart + len;
+      if (Math.abs(nextStart - start) > 0.02) setEdits({ trim: { start: nextStart, end: nextEnd } });
+    }
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = draggingRef.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    draggingRef.current = null;
+  };
+
+  const startPct = (start / duration) * 100;
+  const endPct = (end / duration) * 100;
+  const trimDuration = end - start;
+  const isTouched = trim !== null && (trim.start > 0.05 || trim.end < duration - 0.05);
+
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Trim</p>
-      <div className="space-y-2 px-1">
-        <RangeRow
-          label="Start"
-          value={start}
-          min={0}
-          max={Math.max(0.5, end - 0.5)}
-          step={0.1}
-          format={(v) => `${v.toFixed(1)}s`}
-          onChange={(v) => set({ start: v })}
-        />
-        <RangeRow
-          label="End"
-          value={end}
-          min={start + 0.5}
-          max={duration || 60}
-          step={0.1}
-          format={(v) => `${v.toFixed(1)}s`}
-          onChange={(v) => set({ end: v })}
-        />
+      <div className="flex items-baseline justify-between">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Trim</p>
+        <p className="text-[13px] font-mono tabular-nums font-bold text-on-surface/85">
+          {formatTrimTime(trimDuration)}
+        </p>
       </div>
-      <p className="text-[12px] text-on-surface/55">
-        Final length: <span className="font-bold tabular-nums text-on-surface/75">{(end - start).toFixed(1)}s</span>
-      </p>
-      <button
-        type="button"
-        onClick={() => setEdits({ trim: null })}
-        className="inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
-      >
-        <Wand2 size={12} /> Reset trim
-      </button>
+
+      {/* Filmstrip with draggable handles. */}
+      <div className="relative rounded-lg bg-black overflow-hidden select-none" style={{ height: STRIP_HEIGHT_PX }}>
+        {/* Thumbnail frames row */}
+        <div
+          ref={stripRef}
+          className="absolute inset-0 flex touch-none"
+        >
+          {frames ? (
+            frames.map((src, i) => (
+              <img
+                key={i}
+                src={src}
+                alt=""
+                draggable={false}
+                className="flex-1 min-w-0 h-full object-cover pointer-events-none"
+              />
+            ))
+          ) : framesError ? (
+            <div className="absolute inset-0 flex items-center justify-center text-[11px] text-white/60">
+              Couldn&apos;t preview frames
+            </div>
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 size={16} className="animate-spin text-white/60" />
+            </div>
+          )}
+        </div>
+
+        {/* Dimmed regions outside the selection. */}
+        <div className="absolute inset-y-0 left-0 bg-black/60 pointer-events-none" style={{ width: `${startPct}%` }} />
+        <div className="absolute inset-y-0 right-0 bg-black/60 pointer-events-none" style={{ width: `${100 - endPct}%` }} />
+
+        {/* Trim window — top + bottom borders + a draggable middle
+            area that lets the user reposition the whole selection. */}
+        <div
+          className="absolute inset-y-0 border-y-[3px] border-primary"
+          style={{ left: `${startPct}%`, right: `${100 - endPct}%` }}
+        >
+          <div
+            onPointerDown={onPointerDown('window')}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            className="absolute inset-0 cursor-grab active:cursor-grabbing touch-none"
+            aria-label="Drag trim window"
+          />
+        </div>
+
+        {/* Start handle */}
+        <div
+          onPointerDown={onPointerDown('start')}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          role="slider"
+          aria-label="Trim start"
+          aria-valuemin={0}
+          aria-valuemax={duration}
+          aria-valuenow={start}
+          tabIndex={0}
+          className="absolute top-0 bottom-0 flex items-center justify-center cursor-ew-resize touch-none z-10"
+          style={{
+            left: `calc(${startPct}% - 10px)`,
+            width: 20,
+          }}
+        >
+          <span className="block w-2.5 h-full bg-primary rounded-l-md flex items-center justify-center">
+            <span className="block w-0.5 h-5 bg-white/85 rounded-full" />
+          </span>
+        </div>
+
+        {/* End handle */}
+        <div
+          onPointerDown={onPointerDown('end')}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          role="slider"
+          aria-label="Trim end"
+          aria-valuemin={0}
+          aria-valuemax={duration}
+          aria-valuenow={end}
+          tabIndex={0}
+          className="absolute top-0 bottom-0 flex items-center justify-center cursor-ew-resize touch-none z-10"
+          style={{
+            left: `calc(${endPct}% - 10px)`,
+            width: 20,
+          }}
+        >
+          <span className="block w-2.5 h-full bg-primary rounded-r-md flex items-center justify-center">
+            <span className="block w-0.5 h-5 bg-white/85 rounded-full" />
+          </span>
+        </div>
+      </div>
+
+      {/* Start / end timestamps below the strip. */}
+      <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-on-surface/55">
+        <span>{formatTrimTime(start)}</span>
+        <span>of {formatTrimTime(duration)}</span>
+        <span>{formatTrimTime(end)}</span>
+      </div>
+
+      {isTouched && (
+        <button
+          type="button"
+          onClick={() => setEdits({ trim: null })}
+          className="inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
+        >
+          <Wand2 size={12} /> Reset trim
+        </button>
+      )}
     </div>
   );
 };
@@ -785,28 +994,3 @@ const Slider: React.FC<{
   </div>
 );
 
-const RangeRow: React.FC<{
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  format: (v: number) => string;
-  onChange: (v: number) => void;
-}> = ({ label, value, min, max, step, format, onChange }) => (
-  <div>
-    <div className="flex items-center justify-between mb-1">
-      <span className="text-[12px] font-bold text-on-surface/75">{label}</span>
-      <span className="text-[11.5px] tabular-nums text-on-surface/55">{format(value)}</span>
-    </div>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className="w-full accent-primary"
-    />
-  </div>
-);
