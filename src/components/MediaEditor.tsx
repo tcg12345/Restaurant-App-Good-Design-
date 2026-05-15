@@ -380,6 +380,32 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
     });
   }, [active?.key]);
 
+  // Keep the active video's playback in sync with its trim window —
+  // seek to start when the trim moves the playhead out of range, and
+  // loop back to start when playback hits trim.end so the preview
+  // always shows just the trimmed range. Re-runs whenever the active
+  // item or its trim values change.
+  useEffect(() => {
+    if (!active || active.mediaType !== 'video') return;
+    const video = videoRefs.current.get(active.key);
+    if (!video) return;
+    const trim = active.edits.trim;
+    if (!trim) return;
+    // Snap the playhead inside the new window. Small tolerance so we
+    // don't fight the user mid-frame when they barely nudge a handle.
+    if (video.currentTime < trim.start - 0.05 || video.currentTime > trim.end + 0.05) {
+      try { video.currentTime = trim.start; } catch { /* ignore */ }
+    }
+    const onTimeUpdate = () => {
+      if (video.currentTime >= trim.end) {
+        try { video.currentTime = trim.start; } catch { /* ignore */ }
+      }
+    };
+    video.addEventListener('timeupdate', onTimeUpdate);
+    return () => video.removeEventListener('timeupdate', onTimeUpdate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.key, active?.mediaType, active?.edits.trim?.start, active?.edits.trim?.end]);
+
   // Default the tab to the most useful one for the media type.
   const [tab, setTab] = useState<Tab>(active?.mediaType === 'video' ? 'trim' : 'crop');
 
