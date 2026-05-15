@@ -1140,8 +1140,13 @@ interface TopBarProps {
 const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
   const { phoneMode } = useSettings();
   return (
-    <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-safe-3">
-      <div className="relative flex-1 max-w-[280px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
+    // Three-column grid keeps the tabs perfectly centered regardless of
+    // whether the right-side mute button is present. The text-only tabs
+    // rely on the top gradient overlay + a small drop shadow for
+    // legibility on bright video.
+    <div className="absolute top-0 inset-x-0 z-30 grid grid-cols-3 items-center px-3 pt-safe-3">
+      <div />
+      <div className="flex items-center justify-center gap-6">
         {([
           { value: 'explore', label: 'Explore' },
           { value: 'recipe', label: 'Recipes' },
@@ -1153,8 +1158,8 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
               type="button"
               onClick={() => setKind(opt.value)}
               className={cn(
-                'flex-1 h-9 rounded-full text-[14px] font-bold transition-colors',
-                active ? 'bg-white text-stone-900 shadow' : 'text-white/85',
+                'text-[16px] transition-colors drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]',
+                active ? 'text-white font-bold' : 'text-white/55 font-semibold',
               )}
             >
               {opt.label}
@@ -1162,19 +1167,21 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
           );
         })}
       </div>
-      {/* Mute toggle lives in the paused-state overlay on phone, so the
-          top-right slot stays empty there. Desktop keeps the always-on
-          button since pausing isn't the primary interaction model. */}
-      {!phoneMode && (
-        <button
-          type="button"
-          onClick={() => setMuted(!muted)}
-          className="w-11 h-11 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-          aria-label={muted ? 'Unmute' : 'Mute'}
-        >
-          {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-        </button>
-      )}
+      <div className="flex justify-end">
+        {/* Mute toggle lives in the paused-state overlay on phone, so the
+            top-right slot stays empty there. Desktop keeps the always-on
+            button since pausing isn't the primary interaction model. */}
+        {!phoneMode && (
+          <button
+            type="button"
+            onClick={() => setMuted(!muted)}
+            className="w-11 h-11 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
+            aria-label={muted ? 'Unmute' : 'Mute'}
+          >
+            {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+        )}
+      </div>
     </div>
   );
 };
