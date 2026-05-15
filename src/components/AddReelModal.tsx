@@ -169,17 +169,18 @@ export const AddReelModal: React.FC = () => {
     };
   }, [videoUrl]);
 
-  // On phone, auto-open the OS picker the first time step 2 mounts so
-  // the user lands on the camera roll without a second tap (the
-  // "Next" tap from step 1 keeps the user-gesture context alive long
-  // enough on iOS / Android Chrome). We only fire when no video is
-  // chosen yet so going back to step 2 to replace doesn't re-open.
+  // On phone, auto-open the OS picker the first time the video step
+  // mounts so the user lands on the camera roll without a second tap.
+  // The "Create reel" tap that opened the modal preserves the user
+  // gesture context for ~100ms on iOS / Android Chrome, which is
+  // usually long enough to programmatically click the file input. We
+  // only fire when no video is chosen yet so going back to the video
+  // step to replace doesn't re-open the picker automatically.
   const autoOpenedRef = useRef(false);
   useEffect(() => {
     if (!addReelModalOpen) { autoOpenedRef.current = false; return; }
-    if (step !== 2 || videoUrl || autoOpenedRef.current) return;
+    if (step !== 1 || videoUrl || autoOpenedRef.current) return;
     autoOpenedRef.current = true;
-    // Defer a tick so the step's input element is mounted.
     const id = window.setTimeout(() => {
       try { fileInputRef.current?.click(); } catch { /* user gesture lost — fall back to tap */ }
     }, 60);
@@ -206,7 +207,7 @@ export const AddReelModal: React.FC = () => {
   // Debounced Places search for restaurants — only when the user is on
   // step 1 and the restaurant tab.
   useEffect(() => {
-    if (!addReelModalOpen || step !== 1 || kind !== 'restaurant') return;
+    if (!addReelModalOpen || step !== 2 || kind !== 'restaurant') return;
     if (placeDebounceRef.current) clearTimeout(placeDebounceRef.current);
     const q = restaurantSearch.trim();
     if (q.length < 2) {
@@ -410,8 +411,10 @@ export const AddReelModal: React.FC = () => {
 
   // ── Step gates ──
   const hasFeatured = kind === 'restaurant' ? !!pickedRestaurant : !!pickedRecipe;
-  const canAdvanceFromStep1 = hasFeatured;
-  const canAdvanceFromStep2 = !!videoFile && !!videoUrl;
+  // Step 1 (video) gates on a chosen file; step 2 (featured) gates on
+  // having picked a restaurant or recipe.
+  const canAdvanceFromStep1 = !!videoFile && !!videoUrl;
+  const canAdvanceFromStep2 = hasFeatured;
   const canSubmit = !!user?.id && hasFeatured && !submitting && (isEditing || !!videoFile);
 
   // ── Submit ──
@@ -547,15 +550,15 @@ export const AddReelModal: React.FC = () => {
               <div className="flex-1 min-w-0">
                 <h2 className="font-serif font-bold text-lg leading-tight truncate">
                   {isEditing ? 'Edit reel' : (
-                    step === 1 ? "What's your reel?" :
-                    step === 2 ? 'Upload your video' :
+                    step === 1 ? 'Upload your video' :
+                    step === 2 ? "What's your reel?" :
                     'Final touches'
                   )}
                 </h2>
                 {!isEditing && (
                   <p className="text-[12px] text-on-surface/45 mt-0.5 truncate">
-                    {step === 1 && 'Pick a type and the featured item.'}
-                    {step === 2 && `Up to ${REEL_MAX_DURATION_SECONDS}s.`}
+                    {step === 1 && `Up to ${REEL_MAX_DURATION_SECONDS}s.`}
+                    {step === 2 && 'Pick a type and the featured item.'}
                     {step === 3 && 'Add a caption and details.'}
                   </p>
                 )}
@@ -599,9 +602,21 @@ export const AddReelModal: React.FC = () => {
                   transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
                   className="px-5 pt-5 pb-6"
                 >
-                  {/* ───────── STEP 1 ───────── */}
+                  {/* ───────── STEP 1: VIDEO ───────── */}
                   {step === 1 && !isEditing && (
-                    <Step1Type
+                    <StepVideo
+                      videoUrl={videoUrl}
+                      videoDuration={videoDuration}
+                      validationMsg={validationMsg}
+                      onPickFile={onPickFile}
+                      onClearVideo={clearVideo}
+                      fileInputRef={fileInputRef}
+                    />
+                  )}
+
+                  {/* ───────── STEP 2: TYPE + FEATURED ───────── */}
+                  {step === 2 && !isEditing && (
+                    <StepFeatured
                       kind={kind}
                       setKind={(k) => {
                         setKind(k);
@@ -625,18 +640,6 @@ export const AddReelModal: React.FC = () => {
                       searchingPlaces={searchingPlaces}
                       onPickRestaurant={(id) => setPickedRestaurantId(id)}
                       onPickRecipe={(id) => setPickedRecipeId(id)}
-                    />
-                  )}
-
-                  {/* ───────── STEP 2 ───────── */}
-                  {step === 2 && !isEditing && (
-                    <Step2Video
-                      videoUrl={videoUrl}
-                      videoDuration={videoDuration}
-                      validationMsg={validationMsg}
-                      onPickFile={onPickFile}
-                      onClearVideo={clearVideo}
-                      fileInputRef={fileInputRef}
                     />
                   )}
 
@@ -764,7 +767,7 @@ export const AddReelModal: React.FC = () => {
   );
 };
 
-/* ── Step 1: Type + Featured item ─────────────────────────────────────── */
+/* ── Step 2: Type + Featured item ─────────────────────────────────────── */
 
 interface RestaurantPickItem {
   id: string; name: string; cuisine: string; price: string;
@@ -775,7 +778,7 @@ interface RecipePickItem {
   servings: number; difficulty: 'Easy' | 'Medium' | 'Hard'; image?: string;
 }
 
-const Step1Type: React.FC<{
+const StepFeatured: React.FC<{
   kind: ReelKind;
   setKind: (k: ReelKind) => void;
   pickedRestaurant: RestaurantPickItem | null;
@@ -976,9 +979,9 @@ const Step1Type: React.FC<{
   );
 };
 
-/* ── Step 2: Video upload ────────────────────────────────────────────── */
+/* ── Step 1: Video upload ────────────────────────────────────────────── */
 
-const Step2Video: React.FC<{
+const StepVideo: React.FC<{
   videoUrl: string | null;
   videoDuration: number | null;
   validationMsg: string | null;
@@ -1288,8 +1291,8 @@ const Step3Details: React.FC<{
    three-step reel program. */
 
 const STEPPER_LABELS: { label: string; sub: string }[] = [
-  { label: 'Featured', sub: 'Type & subject' },
   { label: 'Video',    sub: 'Upload your clip' },
+  { label: 'Featured', sub: 'Type & subject' },
   { label: 'Details',  sub: 'Caption & visibility' },
 ];
 
