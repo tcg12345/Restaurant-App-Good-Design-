@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, Pause, ArrowLeft } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -182,6 +182,7 @@ interface ReelSlideProps {
   reel: Reel;
   active: boolean;
   muted: boolean;
+  setMuted: (m: boolean) => void;
   isMine: boolean;
   /** When true, skip the right-edge action rail (desktop renders one beside the reel). */
   hideActionRail?: boolean;
@@ -202,7 +203,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, isMine, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
   // object-cover + heavy blur so phone screens taller than 9:16 letterbox
@@ -213,18 +214,19 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
     || (reel.kind === 'restaurant' && !!reel.restaurant)
     || (reel.kind === 'recipe' && !!reel.recipe);
   const [infoOpen, setInfoOpen] = useState(true);
-  // Brief play/pause feedback overlay — flashes a centered icon when the
-  // user taps the video to toggle, then fades out after ~700ms. The
-  // icon shown matches the action that just happened (pause icon when
-  // pausing, play icon when resuming).
-  const [tapIndicator, setTapIndicator] = useState<'play' | 'pause' | null>(null);
-  const tapTimeoutRef = useRef<number | null>(null);
+  // Persistent paused state — stays true while the user has the video
+  // paused, drives a centered overlay (audio toggle + play icon) so the
+  // user can resume or change audio without an always-on mute button.
+  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
     const el = videoRef.current;
     const bg = backdropRef.current;
     if (!el) return;
     if (active) {
+      // Optimistically clear isPaused before play() resolves so the
+      // paused overlay doesn't flash for a few ms on slide-in.
+      setIsPaused(false);
       el.muted = muted;
       el.play().catch(() => { /* autoplay may be blocked until user gesture */ });
       if (bg) {
@@ -240,6 +242,23 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       }
     }
   }, [active, muted]);
+
+  // Mirror the video's play/pause state into React so the persistent
+  // paused overlay reflects reality (covers system pauses, autoplay
+  // failures, and user taps in one place).
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const handlePlay = () => setIsPaused(false);
+    const handlePause = () => setIsPaused(true);
+    el.addEventListener('play', handlePlay);
+    el.addEventListener('pause', handlePause);
+    setIsPaused(el.paused);
+    return () => {
+      el.removeEventListener('play', handlePlay);
+      el.removeEventListener('pause', handlePause);
+    };
+  }, []);
 
   // Publish / withdraw the underlying <video> element to the parent
   // page when this slide becomes active. The page-level progress bar
@@ -257,18 +276,6 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
     };
   }, [active, onActiveVideoChange]);
 
-  // Clear any in-flight tap-feedback timeout when this slide unmounts
-  // (e.g. user scrolls past mid-flash).
-  useEffect(() => () => {
-    if (tapTimeoutRef.current != null) window.clearTimeout(tapTimeoutRef.current);
-  }, []);
-
-  const showTapIndicator = (kind: 'play' | 'pause') => {
-    if (tapTimeoutRef.current != null) window.clearTimeout(tapTimeoutRef.current);
-    setTapIndicator(kind);
-    tapTimeoutRef.current = window.setTimeout(() => setTapIndicator(null), 650);
-  };
-
   const onTapVideo = () => {
     const el = videoRef.current;
     const bg = backdropRef.current;
@@ -276,11 +283,9 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
     if (el.paused) {
       el.play().catch(() => {});
       if (bg) bg.play().catch(() => {});
-      showTapIndicator('play');
     } else {
       el.pause();
       if (bg) bg.pause();
-      showTapIndicator('pause');
     }
   };
 
@@ -334,26 +339,34 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, isMine, hide
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/55 to-transparent z-10" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/75 via-black/30 to-transparent z-10" />
 
-      {/* Tap-to-toggle feedback — flashes a centered play/pause icon for
-          ~650ms whenever the user toggles playback by tapping the video.
-          pointer-events-none so a quick double tap still routes to the
-          underlying video click handler. */}
+      {/* Persistent paused overlay — when the active reel is paused,
+          a centered audio toggle sits above a play icon. Disappears
+          immediately on resume, so a playing video has no chrome in
+          the middle of the frame. */}
       <AnimatePresence>
-        {tapIndicator && (
+        {active && isPaused && (
           <motion.div
-            key={`${tapIndicator}-${Date.now()}`}
-            initial={{ opacity: 0, scale: 0.7 }}
+            initial={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.25 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ opacity: 0, scale: 0.85 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center"
           >
-            <div className="w-[88px] h-[88px] rounded-full bg-black/55 backdrop-blur flex items-center justify-center shadow-lg">
-              {tapIndicator === 'play' ? (
+            <div className="flex flex-col items-center gap-4">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMuted(!muted);
+                }}
+                className="pointer-events-auto w-12 h-12 rounded-full bg-black/55 backdrop-blur flex items-center justify-center text-white shadow-lg hover:bg-black/70 transition-colors"
+                aria-label={muted ? 'Unmute' : 'Mute'}
+              >
+                {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+              </button>
+              <div className="w-[88px] h-[88px] rounded-full bg-black/55 backdrop-blur flex items-center justify-center shadow-lg">
                 <Play size={40} className="text-white fill-white ml-1.5" strokeWidth={1.5} />
-              ) : (
-                <Pause size={40} className="text-white fill-white" strokeWidth={1.5} />
-              )}
+              </div>
             </div>
           </motion.div>
         )}
@@ -1054,6 +1067,7 @@ interface TopBarProps {
 }
 
 const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
+  const { phoneMode } = useSettings();
   return (
     <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 pt-safe-3">
       <div className="relative flex-1 max-w-[280px] h-11 rounded-full bg-black/35 backdrop-blur flex items-center px-1">
@@ -1077,14 +1091,19 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
           );
         })}
       </div>
-      <button
-        type="button"
-        onClick={() => setMuted(!muted)}
-        className="w-11 h-11 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-        aria-label={muted ? 'Unmute' : 'Mute'}
-      >
-        {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-      </button>
+      {/* Mute toggle lives in the paused-state overlay on phone, so the
+          top-right slot stays empty there. Desktop keeps the always-on
+          button since pausing isn't the primary interaction model. */}
+      {!phoneMode && (
+        <button
+          type="button"
+          onClick={() => setMuted(!muted)}
+          className="w-11 h-11 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
+          aria-label={muted ? 'Unmute' : 'Mute'}
+        >
+          {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+        </button>
+      )}
     </div>
   );
 };
@@ -1632,6 +1651,7 @@ export const Reels: React.FC = () => {
                   reel={item.reel}
                   active={activeKey === item.key}
                   muted={muted}
+                  setMuted={setMuted}
                   isMine={!!currentUserId && item.reel.authorId === currentUserId}
                   hideActionRail={opts.hideActionRail}
                   hideOwnerDelete={opts.hideOwnerDelete}
