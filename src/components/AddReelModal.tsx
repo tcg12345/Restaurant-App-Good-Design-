@@ -1019,6 +1019,10 @@ const Step2Video: React.FC<{
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      {/* Flex-center wrapper — the inner tile is sized by aspect-ratio
+          + max-h, which often resolves to less than the parent's full
+          width, so we center it horizontally here. */}
+      <div className="flex items-start justify-center">
       <AnimatePresence mode="wait">
         {!videoUrl ? (
           <motion.label
@@ -1027,9 +1031,9 @@ const Step2Video: React.FC<{
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
             className={cn(
-              'block rounded-3xl border-2 border-dashed cursor-pointer transition-all relative overflow-hidden',
+              'rounded-3xl border-2 border-dashed cursor-pointer transition-all relative overflow-hidden',
               'flex flex-col items-center justify-center text-center',
-              'aspect-[9/16] max-h-[60vh]',
+              'aspect-[9/16] max-h-[60vh] h-[60vh] w-auto max-w-full',
               dragActive
                 ? 'border-primary bg-primary/[0.06]'
                 : 'border-on-surface/15 bg-on-surface/[0.025] hover:border-on-surface/30 active:bg-on-surface/[0.04]',
@@ -1070,7 +1074,7 @@ const Step2Video: React.FC<{
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}
             transition={{ duration: 0.22, ease: 'easeOut' }}
-            className="relative mx-auto rounded-3xl overflow-hidden bg-black aspect-[9/16] max-h-[60vh]"
+            className="relative rounded-3xl overflow-hidden bg-black aspect-[9/16] max-h-[60vh] h-[60vh] w-auto max-w-full"
           >
             <video
               src={videoUrl}
@@ -1094,6 +1098,7 @@ const Step2Video: React.FC<{
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
 
       {/* Secondary action when a video is already picked: replace */}
       {videoUrl && (
