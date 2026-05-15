@@ -396,6 +396,20 @@ export async function canViewProfile(currentUserId: string, targetProfile: UserP
   } catch { return false; }
 }
 
+/** True when `userId` currently follows `targetId` (accepted edge). */
+export async function isFollowingUser(userId: string, targetId: string): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !targetId || userId === targetId) return false;
+  try {
+    const { data } = await supabase.from('user_friends')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('friend_id', targetId)
+      .eq('status', 'accepted')
+      .maybeSingle();
+    return !!data;
+  } catch { return false; }
+}
+
 /** Follow a public account instantly (no request needed) */
 export async function followPublicAccount(userId: string, targetId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId || !targetId || userId === targetId) return false;
