@@ -1,50 +1,52 @@
 /**
- * One-shot configuration for the iOS keyboard on Capacitor builds.
+ * Capacitor keyboard integration: hide the iOS input accessory bar at
+ * launch, and surface keyboard show/hide events so UI chrome (the bottom
+ * nav, primarily) can react.
  *
- * Two problems on iPhone the web app has no control over:
- *
- *  1. iOS WKWebView shows a system "input accessory view" above the
- *     keyboard — the white bar with up/down chevrons and a Done /
- *     check button. It's purely a native UI element; from JS the only
- *     way to hide it is via the Capacitor Keyboard plugin's
- *     setAccessoryBarVisible API.
- *
- *  2. When the keyboard opens, iOS shrinks the WKWebView so the focused
- *     input stays in view. By default the app's whole document height
- *     shrinks too, which lets the user scroll past the end of the page
- *     into empty space until the keyboard closes. The Keyboard plugin's
- *     `resize: 'none'` mode (configured natively in capacitor.config.json)
- *     keeps the webview full-height and lets iOS pan to the focused input
- *     instead — matching how native apps behave.
- *
- * This file handles #1 at JS runtime; #2 lives in capacitor.config.json.
- * Both are no-ops on the web (where `window.Capacitor` is undefined) so
- * dev / preview builds aren't affected.
- *
- * The plugin is accessed off `window.Capacitor.Plugins.Keyboard` rather
- * than imported, so the JS bundle has zero dependency on @capacitor/*
- * being in package.json — the call quietly no-ops until the plugin is
- * added to the iOS project (via SPM + `npx cap sync ios`).
+ * Uses the typed @capacitor/keyboard API. The imports tree-shake to nothing
+ * on the web — Capacitor's web stubs are tiny — and the
+ * `Capacitor.isNativePlatform()` guard means the actual native calls only
+ * run inside the iOS shell.
  */
 
-type KeyboardPlugin = {
-  setAccessoryBarVisible?: (options: { isVisible: boolean }) => Promise<void>;
-};
+import { Capacitor } from '@capacitor/core';
+import { Keyboard } from '@capacitor/keyboard';
 
-type CapacitorRuntime = {
-  isNativePlatform?: () => boolean;
-  Plugins?: { Keyboard?: KeyboardPlugin };
-};
+export interface NativeKeyboardHandle {
+  /** Tear down the keyboard event listeners. Idempotent. */
+  destroy(): void;
+}
 
-export async function configureNativeKeyboard(): Promise<void> {
-  if (typeof window === 'undefined') return;
-  const cap = (window as unknown as { Capacitor?: CapacitorRuntime }).Capacitor;
-  if (!cap?.isNativePlatform?.()) return;
+export interface NativeKeyboardOptions {
+  /** Called every time the keyboard transitions show ↔ hide. */
+  onKeyboardChange?: (open: boolean) => void;
+}
+
+export async function configureNativeKeyboard(
+  options: NativeKeyboardOptions = {},
+): Promise<NativeKeyboardHandle> {
+  const noop: NativeKeyboardHandle = { destroy() {} };
+  if (!Capacitor.isNativePlatform()) return noop;
+
+  // Hide the iOS input accessory view (the bar with up/down chevrons and
+  // a check button that sits between the keyboard and the page). Has no
+  // effect on Android, where the plugin's implementation is a no-op.
   try {
-    await cap.Plugins?.Keyboard?.setAccessoryBarVisible?.({ isVisible: false });
-  } catch {
-    // Plugin not installed natively yet — silently ignore. Once
-    // @capacitor/keyboard is added in Xcode and synced, this starts
-    // working without any further JS changes.
+    await Keyboard.setAccessoryBarVisible({ isVisible: false });
+  } catch (err) {
+    // Log but don't throw — the rest of the app shouldn't care if the
+    // plugin happens to be missing on this build.
+    console.warn('[native-keyboard] setAccessoryBarVisible failed:', err);
   }
+
+  const handles = await Promise.all([
+    Keyboard.addListener('keyboardWillShow', () => options.onKeyboardChange?.(true)),
+    Keyboard.addListener('keyboardDidHide', () => options.onKeyboardChange?.(false)),
+  ]);
+
+  return {
+    destroy() {
+      handles.forEach((h) => h.remove());
+    },
+  };
 }

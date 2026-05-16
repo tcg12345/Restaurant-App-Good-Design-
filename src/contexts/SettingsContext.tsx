@@ -11,6 +11,12 @@ interface SettingsContextType {
   isNative: boolean;
   hideBottomNav: boolean;
   setHideBottomNav: (hide: boolean) => void;
+  /** True while the on-screen keyboard is up on a native build. Driven
+   *  by the Capacitor Keyboard plugin's show/hide events from App.tsx;
+   *  always false on the web. Consumers (BottomNav, etc.) hide chrome
+   *  while the user is typing. */
+  keyboardOpen: boolean;
+  setKeyboardOpen: (open: boolean) => void;
   darkMode: boolean;
   toggleDarkMode: () => void;
   setDarkMode: (on: boolean) => void;
@@ -23,6 +29,8 @@ const SettingsContext = createContext<SettingsContextType>({
   isNative: false,
   hideBottomNav: false,
   setHideBottomNav: () => {},
+  keyboardOpen: false,
+  setKeyboardOpen: () => {},
   darkMode: false,
   toggleDarkMode: () => {},
   setDarkMode: () => {},
@@ -68,6 +76,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Lazy-init from localStorage so a refresh keeps the user's choice.
   const [phoneMode, setPhoneModeState] = useState<boolean>(() => loadPhoneMode());
   const [hideBottomNav, setHideBottomNav] = useState(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [darkMode, setDarkModeState] = useState<boolean>(() => loadDarkMode());
 
   // Persist whenever phoneMode changes. Skip on native — the flag is
@@ -98,7 +107,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   return (
-    <SettingsContext.Provider value={{ phoneMode, togglePhoneMode, setPhoneMode, isNative, hideBottomNav, setHideBottomNav, darkMode, toggleDarkMode, setDarkMode }}>
+    <SettingsContext.Provider value={{ phoneMode, togglePhoneMode, setPhoneMode, isNative, hideBottomNav, setHideBottomNav, keyboardOpen, setKeyboardOpen, darkMode, toggleDarkMode, setDarkMode }}>
       {children}
     </SettingsContext.Provider>
   );

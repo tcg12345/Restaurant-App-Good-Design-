@@ -136,6 +136,16 @@
 }
 
 @layer base {
+  /* Disable iOS WKWebView's rubber-band scroll. Without this, the user
+     can drag the whole page (including position:fixed chrome like the
+     bottom nav) past its bounds — most visible while the on-screen
+     keyboard is open, where the WebView is short enough that any
+     overscroll yanks the fixed nav out of position. `contain` lets
+     internal scroll containers still bounce normally. */
+  html, body {
+    overscroll-behavior: contain;
+  }
+
   body {
     @apply bg-surface text-on-surface font-sans;
   }

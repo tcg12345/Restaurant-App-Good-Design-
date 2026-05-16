@@ -113,12 +113,18 @@ function useIsDesktop(): boolean {
 
 const AppContent: React.FC = () => {
   const location = useLocation();
-  React.useEffect(() => { void configureNativeKeyboard(); }, []);
+  const { phoneMode, isNative, setKeyboardOpen } = useSettings();
+  React.useEffect(() => {
+    let handle: { destroy(): void } | null = null;
+    void configureNativeKeyboard({
+      onKeyboardChange: (open) => setKeyboardOpen(open),
+    }).then((h) => { handle = h; });
+    return () => { handle?.destroy(); };
+  }, [setKeyboardOpen]);
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
   const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
-  const { phoneMode, isNative } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
   // `phoneMode` does two jobs: gate the mobile UI everywhere, and (only
