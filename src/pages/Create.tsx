@@ -1,13 +1,14 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, type PanInfo } from 'motion/react';
-import { ArrowLeft, FileText, Film, ChevronRight, ImagePlus, Video } from 'lucide-react';
+import { ArrowLeft, FileText, Film, ChevronRight, ImagePlus, Video, BookOpen } from 'lucide-react';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { cn } from '../lib/utils';
+import { GuideCreatorSheet } from '../components/GuideCreatorSheet';
 
-type Mode = 'post' | 'reel';
-const MODES: Mode[] = ['post', 'reel'];
+type Mode = 'post' | 'reel' | 'guide';
+const MODES: Mode[] = ['post', 'reel', 'guide'];
 
 interface ModeMeta {
   label: string;
@@ -45,6 +46,20 @@ const MODE_META: Record<Mode, ModeMeta> = {
     ),
     cta: 'Start Reel',
   },
+  guide: {
+    label: 'Guide',
+    title: 'Build a Guide',
+    description: 'A curated editorial list of restaurants or recipes — with a hero cover, ranked entries, and notes.',
+    icon: <BookOpen size={28} />,
+    preview: (
+      <div className="relative w-44 h-56 rounded-2xl overflow-hidden border border-on-surface/[0.08] bg-gradient-to-br from-stone-200 to-stone-300 flex flex-col justify-end p-3 text-stone-900/80">
+        <span className="text-[9px] font-bold uppercase tracking-[0.22em] mb-1 opacity-60">Guides / NYC</span>
+        <span className="font-serif font-bold text-[15px] leading-tight">Best Chinese Restaurants in NYC</span>
+        <span className="text-[10px] opacity-60 mt-1">12 spots · 6 min read</span>
+      </div>
+    ),
+    cta: 'Start Guide',
+  },
 };
 
 export const Create: React.FC = () => {
@@ -53,13 +68,15 @@ export const Create: React.FC = () => {
   const { openAddReelModal } = useReels();
 
   const [mode, setMode] = useState<Mode>('post');
+  const [guideOpen, setGuideOpen] = useState(false);
   const idx = MODES.indexOf(mode);
 
   const close = () => navigate('/');
 
   const begin = () => {
     if (mode === 'post') openAddPostModal();
-    else openAddReelModal();
+    else if (mode === 'reel') openAddReelModal();
+    else setGuideOpen(true);
   };
 
   // Horizontal swipe on the content area changes mode — same gesture
@@ -71,7 +88,7 @@ export const Create: React.FC = () => {
 
   // Measure each tab so the underline indicator slides cleanly between
   // them regardless of label length / font metrics.
-  const tabRefs = useRef<Record<Mode, HTMLButtonElement | null>>({ post: null, reel: null });
+  const tabRefs = useRef<Record<Mode, HTMLButtonElement | null>>({ post: null, reel: null, guide: null });
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [indicator, setIndicator] = useState<{ x: number; w: number }>({ x: 0, w: 0 });
   useLayoutEffect(() => {
@@ -137,6 +154,9 @@ export const Create: React.FC = () => {
           </motion.div>
         </AnimatePresence>
       </motion.div>
+
+      {/* Guide builder — overlays this page when the Guide mode is started. */}
+      <GuideCreatorSheet open={guideOpen} onClose={() => setGuideOpen(false)} />
 
       {/* Bottom mode picker — Instagram-style centered carousel. The
           selected label is opaque and large; the other shrinks and

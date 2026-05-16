@@ -72,6 +72,18 @@ export interface SharedPost {
   itemCount: number;
 }
 
+export interface SharedGuide {
+  guideId: string;
+  title: string;
+  subtitle: string;
+  coverPhoto: string;
+  authorName: string;
+  /** 'restaurants' | 'recipes' — drives the icon and the route. */
+  type: 'restaurants' | 'recipes';
+  entryCount: number;
+  avgScore: number | null;
+}
+
 export interface ChatMessage {
   id: string;
   senderId: string;
@@ -80,6 +92,7 @@ export interface ChatMessage {
   sharedRecipe?: SharedRecipe;
   sharedReel?: SharedReel;
   sharedPost?: SharedPost;
+  sharedGuide?: SharedGuide;
   timestamp: number;
 }
 
@@ -100,12 +113,13 @@ export interface SharePayload {
   sharedRecipe?: SharedRecipe;
   sharedReel?: SharedReel;
   sharedPost?: SharedPost;
+  sharedGuide?: SharedGuide;
 }
 
 interface ChatContextValue {
   conversations: Conversation[];
   createConversation: (participantIds: string[], name?: string) => Conversation;
-  sendMessage: (conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost) => void;
+  sendMessage: (conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost, sharedGuide?: SharedGuide) => void;
   /** Find an existing 1:1 chat with the friend, or create one and return it. */
   getOrCreateDirectConversation: (friendId: string) => Conversation;
   /** Convenience: resolve direct chats for the targets, then send the same
@@ -220,7 +234,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return conv;
   }, [userId, syncToCloud, readTimestamps]);
 
-  const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost) => {
+  const sendMessage = useCallback((conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost, sharedGuide?: SharedGuide) => {
     if (!userId) return;
     const msg: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -230,6 +244,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       sharedRecipe,
       sharedReel,
       sharedPost,
+      sharedGuide,
       timestamp: Date.now(),
     };
     setConversations((prev) => {
@@ -298,6 +313,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         payload.sharedRecipe,
         payload.sharedReel,
         payload.sharedPost,
+        payload.sharedGuide,
       );
       sentTo.push(convId);
     }
