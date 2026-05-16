@@ -1,0 +1,11 @@
+{
+  "appId": "com.tylergorin.restaurantapp",
+  "appName": "restaurant App",
+  "webDir": "dist",
+  "plugins": {
+    "Keyboard": {
+      "resize": "native",
+      "resizeOnFullScreen": true
+    }
+  }
+}
