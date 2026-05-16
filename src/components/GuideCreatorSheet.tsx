@@ -160,6 +160,11 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const addEntryFromRating = (r: RestaurantRating): GuideEntry => {
     const meta = getRestaurantInfo(r.restaurantId);
     const subtitleStr = [r.cuisine, r.price].filter(Boolean).join(' · ');
+    // Pull favorite-flagged photo captions into Must Order so dishes the
+    // user already starred on their rating show up by default.
+    const favoriteDishes = (r.photos || [])
+      .filter((p) => p.isFavorite && p.caption?.trim())
+      .map((p) => p.caption.trim());
     return {
       id: newEntryId(),
       refId: r.restaurantId,
@@ -167,6 +172,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       subtitle: subtitleStr,
       image: r.photos?.[0]?.url || r.image || '',
       score: r.score,
+      notes: r.notes?.trim() || undefined,
+      mustOrder: favoriteDishes.length > 0 ? favoriteDishes : undefined,
       neighborhood: meta?.neighborhood,
       hours: meta?.hours?.[0]?.split(': ')[1],
     };
@@ -369,9 +376,13 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                     }}
                     onAddRestaurantsFromList={(l) => {
                       const fromList = l.restaurantIds.map((rid) => {
-                        const r = ratings.find((rr) => rr.restaurantId === rid);
-                        const meta = restaurantMeta[rid];
+                        // Prefer the list's per-list rating override so notes
+                        // written specifically for this list flow through.
+                        const listOverride = l.listRatings?.[rid];
+                        const baseRating = ratings.find((rr) => rr.restaurantId === rid);
+                        const r = listOverride || baseRating;
                         if (r) return addEntryFromRating(r);
+                        const meta = restaurantMeta[rid];
                         if (meta) {
                           return {
                             id: newEntryId(),
@@ -380,7 +391,6 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                             subtitle: [meta.cuisine, meta.price].filter(Boolean).join(' · '),
                             image: meta.image || '',
                             neighborhood: meta.neighborhood,
-                            score: l.listRatings?.[rid]?.score,
                           } as GuideEntry;
                         }
                         return null;
@@ -1284,7 +1294,21 @@ const StepEntries: React.FC<{
                     </div>
 
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">{orderedLabel} <span className="text-on-surface/30 normal-case tracking-normal">· comma separated</span></p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">Notes <span className="text-on-surface/30 normal-case tracking-normal">· pre-filled from your rating</span></p>
+                      <textarea
+                        value={entry.notes || ''}
+                        onChange={(e) => onPatch(entry.id, { notes: e.target.value })}
+                        placeholder="What makes this place special? Why are you sending people here?"
+                        rows={3}
+                        className="w-full rounded-xl bg-white border border-on-surface/[0.1] px-3 py-2 text-sm leading-relaxed focus:border-primary/50 outline-none resize-none"
+                      />
+                    </div>
+
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1">
+                        {type === 'restaurants' ? 'Favorite Dishes' : orderedLabel}
+                        <span className="text-on-surface/30 normal-case tracking-normal"> · comma separated</span>
+                      </p>
                       <input
                         value={(orderedVals || []).join(', ')}
                         onChange={(e) => onPatch(entry.id, { [orderedKey]: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) } as Partial<GuideEntry>)}
@@ -1449,11 +1473,18 @@ const StepReview: React.FC<{
               <div className="flex-1 min-w-0">
                 <p className="font-serif font-bold text-[16px] truncate">{e.name}</p>
                 <p className="text-[11px] text-on-surface/50 truncate">{e.subtitle}</p>
-                {(e.bestFor || e.insiderTip || ((type === 'restaurants' ? e.mustOrder : e.keyIngredients)?.length)) && (
-                  <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">
-                    {e.bestFor ? '· Best for · ' : ''}{(type === 'restaurants' ? e.mustOrder : e.keyIngredients)?.length ? `${(type === 'restaurants' ? e.mustOrder : e.keyIngredients)?.length} items · ` : ''}{e.insiderTip ? 'Tip ✓' : ''}
-                  </p>
-                )}
+                {(() => {
+                  const dishCount = (type === 'restaurants' ? e.mustOrder : e.keyIngredients)?.length || 0;
+                  const dishLabel = type === 'restaurants' ? 'fav dishes' : 'ingredients';
+                  const bits = [
+                    e.notes ? 'Notes' : null,
+                    dishCount ? `${dishCount} ${dishLabel}` : null,
+                    e.bestFor ? 'Best for' : null,
+                    e.insiderTip ? 'Tip' : null,
+                  ].filter(Boolean);
+                  if (bits.length === 0) return null;
+                  return <p className="text-[11px] text-on-surface/40 mt-0.5 truncate">{bits.join(' · ')}</p>;
+                })()}
               </div>
               {typeof e.score === 'number' && e.score > 0 && (
                 <span className={cn('font-bold tabular-nums text-[12px]', scoreColor(e.score))}>{e.score.toFixed(1)}</span>

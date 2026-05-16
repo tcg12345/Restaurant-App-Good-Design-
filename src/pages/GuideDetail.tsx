@@ -396,11 +396,19 @@ export const GuideDetail: React.FC = () => {
                     </div>
                   )}
 
+                  {entry.notes && (
+                    <p className="mt-4 text-[15px] lg:text-[16px] leading-[1.55] text-on-surface/85 whitespace-pre-line">
+                      {entry.notes}
+                    </p>
+                  )}
+
                   {(entry.bestFor || entry.insiderTip || (orderedFields && orderedFields.length > 0)) && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 mt-5 pt-5 border-t border-on-surface/10">
                       {orderedFields && orderedFields.length > 0 && (
                         <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/45 mb-2">{orderedLabel}</p>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/45 mb-2">
+                            {guide.type === 'restaurants' ? 'Favorite Dishes' : orderedLabel}
+                          </p>
                           <ul className="space-y-1.5">
                             {orderedFields.map((m, i) => (
                               <li key={i} className="flex items-start gap-2 text-[14px] text-on-surface/85">

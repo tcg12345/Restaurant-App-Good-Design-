@@ -24,6 +24,9 @@ export interface GuideEntry {
   image: string;      // cover/photo for this entry
   /** Owner-curated. Optional but encouraged. */
   score?: number;
+  /** Free-form description / personal notes — auto-seeded from the
+   *  user's own rating notes when the entry is added from a rated place. */
+  notes?: string;
   mustOrder?: string[];     // restaurants only
   keyIngredients?: string[]; // recipes only
   bestFor?: string;
