@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
@@ -36,6 +37,8 @@ export const RatingModal: React.FC = () => {
   const [page, setPage] = useState<Page>('main');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
+
+  const { dragProps } = useBottomSheet(ratingModalOpen, closeRatingModal);
 
   useEffect(() => {
     if (ratingModalOpen && ratingModalRestaurant) {
@@ -171,6 +174,7 @@ export const RatingModal: React.FC = () => {
           onClick={closeRatingModal}>
           <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode

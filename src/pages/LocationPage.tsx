@@ -60,6 +60,7 @@ import {
 } from '../lib/location-place-cache';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { formatTravelTime, useTravelTimes } from '../lib/directions';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import {
   HomeLocationBar,
   isExactAddress,
@@ -1936,6 +1937,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   onDriveMinChange,
 }) => {
   const { phoneMode } = useSettings();
+  const { dragProps } = useBottomSheet(open, onClose);
   const toggleCuisine = (type: string) => {
     onCuisinesChange(
       selectedCuisines.includes(type)
@@ -1972,6 +1974,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
               ? {
                   initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
                   transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                  ...dragProps,
                 }
               : {
                   initial: { opacity: 0, scale: 0.94, y: -12 },

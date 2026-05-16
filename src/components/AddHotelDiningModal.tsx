@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Search, ChevronLeft, Check, Loader2, MapPin, Building2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import { searchPlacesByText, type PlaceResult } from '../lib/places';
 import { addHotelDining, type DiningType } from '../lib/supabase-community';
 
@@ -38,6 +39,8 @@ export const AddHotelDiningModal: React.FC<Props> = ({
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
   const [selectedType, setSelectedType] = useState<DiningType>('restaurant');
   const [saving, setSaving] = useState(false);
+
+  const { dragProps } = useBottomSheet(open, onClose);
 
   const reset = () => {
     setStep('search');
@@ -104,6 +107,7 @@ export const AddHotelDiningModal: React.FC<Props> = ({
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               "bg-surface w-full overflow-hidden flex flex-col",

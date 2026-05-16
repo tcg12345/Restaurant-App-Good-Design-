@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 // iOS-style wheel picker. A scroll-snap container with five visible rows; the
 // center row is the selection. Items above/below fade out via a mask gradient,
@@ -114,7 +115,9 @@ const PickerSheet: React.FC<{
   children: React.ReactNode;
   onConfirm: () => void;
   confirmLabel?: string;
-}> = ({ isOpen, onClose, title, children, onConfirm, confirmLabel = 'Done' }) => (
+}> = ({ isOpen, onClose, title, children, onConfirm, confirmLabel = 'Done' }) => {
+  const { dragProps } = useBottomSheet(isOpen, onClose);
+  return (
   <AnimatePresence>
     {isOpen && (
       <motion.div
@@ -129,6 +132,7 @@ const PickerSheet: React.FC<{
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 32, stiffness: 320 }}
+          {...dragProps}
           onClick={(e) => e.stopPropagation()}
           className="bg-surface w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl pt-3 pb-6 px-6"
         >
@@ -148,7 +152,8 @@ const PickerSheet: React.FC<{
       </motion.div>
     )}
   </AnimatePresence>
-);
+  );
+};
 
 /* ─────────────────────────────────────────────────────────────────
    TimeWheelPicker — two wheels (hours + minutes) for prep/cook time.

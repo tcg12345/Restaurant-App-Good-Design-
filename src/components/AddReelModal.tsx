@@ -20,6 +20,7 @@ import {
   Image as ImageIcon, Trash2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import {
   useReels,
   readVideoDuration,
@@ -83,6 +84,8 @@ export const AddReelModal: React.FC = () => {
   const { user } = useAuth();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
+
+  const { dragProps } = useBottomSheet(addReelModalOpen, closeAddReelModal);
 
   // ── Step machine ──
   const [step, setStep] = useState<Step>(1);
@@ -567,6 +570,7 @@ export const AddReelModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'bg-surface w-full overflow-hidden flex flex-col',

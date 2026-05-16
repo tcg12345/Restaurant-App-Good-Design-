@@ -3,6 +3,7 @@ import { ChevronDown, Search, MapPin, X, Navigation, Loader2 } from 'lucide-reac
 import { motion, AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../pages/useRestaurantDetail';
 import { useSettings } from '../contexts/SettingsContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 export type HomeLocation = { label: string; lat: number; lng: number };
 
@@ -233,6 +234,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
   const [recents, setRecents] = useState<HomeLocation[]>(() => loadRecentLocations());
   const [currentLoading, setCurrentLoading] = useState(false);
   const [currentError, setCurrentError] = useState<string | null>(null);
+  const { dragProps } = useBottomSheet(open, () => setOpen(false));
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 

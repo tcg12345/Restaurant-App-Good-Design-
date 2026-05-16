@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Search } from 'lucide-react';
 import type { CommunityPhoto } from '../lib/supabase-community';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 interface GalleryPhoto {
   url: string;
@@ -25,8 +26,9 @@ export const PhotoGallery: React.FC<{
   const [activeDish, setActiveDish] = useState<string | null>(null);
   const [expandedPhoto, setExpandedPhoto] = useState<GalleryPhoto | null>(null);
 
+  const { dragProps } = useBottomSheet(true, onClose);
+
   useEffect(() => {
-    document.body.style.overflow = 'hidden';
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (expandedPhoto) setExpandedPhoto(null);
@@ -34,7 +36,7 @@ export const PhotoGallery: React.FC<{
       }
     };
     window.addEventListener('keydown', handleKey);
-    return () => { document.body.style.overflow = ''; window.removeEventListener('keydown', handleKey); };
+    return () => { window.removeEventListener('keydown', handleKey); };
   }, [onClose, expandedPhoto]);
 
   // Build unified photo list with captions
@@ -90,6 +92,7 @@ export const PhotoGallery: React.FC<{
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        {...dragProps}
         onClick={(e) => e.stopPropagation()}
         className="absolute inset-0 bg-surface flex flex-col"
       >

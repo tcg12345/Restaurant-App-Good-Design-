@@ -23,6 +23,7 @@ import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantS
 import { getMealCoverUrl } from '../lib/recipe-display';
 import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
 import { EmptyState } from './EmptyState';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /**
  * Photo strip with built-in failure handling — when the image URL 404s or
@@ -335,6 +336,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [openPostCommentsId, setOpenPostCommentsId] = useState<string | null>(null);
   const [restaurantPanelSnap, setRestaurantPanelSnap] = useState<RestaurantPanelSnapshot | null>(null);
   const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
+  const { dragProps: postCommentsDragProps } = useBottomSheet(!!openPostCommentsId, () => setOpenPostCommentsId(null));
   // Ratings authored by experts the user follows. Loaded lazily the first
   // time the user switches the feed dropdown to "Expert Picks".
   const [expertActivity, setExpertActivity] = useState<CommunityRating[]>([]);
@@ -1546,6 +1548,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               <motion.div
                 initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
                 transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+                {...postCommentsDragProps}
                 onClick={(e) => e.stopPropagation()}
                 className="bg-white w-full rounded-t-3xl flex flex-col"
                 style={{ height: '75%' }}
