@@ -13,6 +13,9 @@ import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
+import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
+import { GuideCard } from '../components/GuideCard';
+import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
   buildTasteProfile,
@@ -160,58 +163,6 @@ const PRICE_LEVELS = [
   { value: 4, label: '$$$$' },
 ];
 
-type Guide = {
-  id: string;
-  title: string;
-  author: string;
-  image: string;
-  count: number;
-};
-
-const MOCK_GUIDES: Guide[] = [
-  {
-    id: 'g-nyc-chinese',
-    title: 'Best Chinese Restaurants in NYC',
-    author: 'Jamie Lin',
-    image: 'https://images.unsplash.com/photo-1526318896980-cf78c088247c?auto=format&fit=crop&q=80&w=800',
-    count: 12,
-  },
-  {
-    id: 'g-rome-pasta',
-    title: 'Pasta Spots You Can\u2019t Miss in Rome',
-    author: 'Marco Rossi',
-    image: 'https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&q=80&w=800',
-    count: 9,
-  },
-  {
-    id: 'g-tokyo-ramen',
-    title: 'Tokyo\u2019s Hidden Ramen Gems',
-    author: 'Aiko Tanaka',
-    image: 'https://images.unsplash.com/photo-1557872943-16a5ac26437e?auto=format&fit=crop&q=80&w=800',
-    count: 8,
-  },
-  {
-    id: 'g-paris-bistros',
-    title: 'Classic Paris Bistros',
-    author: 'Camille Durand',
-    image: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=800',
-    count: 10,
-  },
-  {
-    id: 'g-la-tacos',
-    title: 'The Best Tacos in Los Angeles',
-    author: 'Diego Ramirez',
-    image: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?auto=format&fit=crop&q=80&w=800',
-    count: 14,
-  },
-  {
-    id: 'g-austin-bbq',
-    title: 'Austin BBQ, Ranked',
-    author: 'Sam Hughes',
-    image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800',
-    count: 7,
-  },
-];
 
 function ratingToPlace(r: CommunityRating): PlaceResult | null {
   if (!r.lat || !r.lng) return null;
@@ -415,6 +366,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   } = useRecipes();
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const { openGuideCreator } = useGuideCreator();
+
+  // Published guides on Discover. Loaded once per session — there's no
+  // pagination yet so we cap to a reasonable rail length.
+  const [feedGuides, setFeedGuides] = useState<GuideRow[]>([]);
+  const [feedGuideAuthors, setFeedGuideAuthors] = useState<Record<string, UserProfile>>({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const gs = await getGuidesForFeed({ limit: 12, excludeUserId: userId || undefined });
+      if (cancelled) return;
+      setFeedGuides(gs);
+      const authorIds = Array.from(new Set(gs.map((g) => g.userId)));
+      if (authorIds.length > 0) {
+        const profiles = await getProfilesByIds(authorIds);
+        if (!cancelled) setFeedGuideAuthors(profiles);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
 
   // Data for My Ratings and Friends tabs — initialized from cache if it was
   // populated for this user earlier in the session. Cache lives until reload.
@@ -4658,32 +4629,41 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
                 </div>
                 <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
-                  {MOCK_GUIDES.map((g) => (
-                    <button
-                      key={g.id}
-                      type="button"
-                      className="flex-shrink-0 snap-start group text-left"
-                    >
-                      <div className="relative w-[148px] aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
-                        <img
-                          src={g.image}
-                          alt={g.title}
-                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
-                          referrerPolicy="no-referrer"
-                        />
-                        <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/45 to-transparent pointer-events-none" />
-                        <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/45 to-transparent pointer-events-none" />
-                        <span className="absolute top-2 left-2 inline-flex items-center gap-0.5 rounded-full bg-white/90 backdrop-blur px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.14em] text-on-surface/70">
-                          <BookOpen size={8} />
-                          Guide
-                        </span>
-                        <div className="absolute inset-x-0 bottom-0 p-2.5">
-                          <p className="text-white text-[11.5px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
-                          <p className="text-white/75 text-[9.5px] font-medium mt-0.5 truncate">by {g.author}</p>
-                        </div>
+                  {feedGuides.map((g) => {
+                    const author = feedGuideAuthors[g.userId];
+                    return (
+                      <GuideCard
+                        key={g.id}
+                        guide={{
+                          id: g.id,
+                          title: g.title,
+                          authorName: author?.display_name || author?.username,
+                          coverPhoto: g.coverPhoto,
+                          entryCount: g.entries.length,
+                          type: g.type,
+                          avgScore: g.avgScore,
+                        }}
+                      />
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => openGuideCreator()}
+                    className="flex-shrink-0 snap-start group text-left"
+                  >
+                    <div className="relative w-[148px] aspect-[4/5] rounded-2xl overflow-hidden border-2 border-dashed border-on-surface/15 bg-on-surface/[0.02] flex flex-col items-center justify-center text-on-surface/55 hover:border-primary/40 hover:bg-primary/[0.04] transition-colors">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-2">
+                        <Plus size={18} />
                       </div>
-                    </button>
-                  ))}
+                      <p className="font-serif font-bold text-[13px] text-on-surface">Create a guide</p>
+                      <p className="text-[10px] text-on-surface/45 mt-0.5">Restaurants or recipes</p>
+                    </div>
+                  </button>
+                  {feedGuides.length === 0 && (
+                    <div className="flex-shrink-0 w-[148px] aspect-[4/5] rounded-2xl bg-on-surface/[0.03] border border-on-surface/[0.06] flex items-center justify-center px-3 text-center">
+                      <p className="text-[11px] text-on-surface/45">No published guides yet — be the first.</p>
+                    </div>
+                  )}
                 </div>
               </section>
 

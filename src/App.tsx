@@ -36,6 +36,8 @@ import { AddPostModal } from './components/AddPostModal';
 import { RecipeModal } from './components/RecipeModal';
 import { RecipeDetail } from './pages/RecipeDetail';
 import { RecipesForYou } from './pages/RecipesForYou';
+import { GuideDetail } from './pages/GuideDetail';
+import { GuideEdit } from './pages/GuideEdit';
 import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
@@ -54,6 +56,8 @@ import { PostsProvider } from './contexts/PostsContext';
 import { PageSearchProvider } from './contexts/PageSearchContext';
 import { PageAddActionProvider } from './contexts/PageAddActionContext';
 import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelContext';
+import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
+import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { CirclePanel } from './components/CirclePanel';
 
 /**
@@ -83,6 +87,16 @@ const CircleDesktopOverlay: React.FC = () => {
   );
 };
 
+/**
+ * Mounts the guide-creation sheet once at the app root. Triggered by
+ * useGuideCreator() from anywhere — sidebar / profile / Discover tile /
+ * Create page.
+ */
+const GuideCreatorMount: React.FC = () => {
+  const { isOpen, initialGuide, closeGuideCreator } = useGuideCreator();
+  return <GuideCreatorSheet open={isOpen} onClose={closeGuideCreator} initialGuide={initialGuide} />;
+};
+
 function useIsDesktop(): boolean {
   const [isDesktop, setIsDesktop] = React.useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
@@ -101,7 +115,7 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !isFocusedReel;
+  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/create'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { phoneMode, isNative } = useSettings();
   const { isSignedIn, loading, profileComplete } = useAuth();
   const isDesktop = useIsDesktop();
@@ -222,6 +236,8 @@ const AppContent: React.FC = () => {
           <Route path="/reorder" element={<ReorderRatings />} />
           <Route path="/recipes-for-you" element={<RecipesForYou />} />
           <Route path="/recipe/:id" element={<RecipeDetail />} />
+          <Route path="/guides/:id" element={<GuideDetail />} />
+          <Route path="/guides/:id/edit" element={<GuideEdit />} />
           <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
           <Route path="/user/:username" element={<UserProfile />} />
           <Route path="/messages" element={<Messages />} />
@@ -243,6 +259,7 @@ const AppContent: React.FC = () => {
       <AddReelModal />
       <AddPostModal />
       <RecipeModal />
+      <GuideCreatorMount />
     </>
   );
 
@@ -318,7 +335,9 @@ export default function App() {
                       <PageSearchProvider>
                         <PageAddActionProvider>
                           <CirclePanelProvider>
-                            <AppContent />
+                            <GuideCreatorProvider>
+                              <AppContent />
+                            </GuideCreatorProvider>
                           </CirclePanelProvider>
                         </PageAddActionProvider>
                       </PageSearchProvider>

@@ -3,13 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Settings, LogOut, X, User, AtSign, Check, ChevronRight, Lock, Mail, Trash2, ArrowLeft, AlertTriangle, Edit3, FileText,
   Star, MapPin, Heart, Crown, Globe, EyeOff, Smartphone, Moon, Film, Plus, Image as ImageIcon, Sparkles,
-  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical,
+  LayoutGrid, List as ListIcon, Upload, Bookmark, Pencil, GripVertical, BookOpen,
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
+import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { ProfileReelsSection, ProfilePostsSection } from '../components/ProfileReelsSection';
 import { useSettings } from '../contexts/SettingsContext';
 import { TopBar } from '../components/TopBar';
@@ -567,6 +568,7 @@ export const Profile: React.FC = () => {
   const listsCtx = useLists();
   const { openAddReelModal, openEditReelModal, reels, deleteReel, setReelVisibility } = useReels();
   const { openAddPostModal, openEditPostModal, posts, deletePost, setPostVisibility } = usePosts();
+  const { openGuideCreator } = useGuideCreator();
   const ratings = Array.isArray(listsCtx.ratings) ? listsCtx.ratings : [];
 
   // Reels and posts authored by the signed-in user. Both come from their
@@ -1158,6 +1160,21 @@ export const Profile: React.FC = () => {
                   <span className="min-w-0 flex-1">
                     <span className="block text-[14px] font-bold leading-tight">Reel</span>
                     <span className="block text-[11px] text-on-surface/50 leading-tight">Single short video</span>
+                  </span>
+                </button>
+                <div className="border-t border-on-surface/[0.06]" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setCreateMenuOpen(false); openGuideCreator(); }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+                >
+                  <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                    <BookOpen size={16} strokeWidth={2.2} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-bold leading-tight">Guide</span>
+                    <span className="block text-[11px] text-on-surface/50 leading-tight">Curated restaurants or recipes</span>
                   </span>
                 </button>
               </motion.div>
