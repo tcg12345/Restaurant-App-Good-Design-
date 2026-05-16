@@ -115,6 +115,11 @@
   }
 }
 
+/* Expose the iOS safe-area-inset-top as a CSS variable so JS-side scroll
+   math (e.g. RecipeMobileSectionNav's scroll-to handler) can read it via
+   getComputedStyle. env() can't be read directly from JS. */
+:root { --sat-top: env(safe-area-inset-top, 0px); }
+
 @layer utilities {
   /* iOS safe-area helpers. Apply to any sticky/fixed top header so
      content clears the status bar / notch on Capacitor builds while
