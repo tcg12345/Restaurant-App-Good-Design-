@@ -301,7 +301,12 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
               {step !== 'type' && step !== 'review' && (
                 <button
                   type="button"
-                  onClick={goBack}
+                  onClick={() => {
+                    // In a seed subpage, the header back returns to the
+                    // source picker rather than jumping back a whole step.
+                    if (step === 'seed' && seedMode !== null) setSeedMode(null);
+                    else goBack();
+                  }}
                   className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/65 flex-shrink-0"
                   aria-label="Back"
                 >
@@ -355,7 +360,13 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                     lists={lists}
                     ratings={ratings}
                     myRecipes={myRecipes}
-                    onAddRestaurants={(rs) => { setEntries((prev) => [...prev, ...rs.map(addEntryFromRating)]); }}
+                    onAddRestaurants={(rs) => {
+                      setEntries((prev) => {
+                        const have = new Set(prev.map((e) => e.refId));
+                        const additions = rs.filter((r) => !have.has(r.restaurantId)).map(addEntryFromRating);
+                        return [...prev, ...additions];
+                      });
+                    }}
                     onAddRestaurantsFromList={(l) => {
                       const fromList = l.restaurantIds.map((rid) => {
                         const r = ratings.find((rr) => rr.restaurantId === rid);
@@ -374,11 +385,30 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                         }
                         return null;
                       }).filter((e): e is GuideEntry => !!e);
-                      setEntries((prev) => [...prev, ...fromList]);
+                      setEntries((prev) => {
+                        const have = new Set(prev.map((e) => e.refId));
+                        return [...prev, ...fromList.filter((e) => !have.has(e.refId))];
+                      });
                     }}
-                    onAddPlaces={(ps) => setEntries((prev) => [...prev, ...ps.map(addEntryFromPlace)])}
-                    onAddListRecipes={(rs) => setEntries((prev) => [...prev, ...rs.map(addEntryFromListRecipe)])}
-                    onAddDbRecipes={(rs) => setEntries((prev) => [...prev, ...rs.map(addEntryFromDbRecipe)])}
+                    onAddPlaces={(ps) => {
+                      setEntries((prev) => {
+                        const have = new Set(prev.map((e) => e.refId));
+                        return [...prev, ...ps.filter((p) => !have.has(p.id)).map(addEntryFromPlace)];
+                      });
+                    }}
+                    onAddListRecipes={(rs) => {
+                      setEntries((prev) => {
+                        const have = new Set(prev.map((e) => e.refId));
+                        return [...prev, ...rs.filter((r) => !have.has(r.id)).map(addEntryFromListRecipe)];
+                      });
+                    }}
+                    onAddDbRecipes={(rs) => {
+                      setEntries((prev) => {
+                        const have = new Set(prev.map((e) => e.refId));
+                        return [...prev, ...rs.filter((r) => !have.has(r.id)).map(addEntryFromDbRecipe)];
+                      });
+                    }}
+                    onRemoveByRefId={(refId) => setEntries((prev) => prev.filter((e) => e.refId !== refId))}
                     addedRefIds={new Set(entries.map((e) => e.refId))}
                   />
                 )}
@@ -542,7 +572,7 @@ const StepType: React.FC<{ type: GuideType; onChange: (t: GuideType) => void }> 
 const StepSeed: React.FC<{
   type: GuideType;
   seedMode: SeedMode | null;
-  onPick: (m: SeedMode) => void;
+  onPick: (m: SeedMode | null) => void;
   lists: CustomList[];
   ratings: RestaurantRating[];
   myRecipes: DbRecipe[];
@@ -551,14 +581,13 @@ const StepSeed: React.FC<{
   onAddPlaces: (ps: PlaceResult[]) => void;
   onAddListRecipes: (rs: ListRecipe[]) => void;
   onAddDbRecipes: (rs: DbRecipe[]) => void;
+  onRemoveByRefId: (refId: string) => void;
   addedRefIds: Set<string>;
-}> = ({ type, seedMode, onPick, lists, ratings, myRecipes, onAddRestaurants, onAddRestaurantsFromList, onAddPlaces, onAddListRecipes, onAddDbRecipes, addedRefIds }) => {
-  const [selectedListId, setSelectedListId] = useState<string | null>(null);
-  const [selectedRatingIds, setSelectedRatingIds] = useState<Set<string>>(new Set());
-  const [selectedRecipeIds, setSelectedRecipeIds] = useState<Set<string>>(new Set());
+}> = ({ type, seedMode, onPick, lists, ratings, myRecipes, onAddRestaurants, onAddRestaurantsFromList, onAddPlaces, onAddListRecipes, onAddDbRecipes, onRemoveByRefId, addedRefIds }) => {
   const [searchQ, setSearchQ] = useState('');
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [importedListIds, setImportedListIds] = useState<Set<string>>(new Set());
 
   // Filter lists that match the chosen type:
   // restaurants → default lists with restaurantIds
@@ -594,283 +623,321 @@ const StepSeed: React.FC<{
           { key: 'recipes-my', label: 'From your recipes', blurb: 'Hand-pick from recipes you\'ve created.', icon: <ChefHat size={20} /> },
         ];
 
-  return (
-    <div className="max-w-2xl mx-auto">
-      <h3 className="font-serif font-bold text-[24px] leading-tight mb-1">Add some entries</h3>
-      <p className="text-on-surface/55 text-sm mb-5">Pick a source — you can keep adding from other sources later.</p>
+  // ── Source picker ────────────────────────────────────────────────
+  if (!seedMode) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <h3 className="font-serif font-bold text-[24px] leading-tight mb-1">Add some entries</h3>
+        <p className="text-on-surface/55 text-sm mb-5">Pick a source — you can keep adding from other sources later.</p>
 
-      <div className="grid grid-cols-1 gap-2 mb-6">
-        {seedOptions.map((o) => (
-          <button
-            key={o.key}
-            type="button"
-            onClick={() => onPick(o.key)}
-            className={cn(
-              'flex items-center gap-3 p-3.5 rounded-2xl text-left transition-all border-2',
-              seedMode === o.key ? 'border-primary bg-primary/[0.04]' : 'border-on-surface/10 bg-[#fbfaf6] hover:border-on-surface/20',
-            )}
-          >
-            <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0', seedMode === o.key ? 'bg-primary text-white' : 'bg-on-surface/[0.06] text-on-surface/65')}>
-              {o.icon}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-[14px]">{o.label}</p>
-              <p className="text-[12px] text-on-surface/55 truncate">{o.blurb}</p>
-            </div>
-            <ChevronRight size={14} className="text-on-surface/30" />
-          </button>
-        ))}
+        <div className="grid grid-cols-1 gap-2">
+          {seedOptions.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => onPick(o.key)}
+              className="flex items-center gap-3 p-3.5 rounded-2xl text-left transition-all border-2 border-on-surface/10 bg-[#fbfaf6] hover:border-on-surface/25"
+            >
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-on-surface/[0.06] text-on-surface/65">
+                {o.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-[14px]">{o.label}</p>
+                <p className="text-[12px] text-on-surface/55 truncate">{o.blurb}</p>
+              </div>
+              <ChevronRight size={14} className="text-on-surface/30" />
+            </button>
+          ))}
+        </div>
+
+        {addedRefIds.size > 0 && (
+          <p className="mt-5 text-[12px] text-on-surface/55 text-center">
+            {addedRefIds.size} entr{addedRefIds.size === 1 ? 'y' : 'ies'} added so far · Continue to edit details.
+          </p>
+        )}
       </div>
+    );
+  }
 
-      {/* Source-specific picker */}
-      {seedMode === 'list' && (
-        <div className="rounded-2xl bg-[#fbfaf6] border border-on-surface/[0.08] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-3">Your lists</p>
-          {relevantLists.length === 0 ? (
-            <p className="text-sm text-on-surface/55">You don't have any lists with places yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-2">
-              {relevantLists.map((l) => (
-                <button
-                  key={l.id}
-                  type="button"
-                  onClick={() => {
-                    onAddRestaurantsFromList(l);
-                    setSelectedListId(l.id);
-                  }}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-on-surface/[0.06] hover:bg-on-surface/[0.04] text-left"
-                >
-                  <span className="text-xl">{l.emoji}</span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-sm font-semibold truncate">{l.name}</span>
-                    <span className="block text-[11px] text-on-surface/50">{l.restaurantIds.length} places</span>
-                  </span>
-                  {selectedListId === l.id ? (
-                    <span className="text-[11px] font-bold text-primary">Added</span>
-                  ) : (
-                    <Plus size={16} className="text-on-surface/40" />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+  // ── Subpage header (shared) ──────────────────────────────────────
+  const subpageHeader = (label: string) => (
+    <div className="flex items-center gap-2 mb-4">
+      <button
+        type="button"
+        onClick={() => onPick(null)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/10 text-on-surface/75 text-[12px] font-bold"
+      >
+        <ArrowLeft size={13} />
+        Back
+      </button>
+      <h3 className="font-serif font-bold text-[20px] leading-tight">{label}</h3>
+    </div>
+  );
 
-      {seedMode === 'rated' && (
-        <div className="rounded-2xl bg-[#fbfaf6] border border-on-surface/[0.08] p-4">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Your rated places</p>
-            <button
-              type="button"
-              onClick={() => {
-                const picked = ratings.filter((r) => selectedRatingIds.has(r.restaurantId));
-                if (picked.length === 0) return;
-                onAddRestaurants(picked);
-                setSelectedRatingIds(new Set());
-              }}
-              disabled={selectedRatingIds.size === 0}
-              className={cn(
-                'px-3 py-1.5 rounded-full text-[12px] font-bold',
-                selectedRatingIds.size > 0 ? 'bg-primary text-white' : 'bg-on-surface/10 text-on-surface/35',
-              )}
-            >
-              Add {selectedRatingIds.size || ''}
-            </button>
-          </div>
-          {ratings.length === 0 ? (
-            <p className="text-sm text-on-surface/55">You haven't rated any places yet.</p>
-          ) : (
-            <ul className="max-h-72 overflow-y-auto space-y-1">
-              {ratings.map((r) => {
-                const isSel = selectedRatingIds.has(r.restaurantId);
-                const alreadyIn = addedRefIds.has(r.restaurantId);
-                return (
-                  <li key={r.restaurantId}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRatingIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(r.restaurantId)) next.delete(r.restaurantId);
-                        else next.add(r.restaurantId);
-                        return next;
-                      })}
-                      disabled={alreadyIn}
-                      className={cn(
-                        'w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors',
-                        isSel ? 'bg-primary/[0.08]' : 'hover:bg-on-surface/[0.04]',
-                        alreadyIn && 'opacity-40',
-                      )}
-                    >
-                      <div className="w-9 h-9 rounded-lg bg-on-surface/[0.06] overflow-hidden flex-shrink-0">
-                        {(r.photos?.[0]?.url || r.image) && <img src={r.photos?.[0]?.url || r.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{r.name}</p>
-                        <p className="text-[11px] text-on-surface/50 truncate">{[r.cuisine, r.price].filter(Boolean).join(' · ')}</p>
-                      </div>
-                      <span className={cn('text-[12px] font-bold tabular-nums flex-shrink-0', scoreColor(r.score))}>{r.score.toFixed(1)}</span>
-                      <span className={cn('inline-flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0', isSel ? 'bg-primary text-white' : 'border border-on-surface/20')}>
-                        {isSel && <Check size={11} strokeWidth={3} />}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {seedMode === 'search' && (
-        <div className="rounded-2xl bg-[#fbfaf6] border border-on-surface/[0.08] p-4">
-          <div className="flex items-center gap-2 rounded-full bg-white border border-on-surface/[0.08] px-3 h-10 mb-3">
-            <Search size={14} className="text-on-surface/45" />
-            <input
-              value={searchQ}
-              onChange={(e) => setSearchQ(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
-              placeholder="Search any restaurant…"
-              className="flex-1 bg-transparent text-sm focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={runSearch}
-              disabled={searching || !searchQ.trim()}
-              className="px-3 py-1 rounded-full bg-primary text-white text-[11px] font-bold disabled:opacity-50"
-            >
-              {searching ? <Loader2 size={11} className="animate-spin" /> : 'Search'}
-            </button>
-          </div>
-          <ul className="space-y-1 max-h-72 overflow-y-auto">
-            {searchResults.map((p) => {
-              const alreadyIn = addedRefIds.has(p.id);
+  // ── Subpage: From a list ─────────────────────────────────────────
+  if (seedMode === 'list') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        {subpageHeader('Your lists')}
+        {relevantLists.length === 0 ? (
+          <p className="text-sm text-on-surface/55 px-1">You don't have any lists with places yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {relevantLists.map((l) => {
+              const isImported = importedListIds.has(l.id);
               return (
-                <li key={p.id}>
+                <li key={l.id}>
                   <button
                     type="button"
-                    onClick={() => onAddPlaces([p])}
-                    disabled={alreadyIn}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left hover:bg-on-surface/[0.04]',
-                      alreadyIn && 'opacity-40',
-                    )}
+                    onClick={() => {
+                      onAddRestaurantsFromList(l);
+                      setImportedListIds((prev) => {
+                        const next = new Set(prev);
+                        next.add(l.id);
+                        return next;
+                      });
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#fbfaf6] border border-on-surface/[0.08] hover:bg-on-surface/[0.04] text-left transition-colors"
                   >
-                    <div className="w-9 h-9 rounded-lg bg-on-surface/[0.06] overflow-hidden flex-shrink-0">
-                      {p.photoUrl && <img src={p.photoUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{p.name}</p>
-                      <p className="text-[11px] text-on-surface/50 truncate">{p.address}</p>
-                    </div>
-                    {alreadyIn ? <span className="text-[11px] font-bold text-on-surface/35">Added</span> : <Plus size={14} className="text-on-surface/40" />}
+                    <span className="text-2xl">{l.emoji}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-semibold truncate">{l.name}</span>
+                      <span className="block text-[11px] text-on-surface/50">{l.restaurantIds.length} places</span>
+                    </span>
+                    {isImported ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary">
+                        <Check size={12} strokeWidth={3} />
+                        Imported
+                      </span>
+                    ) : (
+                      <Plus size={16} className="text-on-surface/40" />
+                    )}
                   </button>
                 </li>
               );
             })}
-            {searchResults.length === 0 && !searching && searchQ.trim() && (
-              <li className="text-sm text-on-surface/45 text-center py-6">No results — try a different query.</li>
-            )}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
+    );
+  }
 
-      {seedMode === 'recipes-list' && (
-        <div className="rounded-2xl bg-[#fbfaf6] border border-on-surface/[0.08] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-3">Your home-cooking lists</p>
-          {relevantLists.length === 0 ? (
-            <p className="text-sm text-on-surface/55">No home-cooking lists yet. Add recipes in Pantry first.</p>
-          ) : (
-            <div className="grid grid-cols-1 gap-2">
-              {relevantLists.map((l) => (
-                <button
-                  key={l.id}
-                  type="button"
-                  onClick={() => { if (l.recipes) onAddListRecipes(l.recipes); }}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-on-surface/[0.06] hover:bg-on-surface/[0.04] text-left"
-                >
-                  <span className="text-xl">{l.emoji}</span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-sm font-semibold truncate">{l.name}</span>
-                    <span className="block text-[11px] text-on-surface/50">{l.recipes?.length || 0} recipes</span>
-                  </span>
-                  <Plus size={16} className="text-on-surface/40" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {seedMode === 'recipes-my' && (
-        <div className="rounded-2xl bg-[#fbfaf6] border border-on-surface/[0.08] p-4">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Your recipes</p>
-            <button
-              type="button"
-              onClick={() => {
-                const picked = myRecipes.filter((r) => selectedRecipeIds.has(r.id));
-                if (picked.length === 0) return;
-                onAddDbRecipes(picked);
-                setSelectedRecipeIds(new Set());
-              }}
-              disabled={selectedRecipeIds.size === 0}
-              className={cn(
-                'px-3 py-1.5 rounded-full text-[12px] font-bold',
-                selectedRecipeIds.size > 0 ? 'bg-primary text-white' : 'bg-on-surface/10 text-on-surface/35',
-              )}
-            >
-              Add {selectedRecipeIds.size || ''}
-            </button>
-          </div>
-          {myRecipes.length === 0 ? (
-            <p className="text-sm text-on-surface/55">You haven't created any recipes yet.</p>
-          ) : (
-            <ul className="max-h-72 overflow-y-auto space-y-1">
-              {myRecipes.map((r) => {
-                const isSel = selectedRecipeIds.has(r.id);
-                const alreadyIn = addedRefIds.has(r.id);
-                return (
-                  <li key={r.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRecipeIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(r.id)) next.delete(r.id);
-                        else next.add(r.id);
-                        return next;
-                      })}
-                      disabled={alreadyIn}
+  // ── Subpage: From your rated places ──────────────────────────────
+  if (seedMode === 'rated') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        {subpageHeader('Your rated places')}
+        {ratings.length === 0 ? (
+          <p className="text-sm text-on-surface/55 px-1">You haven't rated any places yet.</p>
+        ) : (
+          <ul className="space-y-1">
+            {ratings.map((r) => {
+              const isAdded = addedRefIds.has(r.restaurantId);
+              return (
+                <li key={r.restaurantId}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isAdded) onRemoveByRefId(r.restaurantId);
+                      else onAddRestaurants([r]);
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-colors border',
+                      isAdded
+                        ? 'bg-primary/[0.06] border-primary/30'
+                        : 'bg-[#fbfaf6] border-on-surface/[0.08] hover:bg-on-surface/[0.04]',
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{r.name}</p>
+                      <p className="text-[11px] text-on-surface/50 truncate">{[r.cuisine, r.price].filter(Boolean).join(' · ')}</p>
+                    </div>
+                    <span className={cn('text-[13px] font-bold tabular-nums flex-shrink-0', scoreColor(r.score))}>{r.score.toFixed(1)}</span>
+                    <span
                       className={cn(
-                        'w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-left transition-colors',
-                        isSel ? 'bg-primary/[0.08]' : 'hover:bg-on-surface/[0.04]',
-                        alreadyIn && 'opacity-40',
+                        'inline-flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0 transition-colors',
+                        isAdded ? 'bg-primary text-white' : 'border border-on-surface/20 text-on-surface/40',
+                      )}
+                      aria-label={isAdded ? 'Added — tap to remove' : 'Add'}
+                    >
+                      {isAdded ? <Check size={12} strokeWidth={3} /> : <Plus size={12} />}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  // ── Subpage: Search the database ─────────────────────────────────
+  if (seedMode === 'search') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        {subpageHeader('Search restaurants')}
+        <div className="flex items-center gap-2 rounded-full bg-[#fbfaf6] border border-on-surface/[0.1] px-3 h-11 mb-4">
+          <Search size={15} className="text-on-surface/45" />
+          <input
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
+            placeholder="Search any restaurant…"
+            autoFocus
+            className="flex-1 bg-transparent text-sm focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={runSearch}
+            disabled={searching || !searchQ.trim()}
+            className="px-3 py-1.5 rounded-full bg-primary text-white text-[12px] font-bold disabled:opacity-50"
+          >
+            {searching ? <Loader2 size={11} className="animate-spin" /> : 'Search'}
+          </button>
+        </div>
+        <ul className="space-y-1">
+          {searchResults.map((p) => {
+            const isAdded = addedRefIds.has(p.id);
+            return (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isAdded) onRemoveByRefId(p.id);
+                    else onAddPlaces([p]);
+                  }}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-colors border',
+                    isAdded
+                      ? 'bg-primary/[0.06] border-primary/30'
+                      : 'bg-[#fbfaf6] border-on-surface/[0.08] hover:bg-on-surface/[0.04]',
+                  )}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{p.name}</p>
+                    <p className="text-[11px] text-on-surface/50 truncate">{p.address}</p>
+                  </div>
+                  <span
+                    className={cn(
+                      'inline-flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0 transition-colors',
+                      isAdded ? 'bg-primary text-white' : 'border border-on-surface/20 text-on-surface/40',
+                    )}
+                  >
+                    {isAdded ? <Check size={12} strokeWidth={3} /> : <Plus size={12} />}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+          {searchResults.length === 0 && !searching && searchQ.trim() && (
+            <li className="text-sm text-on-surface/45 text-center py-6">No results — try a different query.</li>
+          )}
+          {searchResults.length === 0 && !searching && !searchQ.trim() && (
+            <li className="text-sm text-on-surface/45 text-center py-10">Start typing to find restaurants.</li>
+          )}
+        </ul>
+      </div>
+    );
+  }
+
+  // ── Subpage: From a recipes list ─────────────────────────────────
+  if (seedMode === 'recipes-list') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        {subpageHeader('Your home-cooking lists')}
+        {relevantLists.length === 0 ? (
+          <p className="text-sm text-on-surface/55 px-1">No home-cooking lists yet. Add recipes in Pantry first.</p>
+        ) : (
+          <ul className="space-y-2">
+            {relevantLists.map((l) => {
+              const isImported = importedListIds.has(l.id);
+              return (
+                <li key={l.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (l.recipes) onAddListRecipes(l.recipes);
+                      setImportedListIds((prev) => {
+                        const next = new Set(prev);
+                        next.add(l.id);
+                        return next;
+                      });
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#fbfaf6] border border-on-surface/[0.08] hover:bg-on-surface/[0.04] text-left transition-colors"
+                  >
+                    <span className="text-2xl">{l.emoji}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-semibold truncate">{l.name}</span>
+                      <span className="block text-[11px] text-on-surface/50">{l.recipes?.length || 0} recipes</span>
+                    </span>
+                    {isImported ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary">
+                        <Check size={12} strokeWidth={3} />
+                        Imported
+                      </span>
+                    ) : (
+                      <Plus size={16} className="text-on-surface/40" />
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  // ── Subpage: From your recipes ───────────────────────────────────
+  if (seedMode === 'recipes-my') {
+    return (
+      <div className="max-w-2xl mx-auto">
+        {subpageHeader('Your recipes')}
+        {myRecipes.length === 0 ? (
+          <p className="text-sm text-on-surface/55 px-1">You haven't created any recipes yet.</p>
+        ) : (
+          <ul className="space-y-1">
+            {myRecipes.map((r) => {
+              const isAdded = addedRefIds.has(r.id);
+              return (
+                <li key={r.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isAdded) onRemoveByRefId(r.id);
+                      else onAddDbRecipes([r]);
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-colors border',
+                      isAdded
+                        ? 'bg-primary/[0.06] border-primary/30'
+                        : 'bg-[#fbfaf6] border-on-surface/[0.08] hover:bg-on-surface/[0.04]',
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">{r.title}</p>
+                      <p className="text-[11px] text-on-surface/50 truncate">{[r.cuisine, r.difficulty].filter(Boolean).join(' · ')}</p>
+                    </div>
+                    <span
+                      className={cn(
+                        'inline-flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0 transition-colors',
+                        isAdded ? 'bg-primary text-white' : 'border border-on-surface/20 text-on-surface/40',
                       )}
                     >
-                      <div className="w-9 h-9 rounded-lg bg-on-surface/[0.06] overflow-hidden flex-shrink-0">
-                        {r.photos?.[0] && <img src={r.photos[0]} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{r.title}</p>
-                        <p className="text-[11px] text-on-surface/50 truncate">{[r.cuisine, r.difficulty].filter(Boolean).join(' · ')}</p>
-                      </div>
-                      <span className={cn('inline-flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0', isSel ? 'bg-primary text-white' : 'border border-on-surface/20')}>
-                        {isSel && <Check size={11} strokeWidth={3} />}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
+                      {isAdded ? <Check size={12} strokeWidth={3} /> : <Plus size={12} />}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    );
+  }
 
-      {addedRefIds.size > 0 && (
-        <p className="mt-4 text-[12px] text-on-surface/55 text-center">{addedRefIds.size} entr{addedRefIds.size === 1 ? 'y' : 'ies'} added so far · Continue to edit details.</p>
-      )}
-    </div>
-  );
+  return null;
 };
 
 /* ── Step: Meta (cover, title, intro, tags) ───────────────────────── */
