@@ -54,6 +54,10 @@ export interface Guide {
   tags: string[];
   visibility: GuideVisibility;
   isPublished: boolean;
+  /** When false, entry cards render text-only on the published guide
+   *  (no per-entry hero image). The guide's cover photo is still used.
+   *  Defaults to true to keep legacy rows looking identical. */
+  includePhotos: boolean;
   entries: GuideEntry[];
   avgScore: number | null;
   readMinutes: number | null;
@@ -75,6 +79,8 @@ function rowToGuide(row: Record<string, unknown>): Guide {
     tags: (row.tags as string[]) || [],
     visibility: (row.visibility as GuideVisibility) || 'private',
     isPublished: (row.is_published as boolean) ?? false,
+    // include_photos: default true for rows pre-dating migration 027.
+    includePhotos: row.include_photos == null ? true : (row.include_photos as boolean),
     entries: ((row.entries as GuideEntry[]) || []),
     avgScore: (row.avg_score as number) ?? null,
     readMinutes: (row.read_minutes as number) ?? null,
@@ -119,6 +125,7 @@ export async function saveGuide(
       tags: draft.tags,
       visibility: draft.visibility,
       is_published: draft.isPublished,
+      include_photos: draft.includePhotos,
       entries: draft.entries,
       avg_score: avgScore,
       read_minutes: readMinutes,
@@ -126,11 +133,23 @@ export async function saveGuide(
     };
     if (draft.id) payload.id = draft.id;
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('guides')
       .upsert(payload, { onConflict: 'id' })
       .select('*')
       .single();
+    // Retry without include_photos if the column hasn't been migrated
+    // yet — keeps the feature usable until the user runs migration 027.
+    if (error && /include_photos/i.test(error.message || '')) {
+      const { include_photos: _drop, ...legacy } = payload;
+      const retry = await supabase
+        .from('guides')
+        .upsert(legacy, { onConflict: 'id' })
+        .select('*')
+        .single();
+      data = retry.data as typeof data;
+      error = retry.error;
+    }
     if (error) {
       console.error('[Supabase] saveGuide error:', error);
       return null;

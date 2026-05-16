@@ -94,6 +94,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const [tags, setTags] = useState<string[]>([]);
   const [coverPhoto, setCoverPhoto] = useState('');
   const [visibility, setVisibility] = useState<GuideVisibility>(accountIsPublic ? 'public' : 'private');
+  const [includePhotos, setIncludePhotos] = useState(true);
   const [entries, setEntries] = useState<GuideEntry[]>([]);
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -111,6 +112,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       setTags(initialGuide.tags);
       setCoverPhoto(initialGuide.coverPhoto);
       setVisibility(initialGuide.visibility);
+      setIncludePhotos(initialGuide.includePhotos);
       setEntries(initialGuide.entries);
       setStep('review');
     } else {
@@ -123,6 +125,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       setTags([]);
       setCoverPhoto('');
       setVisibility(accountIsPublic ? 'public' : 'private');
+      setIncludePhotos(true);
       setEntries([]);
       setStep('type');
     }
@@ -245,6 +248,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       tags,
       visibility,
       isPublished: publish,
+      includePhotos,
       entries,
     });
     setBusy(false);
@@ -447,6 +451,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                   <StepEntries
                     type={type}
                     entries={entries}
+                    includePhotos={includePhotos}
+                    onTogglePhotos={setIncludePhotos}
                     expandedId={expandedEntryId}
                     onToggleExpand={(id) => setExpandedEntryId((prev) => prev === id ? null : id)}
                     onRemove={(id) => setEntries((prev) => prev.filter((e) => e.id !== id))}
@@ -477,6 +483,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                     coverPhoto={coverPhoto}
                     tags={tags}
                     entries={entries}
+                    includePhotos={includePhotos}
                     visibility={visibility}
                     onEditField={(target) => {
                       if (target === 'cover' || target === 'title' || target === 'intro' || target === 'tags') setStep('meta');
@@ -1195,6 +1202,8 @@ const StepMeta: React.FC<{
 const StepEntries: React.FC<{
   type: GuideType;
   entries: GuideEntry[];
+  includePhotos: boolean;
+  onTogglePhotos: (next: boolean) => void;
   expandedId: string | null;
   onToggleExpand: (id: string) => void;
   onRemove: (id: string) => void;
@@ -1202,7 +1211,7 @@ const StepEntries: React.FC<{
   onMove: (from: number, to: number) => void;
   onAddMore: () => void;
   dragRef: React.MutableRefObject<number | null>;
-}> = ({ type, entries, expandedId, onToggleExpand, onRemove, onPatch, onMove, onAddMore, dragRef }) => (
+}> = ({ type, entries, includePhotos, onTogglePhotos, expandedId, onToggleExpand, onRemove, onPatch, onMove, onAddMore, dragRef }) => (
   <div className="max-w-2xl mx-auto">
     <div className="flex items-center justify-between mb-4">
       <div>
@@ -1216,6 +1225,36 @@ const StepEntries: React.FC<{
       >
         <Plus size={13} />
         Add more
+      </button>
+    </div>
+
+    {/* Include-photos toggle — controls whether each entry card on the
+        published guide gets a hero image or renders text-only. The
+        guide's cover photo is unaffected. */}
+    <div className="mb-4 p-3 rounded-2xl bg-[#fbfaf6] border border-on-surface/[0.08] flex items-center gap-3">
+      <div className="w-9 h-9 rounded-xl bg-on-surface/[0.06] text-on-surface/65 flex items-center justify-center flex-shrink-0">
+        <ImagePlus size={16} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-semibold leading-tight">Include photos on entries</p>
+        <p className="text-[11.5px] text-on-surface/55 leading-snug">When off, entry cards render text-only on the published guide.</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={includePhotos}
+        onClick={() => onTogglePhotos(!includePhotos)}
+        className={cn(
+          'relative w-11 h-6 rounded-full transition-colors flex-shrink-0',
+          includePhotos ? 'bg-primary' : 'bg-on-surface/20',
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform',
+            includePhotos ? 'translate-x-[22px]' : 'translate-x-0.5',
+          )}
+        />
       </button>
     </div>
 
@@ -1400,10 +1439,11 @@ const StepReview: React.FC<{
   coverPhoto: string;
   tags: string[];
   entries: GuideEntry[];
+  includePhotos: boolean;
   visibility: GuideVisibility;
   onEditField: (target: 'cover' | 'title' | 'intro' | 'tags' | 'entries' | 'visibility') => void;
   onEditEntry: (id: string) => void;
-}> = ({ type, title, subtitle, intro, coverPhoto, tags, entries, visibility, onEditField, onEditEntry }) => {
+}> = ({ type, title, subtitle, intro, coverPhoto, tags, entries, includePhotos, visibility, onEditField, onEditEntry }) => {
   const avg = (() => {
     const scored = entries.map((e) => e.score).filter((s): s is number => typeof s === 'number');
     if (scored.length === 0) return null;
@@ -1470,9 +1510,11 @@ const StepReview: React.FC<{
           >
             <div className="flex items-center gap-3 p-3">
               <span className="font-serif font-bold text-primary text-[24px] tabular-nums w-9 flex-shrink-0 text-center">{(idx + 1).toString().padStart(2, '0')}</span>
-              <div className="w-14 h-14 rounded-lg bg-on-surface/[0.05] overflow-hidden flex-shrink-0">
-                {e.image && <img src={e.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />}
-              </div>
+              {includePhotos && (
+                <div className="w-14 h-14 rounded-lg bg-on-surface/[0.05] overflow-hidden flex-shrink-0">
+                  {e.image && <img src={e.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <p className="font-serif font-bold text-[16px] truncate">{e.name}</p>
                 <p className="text-[11px] text-on-surface/50 truncate">{e.subtitle}</p>

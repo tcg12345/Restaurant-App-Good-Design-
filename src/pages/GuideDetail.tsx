@@ -199,6 +199,7 @@ export const GuideDetail: React.FC = () => {
       tags: guide.tags,
       visibility: guide.visibility,
       isPublished: false,
+      includePhotos: guide.includePhotos,
       entries: guide.entries,
     });
     if (updated) {
@@ -456,15 +457,20 @@ export const GuideDetail: React.FC = () => {
                 }
               };
               return (
-                <article key={entry.id} id={`guide-entry-${idx}`} className="scroll-mt-24">
-                  {/* Hero row — big numeral on the left, large image to the right. */}
-                  <div className="flex items-start gap-4 sm:gap-6 mb-5">
-                    <div className="flex-shrink-0 pt-2">
-                      <p className="font-serif font-bold text-primary text-[42px] lg:text-[54px] leading-none">{numLabel(idx + 1)}</p>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/35 mt-1">of {guide.entries.length}</p>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="relative rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/10] shadow-[0_8px_28px_-12px_rgba(0,0,0,0.18)]">
+                <article key={entry.id} id={`guide-entry-${idx}`} className="scroll-mt-24 flex items-start gap-4 sm:gap-6">
+                  {/* Numeral column — hangs to the left of everything. */}
+                  <div className="flex-shrink-0 w-[52px] sm:w-[68px] pt-1">
+                    <p className="font-serif font-bold text-primary text-[42px] lg:text-[54px] leading-none">{numLabel(idx + 1)}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/35 mt-1">of {guide.entries.length}</p>
+                  </div>
+
+                  {/* Content column — image (optional), title row, meta, notes, blocks, view button. */}
+                  <div className="flex-1 min-w-0">
+                    {/* Hero image — only when the guide opts into photos.
+                        Score badge uses the standard ScoreBadge circle so
+                        it matches the rest of the app. */}
+                    {guide.includePhotos && (
+                      <div className="relative rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/10] shadow-[0_8px_28px_-12px_rgba(0,0,0,0.18)] mb-5">
                         {entry.image ? (
                           <img src={entry.image} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
                         ) : (
@@ -473,118 +479,122 @@ export const GuideDetail: React.FC = () => {
                           </div>
                         )}
                         {typeof entry.score === 'number' && entry.score > 0 && (
-                          <div className="absolute top-3 right-3">
-                            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white shadow-sm">
-                              <span className="text-yellow-500">★</span>
-                              <span className={cn('font-bold text-[12px] tabular-nums', scoreColor(entry.score))}>{entry.score.toFixed(1)}</span>
-                            </div>
+                          <div className="absolute top-3 right-3 ring-2 ring-white rounded-full">
+                            <ScoreBadge rating={entry.score} size="lg" />
                           </div>
                         )}
                       </div>
-                    </div>
-                  </div>
+                    )}
 
-                  {/* Title row — title on the left, heart + plus buttons on the right. */}
-                  <div className="flex items-start justify-between gap-3 mb-1">
-                    <h2 className="font-serif font-bold text-on-surface text-[28px] lg:text-[34px] leading-tight min-w-0 flex-1">
-                      {entry.name}
-                    </h2>
-                    {isRestaurant && (
+                    {/* Title row — title on the left, heart + plus on the right.
+                        When photos are off, the score badge sits inline with the
+                        action buttons so a viewer still sees the rating. */}
+                    <div className="flex items-start justify-between gap-3 mb-1">
+                      <h2 className="font-serif font-bold text-on-surface text-[28px] lg:text-[34px] leading-tight min-w-0 flex-1">
+                        {entry.name}
+                      </h2>
                       <div className="flex items-center gap-2 flex-shrink-0 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => toggleWishlist(getRestaurantInfo(entry.refId) || fallbackMeta)}
-                          aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
-                          className={cn(
-                            'w-10 h-10 rounded-full inline-flex items-center justify-center transition-colors',
-                            wishlisted ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/70 hover:bg-on-surface/10',
-                          )}
-                        >
-                          <Heart size={16} fill={wishlisted ? 'currentColor' : 'none'} strokeWidth={wishlisted ? 0 : 2} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openAddToListModal(entry.refId, getRestaurantInfo(entry.refId) || fallbackMeta)}
-                          aria-label="Add to list"
-                          className="w-10 h-10 rounded-full inline-flex items-center justify-center bg-on-surface/[0.05] text-on-surface/70 hover:bg-on-surface/10 transition-colors"
-                        >
-                          <Plus size={16} />
-                        </button>
+                        {!guide.includePhotos && typeof entry.score === 'number' && entry.score > 0 && (
+                          <ScoreBadge rating={entry.score} size="md" />
+                        )}
+                        {isRestaurant && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => toggleWishlist(getRestaurantInfo(entry.refId) || fallbackMeta)}
+                              aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+                              className={cn(
+                                'w-10 h-10 rounded-full inline-flex items-center justify-center transition-colors',
+                                wishlisted ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/70 hover:bg-on-surface/10',
+                              )}
+                            >
+                              <Heart size={16} fill={wishlisted ? 'currentColor' : 'none'} strokeWidth={wishlisted ? 0 : 2} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openAddToListModal(entry.refId, getRestaurantInfo(entry.refId) || fallbackMeta)}
+                              aria-label="Add to list"
+                              className="w-10 h-10 rounded-full inline-flex items-center justify-center bg-on-surface/[0.05] text-on-surface/70 hover:bg-on-surface/10 transition-colors"
+                            >
+                              <Plus size={16} />
+                            </button>
+                          </>
+                        )}
                       </div>
-                    )}
-                  </div>
-
-                  {/* Cuisine / price / neighborhood */}
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/55">
-                    {parsed.cuisine && <span>{parsed.cuisine}</span>}
-                    {parsed.price && (
-                      <>
-                        <span className="text-on-surface/30">·</span>
-                        <span>{parsed.price}</span>
-                      </>
-                    )}
-                    {entry.neighborhood && (
-                      <>
-                        <span className="text-on-surface/30">·</span>
-                        <span className="inline-flex items-center gap-1 text-primary"><MapPin size={11} /> {entry.neighborhood}</span>
-                      </>
-                    )}
-                  </div>
-                  {entry.hours && (
-                    <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-on-surface/50">
-                      <Clock size={12} />
-                      <span>{entry.hours}</span>
                     </div>
-                  )}
 
-                  {entry.notes && (
-                    <p className="mt-5 text-[15px] lg:text-[17px] leading-[1.6] text-on-surface/85 whitespace-pre-line">
-                      {entry.notes}
-                    </p>
-                  )}
-
-                  {(entry.bestFor || entry.insiderTip || (orderedFields && orderedFields.length > 0)) && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 mt-6 pt-6 border-t border-on-surface/10">
-                      {orderedFields && orderedFields.length > 0 && (
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/45 mb-2">
-                            {guide.type === 'restaurants' ? 'Favorite Dishes' : orderedLabel}
-                          </p>
-                          <ul className="space-y-1.5">
-                            {orderedFields.map((m, i) => (
-                              <li key={i} className="flex items-start gap-2 text-[14px] text-on-surface/85">
-                                <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full bg-primary flex items-center justify-center"><Check size={9} strokeWidth={3} className="text-white" /></span>
-                                {m}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
+                    {/* Cuisine / price / neighborhood */}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/55">
+                      {parsed.cuisine && <span>{parsed.cuisine}</span>}
+                      {parsed.price && (
+                        <>
+                          <span className="text-on-surface/30">·</span>
+                          <span>{parsed.price}</span>
+                        </>
                       )}
-                      <div className="space-y-4">
-                        {entry.bestFor && (
-                          <div>
-                            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/45 mb-1">Best For</p>
-                            <p className="text-[14px] leading-snug text-on-surface/85">{entry.bestFor}</p>
-                          </div>
-                        )}
-                        {entry.insiderTip && (
-                          <div>
-                            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/45 mb-1">Insider Tip</p>
-                            <p className="text-[14px] leading-snug text-on-surface/85">{entry.insiderTip}</p>
-                          </div>
-                        )}
-                      </div>
+                      {entry.neighborhood && (
+                        <>
+                          <span className="text-on-surface/30">·</span>
+                          <span className="inline-flex items-center gap-1 text-primary"><MapPin size={11} /> {entry.neighborhood}</span>
+                        </>
+                      )}
                     </div>
-                  )}
+                    {entry.hours && (
+                      <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-on-surface/50">
+                        <Clock size={12} />
+                        <span>{entry.hours}</span>
+                      </div>
+                    )}
 
-                  <button
-                    type="button"
-                    onClick={onViewClick}
-                    className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 rounded-full bg-on-surface text-white text-[13px] font-bold hover:bg-on-surface/90 active:scale-[0.98] transition-all"
-                  >
-                    {isRestaurant ? 'View restaurant' : 'View recipe'}
-                    <ArrowUpRight size={14} />
-                  </button>
+                    {entry.notes && (
+                      <p className="mt-5 text-[15px] lg:text-[17px] leading-[1.6] text-on-surface/85 whitespace-pre-line">
+                        {entry.notes}
+                      </p>
+                    )}
+
+                    {(entry.bestFor || entry.insiderTip || (orderedFields && orderedFields.length > 0)) && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 mt-6 pt-6 border-t border-on-surface/10">
+                        {orderedFields && orderedFields.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/45 mb-2">
+                              {guide.type === 'restaurants' ? 'Favorite Dishes' : orderedLabel}
+                            </p>
+                            <ul className="space-y-1.5">
+                              {orderedFields.map((m, i) => (
+                                <li key={i} className="flex items-start gap-2 text-[14px] text-on-surface/85">
+                                  <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full bg-primary flex items-center justify-center"><Check size={9} strokeWidth={3} className="text-white" /></span>
+                                  {m}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <div className="space-y-4">
+                          {entry.bestFor && (
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/45 mb-1">Best For</p>
+                              <p className="text-[14px] leading-snug text-on-surface/85">{entry.bestFor}</p>
+                            </div>
+                          )}
+                          {entry.insiderTip && (
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/45 mb-1">Insider Tip</p>
+                              <p className="text-[14px] leading-snug text-on-surface/85">{entry.insiderTip}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={onViewClick}
+                      className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 rounded-full bg-on-surface text-white text-[13px] font-bold hover:bg-on-surface/90 active:scale-[0.98] transition-all"
+                    >
+                      {isRestaurant ? 'View restaurant' : 'View recipe'}
+                      <ArrowUpRight size={14} />
+                    </button>
+                  </div>
                 </article>
               );
             })}
