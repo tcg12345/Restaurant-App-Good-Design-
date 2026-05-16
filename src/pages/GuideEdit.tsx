@@ -1,21 +1,23 @@
 /**
  * GuideEdit — route wrapper for /guides/:id/edit. Loads the existing
- * guide and mounts the creator sheet pre-populated. On close, navigates
- * back to the guide's reader page.
+ * guide, hands it to the global GuideCreator via context, and navigates
+ * back to the reader page when the sheet closes.
  */
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { getGuideById, type Guide } from '../lib/supabase-guides';
 import { useAuth } from '../contexts/AuthContext';
-import { GuideCreatorSheet } from '../components/GuideCreatorSheet';
+import { useGuideCreator } from '../contexts/GuideCreatorContext';
 
 export const GuideEdit: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { openGuideCreator, isOpen } = useGuideCreator();
   const [guide, setGuide] = useState<Guide | null>(null);
   const [loading, setLoading] = useState(true);
+  const [opened, setOpened] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -28,6 +30,22 @@ export const GuideEdit: React.FC = () => {
     })();
     return () => { cancelled = true; };
   }, [id]);
+
+  // Once the guide is loaded and we know it's the user's own, open the
+  // global creator with it pre-populated. Only do this once per mount.
+  useEffect(() => {
+    if (!guide || opened) return;
+    if (guide.userId !== user?.id) return;
+    openGuideCreator(guide);
+    setOpened(true);
+  }, [guide, user?.id, opened, openGuideCreator]);
+
+  // When the sheet closes, navigate back to the reader.
+  useEffect(() => {
+    if (opened && !isOpen) {
+      navigate(`/guides/${id}`);
+    }
+  }, [opened, isOpen, id, navigate]);
 
   if (loading) {
     return (
@@ -45,11 +63,6 @@ export const GuideEdit: React.FC = () => {
     );
   }
 
-  return (
-    <GuideCreatorSheet
-      open
-      initialGuide={guide}
-      onClose={() => navigate(`/guides/${guide.id}`)}
-    />
-  );
+  // The page itself is just a thin background — the editor is the sheet.
+  return <div className="min-h-screen bg-[#f4f2ec]" />;
 };

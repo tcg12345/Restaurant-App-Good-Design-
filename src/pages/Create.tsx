@@ -4,8 +4,8 @@ import { motion, AnimatePresence, type PanInfo } from 'motion/react';
 import { ArrowLeft, FileText, Film, ChevronRight, ImagePlus, Video, BookOpen } from 'lucide-react';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
+import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { cn } from '../lib/utils';
-import { GuideCreatorSheet } from '../components/GuideCreatorSheet';
 
 type Mode = 'post' | 'reel' | 'guide';
 const MODES: Mode[] = ['post', 'reel', 'guide'];
@@ -68,7 +68,7 @@ export const Create: React.FC = () => {
   const { openAddReelModal } = useReels();
 
   const [mode, setMode] = useState<Mode>('post');
-  const [guideOpen, setGuideOpen] = useState(false);
+  const { openGuideCreator } = useGuideCreator();
   const idx = MODES.indexOf(mode);
 
   const close = () => navigate('/');
@@ -76,7 +76,7 @@ export const Create: React.FC = () => {
   const begin = () => {
     if (mode === 'post') openAddPostModal();
     else if (mode === 'reel') openAddReelModal();
-    else setGuideOpen(true);
+    else openGuideCreator();
   };
 
   // Horizontal swipe on the content area changes mode — same gesture
@@ -154,9 +154,6 @@ export const Create: React.FC = () => {
           </motion.div>
         </AnimatePresence>
       </motion.div>
-
-      {/* Guide builder — overlays this page when the Guide mode is started. */}
-      <GuideCreatorSheet open={guideOpen} onClose={() => setGuideOpen(false)} />
 
       {/* Bottom mode picker — Instagram-style centered carousel. The
           selected label is opaque and large; the other shrinks and

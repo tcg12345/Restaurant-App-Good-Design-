@@ -56,6 +56,8 @@ import { PostsProvider } from './contexts/PostsContext';
 import { PageSearchProvider } from './contexts/PageSearchContext';
 import { PageAddActionProvider } from './contexts/PageAddActionContext';
 import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelContext';
+import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
+import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { CirclePanel } from './components/CirclePanel';
 
 /**
@@ -83,6 +85,16 @@ const CircleDesktopOverlay: React.FC = () => {
       )}
     </AnimatePresence>
   );
+};
+
+/**
+ * Mounts the guide-creation sheet once at the app root. Triggered by
+ * useGuideCreator() from anywhere — sidebar / profile / Discover tile /
+ * Create page.
+ */
+const GuideCreatorMount: React.FC = () => {
+  const { isOpen, initialGuide, closeGuideCreator } = useGuideCreator();
+  return <GuideCreatorSheet open={isOpen} onClose={closeGuideCreator} initialGuide={initialGuide} />;
 };
 
 function useIsDesktop(): boolean {
@@ -247,6 +259,7 @@ const AppContent: React.FC = () => {
       <AddReelModal />
       <AddPostModal />
       <RecipeModal />
+      <GuideCreatorMount />
     </>
   );
 
@@ -322,7 +335,9 @@ export default function App() {
                       <PageSearchProvider>
                         <PageAddActionProvider>
                           <CirclePanelProvider>
-                            <AppContent />
+                            <GuideCreatorProvider>
+                              <AppContent />
+                            </GuideCreatorProvider>
                           </CirclePanelProvider>
                         </PageAddActionProvider>
                       </PageSearchProvider>

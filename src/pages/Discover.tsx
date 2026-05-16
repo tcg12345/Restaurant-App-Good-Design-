@@ -15,6 +15,7 @@ import { useRecipes, type Recipe } from '../contexts/RecipesContext';
 import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuideCard } from '../components/GuideCard';
+import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { searchNearbyRestaurants, searchPlacesByText, searchHotels, priceLevelToString, extractCityState, formatLocationLabel, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import {
   buildTasteProfile,
@@ -365,6 +366,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   } = useRecipes();
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const { openGuideCreator } = useGuideCreator();
 
   // Published guides on Discover. Loaded once per session — there's no
   // pagination yet so we cap to a reasonable rail length.
@@ -4644,8 +4646,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       />
                     );
                   })}
-                  <Link
-                    to="/create"
+                  <button
+                    type="button"
+                    onClick={() => openGuideCreator()}
                     className="flex-shrink-0 snap-start group text-left"
                   >
                     <div className="relative w-[148px] aspect-[4/5] rounded-2xl overflow-hidden border-2 border-dashed border-on-surface/15 bg-on-surface/[0.02] flex flex-col items-center justify-center text-on-surface/55 hover:border-primary/40 hover:bg-primary/[0.04] transition-colors">
@@ -4655,7 +4658,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       <p className="font-serif font-bold text-[13px] text-on-surface">Create a guide</p>
                       <p className="text-[10px] text-on-surface/45 mt-0.5">Restaurants or recipes</p>
                     </div>
-                  </Link>
+                  </button>
                   {feedGuides.length === 0 && (
                     <div className="flex-shrink-0 w-[148px] aspect-[4/5] rounded-2xl bg-on-surface/[0.03] border border-on-surface/[0.06] flex items-center justify-center px-3 text-center">
                       <p className="text-[11px] text-on-surface/45">No published guides yet — be the first.</p>
