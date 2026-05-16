@@ -118,6 +118,60 @@ export async function searchLocations(query: string): Promise<HomeLocation[]> {
   }
 }
 
+/**
+ * Resolve the device's current location to a HomeLocation (lat/lng + address
+ * label). Used by every "Use current location" entry point in the app.
+ *
+ * Why this is more than a thin wrapper around `getCurrentPosition`:
+ *
+ *  - On iOS WKWebView (Capacitor), the native geolocation bridge can hang
+ *    silently if `NSLocationWhenInUseUsageDescription` is missing from
+ *    Info.plist, or if the user has the permission set to "Ask Next Time"
+ *    but the prompt never surfaces. The browser-level `timeout` option is
+ *    not always honoured in that path, so we race the call against an
+ *    explicit JS-side deadline that always fires.
+ *  - We start with `enableHighAccuracy: false` (network/Wi-Fi positioning,
+ *    typically <50 m on a phone and resolves in ~1–3 s). That's plenty for
+ *    Mapbox to reverse-geocode to the right street address and it avoids
+ *    the cold-GPS wait that was making the picker sit on "Locating…"
+ *    indefinitely indoors.
+ */
+export async function getCurrentHomeLocation(): Promise<HomeLocation> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    throw Object.assign(new Error('Geolocation is not available in this browser.'), { code: 2 });
+  }
+  const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+    let settled = false;
+    const safety = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(Object.assign(new Error('Location request timed out.'), { code: 3 }));
+    }, 12000);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(safety);
+        resolve(p);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(safety);
+        reject(err);
+      },
+      {
+        maximumAge: 5 * 60 * 1000,
+        timeout: 10000,
+        enableHighAccuracy: false,
+      },
+    );
+  });
+  const { latitude: lat, longitude: lng } = pos.coords;
+  const label = await reverseGeocode(lat, lng);
+  return { label, lat, lng };
+}
+
 // Reverse-geocode a coordinate into a street-address label
 // ("123 Main St, San Francisco, CA") using Mapbox. Falls back to the
 // city/locality label if no address feature is returned, and to

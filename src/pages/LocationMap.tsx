@@ -10,7 +10,7 @@ import { cn } from '../lib/utils';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import {
   HomeLocationBar,
-  reverseGeocode,
+  getCurrentHomeLocation,
   type HomeLocation,
 } from '../components/HomeLocationBar';
 import {
@@ -334,18 +334,8 @@ export const LocationMap: React.FC = () => {
   }, [navigate]);
 
   const handleUseCurrent = useCallback(async (): Promise<void> => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      throw new Error('Geolocation is not available in this browser.');
-    }
-    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        maximumAge: 60 * 1000,
-        timeout: 15000,
-        enableHighAccuracy: true,
-      });
-    });
-    const newLabel = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
-    handleLocationChange({ label: newLabel, lat: pos.coords.latitude, lng: pos.coords.longitude });
+    const loc = await getCurrentHomeLocation();
+    handleLocationChange(loc);
   }, [handleLocationChange]);
 
   // Sort the sheet list by distance from the city centre — that's what

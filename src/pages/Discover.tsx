@@ -32,6 +32,7 @@ import {
   loadLastSelectedLocation,
   saveLastSelectedLocation,
   reverseGeocode,
+  getCurrentHomeLocation,
   type HomeLocation,
 } from '../components/HomeLocationBar';
 import {
@@ -1082,19 +1083,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // browser denies / can't find a fix (otherwise the button just silently
   // closed and the user had no feedback).
   const handleHomeUseCurrent = useCallback(async (): Promise<void> => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      throw new Error('Geolocation is not available in this browser.');
-    }
-    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        maximumAge: 60 * 1000,
-        timeout: 15000,
-        enableHighAccuracy: true,
-      });
-    });
-    const { latitude: lat, longitude: lng } = pos.coords;
-    const label = await reverseGeocode(lat, lng);
-    handleHomeLocationChange({ label, lat, lng });
+    const loc = await getCurrentHomeLocation();
+    handleHomeLocationChange(loc);
   }, [handleHomeLocationChange]);
 
   // Initial / location-driven recommendations — personalised if the user has

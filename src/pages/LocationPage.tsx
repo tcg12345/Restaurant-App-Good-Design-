@@ -64,7 +64,7 @@ import {
   HomeLocationBar,
   isExactAddress,
   loadLastSelectedLocation,
-  reverseGeocode,
+  getCurrentHomeLocation,
   type HomeLocation,
 } from '../components/HomeLocationBar';
 
@@ -1137,19 +1137,8 @@ export const LocationPage: React.FC = () => {
   // "Use current location" — same flow as Map.tsx: geolocate, reverse-geocode
   // to a human label, then feed it back through the regular change handler.
   const handleUseCurrent = useCallback(async (): Promise<void> => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      throw new Error('Geolocation is not available in this browser.');
-    }
-    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        maximumAge: 60 * 1000,
-        timeout: 15000,
-        enableHighAccuracy: true,
-      });
-    });
-    const { latitude, longitude } = pos.coords;
-    const newLabel = await reverseGeocode(latitude, longitude);
-    handleLocationChange({ label: newLabel, lat: latitude, lng: longitude });
+    const loc = await getCurrentHomeLocation();
+    handleLocationChange(loc);
   }, [handleLocationChange]);
 
   return (
