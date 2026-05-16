@@ -588,6 +588,8 @@ const StepSeed: React.FC<{
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [importedListIds, setImportedListIds] = useState<Set<string>>(new Set());
+  const [ratedFilter, setRatedFilter] = useState('');
+  const [recipesFilter, setRecipesFilter] = useState('');
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchReqIdRef = useRef(0);
 
@@ -740,49 +742,82 @@ const StepSeed: React.FC<{
 
   // ── Subpage: From your rated places ──────────────────────────────
   if (seedMode === 'rated') {
+    const ratedQ = ratedFilter.trim().toLowerCase();
+    const filteredRatings = ratedQ
+      ? ratings.filter((r) =>
+          r.name.toLowerCase().includes(ratedQ)
+          || (r.cuisine || '').toLowerCase().includes(ratedQ)
+          || (r.address || '').toLowerCase().includes(ratedQ)
+        )
+      : ratings;
     return (
       <div className="max-w-2xl mx-auto">
         {subpageHeader('Your rated places')}
         {ratings.length === 0 ? (
           <p className="text-sm text-on-surface/55 px-1">You haven't rated any places yet.</p>
         ) : (
-          <ul className="space-y-1">
-            {ratings.map((r) => {
-              const isAdded = addedRefIds.has(r.restaurantId);
-              return (
-                <li key={r.restaurantId}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isAdded) onRemoveByRefId(r.restaurantId);
-                      else onAddRestaurants([r]);
-                    }}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-colors border',
-                      isAdded
-                        ? 'bg-primary/[0.06] border-primary/30'
-                        : 'bg-[#fbfaf6] border-on-surface/[0.08] hover:bg-on-surface/[0.04]',
-                    )}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{r.name}</p>
-                      <p className="text-[11px] text-on-surface/50 truncate">{[r.cuisine, r.price].filter(Boolean).join(' · ')}</p>
-                    </div>
-                    <span className={cn('text-[13px] font-bold tabular-nums flex-shrink-0', scoreColor(r.score))}>{r.score.toFixed(1)}</span>
-                    <span
-                      className={cn(
-                        'inline-flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0 transition-colors',
-                        isAdded ? 'bg-primary text-white' : 'border border-on-surface/20 text-on-surface/40',
-                      )}
-                      aria-label={isAdded ? 'Added — tap to remove' : 'Add'}
-                    >
-                      {isAdded ? <Check size={12} strokeWidth={3} /> : <Plus size={12} />}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            <div className="flex items-center gap-2 mb-3 px-3 h-10 rounded-full bg-[#fbfaf6] border border-on-surface/[0.08]">
+              <Search size={14} className="text-on-surface/40 flex-shrink-0" />
+              <input
+                value={ratedFilter}
+                onChange={(e) => setRatedFilter(e.target.value)}
+                placeholder="Filter your rated places…"
+                className="flex-1 bg-transparent text-[13px] focus:outline-none min-w-0"
+              />
+              {ratedFilter && (
+                <button
+                  type="button"
+                  onClick={() => setRatedFilter('')}
+                  aria-label="Clear filter"
+                  className="w-6 h-6 rounded-full hover:bg-on-surface/10 flex items-center justify-center text-on-surface/45 flex-shrink-0"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            {filteredRatings.length === 0 ? (
+              <p className="text-sm text-on-surface/45 px-1 py-6 text-center">No matches.</p>
+            ) : (
+              <ul className="space-y-1">
+                {filteredRatings.map((r) => {
+                  const isAdded = addedRefIds.has(r.restaurantId);
+                  return (
+                    <li key={r.restaurantId}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isAdded) onRemoveByRefId(r.restaurantId);
+                          else onAddRestaurants([r]);
+                        }}
+                        className={cn(
+                          'w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-colors border',
+                          isAdded
+                            ? 'bg-primary/[0.06] border-primary/30'
+                            : 'bg-[#fbfaf6] border-on-surface/[0.08] hover:bg-on-surface/[0.04]',
+                        )}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate">{r.name}</p>
+                          <p className="text-[11px] text-on-surface/50 truncate">{[r.cuisine, r.price].filter(Boolean).join(' · ')}</p>
+                        </div>
+                        <span className={cn('text-[13px] font-bold tabular-nums flex-shrink-0', scoreColor(r.score))}>{r.score.toFixed(1)}</span>
+                        <span
+                          className={cn(
+                            'inline-flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0 transition-colors',
+                            isAdded ? 'bg-primary text-white' : 'border border-on-surface/20 text-on-surface/40',
+                          )}
+                          aria-label={isAdded ? 'Added — tap to remove' : 'Add'}
+                        >
+                          {isAdded ? <Check size={12} strokeWidth={3} /> : <Plus size={12} />}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </>
         )}
       </div>
     );
@@ -909,47 +944,80 @@ const StepSeed: React.FC<{
 
   // ── Subpage: From your recipes ───────────────────────────────────
   if (seedMode === 'recipes-my') {
+    const recipesQ = recipesFilter.trim().toLowerCase();
+    const filteredRecipes = recipesQ
+      ? myRecipes.filter((r) =>
+          r.title.toLowerCase().includes(recipesQ)
+          || (r.cuisine || '').toLowerCase().includes(recipesQ)
+          || (r.tags || []).some((t) => t.toLowerCase().includes(recipesQ))
+        )
+      : myRecipes;
     return (
       <div className="max-w-2xl mx-auto">
         {subpageHeader('Your recipes')}
         {myRecipes.length === 0 ? (
           <p className="text-sm text-on-surface/55 px-1">You haven't created any recipes yet.</p>
         ) : (
-          <ul className="space-y-1">
-            {myRecipes.map((r) => {
-              const isAdded = addedRefIds.has(r.id);
-              return (
-                <li key={r.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isAdded) onRemoveByRefId(r.id);
-                      else onAddDbRecipes([r]);
-                    }}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-colors border',
-                      isAdded
-                        ? 'bg-primary/[0.06] border-primary/30'
-                        : 'bg-[#fbfaf6] border-on-surface/[0.08] hover:bg-on-surface/[0.04]',
-                    )}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold truncate">{r.title}</p>
-                      <p className="text-[11px] text-on-surface/50 truncate">{[r.cuisine, r.difficulty].filter(Boolean).join(' · ')}</p>
-                    </div>
-                    <span
-                      className={cn(
-                        'inline-flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0 transition-colors',
-                        isAdded ? 'bg-primary text-white' : 'border border-on-surface/20 text-on-surface/40',
-                      )}
-                    >
-                      {isAdded ? <Check size={12} strokeWidth={3} /> : <Plus size={12} />}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            <div className="flex items-center gap-2 mb-3 px-3 h-10 rounded-full bg-[#fbfaf6] border border-on-surface/[0.08]">
+              <Search size={14} className="text-on-surface/40 flex-shrink-0" />
+              <input
+                value={recipesFilter}
+                onChange={(e) => setRecipesFilter(e.target.value)}
+                placeholder="Filter your recipes…"
+                className="flex-1 bg-transparent text-[13px] focus:outline-none min-w-0"
+              />
+              {recipesFilter && (
+                <button
+                  type="button"
+                  onClick={() => setRecipesFilter('')}
+                  aria-label="Clear filter"
+                  className="w-6 h-6 rounded-full hover:bg-on-surface/10 flex items-center justify-center text-on-surface/45 flex-shrink-0"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            {filteredRecipes.length === 0 ? (
+              <p className="text-sm text-on-surface/45 px-1 py-6 text-center">No matches.</p>
+            ) : (
+              <ul className="space-y-1">
+                {filteredRecipes.map((r) => {
+                  const isAdded = addedRefIds.has(r.id);
+                  return (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isAdded) onRemoveByRefId(r.id);
+                          else onAddDbRecipes([r]);
+                        }}
+                        className={cn(
+                          'w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-colors border',
+                          isAdded
+                            ? 'bg-primary/[0.06] border-primary/30'
+                            : 'bg-[#fbfaf6] border-on-surface/[0.08] hover:bg-on-surface/[0.04]',
+                        )}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate">{r.title}</p>
+                          <p className="text-[11px] text-on-surface/50 truncate">{[r.cuisine, r.difficulty].filter(Boolean).join(' · ')}</p>
+                        </div>
+                        <span
+                          className={cn(
+                            'inline-flex items-center justify-center w-6 h-6 rounded-full flex-shrink-0 transition-colors',
+                            isAdded ? 'bg-primary text-white' : 'border border-on-surface/20 text-on-surface/40',
+                          )}
+                        >
+                          {isAdded ? <Check size={12} strokeWidth={3} /> : <Plus size={12} />}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </>
         )}
       </div>
     );
