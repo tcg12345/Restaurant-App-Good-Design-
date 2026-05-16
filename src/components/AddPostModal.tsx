@@ -35,6 +35,8 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { searchLocations, type HomeLocation } from './HomeLocationBar';
+import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
+import { PhotoLibraryGrid } from './PhotoLibraryGrid';
 import {
   MediaEditor,
   applyAllEdits,
@@ -284,6 +286,9 @@ export const AddPostModal: React.FC = () => {
   useEffect(() => {
     if (!addPostModalOpen) { autoOpenedRef.current = false; return; }
     if (!phoneMode || isEditing || step !== 1 || items.length > 0 || autoOpenedRef.current) return;
+    // On native iOS the page renders an inline PhotoLibraryGrid; the
+    // OS picker would be a redundant second UI.
+    if (canUseNativePhotoLibrary()) { autoOpenedRef.current = true; return; }
     autoOpenedRef.current = true;
     const id = window.setTimeout(() => {
       try { fileInputRef.current?.click(); } catch { /* user gesture lost */ }
@@ -429,6 +434,12 @@ export const AddPostModal: React.FC = () => {
     return url;
   };
 
+  // Native iOS: id of the thumb the user just tapped in the PhotoLibraryGrid.
+  // Used to show a "loading" highlight while we fetch the full media file
+  // and feed it through the standard onPickFiles pipeline below.
+  const useNativeGrid = canUseNativePhotoLibrary();
+  const [stagedNativeId, setStagedNativeId] = useState<string | null>(null);
+
   const onPickFiles = async (incoming: File[]) => {
     // Editing an existing post — media is locked. Bail.
     if (isEditing) return;
@@ -496,6 +507,21 @@ export const AddPostModal: React.FC = () => {
       return next;
     });
     if (!activeKey) setActiveKey(accepted[0].key);
+  };
+
+  const onNativePickItem = async (item: MediaItem) => {
+    if (stagedNativeId) return;
+    setStagedNativeId(item.id);
+    try {
+      const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
+      const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
+      const file = await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType);
+      await onPickFiles([file]);
+    } catch (err) {
+      console.warn('[AddPost] native pick failed:', err);
+    } finally {
+      setStagedNativeId(null);
+    }
   };
 
   const onRemoveItem = (key: string) => {
@@ -957,6 +983,18 @@ export const AddPostModal: React.FC = () => {
               {step === 1 && (<>
               {/* Empty state vs items strip */}
               {items.length === 0 ? (
+                useNativeGrid ? (
+                  <div className="-mx-5">
+                    <p className="text-[12px] text-on-surface/55 px-5 pb-2 leading-relaxed">
+                      Tap a photo or video to add it. Up to {POST_MAX_ITEMS} items, videos up to {POST_VIDEO_MAX_DURATION_SECONDS}s each.
+                    </p>
+                    <PhotoLibraryGrid
+                      mediaType="all"
+                      onSelect={onNativePickItem}
+                      selectedId={stagedNativeId}
+                    />
+                  </div>
+                ) : (
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -979,6 +1017,7 @@ export const AddPostModal: React.FC = () => {
                     Mix freely · up to {POST_MAX_ITEMS} items · videos up to {POST_VIDEO_MAX_DURATION_SECONDS}s each
                   </span>
                 </button>
+                )
               ) : (
                 <section>
                   <div className="flex items-baseline justify-between mb-2">

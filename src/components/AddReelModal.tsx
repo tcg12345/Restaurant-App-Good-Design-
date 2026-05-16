@@ -12,7 +12,7 @@
  * and step 2's drop zone cross-fades into the preview once a file is
  * accepted.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   X, Film, ChefHat, MapPin, Search, Check, Upload, AlertCircle,
@@ -40,6 +40,8 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { searchLocations, type HomeLocation } from './HomeLocationBar';
+import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
+import { PhotoLibraryGrid } from './PhotoLibraryGrid';
 
 // Build a Google Places type → human label lookup once.
 const PLACE_TYPE_TO_CUISINE: Record<string, string> = {};
@@ -198,6 +200,10 @@ export const AddReelModal: React.FC = () => {
   useEffect(() => {
     if (!addReelModalOpen) { autoOpenedRef.current = false; return; }
     if (step !== 1 || videoUrl || autoOpenedRef.current) return;
+    // On native iOS the page renders an inline PhotoLibraryGrid instead of
+    // the dashed placeholder — auto-opening the OS picker would be a
+    // double UI and immediately steal focus from the grid.
+    if (canUseNativePhotoLibrary()) { autoOpenedRef.current = true; return; }
     autoOpenedRef.current = true;
     const id = window.setTimeout(() => {
       try { fileInputRef.current?.click(); } catch { /* user gesture lost — fall back to tap */ }
@@ -1079,6 +1085,24 @@ const StepVideo: React.FC<{
   // Drag-drop on this step's surface.
   const [dragDepth, setDragDepth] = useState(0);
   const dragActive = dragDepth > 0;
+  // On native iOS we render the PhotoLibraryGrid inline. Tracks the id of
+  // the thumbnail the user just tapped so we can highlight it while
+  // PhotoLibrary.getMedia + onPickFile run.
+  const useNativeGrid = canUseNativePhotoLibrary();
+  const [stagedNativeId, setStagedNativeId] = useState<string | null>(null);
+  const onNativeSelect = useCallback(async (item: MediaItem) => {
+    if (stagedNativeId) return; // ignore taps while a previous pick is resolving
+    setStagedNativeId(item.id);
+    try {
+      const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
+      const ext = mimeType.split('/')[1] || 'mov';
+      const file = await nativePathToFile(path, `reel-${item.id}.${ext}`, mimeType);
+      onPickFile(file);
+    } catch (err) {
+      console.warn('[AddReel] native pick failed:', err);
+      setStagedNativeId(null);
+    }
+  }, [onPickFile, stagedNativeId]);
   const onDragEnter: React.DragEventHandler = (e) => {
     if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
     e.preventDefault();
@@ -1112,9 +1136,26 @@ const StepVideo: React.FC<{
       {/* Flex-center wrapper — the inner tile is sized by aspect-ratio
           + max-h, which often resolves to less than the parent's full
           width, so we center it horizontally here. */}
-      <div className="flex items-start justify-center">
+      <div className={cn('flex items-start justify-center', !videoUrl && useNativeGrid && 'w-full')}>
       <AnimatePresence mode="wait">
         {!videoUrl ? (
+          useNativeGrid ? (
+            <motion.div
+              key="empty-native"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="w-full -mx-5"
+            >
+              <p className="text-[12.5px] text-on-surface/55 px-5 pb-3 max-w-[280px] leading-relaxed">
+                Pick a vertical video from your camera roll. Up to {REEL_MAX_DURATION_SECONDS}s.
+              </p>
+              <PhotoLibraryGrid
+                mediaType="video"
+                onSelect={onNativeSelect}
+                selectedId={stagedNativeId}
+              />
+            </motion.div>
+          ) : (
           <motion.label
             key="empty"
             htmlFor="reel-video-input"
@@ -1157,6 +1198,7 @@ const StepVideo: React.FC<{
               </div>
             )}
           </motion.label>
+          )
         ) : (
           <motion.div
             key="preview"
