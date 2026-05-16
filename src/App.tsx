@@ -26,6 +26,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ListsProvider } from './contexts/ListsContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { RecipesProvider } from './contexts/RecipesContext';
+import { configureNativeKeyboard } from './lib/native-keyboard';
 import { RatingModal } from './components/RatingModal';
 import { AddToListModal } from './components/AddToListModal';
 import { AddRestaurantModal } from './components/AddRestaurantModal';
@@ -112,6 +113,7 @@ function useIsDesktop(): boolean {
 
 const AppContent: React.FC = () => {
   const location = useLocation();
+  React.useEffect(() => { void configureNativeKeyboard(); }, []);
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
