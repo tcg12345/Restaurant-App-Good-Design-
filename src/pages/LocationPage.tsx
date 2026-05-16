@@ -277,6 +277,18 @@ const AREA_SEEDS: string[] = [
   'upscale restaurants',
 ];
 
+// Strip accents, lowercase, and squash punctuation so "Aux Délices" and
+// "aux delices" compare equal when scoring how well a restaurant's name
+// matches the user's search query.
+function normalizeForMatch(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 function buildQueryPool(cityKey: string, topCuisines: string[]): string[] {
   const city = cityKey || '';
   const out: string[] = [];
@@ -1059,7 +1071,46 @@ export const LocationPage: React.FC = () => {
       if (expertsOnly && !expertRestaurantIds.has(p.id)) continue;
       out.push(p);
     }
-    if (sortBy === 'recommended') return out;
+    // When the user is searching, Google's text search returns a mix of
+    // literal name matches and broad "related" results (e.g. "aux delices"
+    // also brings back Isabelle et Vincent and Gold's Delicatessen because
+    // they're nearby bakeries/delis). The recommendation engine that built
+    // `ranked` weights cuisine fit / rating / distance but has zero signal
+    // on "does this restaurant's name actually match what the user typed",
+    // so unrelated highly-rated places used to outrank the literal hit.
+    //
+    // We re-rank by a name-match score whenever a query is active so the
+    // literal match comes first, falling back to the upstream recommendation
+    // order (or the user-selected sort) for everything else.
+    const q = debouncedSearch.trim().toLowerCase();
+    const nameMatchScore = (name: string): number => {
+      if (!q) return 0;
+      const n = normalizeForMatch(name);
+      const nq = normalizeForMatch(q);
+      if (!n || !nq) return 0;
+      if (n === nq) return 1000;
+      if (n.startsWith(nq)) return 800;
+      if (n.includes(nq)) return 600;
+      // Word-by-word fallback so multi-word queries still score partial hits
+      // ("aux delices patisserie" matches "Aux Delices").
+      const qWords = nq.split(/\s+/).filter(Boolean);
+      if (qWords.length === 0) return 0;
+      const nameWords = new Set(n.split(/\s+/).filter(Boolean));
+      let matched = 0;
+      for (const w of qWords) if (nameWords.has(w)) matched++;
+      if (matched === qWords.length) return 400;
+      return Math.round((matched / qWords.length) * 200);
+    };
+
+    if (sortBy === 'recommended') {
+      if (!q) return out;
+      // Stable sort by name-match score, preserving the recommendation order
+      // as a tiebreaker for ties (e.g. multiple substring matches).
+      const indexed = out.map((p, i) => ({ p, i, s: nameMatchScore(p.name) }));
+      indexed.sort((a, b) => b.s - a.s || a.i - b.i);
+      return indexed.map((x) => x.p);
+    }
+
     const sorted = [...out];
     if (sortBy === 'rating') {
       sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
@@ -1072,11 +1123,21 @@ export const LocationPage: React.FC = () => {
           haversineDistanceMi(lat, lng, b.lat, b.lng),
       );
     }
+    // Even when the user picked an explicit sort, a literal name match
+    // should still surface above the noise — otherwise typing "aux delices"
+    // and tapping "Highest Rated" buries the actual restaurant.
+    if (q) {
+      sorted.sort((a, b) => {
+        const sa = nameMatchScore(a.name);
+        const sb = nameMatchScore(b.name);
+        return sb - sa;
+      });
+    }
     return sorted;
   }, [
     ranked, selectedPrice, selectedCuisines, sortBy, hasCoords, lat, lng,
     selectedRadius, friendsOnly, expertsOnly,
-    friendRestaurantIds, expertRestaurantIds,
+    friendRestaurantIds, expertRestaurantIds, debouncedSearch,
   ]);
 
   // IntersectionObserver sentinel powers the infinite-scroll load-more. We
