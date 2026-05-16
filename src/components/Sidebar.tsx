@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, MessageCircle, Film, Image as ImageIcon } from 'lucide-react';
+import { Compass, Map as MapIcon, Bookmark, Users, User, Plus, MessageCircle, Film, Image as ImageIcon, BookOpen } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -9,6 +9,7 @@ import { useChat } from '../contexts/ChatContext';
 import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useCirclePanel } from '../contexts/CirclePanelContext';
+import { useGuideCreator } from '../contexts/GuideCreatorContext';
 
 /**
  * Desktop-only collapsible sidebar. App.tsx decides when to mount it
@@ -39,6 +40,7 @@ export const Sidebar: React.FC = () => {
   const { unreadCount } = useChat();
   const { openAddReelModal } = useReels();
   const { openAddPostModal } = usePosts();
+  const { openGuideCreator } = useGuideCreator();
   const { open: circleOpen, toggle: toggleCircle, setOpen: setCircleOpen } = useCirclePanel();
 
   // Auto-close the panel whenever the route changes — otherwise it
@@ -212,6 +214,21 @@ export const Sidebar: React.FC = () => {
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14px] font-bold leading-tight">Reel</span>
                   <span className="block text-[12px] text-on-surface/50 leading-tight">Single short video</span>
+                </span>
+              </button>
+              <div className="border-t border-on-surface/[0.06]" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { setCreateMenuOpen(false); openGuideCreator(); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-on-surface/[0.05] text-left"
+              >
+                <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+                  <BookOpen size={16} strokeWidth={2.2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-bold leading-tight">Guide</span>
+                  <span className="block text-[12px] text-on-surface/50 leading-tight">Curated restaurants or recipes</span>
                 </span>
               </button>
             </motion.div>

@@ -19,9 +19,9 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Send, Search, MessageCircle, Users, ChevronRight, ExternalLink, Loader2, Check, MapPin, ChefHat, Film, Image as ImageIcon, Layers } from 'lucide-react';
+import { X, Send, Search, MessageCircle, Users, ChevronRight, ExternalLink, Loader2, Check, MapPin, ChefHat, Film, Image as ImageIcon, Layers, BookOpen } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useChat, type SharePayload, type SharedReel, type SharedRecipe, type SharedRestaurant, type SharedPost } from '../contexts/ChatContext';
+import { useChat, type SharePayload, type SharedReel, type SharedRecipe, type SharedRestaurant, type SharedPost, type SharedGuide } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -53,6 +53,7 @@ const PreviewChip: React.FC<{ payload: SharePayload }> = ({ payload }) => {
   if (payload.sharedPost) return <PostPreview post={payload.sharedPost} />;
   if (payload.sharedRestaurant) return <RestaurantPreview r={payload.sharedRestaurant} />;
   if (payload.sharedRecipe) return <RecipePreview r={payload.sharedRecipe} />;
+  if (payload.sharedGuide) return <GuidePreview g={payload.sharedGuide} />;
   return null;
 };
 
@@ -131,6 +132,25 @@ const RecipePreview: React.FC<{ r: SharedRecipe }> = ({ r }) => (
       <p className="text-[11px] text-on-surface/50 truncate">{r.authorName}'s recipe</p>
     </div>
     <ChefHat size={14} className="text-on-surface/30 flex-shrink-0 mr-1" />
+  </div>
+);
+
+const GuidePreview: React.FC<{ g: SharedGuide }> = ({ g }) => (
+  <div className="flex items-center gap-3 rounded-2xl bg-on-surface/[0.04] border border-on-surface/[0.06] p-2">
+    <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/[0.06] flex items-center justify-center">
+      {g.coverPhoto ? (
+        <img src={g.coverPhoto} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+      ) : (
+        <BookOpen size={16} className="text-on-surface/35" />
+      )}
+    </div>
+    <div className="flex-1 min-w-0">
+      <p className="text-[13px] font-bold truncate font-serif">{g.title}</p>
+      <p className="text-[11px] text-on-surface/50 truncate">
+        {g.authorName ? `by ${g.authorName}` : 'Guide'} · {g.entryCount} {g.type === 'recipes' ? 'recipes' : 'spots'}
+      </p>
+    </div>
+    <BookOpen size={14} className="text-on-surface/30 flex-shrink-0 mr-1" />
   </div>
 );
 
@@ -288,6 +308,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
     const url = externalShareUrl || (typeof window !== 'undefined' ? window.location.href : '');
     const previewTitle = payload.sharedRestaurant?.name
       || payload.sharedRecipe?.name
+      || payload.sharedGuide?.title
       || payload.sharedReel?.attachedTitle
       || (payload.sharedPost ? `@${payload.sharedPost.authorUsername}` : 'Check this out');
     const shareData = {
@@ -316,6 +337,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
     : payload?.sharedPost ? 'Share post'
     : payload?.sharedRecipe ? 'Share recipe'
     : payload?.sharedRestaurant ? 'Share restaurant'
+    : payload?.sharedGuide ? 'Share guide'
     : 'Share'
   );
 
