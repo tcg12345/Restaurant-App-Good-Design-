@@ -197,6 +197,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     score: r.score,
     totalTime: (r.prepTime || 0) + (r.cookTime || 0),
     difficulty: r.difficulty,
+    // List recipes are personal to the list owner — i.e. the guide author.
+    authorId: user?.id,
   });
 
   const addEntryFromDbRecipe = (r: DbRecipe): GuideEntry => ({
@@ -208,6 +210,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     score: undefined,
     totalTime: (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0),
     difficulty: r.difficulty,
+    authorId: r.userId,
   });
 
   /* ── Cover photo upload ───────────────────────────────────────── */

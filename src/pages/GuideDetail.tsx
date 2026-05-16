@@ -12,25 +12,85 @@
  *
  * Owners see Edit / Unpublish controls in the top bar.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Bookmark, Share2, MapIcon, BookOpen, ChefHat, Check, ArrowUpRight, Edit3, EyeOff, Loader2, Heart, Clock, MapPin } from 'lucide-react';
+import { ArrowLeft, Bookmark, Share2, MapIcon, BookOpen, ChefHat, Check, ArrowUpRight, Edit3, EyeOff, Loader2, Heart, Plus, Clock, MapPin } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
+import { useLists } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
-import { getGuideById, saveGuideBookmark, removeGuideBookmark, getSavedGuideIds, saveGuide, type Guide } from '../lib/supabase-guides';
+import { getGuideById, saveGuideBookmark, removeGuideBookmark, getSavedGuideIds, saveGuide, type Guide, type GuideEntry } from '../lib/supabase-guides';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { ShareDialog } from '../components/ShareDialog';
+import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
+import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 
 const numLabel = (n: number) => n.toString().padStart(2, '0');
+
+/** Tailwind's lg breakpoint — desktop panel only kicks in at this width. */
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isDesktop;
+}
+
+/** Pull cuisine / price / neighborhood out of an entry's "X · Y · Z" subtitle. */
+function parseRestaurantSubtitle(subtitle: string): { cuisine: string; price: string } {
+  const parts = subtitle.split(/\s·\s/).map((s) => s.trim()).filter(Boolean);
+  let cuisine = '';
+  let price = '';
+  for (const p of parts) {
+    if (/^\$+$/.test(p)) price = p;
+    else if (!cuisine) cuisine = p;
+  }
+  return { cuisine, price };
+}
+
+function entryToRestaurantSnapshot(entry: GuideEntry): RestaurantPanelSnapshot {
+  const { cuisine, price } = parseRestaurantSubtitle(entry.subtitle);
+  return {
+    id: entry.refId,
+    name: entry.name,
+    cuisine,
+    price,
+    address: entry.neighborhood || '',
+    image: entry.image || undefined,
+    score: entry.score,
+  };
+}
+
+function entryToRecipeSnapshot(entry: GuideEntry): RecipePanelSnapshot | null {
+  if (!entry.authorId) return null;
+  return {
+    authorId: entry.authorId,
+    recipe: {
+      id: entry.refId,
+      title: entry.name,
+      prepTime: 0,
+      cookTime: entry.totalTime || 0,
+      servings: 0,
+      difficulty: (entry.difficulty as 'Easy' | 'Medium' | 'Hard') || 'Medium',
+      image: entry.image || undefined,
+    },
+  };
+}
 
 export const GuideDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { isWishlisted, toggleWishlist, openAddToListModal, getRestaurantInfo } = useLists();
+  const isDesktop = useIsDesktop();
 
   const [guide, setGuide] = useState<Guide | null>(null);
   const [authorProfile, setAuthorProfile] = useState<UserProfile | null>(null);
@@ -39,6 +99,14 @@ export const GuideDetail: React.FC = () => {
   const [savingToggle, setSavingToggle] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [activeEntryIdx, setActiveEntryIdx] = useState(0);
+  // Desktop-only side panels for the restaurant / recipe overlay. Mobile
+  // navigates to the full detail page instead.
+  const [restaurantPanel, setRestaurantPanel] = useState<RestaurantPanelSnapshot | null>(null);
+  const [recipePanel, setRecipePanel] = useState<RecipePanelSnapshot | null>(null);
+  // Suppress the scroll-close handler for the first frame after opening,
+  // since opening the panel can itself shift layout enough to register
+  // as scroll movement and immediately close again.
+  const panelOpenedAtRef = useRef<number>(0);
 
   const isOwner = !!(user?.id && guide && guide.userId === user.id);
 
@@ -64,6 +132,9 @@ export const GuideDetail: React.FC = () => {
   }, [id, user?.id]);
 
   // Scroll-spy: highlight the entry currently in view inside the sticky nav.
+  // Also auto-closes the desktop side panel on scroll (per spec) — a
+  // small 250 ms grace window after open keeps the layout shift from
+  // immediately closing the panel we just opened.
   useEffect(() => {
     if (!guide) return;
     const handler = () => {
@@ -78,11 +149,28 @@ export const GuideDetail: React.FC = () => {
         else break;
       }
       setActiveEntryIdx(bestIdx);
+      if ((restaurantPanel || recipePanel) && Date.now() - panelOpenedAtRef.current > 250) {
+        setRestaurantPanel(null);
+        setRecipePanel(null);
+      }
     };
     window.addEventListener('scroll', handler, { passive: true });
     handler();
     return () => window.removeEventListener('scroll', handler);
-  }, [guide]);
+  }, [guide, restaurantPanel, recipePanel]);
+
+  const openRestaurantPanelFor = useCallback((entry: GuideEntry) => {
+    setRecipePanel(null);
+    setRestaurantPanel(entryToRestaurantSnapshot(entry));
+    panelOpenedAtRef.current = Date.now();
+  }, []);
+  const openRecipePanelFor = useCallback((entry: GuideEntry) => {
+    const snap = entryToRecipeSnapshot(entry);
+    if (!snap) return;
+    setRestaurantPanel(null);
+    setRecipePanel(snap);
+    panelOpenedAtRef.current = Date.now();
+  }, []);
 
   const onToggleSave = async () => {
     if (!user?.id || !guide || savingToggle) return;
@@ -339,20 +427,44 @@ export const GuideDetail: React.FC = () => {
           )}
 
           {/* Entries */}
-          <div className="space-y-14 lg:space-y-20">
+          <div className="space-y-16 lg:space-y-24">
             {guide.entries.map((entry, idx) => {
               const orderedFields = guide.type === 'restaurants' ? entry.mustOrder : entry.keyIngredients;
               const orderedLabel = guide.type === 'restaurants' ? 'Must Order' : 'Key Ingredients';
               const linkTarget = guide.type === 'restaurants' ? `/restaurant/${entry.refId}` : `/recipe/${entry.refId}`;
+              const isRestaurant = guide.type === 'restaurants';
+              const wishlisted = isRestaurant && isWishlisted(entry.refId);
+              const parsed = parseRestaurantSubtitle(entry.subtitle);
+              // Fallback meta for actions when the viewer hasn't cached
+              // this restaurant yet — e.g. someone reading another user's
+              // published guide. Owner has it via ListsContext already.
+              const fallbackMeta = {
+                id: entry.refId,
+                name: entry.name,
+                image: entry.image || '',
+                cuisine: parsed.cuisine,
+                price: parsed.price,
+                address: entry.neighborhood || '',
+                neighborhood: entry.neighborhood,
+              };
+              const onViewClick = () => {
+                if (isDesktop) {
+                  if (isRestaurant) openRestaurantPanelFor(entry);
+                  else openRecipePanelFor(entry);
+                } else {
+                  navigate(linkTarget);
+                }
+              };
               return (
-                <div key={entry.id} id={`guide-entry-${idx}`} className="scroll-mt-24">
-                  <div className="flex items-start gap-3 mb-4">
-                    <div className="flex-shrink-0">
+                <article key={entry.id} id={`guide-entry-${idx}`} className="scroll-mt-24">
+                  {/* Hero row — big numeral on the left, large image to the right. */}
+                  <div className="flex items-start gap-4 sm:gap-6 mb-5">
+                    <div className="flex-shrink-0 pt-2">
                       <p className="font-serif font-bold text-primary text-[42px] lg:text-[54px] leading-none">{numLabel(idx + 1)}</p>
                       <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/35 mt-1">of {guide.entries.length}</p>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="relative rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/9]">
+                      <div className="relative rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/10] shadow-[0_8px_28px_-12px_rgba(0,0,0,0.18)]">
                         {entry.image ? (
                           <img src={entry.image} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
                         ) : (
@@ -372,16 +484,45 @@ export const GuideDetail: React.FC = () => {
                     </div>
                   </div>
 
-                  <h2 className="font-serif font-bold text-on-surface text-[28px] lg:text-[34px] leading-tight mb-1">
-                    {entry.name}
-                  </h2>
-                  <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/55">
-                    {entry.subtitle.split(/\s·\s/).filter(Boolean).map((seg, i) => (
-                      <React.Fragment key={i}>
-                        {i > 0 && <span className="text-on-surface/30">·</span>}
-                        <span>{seg}</span>
-                      </React.Fragment>
-                    ))}
+                  {/* Title row — title on the left, heart + plus buttons on the right. */}
+                  <div className="flex items-start justify-between gap-3 mb-1">
+                    <h2 className="font-serif font-bold text-on-surface text-[28px] lg:text-[34px] leading-tight min-w-0 flex-1">
+                      {entry.name}
+                    </h2>
+                    {isRestaurant && (
+                      <div className="flex items-center gap-2 flex-shrink-0 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => toggleWishlist(getRestaurantInfo(entry.refId) || fallbackMeta)}
+                          aria-label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
+                          className={cn(
+                            'w-10 h-10 rounded-full inline-flex items-center justify-center transition-colors',
+                            wishlisted ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/70 hover:bg-on-surface/10',
+                          )}
+                        >
+                          <Heart size={16} fill={wishlisted ? 'currentColor' : 'none'} strokeWidth={wishlisted ? 0 : 2} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openAddToListModal(entry.refId, getRestaurantInfo(entry.refId) || fallbackMeta)}
+                          aria-label="Add to list"
+                          className="w-10 h-10 rounded-full inline-flex items-center justify-center bg-on-surface/[0.05] text-on-surface/70 hover:bg-on-surface/10 transition-colors"
+                        >
+                          <Plus size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Cuisine / price / neighborhood */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/55">
+                    {parsed.cuisine && <span>{parsed.cuisine}</span>}
+                    {parsed.price && (
+                      <>
+                        <span className="text-on-surface/30">·</span>
+                        <span>{parsed.price}</span>
+                      </>
+                    )}
                     {entry.neighborhood && (
                       <>
                         <span className="text-on-surface/30">·</span>
@@ -390,20 +531,20 @@ export const GuideDetail: React.FC = () => {
                     )}
                   </div>
                   {entry.hours && (
-                    <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-on-surface/45">
-                      <Clock size={11} />
+                    <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-on-surface/50">
+                      <Clock size={12} />
                       <span>{entry.hours}</span>
                     </div>
                   )}
 
                   {entry.notes && (
-                    <p className="mt-4 text-[15px] lg:text-[16px] leading-[1.55] text-on-surface/85 whitespace-pre-line">
+                    <p className="mt-5 text-[15px] lg:text-[17px] leading-[1.6] text-on-surface/85 whitespace-pre-line">
                       {entry.notes}
                     </p>
                   )}
 
                   {(entry.bestFor || entry.insiderTip || (orderedFields && orderedFields.length > 0)) && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 mt-5 pt-5 border-t border-on-surface/10">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 mt-6 pt-6 border-t border-on-surface/10">
                       {orderedFields && orderedFields.length > 0 && (
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/45 mb-2">
@@ -436,14 +577,15 @@ export const GuideDetail: React.FC = () => {
                     </div>
                   )}
 
-                  <Link
-                    to={linkTarget}
-                    className="inline-flex items-center gap-1.5 text-primary font-bold text-sm mt-5 hover:gap-2 transition-all"
+                  <button
+                    type="button"
+                    onClick={onViewClick}
+                    className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 rounded-full bg-on-surface text-white text-[13px] font-bold hover:bg-on-surface/90 active:scale-[0.98] transition-all"
                   >
-                    {guide.type === 'restaurants' ? 'View restaurant' : 'View recipe'}
+                    {isRestaurant ? 'View restaurant' : 'View recipe'}
                     <ArrowUpRight size={14} />
-                  </Link>
-                </div>
+                  </button>
+                </article>
               );
             })}
           </div>
@@ -518,6 +660,33 @@ export const GuideDetail: React.FC = () => {
           </div>
         </aside>
       </div>
+
+      {/* Desktop-only side panel for "View restaurant" / "View recipe".
+          Fixed to the right edge of the viewport so it overlays the
+          sticky "In this guide" rail. On mobile we navigate to the full
+          detail page instead, so the panels are gated by isDesktop. The
+          AnimatePresence inside RestaurantPanel / RecipePanel handles
+          enter/exit, so we always mount the wrapper and let the snapshot
+          flip drive visibility — otherwise the close animation would be
+          cut off by an outer-mount toggle. */}
+      {isDesktop && (
+        <div className="hidden lg:flex fixed top-4 bottom-4 right-4 z-50 pointer-events-none justify-end">
+          <div className="h-full pointer-events-auto">
+            <RestaurantPanel
+              variant="panel"
+              snapshot={restaurantPanel}
+              onClose={() => setRestaurantPanel(null)}
+              currentUserId={user?.id ?? null}
+            />
+            <RecipePanel
+              variant="panel"
+              snapshot={recipePanel}
+              onClose={() => setRecipePanel(null)}
+              currentUserId={user?.id ?? null}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

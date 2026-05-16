@@ -37,6 +37,10 @@ export interface GuideEntry {
   /** Recipe entries only. */
   totalTime?: number;
   difficulty?: string;
+  /** Recipe entries only — author user id, needed so the desktop
+   *  RecipePanel can resolve the home-meal record without an extra
+   *  lookup. Restaurant entries don't need this. */
+  authorId?: string;
 }
 
 export interface Guide {
