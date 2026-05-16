@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, Play, Settings, RefreshCw } from 'lucide-react';
+import { Image as ImageIcon, Play, Settings, RefreshCw, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   PhotoLibrary,
@@ -11,13 +11,16 @@ import {
 interface Props {
   /** What to list from the camera roll. */
   mediaType: MediaTypeFilter;
-  /** Fired when the user taps a thumbnail. The caller is responsible for
-   *  calling `PhotoLibrary.getMedia({ id })` to read the full file (we
-   *  don't preload to keep the grid responsive). */
+  /** Fired when the user taps a thumbnail. The caller decides whether
+   *  that's a single replace or a toggle in/out of `selectedIds`. */
   onSelect: (item: MediaItem) => void;
-  /** Highlight a specific item — used after the caller round-trips the
-   *  selection through its own state to indicate which thumb is staged. */
-  selectedId?: string | null;
+  /** Ordered list of currently-selected ids. In `multi` mode the order
+   *  drives the numbered badges on the thumbnails. */
+  selectedIds?: string[];
+  /** `single`: tap replaces the selection, show a check on the picked
+   *  thumb. `multi`: tap toggles into an ordered selection, show 1-based
+   *  position badges. Default `single`. */
+  selectionMode?: 'single' | 'multi';
   /** Initial page size. Subsequent pages fetched via infinite-scroll. */
   pageSize?: number;
   /** Optional Tailwind className applied to the outer scroller. */
@@ -44,7 +47,8 @@ const COLS = 4;
 export const PhotoLibraryGrid: React.FC<Props> = ({
   mediaType,
   onSelect,
-  selectedId,
+  selectedIds,
+  selectionMode = 'single',
   pageSize = 48,
   className,
 }) => {
@@ -184,7 +188,8 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
       )}
       <div className="grid gap-[2px]" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
         {items.map((it) => {
-          const isSelected = it.id === selectedId;
+          const selectionIdx = selectedIds ? selectedIds.indexOf(it.id) : -1;
+          const isSelected = selectionIdx >= 0;
           return (
             <button
               key={it.id}
@@ -192,9 +197,10 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
               onClick={() => onSelect(it)}
               className={cn(
                 'relative aspect-square overflow-hidden bg-on-surface/[0.04] transition-opacity',
-                isSelected && 'opacity-60',
+                isSelected && 'opacity-75',
               )}
               aria-label={it.type === 'video' ? 'Video' : 'Photo'}
+              aria-pressed={isSelected}
             >
               {it.thumbnailDataUrl && (
                 <img
@@ -217,8 +223,20 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
                   )}
                 </>
               )}
+              <span
+                className={cn(
+                  'absolute top-1 right-1 w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px] font-bold transition-colors',
+                  isSelected
+                    ? 'bg-primary text-white shadow-[0_0_0_1.5px_white]'
+                    : 'bg-black/30 text-transparent border border-white/70',
+                )}
+              >
+                {isSelected
+                  ? (selectionMode === 'multi' ? selectionIdx + 1 : <Check size={12} strokeWidth={3} />)
+                  : null}
+              </span>
               {isSelected && (
-                <div className="absolute inset-0 ring-[3px] ring-primary ring-inset" />
+                <div className="absolute inset-0 ring-[3px] ring-primary ring-inset pointer-events-none" />
               )}
             </button>
           );

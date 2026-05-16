@@ -104,6 +104,13 @@ export const AddReelModal: React.FC = () => {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
   const [videoEdits, setVideoEdits] = useState<EditState>(DEFAULT_EDIT_STATE);
+  // On native iOS: the user's currently-selected camera-roll MediaItem
+  // before they've pressed Next. We don't materialize it (getMedia +
+  // file copy) until Next is pressed so tapping a thumb feels instant
+  // and the user can change their mind without re-reading the file.
+  const [nativePick, setNativePick] = useState<MediaItem | null>(null);
+  // True while Next is materializing the native pick into a File.
+  const [nativeMaterializing, setNativeMaterializing] = useState(false);
   // Set true while we re-encode the video with the chosen edits on
   // submission so the user sees a "Finishing edits" status separately
   // from the upload progress.
@@ -160,6 +167,8 @@ export const AddReelModal: React.FC = () => {
       setVideoUrl(null);
       setVideoDuration(null);
       setVideoEdits(DEFAULT_EDIT_STATE);
+      setNativePick(null);
+      setNativeMaterializing(false);
       setCaption('');
       setLocationLabel('');
       setPickedLocation(null);
@@ -425,9 +434,8 @@ export const AddReelModal: React.FC = () => {
     // Reset any prior edits for the new video so the editor opens
     // with a clean slate.
     setVideoEdits(DEFAULT_EDIT_STATE);
-    // Auto-advance to the Edit step so the user lands on the editor
-    // without an extra tap, matching the Instagram Reels flow.
-    if (step === 1) goToStep(2);
+    // Drag-drop / web file-input picks now also wait for the user to
+    // tap Next, matching the inline native-grid behaviour.
   };
 
   const clearVideo = () => {
@@ -435,17 +443,39 @@ export const AddReelModal: React.FC = () => {
     setVideoFile(null);
     setVideoUrl(null);
     setVideoDuration(null);
+    setNativePick(null);
     setValidationMsg(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Run on Next-button tap when the user has tapped a thumbnail in the
+  // native grid but hasn't materialized it yet. Returns true on success
+  // so the caller can advance to step 2.
+  const materializeNativePick = async (): Promise<boolean> => {
+    if (!nativePick) return false;
+    setNativeMaterializing(true);
+    try {
+      const { path, mimeType } = await PhotoLibrary.getMedia({ id: nativePick.id });
+      const ext = mimeType.split('/')[1] || 'mov';
+      const file = await nativePathToFile(path, `reel-${nativePick.id}.${ext}`, mimeType);
+      await onPickFile(file);
+      return true;
+    } catch (err) {
+      console.warn('[AddReel] native materialize failed:', err);
+      setValidationMsg("Couldn't load that video — try another.");
+      return false;
+    } finally {
+      setNativeMaterializing(false);
+    }
   };
 
   // ── Step gates ──
   const hasFeatured = kind === 'restaurant' ? !!pickedRestaurant : !!pickedRecipe;
   // Step gates:
-  //   1 (video)   → needs a chosen file
+  //   1 (video)   → needs a chosen file OR a staged native pick
   //   2 (edit)    → always passes (editing is optional)
   //   3 (featured)→ needs a picked restaurant or recipe
-  const canAdvanceFromStep1 = !!videoFile && !!videoUrl;
+  const canAdvanceFromStep1 = (!!videoFile && !!videoUrl) || !!nativePick;
   const canAdvanceFromStep2 = true;
   const canAdvanceFromStep3 = hasFeatured;
   const canSubmit = !!user?.id && hasFeatured && !submitting && (isEditing || !!videoFile);
@@ -675,6 +705,8 @@ export const AddReelModal: React.FC = () => {
                       onPickFile={onPickFile}
                       onClearVideo={clearVideo}
                       fileInputRef={fileInputRef}
+                      nativePick={nativePick}
+                      onNativePickChange={setNativePick}
                     />
                   )}
 
@@ -782,16 +814,25 @@ export const AddReelModal: React.FC = () => {
               {!isEditing && step === 1 && (
                 <button
                   type="button"
-                  onClick={() => goToStep(2)}
-                  disabled={!canAdvanceFromStep1}
+                  onClick={async () => {
+                    if (videoFile && videoUrl) { goToStep(2); return; }
+                    if (nativePick && !nativeMaterializing) {
+                      if (await materializeNativePick()) goToStep(2);
+                    }
+                  }}
+                  disabled={!canAdvanceFromStep1 || nativeMaterializing}
                   className={cn(
                     'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
-                    canAdvanceFromStep1
+                    canAdvanceFromStep1 && !nativeMaterializing
                       ? 'bg-primary text-white hover:bg-primary/90'
                       : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
                   )}
                 >
-                  Next <ChevronRight size={15} />
+                  {nativeMaterializing ? (
+                    <><Loader2 size={15} className="animate-spin" /> Loading…</>
+                  ) : (
+                    <>Next <ChevronRight size={15} /></>
+                  )}
                 </button>
               )}
               {/* Edit step — editing is always optional. */}
@@ -1081,28 +1122,21 @@ const StepVideo: React.FC<{
   onPickFile: (file: File | null) => void;
   onClearVideo: () => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
-}> = ({ videoUrl, videoDuration, validationMsg, onPickFile, onClearVideo, fileInputRef }) => {
+  nativePick: MediaItem | null;
+  onNativePickChange: (item: MediaItem | null) => void;
+}> = ({ videoUrl, videoDuration, validationMsg, onPickFile, onClearVideo, fileInputRef, nativePick, onNativePickChange }) => {
   // Drag-drop on this step's surface.
   const [dragDepth, setDragDepth] = useState(0);
   const dragActive = dragDepth > 0;
-  // On native iOS we render the PhotoLibraryGrid inline. Tracks the id of
-  // the thumbnail the user just tapped so we can highlight it while
-  // PhotoLibrary.getMedia + onPickFile run.
+  // On native iOS we render the PhotoLibraryGrid inline. Tapping a thumb
+  // just stages it — the heavy getMedia + file copy run when the user
+  // presses Next, owned by the parent modal.
   const useNativeGrid = canUseNativePhotoLibrary();
-  const [stagedNativeId, setStagedNativeId] = useState<string | null>(null);
-  const onNativeSelect = useCallback(async (item: MediaItem) => {
-    if (stagedNativeId) return; // ignore taps while a previous pick is resolving
-    setStagedNativeId(item.id);
-    try {
-      const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
-      const ext = mimeType.split('/')[1] || 'mov';
-      const file = await nativePathToFile(path, `reel-${item.id}.${ext}`, mimeType);
-      onPickFile(file);
-    } catch (err) {
-      console.warn('[AddReel] native pick failed:', err);
-      setStagedNativeId(null);
-    }
-  }, [onPickFile, stagedNativeId]);
+  const onNativeSelect = useCallback((item: MediaItem) => {
+    // Single-select with toggle: tapping the same thumb clears it.
+    onNativePickChange(nativePick?.id === item.id ? null : item);
+  }, [nativePick, onNativePickChange]);
+  const selectedIds = nativePick ? [nativePick.id] : [];
   const onDragEnter: React.DragEventHandler = (e) => {
     if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
     e.preventDefault();
@@ -1152,7 +1186,8 @@ const StepVideo: React.FC<{
               <PhotoLibraryGrid
                 mediaType="video"
                 onSelect={onNativeSelect}
-                selectedId={stagedNativeId}
+                selectedIds={selectedIds}
+                selectionMode="single"
               />
             </motion.div>
           ) : (

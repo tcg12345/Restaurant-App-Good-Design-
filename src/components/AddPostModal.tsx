@@ -262,6 +262,8 @@ export const AddPostModal: React.FC = () => {
     setRecipeSearch('');
     setPlaceResults([]);
     setSearchingPlaces(false);
+    setNativePicks([]);
+    setNativeMaterializing(false);
   }, [addPostModalOpen, editingPostId]);
 
   // Revoke object URLs on unmount. Existing items in edit mode use a
@@ -434,11 +436,12 @@ export const AddPostModal: React.FC = () => {
     return url;
   };
 
-  // Native iOS: id of the thumb the user just tapped in the PhotoLibraryGrid.
-  // Used to show a "loading" highlight while we fetch the full media file
-  // and feed it through the standard onPickFiles pipeline below.
+  // Native iOS: ordered list of MediaItems the user has tapped on the
+  // PhotoLibraryGrid but hasn't materialized yet. They're flushed to
+  // `items` (via getMedia + onPickFiles) when the user presses Next.
+  const [nativePicks, setNativePicks] = useState<MediaItem[]>([]);
+  const [nativeMaterializing, setNativeMaterializing] = useState(false);
   const useNativeGrid = canUseNativePhotoLibrary();
-  const [stagedNativeId, setStagedNativeId] = useState<string | null>(null);
 
   const onPickFiles = async (incoming: File[]) => {
     // Editing an existing post — media is locked. Bail.
@@ -495,32 +498,55 @@ export const AddPostModal: React.FC = () => {
       });
     }
     if (accepted.length === 0) return;
-    setItems((prev) => {
-      const next = [...prev, ...accepted];
-      // First pick of the session — auto-advance to the Edit step so
-      // the user lands on the editor without an extra tap, matching
-      // Instagram. Subsequent picks (via the strip's "+" tile) stay
-      // put so the user can keep adding before moving on.
-      if (prev.length === 0 && step === 1) {
-        setTimeout(() => goToStep(2), 0);
-      }
-      return next;
-    });
+    setItems((prev) => [...prev, ...accepted]);
     if (!activeKey) setActiveKey(accepted[0].key);
   };
 
-  const onNativePickItem = async (item: MediaItem) => {
-    if (stagedNativeId) return;
-    setStagedNativeId(item.id);
+  // Toggle a thumbnail in/out of the native pre-selection. Enforces the
+  // POST_MAX_ITEMS cap silently — taps past the cap are ignored on
+  // not-yet-selected thumbs so the UI doesn't need a separate disabled
+  // state and the existing 1-based badges stay contiguous.
+  const onNativeToggle = (item: MediaItem) => {
+    setNativePicks((prev) => {
+      const idx = prev.findIndex((p) => p.id === item.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next.splice(idx, 1);
+        return next;
+      }
+      if (prev.length >= POST_MAX_ITEMS) {
+        setValidationMsg(`A post can have at most ${POST_MAX_ITEMS} items.`);
+        return prev;
+      }
+      setValidationMsg(null);
+      return [...prev, item];
+    });
+  };
+
+  // Run on Next-button tap: read every staged MediaItem off PhotoKit, copy
+  // it to the WebView-accessible temp dir, then hand the resulting Files to
+  // onPickFiles (which validates videos, appends to items, and auto-advances
+  // to the editor step). Returns true on success so the caller can chain.
+  const materializeNativePicks = async (): Promise<boolean> => {
+    if (nativePicks.length === 0) return false;
+    setNativeMaterializing(true);
     try {
-      const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
-      const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
-      const file = await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType);
-      await onPickFiles([file]);
+      const files: File[] = [];
+      for (const item of nativePicks) {
+        const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
+        const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
+        const file = await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType);
+        files.push(file);
+      }
+      await onPickFiles(files);
+      setNativePicks([]);
+      return true;
     } catch (err) {
-      console.warn('[AddPost] native pick failed:', err);
+      console.warn('[AddPost] native materialize failed:', err);
+      setValidationMsg("Couldn't load one of the selected items — try again.");
+      return false;
     } finally {
-      setStagedNativeId(null);
+      setNativeMaterializing(false);
     }
   };
 
@@ -990,8 +1016,9 @@ export const AddPostModal: React.FC = () => {
                     </p>
                     <PhotoLibraryGrid
                       mediaType="all"
-                      onSelect={onNativePickItem}
-                      selectedId={stagedNativeId}
+                      onSelect={onNativeToggle}
+                      selectedIds={nativePicks.map((p) => p.id)}
+                      selectionMode="multi"
                     />
                   </div>
                 ) : (
@@ -1705,22 +1732,44 @@ export const AddPostModal: React.FC = () => {
 
             {/* Footer */}
             <div className="border-t border-on-surface/[0.06] px-5 py-3 bg-surface flex items-center gap-3 flex-shrink-0">
-              {/* Step 1 (Media): Next, gated on at least one item. */}
-              {!isEditing && step === 1 && (
-                <button
-                  type="button"
-                  onClick={() => goToStep(2)}
-                  disabled={items.length === 0}
-                  className={cn(
-                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
-                    items.length > 0
-                      ? 'bg-primary text-white hover:bg-primary/90'
-                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
-                  )}
-                >
-                  Next <ChevronRight size={15} />
-                </button>
-              )}
+              {/* Step 1 (Media): Next, gated on at least one item OR a
+                  staged native pick that we can materialize on the way
+                  through. */}
+              {!isEditing && step === 1 && (() => {
+                const canAdvance = items.length > 0 || nativePicks.length > 0;
+                const busy = nativeMaterializing;
+                return (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (busy) return;
+                      if (items.length > 0) { goToStep(2); return; }
+                      if (nativePicks.length > 0) {
+                        if (await materializeNativePicks()) goToStep(2);
+                      }
+                    }}
+                    disabled={!canAdvance || busy}
+                    className={cn(
+                      'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
+                      canAdvance && !busy
+                        ? 'bg-primary text-white hover:bg-primary/90'
+                        : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
+                    )}
+                  >
+                    {busy ? (
+                      <><Loader2 size={15} className="animate-spin" /> Loading…</>
+                    ) : (
+                      <>
+                        Next
+                        {nativePicks.length > 0 && items.length === 0 && (
+                          <span className="text-white/85 font-semibold">· {nativePicks.length}</span>
+                        )}
+                        <ChevronRight size={15} />
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
               {/* Step 2 (Edit): Next — editing is always optional. */}
               {!isEditing && step === 2 && (
                 <button
