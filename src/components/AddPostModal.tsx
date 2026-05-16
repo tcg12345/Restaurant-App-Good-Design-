@@ -523,21 +523,28 @@ export const AddPostModal: React.FC = () => {
     });
   };
 
-  // Run on Next-button tap: read every staged MediaItem off PhotoKit, copy
-  // it to the WebView-accessible temp dir, then hand the resulting Files to
-  // onPickFiles (which validates videos, appends to items, and auto-advances
-  // to the editor step). Returns true on success so the caller can chain.
+  // Pull each staged MediaItem off PhotoKit into a File. Doesn't touch
+  // items / state — leaves that to the caller so it can bundle the
+  // resulting files with other sources (e.g. a camera capture).
+  const readStagedNativeFiles = async (): Promise<File[]> => {
+    const files: File[] = [];
+    for (const item of nativePicks) {
+      const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
+      const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
+      files.push(await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType));
+    }
+    return files;
+  };
+
+  // Run on Next-button tap: materialize every staged MediaItem and hand
+  // the resulting Files to onPickFiles (which validates videos, appends
+  // to items, and is followed by an explicit advance). Returns true if
+  // we got at least as far as calling onPickFiles.
   const materializeNativePicks = async (): Promise<boolean> => {
     if (nativePicks.length === 0) return false;
     setNativeMaterializing(true);
     try {
-      const files: File[] = [];
-      for (const item of nativePicks) {
-        const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
-        const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
-        const file = await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType);
-        files.push(file);
-      }
+      const files = await readStagedNativeFiles();
       await onPickFiles(files);
       setNativePicks([]);
       return true;
@@ -545,6 +552,30 @@ export const AddPostModal: React.FC = () => {
       console.warn('[AddPost] native materialize failed:', err);
       setValidationMsg("Couldn't load one of the selected items — try again.");
       return false;
+    } finally {
+      setNativeMaterializing(false);
+    }
+  };
+
+  // Camera-capture handler for the in-grid Camera tile. We also flush any
+  // staged native picks in the same shot so the user doesn't silently
+  // lose them when the grid disappears post-capture.
+  const onCameraTap = async () => {
+    setNativeMaterializing(true);
+    try {
+      const res = await PhotoLibrary.pickCamera({ mediaType: 'all' });
+      if (res.cancelled || !res.path || !res.mimeType) return;
+      const files: File[] = [];
+      if (nativePicks.length > 0) {
+        files.push(...(await readStagedNativeFiles()));
+        setNativePicks([]);
+      }
+      const ext = res.mimeType.split('/')[1] || (res.mediaType === 'video' ? 'mov' : 'jpg');
+      files.push(await nativePathToFile(res.path, `camera-${Date.now()}.${ext}`, res.mimeType));
+      await onPickFiles(files);
+    } catch (err) {
+      console.warn('[AddPost] camera failed:', err);
+      setValidationMsg("Couldn't open the camera. Check camera permission in Settings.");
     } finally {
       setNativeMaterializing(false);
     }
@@ -1019,6 +1050,7 @@ export const AddPostModal: React.FC = () => {
                       onSelect={onNativeToggle}
                       selectedIds={nativePicks.map((p) => p.id)}
                       selectionMode="multi"
+                      onCameraTap={onCameraTap}
                     />
                   </div>
                 ) : (

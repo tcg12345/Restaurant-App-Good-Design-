@@ -49,12 +49,30 @@ export interface GetMediaResult {
   mimeType: string;
 }
 
+export interface PickCameraOptions {
+  /** What the camera UI should let the user capture. Default `all`. */
+  mediaType?: MediaTypeFilter;
+}
+
+export interface PickCameraResult {
+  /** True if the user backed out of the camera UI. When true, the other
+   *  fields are absent. */
+  cancelled?: boolean;
+  path?: string;
+  mimeType?: string;
+  mediaType?: 'photo' | 'video';
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+}
+
 interface PhotoLibraryPlugin {
   checkPermission(): Promise<{ status: PhotoPermissionStatus }>;
   requestPermission(): Promise<{ status: PhotoPermissionStatus }>;
   listMedia(options: ListMediaOptions): Promise<ListMediaResult>;
   getMedia(options: { id: string }): Promise<GetMediaResult>;
   openSettings(): Promise<{ opened: boolean }>;
+  pickCamera(options: PickCameraOptions): Promise<PickCameraResult>;
 }
 
 const PhotoLibrary = registerPlugin<PhotoLibraryPlugin>('PhotoLibrary', {
@@ -76,6 +94,9 @@ const PhotoLibrary = registerPlugin<PhotoLibraryPlugin>('PhotoLibrary', {
     },
     async openSettings() {
       return { opened: false };
+    },
+    async pickCamera() {
+      return { cancelled: true } as const;
     },
   },
 });

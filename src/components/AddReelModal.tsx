@@ -469,6 +469,21 @@ export const AddReelModal: React.FC = () => {
     }
   };
 
+  // Camera-capture handler for the in-grid Camera tile.
+  const onCameraTap = async () => {
+    try {
+      const res = await PhotoLibrary.pickCamera({ mediaType: 'video' });
+      if (res.cancelled || !res.path || !res.mimeType) return;
+      const ext = res.mimeType.split('/')[1] || 'mov';
+      const file = await nativePathToFile(res.path, `reel-camera-${Date.now()}.${ext}`, res.mimeType);
+      setNativePick(null); // captured video replaces any staged grid pick
+      await onPickFile(file);
+    } catch (err) {
+      console.warn('[AddReel] camera failed:', err);
+      setValidationMsg("Couldn't open the camera. Check camera permission in Settings.");
+    }
+  };
+
   // ── Step gates ──
   const hasFeatured = kind === 'restaurant' ? !!pickedRestaurant : !!pickedRecipe;
   // Step gates:
@@ -707,6 +722,7 @@ export const AddReelModal: React.FC = () => {
                       fileInputRef={fileInputRef}
                       nativePick={nativePick}
                       onNativePickChange={setNativePick}
+                      onCameraTap={onCameraTap}
                     />
                   )}
 
@@ -1124,7 +1140,8 @@ const StepVideo: React.FC<{
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   nativePick: MediaItem | null;
   onNativePickChange: (item: MediaItem | null) => void;
-}> = ({ videoUrl, videoDuration, validationMsg, onPickFile, onClearVideo, fileInputRef, nativePick, onNativePickChange }) => {
+  onCameraTap: () => void;
+}> = ({ videoUrl, videoDuration, validationMsg, onPickFile, onClearVideo, fileInputRef, nativePick, onNativePickChange, onCameraTap }) => {
   // Drag-drop on this step's surface.
   const [dragDepth, setDragDepth] = useState(0);
   const dragActive = dragDepth > 0;
@@ -1188,6 +1205,7 @@ const StepVideo: React.FC<{
                 onSelect={onNativeSelect}
                 selectedIds={selectedIds}
                 selectionMode="single"
+                onCameraTap={onCameraTap}
               />
             </motion.div>
           ) : (

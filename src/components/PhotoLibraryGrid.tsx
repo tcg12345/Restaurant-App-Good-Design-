@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, Play, Settings, RefreshCw, Check } from 'lucide-react';
+import { Image as ImageIcon, Play, Settings, RefreshCw, Check, Camera } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   PhotoLibrary,
@@ -25,6 +25,10 @@ interface Props {
   pageSize?: number;
   /** Optional Tailwind className applied to the outer scroller. */
   className?: string;
+  /** If provided, the first cell of the grid renders as a camera button
+   *  that fires this callback. The caller is responsible for actually
+   *  opening the camera (we just provide the affordance). */
+  onCameraTap?: () => void;
 }
 
 const COLS = 4;
@@ -51,6 +55,7 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
   selectionMode = 'single',
   pageSize = 48,
   className,
+  onCameraTap,
 }) => {
   const [status, setStatus] = useState<PhotoPermissionStatus | 'loading'>('loading');
   const [items, setItems] = useState<MediaItem[]>([]);
@@ -187,6 +192,17 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
         </div>
       )}
       <div className="grid gap-[2px]" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
+        {onCameraTap && (
+          <button
+            type="button"
+            onClick={onCameraTap}
+            className="relative aspect-square bg-on-surface/[0.06] flex flex-col items-center justify-center gap-1 text-on-surface/70 active:bg-on-surface/[0.12] transition-colors"
+            aria-label="Take a photo or video"
+          >
+            <Camera size={26} />
+            <span className="text-[10px] font-semibold tracking-wide uppercase">Camera</span>
+          </button>
+        )}
         {items.map((it) => {
           const selectionIdx = selectedIds ? selectedIds.indexOf(it.id) : -1;
           const isSelected = selectionIdx >= 0;
