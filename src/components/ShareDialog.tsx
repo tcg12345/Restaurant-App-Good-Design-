@@ -26,6 +26,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /* ── Avatar palette — keeps friend chips visually consistent ─────────── */
 
@@ -177,6 +178,8 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [sentMode, setSentMode] = useState(false);
+
+  const { dragProps } = useBottomSheet(open, onClose);
 
   // Reset transient state on open.
   useEffect(() => {
@@ -330,6 +333,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'bg-surface w-full overflow-hidden flex flex-col',

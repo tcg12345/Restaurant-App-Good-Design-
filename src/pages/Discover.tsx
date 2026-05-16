@@ -27,6 +27,7 @@ import { RestaurantCard } from '../components/RestaurantCard';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { SocialFeed } from '../components/SocialFeed';
 import { TopBar } from '../components/TopBar';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import {
   HomeLocationBar,
   loadLastSelectedLocation,
@@ -555,6 +556,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     setHideBottomNav(show);
     if (!show) { setFilterCuisineOpen(false); setFilterCuisineSearch(''); setFilterCityOpen(false); setFilterCitySearch(''); setFilterFriendOpen(false); setFilterFriendSearch(''); }
   }, [setHideBottomNav]);
+  const { dragProps: filterSheetDragProps } = useBottomSheet(filterSheetOpen, () => setFilterSheetOpen(false));
 
   // Filter state — discover
   const [sortBy, setSortBy] = useState<SortOption>('popularity');
@@ -3668,12 +3670,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 ? {
                     initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
                     transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                    drag: 'y' as const,
-                    dragConstraints: { top: 0 },
-                    dragElastic: { top: 0, bottom: 0.4 },
-                    onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
-                      if (info.offset.y > 80 || info.velocity.y > 300) setFilterSheetOpen(false);
-                    },
+                    ...filterSheetDragProps,
                   }
                 : {
                     initial: { opacity: 0, scale: 0.94, y: -12 },

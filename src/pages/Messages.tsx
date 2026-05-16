@@ -10,6 +10,7 @@ import { useLists, type RestaurantRating, type RestaurantMeta } from '../context
 import { useSettings } from '../contexts/SettingsContext';
 import { useNavigate } from 'react-router-dom';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /* ── Restaurant Share Card (iMessage-style rich preview) ── */
 const RestaurantShareCard: React.FC<{
@@ -307,6 +308,7 @@ const ShareRestaurantSheet: React.FC<{
   const { ratings } = useLists();
   const { phoneMode } = useSettings();
   const [searchQuery, setSearchQuery] = useState('');
+  const { dragProps } = useBottomSheet(open, onClose);
 
   const filteredRatings = useMemo(() => {
     if (!searchQuery.trim()) return ratings;
@@ -353,6 +355,7 @@ const ShareRestaurantSheet: React.FC<{
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            {...dragProps}
             className={cn("fixed bottom-0 left-0 right-0 z-[80] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
               phoneMode ? "max-h-[85vh]" : "max-h-[70vh]")}
           >

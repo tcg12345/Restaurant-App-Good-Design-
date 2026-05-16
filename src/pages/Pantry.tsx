@@ -23,6 +23,7 @@ import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /* ── Preset list suggestions ── */
 interface PresetList { name: string; emoji: string; category: string; type?: 'hotel-breakfast' | 'home-cooking'; }
@@ -112,6 +113,7 @@ const CreateListSheet: React.FC<{
   const [customName, setCustomName] = useState('');
   const [customEmoji, setCustomEmoji] = useState('📋');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const { dragProps } = useBottomSheet(open, onClose);
 
   const existingNamesLower = useMemo(() => new Set(existingListNames.map((n) => n.toLowerCase())), [existingListNames]);
 
@@ -170,6 +172,7 @@ const CreateListSheet: React.FC<{
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col", phoneMode ? "h-full rounded-none" : "h-full sm:h-auto sm:max-w-md sm:max-h-[75vh] rounded-none sm:rounded-3xl")}
           >
@@ -2574,6 +2577,7 @@ const FilterSheet: React.FC<{
   const [cuisineSearch, setCuisineSearch] = useState('');
   const [cuisineOpen, setCuisineOpen] = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
+  const { dragProps } = useBottomSheet(open, onClose);
 
   const filteredCities = citySearch.trim() ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase())) : allCities;
   const filteredCuisines = cuisineSearch.trim() ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase())) : allCuisines;
@@ -2600,12 +2604,7 @@ const FilterSheet: React.FC<{
                 ? {
                     initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
                     transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                    drag: 'y' as const,
-                    dragConstraints: { top: 0 },
-                    dragElastic: { top: 0, bottom: 0.4 },
-                    onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
-                      if (info.offset.y > 80 || info.velocity.y > 300) onClose();
-                    },
+                    ...dragProps,
                   }
                 : {
                     initial: { opacity: 0, scale: 0.94, y: -12 },

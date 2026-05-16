@@ -24,6 +24,7 @@ import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { Link } from 'react-router-dom';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /** Parse hours array to find next opening time when currently closed */
 function getNextOpenTime(hours: string[]): string {
@@ -104,6 +105,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [hoursOpen, setHoursOpen] = useState(false);
 
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
   // Ref on the "My Rating Details" section so the Your Rating summary
@@ -1512,6 +1514,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              {...friendsDetailDragProps}
               className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[70vh] flex flex-col overflow-hidden"
             >
               <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-on-surface/6 flex-shrink-0">

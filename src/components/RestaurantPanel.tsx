@@ -28,6 +28,7 @@ import {
   Navigation, Phone, Globe, Clock, ChevronDown, StickyNote, Tag, Image as ImageIcon, CalendarDays, DollarSign, ChevronRight,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
+import { useBottomSheet } from '../lib/useBottomSheet';
 // Required for the Mapbox canvas to actually render — provides the
 // .mapboxgl-canvas-container / .mapboxgl-canvas positioning rules. The
 // rest of the app already imports this from the detail page; the panel
@@ -1018,6 +1019,7 @@ export const RestaurantPanelBody: React.FC<{
 /* ── Desktop side panel + mobile sheet ───────────────────────────────── */
 
 export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onClose, currentUserId, variant }) => {
+  const { dragProps } = useBottomSheet(!!snapshot && variant === 'sheet', onClose);
   if (variant === 'sheet') {
     return (
       <AnimatePresence>
@@ -1034,6 +1036,7 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              {...dragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative"
               style={{ height: '92%' }}

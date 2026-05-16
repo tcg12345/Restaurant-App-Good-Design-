@@ -8,6 +8,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { getPublicRecipes, type Recipe } from '../lib/supabase-recipes';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 type SourceFilter = 'all' | 'friends' | 'chefs' | 'cooks';
 type SortKey = 'recent' | 'quick' | 'az';
@@ -75,6 +76,7 @@ export const RecipesForYou: React.FC = () => {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const isDesktop = isWideViewport && !phoneMode;
+  const { dragProps } = useBottomSheet(filtersOpen, () => setFiltersOpen(false));
 
   // ── Data load ──
   useEffect(() => {
@@ -539,6 +541,7 @@ export const RecipesForYou: React.FC = () => {
               animate={isDesktop ? { opacity: 1, y: 0, scale: 1 } : { y: 0 }}
               exit={isDesktop ? { opacity: 0, y: 12, scale: 0.98 } : { y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              {...(isDesktop ? {} : dragProps)}
               onClick={(e) => e.stopPropagation()}
               className={cn(
                 'bg-surface flex flex-col w-full',

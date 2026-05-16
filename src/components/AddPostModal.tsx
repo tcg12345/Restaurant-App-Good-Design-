@@ -42,6 +42,7 @@ import {
   isEdited,
   type EditState,
 } from './MediaEditor';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 const PLACE_TYPE_TO_CUISINE: Record<string, string> = {};
 for (const c of CUISINE_TYPES) {
@@ -134,6 +135,7 @@ export const AddPostModal: React.FC = () => {
   const { profile, user } = useAuth();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
+  const { dragProps } = useBottomSheet(addPostModalOpen, closeAddPostModal);
 
   // Step machine. Create flow walks 1 → 2 → 3; edit flow enters at 2
   // (media is locked) and goes 2 → 3.
@@ -835,6 +837,7 @@ export const AddPostModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'bg-surface w-full overflow-hidden flex flex-col',

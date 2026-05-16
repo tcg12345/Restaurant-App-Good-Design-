@@ -384,12 +384,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              drag="y"
-              dragConstraints={{ top: 0, bottom: 0 }}
-              dragElastic={{ top: 0, bottom: 0.5 }}
-              onDragEnd={(_: any, info: any) => {
-                if (info.offset.y > 100 || info.velocity.y > 300) setOpen(false);
-              }}
+              {...dragProps}
               className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
             >
               <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">

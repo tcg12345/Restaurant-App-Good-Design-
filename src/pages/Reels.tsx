@@ -13,6 +13,7 @@ import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -1049,6 +1050,7 @@ interface CommentsSheetProps {
 }
 
 const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadComments, addComment, deleteComment, currentUserId }) => {
+  const { dragProps } = useBottomSheet(!!targetId, onClose);
   return (
     <AnimatePresence>
       {targetId && (
@@ -1060,6 +1062,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className="bg-white w-full rounded-t-3xl flex flex-col"
             style={{ height: '75%' }}

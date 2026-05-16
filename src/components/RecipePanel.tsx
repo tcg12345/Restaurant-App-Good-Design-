@@ -45,6 +45,7 @@ import {
   RecipeDirectionsList,
   formatDuration,
 } from '../lib/recipe-display';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /** Stable per-user avatar color so review rows read as varied without
  *  needing a real avatar URL. Hashes the user id to one of a small
@@ -933,6 +934,7 @@ const RecipePanelBody: React.FC<{
 /* ── Desktop side panel + mobile sheet ───────────────────────────────── */
 
 export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, currentUserId, variant }) => {
+  const { dragProps } = useBottomSheet(!!snapshot && variant === 'sheet', onClose);
   if (variant === 'sheet') {
     return (
       <AnimatePresence>
@@ -949,6 +951,7 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, cur
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              {...dragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative"
               style={{ height: '92%' }}

@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type Recipe, type RecipeIngredient, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 // Standardized difficulty palette shared across all three recipe modals:
 // Easy → green, Medium → amber, Hard → red.
@@ -59,6 +60,8 @@ export const AddRecipeModal: React.FC = () => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  const { dragProps } = useBottomSheet(addRecipeModalOpen, closeAddRecipeModal);
 
   useEffect(() => {
     if (addRecipeModalOpen) {
@@ -252,6 +255,7 @@ export const AddRecipeModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode

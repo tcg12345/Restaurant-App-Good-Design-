@@ -8,6 +8,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useRecipes } from '../contexts/RecipesContext';
 import { TimeWheelPicker, NumberWheelPicker } from './WheelPicker';
 import { ImportRecipesModal } from './ImportRecipesModal';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 const HOME_COOKING_TAGS = [
   'Italian Night', 'Meal Prep', 'Holiday Meal', 'Grilling', 'Baking',
@@ -282,6 +283,7 @@ export const AddHomeMealModal: React.FC = () => {
   } = useLists();
   const { phoneMode } = useSettings();
   const { myRecipes } = useRecipes();
+  const { dragProps } = useBottomSheet(homeMealModalOpen, closeHomeMealModal);
 
   const existing = homeMealModalData;
 
@@ -724,6 +726,7 @@ export const AddHomeMealModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
