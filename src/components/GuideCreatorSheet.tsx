@@ -588,6 +588,8 @@ const StepSeed: React.FC<{
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [importedListIds, setImportedListIds] = useState<Set<string>>(new Set());
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchReqIdRef = useRef(0);
 
   // Filter lists that match the chosen type:
   // restaurants → default lists with restaurantIds
@@ -596,20 +598,34 @@ const StepSeed: React.FC<{
     ? lists.filter((l) => (l.restaurantIds?.length || 0) > 0)
     : lists.filter((l) => l.type === 'home-cooking' && (l.recipes?.length || 0) > 0);
 
-  const runSearch = async () => {
-    if (!searchQ.trim()) return;
-    setSearching(true);
-    try {
-      // No precise location available inside the wizard — bias broadly
-      // around NYC (consistent with the rest of the app's default).
-      const results = await searchPlacesByText(searchQ.trim(), 40.7128, -74.0060);
-      setSearchResults(results.slice(0, 10));
-    } catch {
+  // Debounced live search — matches the SearchPopup pattern (240ms,
+  // race-id guard so stale responses can't overwrite newer results).
+  const trimmedSearch = searchQ.trim();
+  useEffect(() => {
+    if (seedMode !== 'search') return;
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!trimmedSearch) {
       setSearchResults([]);
-    } finally {
       setSearching(false);
+      return;
     }
-  };
+    setSearching(true);
+    const reqId = ++searchReqIdRef.current;
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        // No precise location available inside the wizard — bias broadly
+        // around NYC (consistent with the rest of the app's default).
+        const found = await searchPlacesByText(trimmedSearch, 40.7128, -74.0060);
+        if (reqId !== searchReqIdRef.current) return;
+        setSearchResults(found.slice(0, 10));
+      } catch {
+        if (reqId === searchReqIdRef.current) setSearchResults([]);
+      } finally {
+        if (reqId === searchReqIdRef.current) setSearching(false);
+      }
+    }, 240);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [trimmedSearch, seedMode]);
 
   const seedOptions: { key: SeedMode; label: string; blurb: string; icon: React.ReactNode }[] =
     type === 'restaurants'
@@ -778,23 +794,25 @@ const StepSeed: React.FC<{
       <div className="max-w-2xl mx-auto">
         {subpageHeader('Search restaurants')}
         <div className="flex items-center gap-2 rounded-full bg-[#fbfaf6] border border-on-surface/[0.1] px-3 h-11 mb-4">
-          <Search size={15} className="text-on-surface/45" />
+          <Search size={15} className="text-on-surface/45 flex-shrink-0" />
           <input
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
             placeholder="Search any restaurant…"
             autoFocus
-            className="flex-1 bg-transparent text-sm focus:outline-none"
+            className="flex-1 bg-transparent text-sm focus:outline-none min-w-0"
           />
-          <button
-            type="button"
-            onClick={runSearch}
-            disabled={searching || !searchQ.trim()}
-            className="px-3 py-1.5 rounded-full bg-primary text-white text-[12px] font-bold disabled:opacity-50"
-          >
-            {searching ? <Loader2 size={11} className="animate-spin" /> : 'Search'}
-          </button>
+          {searching && <Loader2 size={14} className="animate-spin text-on-surface/45 flex-shrink-0" />}
+          {!searching && searchQ && (
+            <button
+              type="button"
+              onClick={() => setSearchQ('')}
+              aria-label="Clear search"
+              className="w-6 h-6 rounded-full hover:bg-on-surface/10 flex items-center justify-center text-on-surface/45 flex-shrink-0"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
         <ul className="space-y-1">
           {searchResults.map((p) => {
