@@ -96,7 +96,12 @@ export async function nativePathToFile(
   filename: string,
   mimeType: string,
 ): Promise<File> {
-  const res = await fetch(path);
+  // WebKit blocks fetch() against raw file:// URLs ("Cross origin requests
+  // are only supported for HTTP"). Capacitor.convertFileSrc rewrites the
+  // path to capacitor://localhost/_capacitor_file_/... which the WebView
+  // is allowed to load.
+  const url = Capacitor.convertFileSrc(path);
+  const res = await fetch(url);
   const blob = await res.blob();
   return new File([blob], filename, { type: mimeType });
 }
