@@ -1107,6 +1107,64 @@ const ViewModeToggle: React.FC<{ mode: 'list' | 'grid'; onChange: (m: 'list' | '
 };
 
 /* ── Add Hotel Breakfast Modal ── */
+// Shared ⋯ overflow menu used on phone list-page headers (All Rated,
+// custom list, recipe list). Click the button to toggle a small
+// outside-click-dismissable panel of actions anchored to the trigger's
+// right edge.
+const ListMoreMenu: React.FC<{
+  items: { label: string; icon?: React.ReactNode; onClick: () => void; destructive?: boolean }[];
+}> = ({ items }) => {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  if (items.length === 0) return null;
+  return (
+    <div ref={wrapRef} className="relative flex-shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors"
+      >
+        <MoreHorizontal size={18} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1.5 min-w-[180px] rounded-2xl bg-white shadow-[0_8px_24px_rgba(0,0,0,0.12)] border border-on-surface/[0.06] py-1.5 z-30"
+        >
+          {items.map((item, i) => (
+            <button
+              key={i}
+              type="button"
+              role="menuitem"
+              onClick={() => { setOpen(false); item.onClick(); }}
+              className={cn(
+                'w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-semibold transition-colors',
+                item.destructive
+                  ? 'text-red-500 hover:bg-red-50'
+                  : 'text-on-surface/85 hover:bg-on-surface/[0.04]',
+              )}
+            >
+              {item.icon && <span className={cn('flex-shrink-0', item.destructive ? 'text-red-500' : 'text-on-surface/55')}>{item.icon}</span>}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 type HotelPage = 'search' | 'main' | 'notes' | 'tags' | 'photos' | 'date';
 
 const HOTEL_TAGS = ['Buffet', 'Continental', 'Full English', 'Room Service', 'Restaurant', 'Rooftop', 'Pool Side', 'Included', 'Extra Charge', 'Fresh Juice', 'Coffee', 'Pastries', 'Made to Order', 'Vegan Options'];
@@ -1987,7 +2045,7 @@ const ListDetailView: React.FC<{
           — Pantry's tab pill handles navigation, the toolbar below
           handles search, and delete moves to the More menu (⋯). */}
       {phoneMode && (
-        <div className="flex items-center gap-2 mb-3">
+        <div className="pt-safe-4 flex items-center gap-2 mb-3">
           <button
             onClick={onBack}
             aria-label="Back"
@@ -2010,17 +2068,14 @@ const ListDetailView: React.FC<{
               {isHomeCooking ? 'Add Recipe' : isHotelBreakfast ? 'Add Hotel' : 'Add Rating'}
             </span>
           </button>
-          {!isWishlistView && (
-            <button
-              type="button"
-              onClick={() => setConfirmDeleteList(true)}
-              aria-label="Delete list"
-              title="Delete list"
-              className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/40 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
+          <ListMoreMenu
+            items={isWishlistView ? [] : [{
+              label: 'Delete list',
+              icon: <Trash2 size={14} />,
+              destructive: true,
+              onClick: () => setConfirmDeleteList(true),
+            }]}
+          />
         </div>
       )}
 
@@ -5324,7 +5379,7 @@ const HomeCookingTab: React.FC<{
               with chef-hat / count are gone; the always-visible search
               input below covers search, and the page header in the
               parent already names the view. */}
-          <div className="flex items-center gap-2 mb-3">
+          <div className="pt-safe-4 flex items-center gap-2 mb-3">
             <button onClick={onBack} aria-label="Back" className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
               <ArrowLeft size={20} />
             </button>
@@ -7062,21 +7117,12 @@ export const Pantry: React.FC = () => {
           />
         ) : (
           <>
-            {/* When we entered the rated view from the card landing,
-                 surface a back button so the user can return to the cards. */}
-            {showAllRated && (
-              <button
-                onClick={() => setShowAllRated(false)}
-                className="flex items-center gap-1 text-sm text-on-surface/55 hover:text-on-surface mb-3 -ml-1 px-1 py-1"
-              >
-                <ChevronLeft size={16} /> Back
-              </button>
-            )}
-
             {/* ── Page chrome ──
-                Phone keeps the existing stack of three rows (search bar
-                → filter pills → summary). Desktop folds everything into
-                a single editorial toolbar below a thin divider line:
+                Phone gets a single top row: Back · Add Rating · ⋯ menu,
+                all aligned to the iOS safe-area top so the cellular /
+                Dynamic Island chrome doesn't overlap. Desktop folds
+                everything into a single editorial toolbar below a thin
+                divider line:
                   ┌──────────────────────────────────────────────────┐
                   │ [🔍 Search this list]  •  [Filters] [City] [..] │
                   │                                  63 places · 8.0│
@@ -7087,19 +7133,27 @@ export const Pantry: React.FC = () => {
                 buttons in random colors. */}
             {phoneMode ? (
               <>
-                {/* Top action row — mirrors the per-list ListView so
-                    the rated overview gets the same Add affordance.
-                    Tapping opens the SearchPopup in 'rate-new' mode,
-                    matching the desktop header's Add Rating CTA. */}
-                <div className="flex items-center justify-end mb-3">
+                <div className="pt-safe-4 flex items-center gap-2 mb-3">
+                  {showAllRated && (
+                    <button
+                      onClick={() => setShowAllRated(false)}
+                      aria-label="Back"
+                      className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
+                    >
+                      <ArrowLeft size={20} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
+                    className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
                   >
                     <Plus size={15} strokeWidth={2.5} />
                     <span>Add Rating</span>
                   </button>
+                  <ListMoreMenu
+                    items={[{ label: 'Reorder ratings', icon: <ArrowUpDown size={14} />, onClick: () => navigate('/reorder') }]}
+                  />
                 </div>
 
                 <div className="mb-4">
