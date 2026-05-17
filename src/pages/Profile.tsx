@@ -19,6 +19,7 @@ import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 import { ScoreBadge } from '../components/ScoreBadge';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 type SettingsPage = 'main' | 'edit' | 'account';
 
@@ -404,6 +405,7 @@ const EditTopListsSheet: React.FC<{
 }> = ({ open, onClose, visibleLists, addableByCategory, onDelete, onAdd, onReorder }) => {
   const { phoneMode } = useSettings();
   const [category, setCategory] = useState<'cuisine' | 'city' | 'price' | 'tag' | 'status'>('cuisine');
+  const { dragProps } = useBottomSheet(open, onClose);
 
   useEffect(() => { if (open) setCategory('cuisine'); }, [open]);
 
@@ -431,7 +433,7 @@ const EditTopListsSheet: React.FC<{
         >
           <motion.div
             {...(phoneMode
-              ? { initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' }, transition: { type: 'spring' as const, damping: 28, stiffness: 300 } }
+              ? { initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' }, transition: { type: 'spring' as const, damping: 28, stiffness: 300 }, ...dragProps }
               : {
                   initial: { opacity: 0, scale: 0.94, y: -12 },
                   animate: { opacity: 1, scale: 1, y: 0 },

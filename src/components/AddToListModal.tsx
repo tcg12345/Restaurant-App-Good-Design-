@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists } from '../contexts/ListsContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 const EMOJI_OPTIONS = ['📋', '🍕', '🍣', '🥂', '🕯️', '💎', '⚡', '🌮', '🍜', '☕', '🎉', '🌿', '🔥', '👨‍🍳', '🏖️', '🌃'];
 
@@ -12,6 +13,8 @@ export const AddToListModal: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmoji, setNewEmoji] = useState('📋');
+
+  const { dragProps } = useBottomSheet(addToListModalOpen, closeAddToListModal);
 
   const handleToggle = (listId: string, isIn: boolean) => {
     if (!addToListRestaurantId) return;
@@ -51,6 +54,7 @@ export const AddToListModal: React.FC = () => {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className="bg-surface w-full sm:max-w-sm sm:rounded-3xl rounded-t-3xl max-h-[70vh] overflow-y-auto"
           >

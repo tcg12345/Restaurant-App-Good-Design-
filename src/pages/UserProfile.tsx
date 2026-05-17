@@ -21,6 +21,7 @@ import { getMealCoverUrl, formatDuration } from '../lib/recipe-display';
 import mapboxgl from 'mapbox-gl';
 import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import { searchPlacesByText, type PlaceResult } from '../lib/places';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 // Simple in-memory cache to avoid re-fetching on back navigation
 const profileCache: Record<string, {
@@ -82,6 +83,7 @@ export const UserProfile: React.FC = () => {
   const [cuisineOpen, setCuisineOpen] = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
   const [showMapPage, setShowMapPage] = useState(false);
+  const { dragProps: filtersDragProps } = useBottomSheet(filtersOpen, () => setFiltersOpen(false));
 
   // Map
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -904,6 +906,7 @@ export const UserProfile: React.FC = () => {
                 ? {
                     initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
                     transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                    ...filtersDragProps,
                   }
                 : {
                     initial: { opacity: 0, scale: 0.94, y: -12 },

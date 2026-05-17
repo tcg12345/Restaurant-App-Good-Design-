@@ -13,6 +13,7 @@ import { PostSlide, DesktopPostSideActions } from '../components/PostSlide';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { followPublicAccount, removeFriend, isFollowingUser } from '../lib/supabase-community';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -66,7 +67,10 @@ interface ActionRailProps {
 
 const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment, onShare }) => {
   return (
-    <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-5 select-none">
+    // z-30 so the Share button (bottom-most in the rail) sits above the
+    // collapsible details overlay below, which spans inset-x-0 at z-20
+    // and would otherwise eat the tap and toggle the caption open/closed.
+    <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-30 flex flex-col items-center gap-5 select-none">
       <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
         <motion.span
           whileTap={{ scale: 0.8 }}
@@ -197,6 +201,11 @@ interface ReelSlideProps {
   setMuted: (m: boolean) => void;
   isMine: boolean;
   currentUserId: string | null;
+  /** True when this slide is the active one, OR within ±1 of it. Drives
+   *  preload="auto" so swiping forward / back from a freshly-buffered
+   *  neighbour starts playback instantly instead of waiting for a fresh
+   *  network round trip from preload="none". */
+  near: boolean;
   /** When true, skip the right-edge action rail (desktop renders one beside the reel). */
   hideActionRail?: boolean;
   /** When true, skip the in-reel delete button (desktop puts delete in the side rail's "more" menu). */
@@ -216,7 +225,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
   // object-cover + heavy blur so phone screens taller than 9:16 letterbox
@@ -281,7 +290,19 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, is
         bg.currentTime = 0;
       }
     }
-  }, [active, muted]);
+    // Intentionally NOT depending on `muted`: when only the mute toggle
+    // changes we don't want to call play() again — a separate effect
+    // below mirrors the latest `muted` onto the element so the user can
+    // still toggle audio without unpausing a manually-paused reel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  // Keep the <video> element's muted flag in sync with the latest prop,
+  // without touching play/pause state.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) el.muted = muted;
+  }, [muted]);
 
   // Mirror the video's play/pause state into React so the persistent
   // paused overlay reflects reality (covers system pauses, autoplay
@@ -350,11 +371,14 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, is
             {!phoneMode && (
               <video
                 ref={backdropRef}
-                src={reel.videoUrl}
+                // Backdrop only fetches when the slide is active; saving
+                // bandwidth on the decorative blurred copy that nobody
+                // sees on adjacent slides.
+                src={active ? reel.videoUrl : undefined}
                 playsInline
                 loop
                 muted
-                preload="metadata"
+                preload={active ? 'auto' : 'none'}
                 aria-hidden
                 tabIndex={-1}
                 className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 pointer-events-none"
@@ -362,12 +386,18 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, is
             )}
             <video
               ref={videoRef}
-              src={reel.videoUrl}
+              // Only attach the src when this slide is the active one or
+              // an immediate neighbour, so the browser doesn't start a
+              // network fetch for reels far down the feed. Adjacent slides
+              // sit at preload="auto" so their first frames are already in
+              // the buffer when the user swipes — that's what makes the
+              // hand-off feel instant like Instagram.
+              src={near ? reel.videoUrl : undefined}
               poster={reel.posterUrl}
               playsInline
               loop
               muted={muted}
-              preload="metadata"
+              preload={near ? 'auto' : 'none'}
               onClick={onTapVideo}
               className={cn(
                 'absolute inset-0 w-full h-full',
@@ -552,6 +582,26 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, is
   );
 };
 
+// Memoize on data + the props that actually matter for re-render. The
+// inline callbacks the parent builds (onLike, onShare, etc.) get a new
+// identity on every render and would otherwise force every slide in the
+// feed to re-render on every scroll-induced setActiveKey — the main
+// reason scrolling felt choppy. Skipping callbacks here is safe: the
+// callbacks close over stable refs from context, and a captured-but-
+// stale handler still calls the latest impl since it dispatches via
+// item.reel.id which is part of `reel`.
+const ReelSlide = React.memo(ReelSlideInner, (prev, next) =>
+  prev.reel === next.reel
+  && prev.active === next.active
+  && prev.near === next.near
+  && prev.muted === next.muted
+  && prev.isMine === next.isMine
+  && prev.currentUserId === next.currentUserId
+  && prev.hideActionRail === next.hideActionRail
+  && prev.hideOwnerDelete === next.hideOwnerDelete
+  && prev.hideDetailsOverlay === next.hideDetailsOverlay,
+);
+
 /* ── Side details panel (desktop) ───────────────────────────────────── */
 // YouTube-Shorts-style metadata column that lives to the left of the
 // centered reel: author + audio label, optional caption, and the
@@ -613,9 +663,18 @@ const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> 
 
 /* ── Playback progress bar ───────────────────────────────────────────── */
 // A thin, draggable progress bar that sits at the bottom of the page
-// and tracks the active reel's playback. Dragging scrubs and pauses
-// playback for the duration of the drag; on release, playback resumes
-// if it was running before. The bar thickens while dragging.
+// and tracks the active reel's playback. Dragging pauses the main video
+// in place and shows a floating thumbnail preview seeked to the scrub
+// target — same affordance Instagram and the native iOS player use.
+// On release we commit the seek to the main video and resume if it had
+// been playing.
+
+function formatSeconds(s: number): string {
+  if (!Number.isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const r = Math.floor(s % 60);
+  return `${m}:${r.toString().padStart(2, '0')}`;
+}
 
 const ReelProgressBar: React.FC<{
   videoEl: HTMLVideoElement | null;
@@ -623,8 +682,16 @@ const ReelProgressBar: React.FC<{
 }> = ({ videoEl, className }) => {
   const [progress, setProgress] = useState(0);
   const [dragging, setDragging] = useState(false);
+  // Independent scrub head while the user drags — does NOT move the
+  // main video element. The main video stays frozen at the frame the
+  // user grabbed; the preview <video> below seeks to dragProgress.
+  const [dragProgress, setDragProgress] = useState(0);
+  const [hoverX, setHoverX] = useState(0);
   const wasPlayingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const previewRef = useRef<HTMLVideoElement | null>(null);
+  const previewSrc = videoEl?.currentSrc || videoEl?.src || '';
+
   // rAF loop sync — using requestAnimationFrame instead of timeupdate
   // gives a smooth 60 Hz fill animation without needing a CSS
   // transition (which would fight per-frame width updates).
@@ -649,6 +716,18 @@ const ReelProgressBar: React.FC<{
     };
   }, [videoEl, dragging]);
 
+  // Drive the preview <video>: seek it to the scrub position whenever
+  // dragProgress changes. Skipping calls when not dragging means we
+  // don't burn CPU seeking the off-screen element.
+  useEffect(() => {
+    if (!dragging) return;
+    const pv = previewRef.current;
+    if (!pv) return;
+    const dur = videoEl?.duration;
+    if (!Number.isFinite(dur) || !dur || dur <= 0) return;
+    try { pv.currentTime = dragProgress * dur; } catch { /* ignore seek errors */ }
+  }, [dragProgress, dragging, videoEl]);
+
   const pointerToProgress = (clientX: number): number => {
     const el = containerRef.current;
     if (!el) return 0;
@@ -657,11 +736,11 @@ const ReelProgressBar: React.FC<{
     return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   };
 
-  const seekTo = (frac: number) => {
-    if (!videoEl) return;
-    const dur = videoEl.duration;
-    if (!Number.isFinite(dur) || dur <= 0) return;
-    try { videoEl.currentTime = frac * dur; } catch { /* ignore */ }
+  const pointerToContainerX = (clientX: number): number => {
+    const el = containerRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    return clientX - rect.left;
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -669,28 +748,47 @@ const ReelProgressBar: React.FC<{
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     wasPlayingRef.current = !videoEl.paused;
+    // Pause the main reel but DO NOT seek it — user wants the frame
+    // they grabbed at to stay put. Seeking happens once on release.
     try { videoEl.pause(); } catch { /* ignore */ }
-    setDragging(true);
     const p = pointerToProgress(e.clientX);
-    setProgress(p);
-    seekTo(p);
+    setDragProgress(p);
+    setHoverX(pointerToContainerX(e.clientX));
+    setDragging(true);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging) return;
-    const p = pointerToProgress(e.clientX);
-    setProgress(p);
-    seekTo(p);
+    setDragProgress(pointerToProgress(e.clientX));
+    setHoverX(pointerToContainerX(e.clientX));
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging) return;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     setDragging(false);
-    if (videoEl && wasPlayingRef.current) {
-      videoEl.play().catch(() => { /* autoplay may be blocked */ });
+    // Commit the seek to the main video, then resume if it had been
+    // playing when the drag began.
+    if (videoEl) {
+      const dur = videoEl.duration;
+      if (Number.isFinite(dur) && dur > 0) {
+        try { videoEl.currentTime = dragProgress * dur; } catch { /* ignore */ }
+      }
+      if (wasPlayingRef.current) {
+        videoEl.play().catch(() => { /* autoplay may be blocked */ });
+      }
     }
   };
+
+  // Position the preview popover horizontally over the scrubber, kept
+  // ~6 px inside the bar edges so a 100 px-wide preview never clips
+  // off-screen. width / aspectRatio match a phone reel (9:16 → ~100x178).
+  const PREVIEW_W = 110;
+  const PREVIEW_H = 195;
+  const containerWidth = containerRef.current?.getBoundingClientRect().width ?? 0;
+  const popoverLeft = Math.max(8, Math.min(containerWidth - PREVIEW_W - 8, hoverX - PREVIEW_W / 2));
+  const dur = videoEl?.duration;
+  const fillFrac = dragging ? dragProgress : progress;
 
   return (
     <div
@@ -713,9 +811,40 @@ const ReelProgressBar: React.FC<{
       >
         <div
           className="absolute inset-y-0 left-0 bg-white rounded-full"
-          style={{ width: `${progress * 100}%` }}
+          style={{ width: `${fillFrac * 100}%` }}
         />
       </div>
+
+      {/* Scrub preview popover. Mounted only while the user is dragging
+          so the secondary <video> isn't sitting in the DOM eating
+          memory at idle. */}
+      {dragging && previewSrc && (
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            left: popoverLeft,
+            bottom: 'calc(100% + 4px)',
+            width: PREVIEW_W,
+          }}
+        >
+          <div
+            className="rounded-lg overflow-hidden ring-2 ring-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.5)] bg-black"
+            style={{ width: PREVIEW_W, height: PREVIEW_H }}
+          >
+            <video
+              ref={previewRef}
+              src={previewSrc}
+              muted
+              playsInline
+              preload="auto"
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="mt-1.5 text-center text-white text-[11px] font-bold tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+            {formatSeconds((dur ?? 0) * dragProgress)} / {formatSeconds(dur ?? 0)}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1049,6 +1178,7 @@ interface CommentsSheetProps {
 }
 
 const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadComments, addComment, deleteComment, currentUserId }) => {
+  const { dragProps } = useBottomSheet(!!targetId, onClose);
   return (
     <AnimatePresence>
       {targetId && (
@@ -1060,6 +1190,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className="bg-white w-full rounded-t-3xl flex flex-col"
             style={{ height: '75%' }}
@@ -1509,7 +1640,13 @@ export const Reels: React.FC = () => {
           setActiveKey(bestEl.dataset.feedKey);
         }
       },
-      { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
+      // Single 0.5 threshold: the callback fires when an item crosses
+      // half-visibility (either direction), at which point one of the
+      // entries is now the dominant-most-visible slide and we promote it.
+      // The previous five-threshold list fired the callback up to 5x per
+      // slide transition, which during fast scroll caused redundant
+      // setActiveKey storms and choppy frames.
+      { root, threshold: [0.5] },
     );
     slides.forEach((s) => observer.observe(s as Element));
     return () => observer.disconnect();
@@ -1685,8 +1822,10 @@ export const Reels: React.FC = () => {
       className="h-full w-full overflow-y-auto snap-y snap-mandatory bg-black scrollbar-hide"
       style={{ scrollbarWidth: 'none' }}
     >
-      <AnimatePresence initial={false}>
-        {loading && feedItems.length === 0 ? (
+      {/* AnimatePresence used to wrap the per-slide motion.div fade-in;
+          now that slides render as plain <div>s there's nothing motion
+          for it to track, so it's gone. */}
+      {loading && feedItems.length === 0 ? (
           <div className="h-full w-full flex items-center justify-center text-white/60">
             <Loader2 size={26} className="animate-spin" />
           </div>
@@ -1714,20 +1853,29 @@ export const Reels: React.FC = () => {
               </button>
             </div>
           </div>
-        ) : (
-          feedItems.map((item) => (
-            <motion.div
+        ) : (() => {
+          const activeIdx = activeKey ? feedItems.findIndex((f) => f.key === activeKey) : -1;
+          return feedItems.map((item, idx) => {
+            const isActive = activeKey === item.key;
+            // Eager preload window: ±1 around the active slide so a swipe
+            // in either direction lands on an already-buffered video.
+            const isNear = activeIdx >= 0 && Math.abs(idx - activeIdx) <= 1;
+            return (
+            // Plain div — no per-slide Framer Motion wrapper. With dozens
+            // of items in the feed, even idle motion.div instances impose
+            // tracking overhead Framer Motion pays during reconciliation,
+            // and we never showed the opacity-in animation anyway since
+            // the surrounding AnimatePresence used initial={false}.
+            <div
               key={item.key}
               data-feed-key={item.key}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
               className="h-full w-full snap-start snap-always"
             >
               {item.kind === 'reel' ? (
                 <ReelSlide
                   reel={item.reel}
-                  active={activeKey === item.key}
+                  active={isActive}
+                  near={isNear}
                   muted={muted}
                   setMuted={setMuted}
                   isMine={!!currentUserId && item.reel.authorId === currentUserId}
@@ -1752,7 +1900,7 @@ export const Reels: React.FC = () => {
               ) : (
                 <PostSlide
                   post={item.post}
-                  active={activeKey === item.key}
+                  active={isActive}
                   muted={muted}
                   isMine={!!currentUserId && item.post.userId === currentUserId}
                   currentUserId={currentUserId}
@@ -1772,10 +1920,10 @@ export const Reels: React.FC = () => {
                   onDelete={() => setConfirmDeletePostId(item.post.id)}
                 />
               )}
-            </motion.div>
-          ))
-        )}
-      </AnimatePresence>
+            </div>
+            );
+          });
+        })()}
 
       {/* Comments sheet floats above the feed (mobile only — desktop uses
           the side panel rendered by the layout). The target id and adapter

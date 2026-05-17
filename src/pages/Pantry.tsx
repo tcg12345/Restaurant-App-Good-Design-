@@ -23,6 +23,7 @@ import { getHotelDining, type HotelDining } from '../lib/supabase-community';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /* ── Preset list suggestions ── */
 interface PresetList { name: string; emoji: string; category: string; type?: 'hotel-breakfast' | 'home-cooking'; }
@@ -112,6 +113,7 @@ const CreateListSheet: React.FC<{
   const [customName, setCustomName] = useState('');
   const [customEmoji, setCustomEmoji] = useState('📋');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const { dragProps } = useBottomSheet(open, onClose);
 
   const existingNamesLower = useMemo(() => new Set(existingListNames.map((n) => n.toLowerCase())), [existingListNames]);
 
@@ -170,10 +172,11 @@ const CreateListSheet: React.FC<{
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col", phoneMode ? "h-full rounded-none" : "h-full sm:h-auto sm:max-w-md sm:max-h-[75vh] rounded-none sm:rounded-3xl")}
           >
-            <div className="flex items-center justify-between px-5 pt-4 sm:pt-5 pb-3 flex-shrink-0">
+            <div className="flex items-center justify-between px-5 pt-safe-4 sm:pt-5 pb-3 flex-shrink-0">
               <h2 className="font-serif font-bold text-lg">
                 {mode === 'browse'
                   ? kind === 'recipes' ? 'New Recipe List' : 'New List'
@@ -231,7 +234,7 @@ const CreateListSheet: React.FC<{
                     </button>
                   )}
                 </div>
-                <div className="flex-1 overflow-y-auto px-5 pb-5">
+                <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
                   {Object.keys(groupedPresets).length === 0 ? (
                     <div className="text-center py-12">
                       <p className="text-sm text-on-surface/40">No matching lists found</p>
@@ -364,7 +367,7 @@ const AddFromRatedSheet: React.FC<{
             <div className="px-5 pb-2">
               <p className="text-[11px] text-on-surface/40 font-medium">{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}{listRestaurantIds.length > 0 && ` · ${listRestaurantIds.length} in list`}</p>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-1.5">
+            <div className="flex-1 overflow-y-auto px-5 pb-safe-5 space-y-1.5">
               {filtered.length === 0 ? (
                 <div className="text-center py-12"><p className="text-sm text-on-surface/40">{ratings.length === 0 ? 'No rated restaurants yet' : 'No matches found'}</p></div>
               ) : filtered.map((r) => {
@@ -1104,6 +1107,64 @@ const ViewModeToggle: React.FC<{ mode: 'list' | 'grid'; onChange: (m: 'list' | '
 };
 
 /* ── Add Hotel Breakfast Modal ── */
+// Shared ⋯ overflow menu used on phone list-page headers (All Rated,
+// custom list, recipe list). Click the button to toggle a small
+// outside-click-dismissable panel of actions anchored to the trigger's
+// right edge.
+const ListMoreMenu: React.FC<{
+  items: { label: string; icon?: React.ReactNode; onClick: () => void; destructive?: boolean }[];
+}> = ({ items }) => {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  if (items.length === 0) return null;
+  return (
+    <div ref={wrapRef} className="relative flex-shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors"
+      >
+        <MoreHorizontal size={18} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1.5 min-w-[180px] rounded-2xl bg-white shadow-[0_8px_24px_rgba(0,0,0,0.12)] border border-on-surface/[0.06] py-1.5 z-30"
+        >
+          {items.map((item, i) => (
+            <button
+              key={i}
+              type="button"
+              role="menuitem"
+              onClick={() => { setOpen(false); item.onClick(); }}
+              className={cn(
+                'w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] font-semibold transition-colors',
+                item.destructive
+                  ? 'text-red-500 hover:bg-red-50'
+                  : 'text-on-surface/85 hover:bg-on-surface/[0.04]',
+              )}
+            >
+              {item.icon && <span className={cn('flex-shrink-0', item.destructive ? 'text-red-500' : 'text-on-surface/55')}>{item.icon}</span>}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 type HotelPage = 'search' | 'main' | 'notes' | 'tags' | 'photos' | 'date';
 
 const HOTEL_TAGS = ['Buffet', 'Continental', 'Full English', 'Room Service', 'Restaurant', 'Rooftop', 'Pool Side', 'Included', 'Extra Charge', 'Fresh Juice', 'Coffee', 'Pastries', 'Made to Order', 'Vegan Options'];
@@ -1984,7 +2045,7 @@ const ListDetailView: React.FC<{
           — Pantry's tab pill handles navigation, the toolbar below
           handles search, and delete moves to the More menu (⋯). */}
       {phoneMode && (
-        <div className="flex items-center gap-2 mb-3">
+        <div className="pt-safe-4 flex items-center gap-2 mb-3">
           <button
             onClick={onBack}
             aria-label="Back"
@@ -2007,17 +2068,14 @@ const ListDetailView: React.FC<{
               {isHomeCooking ? 'Add Recipe' : isHotelBreakfast ? 'Add Hotel' : 'Add Rating'}
             </span>
           </button>
-          {!isWishlistView && (
-            <button
-              type="button"
-              onClick={() => setConfirmDeleteList(true)}
-              aria-label="Delete list"
-              title="Delete list"
-              className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/40 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
+          <ListMoreMenu
+            items={isWishlistView ? [] : [{
+              label: 'Delete list',
+              icon: <Trash2 size={14} />,
+              destructive: true,
+              onClick: () => setConfirmDeleteList(true),
+            }]}
+          />
         </div>
       )}
 
@@ -2574,6 +2632,7 @@ const FilterSheet: React.FC<{
   const [cuisineSearch, setCuisineSearch] = useState('');
   const [cuisineOpen, setCuisineOpen] = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
+  const { dragProps } = useBottomSheet(open, onClose);
 
   const filteredCities = citySearch.trim() ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase())) : allCities;
   const filteredCuisines = cuisineSearch.trim() ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase())) : allCuisines;
@@ -2600,12 +2659,7 @@ const FilterSheet: React.FC<{
                 ? {
                     initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
                     transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                    drag: 'y' as const,
-                    dragConstraints: { top: 0 },
-                    dragElastic: { top: 0, bottom: 0.4 },
-                    onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
-                      if (info.offset.y > 80 || info.velocity.y > 300) onClose();
-                    },
+                    ...dragProps,
                   }
                 : {
                     initial: { opacity: 0, scale: 0.94, y: -12 },
@@ -2641,7 +2695,7 @@ const FilterSheet: React.FC<{
             {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
               {/* Sort */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
@@ -2882,7 +2936,7 @@ const WishlistFilterSheet: React.FC<{
             {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
               {/* Sort */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
@@ -4638,23 +4692,27 @@ const HomeCookingTab: React.FC<{
       stepCount: selectedMeal.steps?.length || undefined,
     });
 
+    // Same header geometry as MealRecipePage (the recipe view reached
+    // from Discover) so the two pages feel like one product. Owner-only
+    // affordances (Edit / Delete) replace the read-only author label
+    // that MealRecipePage uses.
     const actionsHeader = (
       <div className="flex items-center gap-3">
-        <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-          <ArrowLeft size={20} />
+        <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/50 hover:text-on-surface transition-colors" aria-label="Back">
+          <ArrowLeft size={22} />
         </button>
         <div className="flex-1" />
         <button onClick={() => setShareRecipeData(buildSharedRecipe())}
           className="p-2 text-on-surface/40 hover:text-emerald-600 rounded-full transition-colors" title="Share recipe">
-          <Share2 size={18} />
+          <Share2 size={20} />
         </button>
         <button onClick={() => onOpenModal(selectedMeal)}
           className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
-          <Edit3 size={18} />
+          <Edit3 size={20} />
         </button>
         <button onClick={() => setConfirmDeleteId(selectedMeal.id)}
-          className="p-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
-          <Trash2 size={18} />
+          className="p-2 -mr-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
+          <Trash2 size={20} />
         </button>
       </div>
     );
@@ -5052,8 +5110,12 @@ const HomeCookingTab: React.FC<{
     // ── Phone layout: full-width hero + fully stacked sections ──
     if (phoneMode) {
       return (
-        <div className="-mx-3 pb-20">
-          <div className="px-4 pt-2 pb-1">{actionsHeader}</div>
+        // -mx-3 breaks out of the parent <main className="px-3"> so the
+        // hero photo runs edge-to-edge, matching MealRecipePage from
+        // Discover. pb-32 + the pt-safe-4 header row below also mirror
+        // that page's geometry exactly.
+        <div className="-mx-3 pb-32">
+          <div className="px-4 pt-safe-4 pb-2">{actionsHeader}</div>
 
           {coverUrl ? (
             <button onClick={() => setLightboxPhotoIdx(coverLightboxIdx)} className="block w-full text-left mt-2 mb-5">
@@ -5325,7 +5387,7 @@ const HomeCookingTab: React.FC<{
               with chef-hat / count are gone; the always-visible search
               input below covers search, and the page header in the
               parent already names the view. */}
-          <div className="flex items-center gap-2 mb-3">
+          <div className="pt-safe-4 flex items-center gap-2 mb-3">
             <button onClick={onBack} aria-label="Back" className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
               <ArrowLeft size={20} />
             </button>
@@ -5690,7 +5752,7 @@ const RecipeFilterSheet: React.FC<{
             </div>
             {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
               {/* Sort */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
@@ -5833,7 +5895,7 @@ const FilterListSheet: React.FC<{
                 />
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 pb-5">
+            <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
               {filtered.length === 0 ? (
                 <p className="text-center py-8 text-sm text-on-surface/40">No matches</p>
               ) : filtered.map((opt) => {
@@ -7063,21 +7125,12 @@ export const Pantry: React.FC = () => {
           />
         ) : (
           <>
-            {/* When we entered the rated view from the card landing,
-                 surface a back button so the user can return to the cards. */}
-            {showAllRated && (
-              <button
-                onClick={() => setShowAllRated(false)}
-                className="flex items-center gap-1 text-sm text-on-surface/55 hover:text-on-surface mb-3 -ml-1 px-1 py-1"
-              >
-                <ChevronLeft size={16} /> Back
-              </button>
-            )}
-
             {/* ── Page chrome ──
-                Phone keeps the existing stack of three rows (search bar
-                → filter pills → summary). Desktop folds everything into
-                a single editorial toolbar below a thin divider line:
+                Phone gets a single top row: Back · Add Rating · ⋯ menu,
+                all aligned to the iOS safe-area top so the cellular /
+                Dynamic Island chrome doesn't overlap. Desktop folds
+                everything into a single editorial toolbar below a thin
+                divider line:
                   ┌──────────────────────────────────────────────────┐
                   │ [🔍 Search this list]  •  [Filters] [City] [..] │
                   │                                  63 places · 8.0│
@@ -7088,19 +7141,27 @@ export const Pantry: React.FC = () => {
                 buttons in random colors. */}
             {phoneMode ? (
               <>
-                {/* Top action row — mirrors the per-list ListView so
-                    the rated overview gets the same Add affordance.
-                    Tapping opens the SearchPopup in 'rate-new' mode,
-                    matching the desktop header's Add Rating CTA. */}
-                <div className="flex items-center justify-end mb-3">
+                <div className="pt-safe-4 flex items-center gap-2 mb-3">
+                  {showAllRated && (
+                    <button
+                      onClick={() => setShowAllRated(false)}
+                      aria-label="Back"
+                      className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0"
+                    >
+                      <ArrowLeft size={20} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
+                    className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"
                   >
                     <Plus size={15} strokeWidth={2.5} />
                     <span>Add Rating</span>
                   </button>
+                  <ListMoreMenu
+                    items={[{ label: 'Reorder ratings', icon: <ArrowUpDown size={14} />, onClick: () => navigate('/reorder') }]}
+                  />
                 </div>
 
                 <div className="mb-4">
@@ -7549,7 +7610,7 @@ export const Pantry: React.FC = () => {
                   />
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto px-5 pb-5">
+              <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
                 {allCities.filter((c) => {
                   const input = document.getElementById('city-picker-search') as HTMLInputElement | null;
                   const q = input?.value?.toLowerCase() || '';
@@ -7597,7 +7658,7 @@ export const Pantry: React.FC = () => {
                   />
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto px-5 pb-5">
+              <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
                 {allCuisines.filter((c) => {
                   const input = document.getElementById('cuisine-picker-search') as HTMLInputElement | null;
                   const q = input?.value?.toLowerCase() || '';

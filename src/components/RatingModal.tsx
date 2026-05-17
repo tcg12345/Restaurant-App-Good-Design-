@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
@@ -36,6 +37,8 @@ export const RatingModal: React.FC = () => {
   const [page, setPage] = useState<Page>('main');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
+
+  const { dragProps } = useBottomSheet(ratingModalOpen, closeRatingModal);
 
   useEffect(() => {
     if (ratingModalOpen && ratingModalRestaurant) {
@@ -171,6 +174,7 @@ export const RatingModal: React.FC = () => {
           onClick={closeRatingModal}>
           <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
@@ -280,7 +284,7 @@ export const RatingModal: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+                  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
                     <button onClick={handleSave} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                       {existing ? 'Update Rating' : 'Save Rating'}
                     </button>
@@ -540,7 +544,7 @@ const SubPage: React.FC<{
 );
 
 const BottomBtn: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
     <button onClick={onClick} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{label}</button>
   </div>
 );

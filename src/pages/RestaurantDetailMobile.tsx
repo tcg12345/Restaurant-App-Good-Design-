@@ -24,6 +24,7 @@ import { Link } from 'react-router-dom';
 import { AddHotelDiningModal } from '../components/AddHotelDiningModal';
 import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /** Parse hours array to find next opening time when currently closed */
 function getNextOpenTime(hours: string[]): string {
@@ -89,6 +90,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   } = useRestaurantDetail();
 
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit } = useLists();
+  const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
 
   // Resolve the user's anchored origin once per mount. The distance suffix
   // and Mapbox Directions hook below both gate on isExactAddress, so a
@@ -214,11 +216,22 @@ export const RestaurantDetailMobile: React.FC = () => {
             </button>
             <button
               onClick={() => {
-                if (navigator.share) {
-                  navigator.share({ title: place.name, url: window.location.href });
-                } else {
-                  navigator.clipboard.writeText(window.location.href);
-                }
+                if (!place) return;
+                setChatShareTarget({
+                  restaurantId: place.id,
+                  name: place.name,
+                  image: place.photoUrl || '',
+                  cuisine,
+                  price: priceStr,
+                  address: place.fullAddress || place.address,
+                  ...(myRating ? {
+                    score: myRating.score,
+                    notes: myRating.notes,
+                    wouldReturn: myRating.wouldReturn,
+                    tags: myRating.tags,
+                    isReview: true,
+                  } : { isReview: false }),
+                });
               }}
               aria-label="Share"
               className="p-2 bg-black/30 backdrop-blur-md rounded-full text-white/90 shadow-sm"
@@ -1700,6 +1713,7 @@ export const RestaurantDetailMobile: React.FC = () => {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              {...friendsDetailDragProps}
               className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden"
             >
               <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>

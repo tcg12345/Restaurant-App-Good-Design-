@@ -689,7 +689,9 @@ export const RecipeMobileSectionNav: React.FC<RecipeMobileSectionNavProps> = ({ 
   return (
     <div
       className="sticky z-20 bg-surface/75 backdrop-blur-md"
-      style={{ top: topOffset }}
+      // env(safe-area-inset-top) keeps the nav below the iOS status bar
+      // once it sticks. Falls back to 0 on platforms without a safe area.
+      style={{ top: `calc(${topOffset}px + env(safe-area-inset-top, 0px))` }}
     >
       <div ref={containerRef} className="flex gap-1 px-4 py-2 overflow-x-auto scrollbar-hide">
         {sections.map((s) => {
@@ -702,7 +704,12 @@ export const RecipeMobileSectionNav: React.FC<RecipeMobileSectionNavProps> = ({ 
               onClick={() => {
                 const el = document.getElementById(s.id);
                 if (!el) return;
-                const elTop = el.getBoundingClientRect().top + window.scrollY - topOffset - 56;
+                // Match the sticky nav's own offset so the scrolled-to section
+                // header lands just under the nav instead of behind it.
+                const safeTop = parseFloat(
+                  getComputedStyle(document.documentElement).getPropertyValue('--sat-top'),
+                ) || 0;
+                const elTop = el.getBoundingClientRect().top + window.scrollY - topOffset - safeTop - 56;
                 window.scrollTo({ top: elTop, behavior: 'smooth' });
               }}
               className={cn(

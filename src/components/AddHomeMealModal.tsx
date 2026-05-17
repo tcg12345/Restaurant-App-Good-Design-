@@ -8,6 +8,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useRecipes } from '../contexts/RecipesContext';
 import { TimeWheelPicker, NumberWheelPicker } from './WheelPicker';
 import { ImportRecipesModal } from './ImportRecipesModal';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 const HOME_COOKING_TAGS = [
   'Italian Night', 'Meal Prep', 'Holiday Meal', 'Grilling', 'Baking',
@@ -282,6 +283,7 @@ export const AddHomeMealModal: React.FC = () => {
   } = useLists();
   const { phoneMode } = useSettings();
   const { myRecipes } = useRecipes();
+  const { dragProps } = useBottomSheet(homeMealModalOpen, closeHomeMealModal);
 
   const existing = homeMealModalData;
 
@@ -724,6 +726,7 @@ export const AddHomeMealModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
@@ -946,7 +949,7 @@ export const AddHomeMealModal: React.FC = () => {
                   </div>
 
                   {/* Sticky save footer — pill button w/ drop shadow */}
-                  <div className="px-6 pt-3 pb-5 flex-shrink-0 bg-surface">
+                  <div className="px-6 pt-3 pb-safe-5 flex-shrink-0 bg-surface">
                     <button
                       onClick={handleSave}
                       disabled={!mealName.trim()}
@@ -1805,7 +1808,7 @@ const SubPage: React.FC<{
 );
 
 const BottomBtn: React.FC<{ label: string; onClick: () => void; disabled?: boolean }> = ({ label, onClick, disabled }) => (
-  <div className="px-5 py-4 flex-shrink-0 bg-surface">
+  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 bg-surface">
     <button onClick={onClick} disabled={disabled} className="w-full py-3.5 bg-primary text-white rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_rgba(188,108,97,0.55)] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:shadow-none">{label}</button>
   </div>
 );

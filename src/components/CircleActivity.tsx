@@ -3,6 +3,7 @@ import { Search, Star, Bookmark, Users, UserCircle, MapPin, SlidersHorizontal, X
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /* ── Types ── */
 
@@ -53,6 +54,8 @@ export const CircleActivity: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [cuisineSearch, setCuisineSearch] = useState('');
   const [citySearch, setCitySearch] = useState('');
+
+  const { dragProps } = useBottomSheet(showFilters, () => setShowFilters(false));
 
   // Extract unique cuisines and cities from data
   const allCuisines = useMemo(() => {
@@ -273,12 +276,7 @@ export const CircleActivity: React.FC = () => {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              drag="y"
-              dragConstraints={{ top: 0, bottom: 0 }}
-              dragElastic={{ top: 0, bottom: 0.6 }}
-              onDragEnd={(_e, info) => {
-                if (info.offset.y > 100 || info.velocity.y > 300) setShowFilters(false);
-              }}
+              {...dragProps}
               className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl shadow-2xl max-h-[75vh] flex flex-col overflow-hidden"
             >
               {/* Drag handle */}
@@ -296,7 +294,7 @@ export const CircleActivity: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
                 {/* Source */}
                 <div>
                   <div className="flex items-center gap-2 mb-2.5">

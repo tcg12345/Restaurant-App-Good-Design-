@@ -115,6 +115,11 @@
   }
 }
 
+/* Expose the iOS safe-area-inset-top as a CSS variable so JS-side scroll
+   math (e.g. RecipeMobileSectionNav's scroll-to handler) can read it via
+   getComputedStyle. env() can't be read directly from JS. */
+:root { --sat-top: env(safe-area-inset-top, 0px); }
+
 @layer utilities {
   /* iOS safe-area helpers. Apply to any sticky/fixed top header so
      content clears the status bar / notch on Capacitor builds while
@@ -128,9 +133,35 @@
   /* Plain safe-area top — useful when an absolute / fixed overlay
      already has its own base offset elsewhere. */
   .pt-safe { padding-top: env(safe-area-inset-top); }
+
+  /* iOS bottom safe-area helpers. Apply to any sticky/fixed footer
+     (modal action bars, bottom-sheet footers) so the home indicator
+     doesn't overlap the buttons on home-bar iPhones. Same base-or-inset
+     pattern as pt-safe-* — visual padding on the web stays unchanged
+     and the inset is layered in only when the platform reports one. */
+  .pb-safe-2 { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+  .pb-safe-3 { padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
+  .pb-safe-4 { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+  .pb-safe-5 { padding-bottom: max(1.25rem, env(safe-area-inset-bottom)); }
+  .pb-safe-6 { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+  /* `mb-safe` for content that scrolls behind a fixed bottom nav: lets
+     callers offset their last item without inlining a calc() string. */
+  .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
 }
 
 @layer base {
+  /* Disable iOS WKWebView's rubber-band scroll. Without this, the user
+     can drag the whole page (including position:fixed chrome like the
+     bottom nav) past its bounds — most visible while the on-screen
+     keyboard is open, where the WebView is short enough that any
+     overscroll yanks the fixed nav out of position. `contain` lets
+     internal scroll containers still bounce normally. */
+  html, body {
+    overscroll-behavior: contain;
+  }
+
   body {
     @apply bg-surface text-on-surface font-sans;
   }

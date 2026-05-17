@@ -8,6 +8,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
@@ -19,6 +20,7 @@ export const AddRestaurantModal: React.FC = () => {
   } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
+  const { dragProps } = useBottomSheet(addRestaurantModalOpen, closeAddRestaurantModal);
 
   // Real friends
   const [realFriends, setRealFriends] = useState<{ id: string; name: string }[]>([]);
@@ -293,6 +295,7 @@ export const AddRestaurantModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col",
               phoneMode
@@ -437,7 +440,7 @@ export const AddRestaurantModal: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
+                  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
                     {dateError && isNewVisit && !hasDate && (
                       <p className="text-xs text-red-600 font-medium text-center">
                         Pick a visit date to save this visit.
@@ -811,7 +814,7 @@ const SubPage: React.FC<{
 );
 
 const BottomBtn: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
     <button onClick={onClick} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{label}</button>
   </div>
 );

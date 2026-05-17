@@ -170,7 +170,16 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
     } else {
       el.pause();
     }
-  }, [postActive, itemActive, muted, item.mediaType]);
+    // `muted` intentionally excluded — a separate effect mirrors it
+    // without restarting playback, which is what users expect when
+    // toggling the speaker on a paused reel/post.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postActive, itemActive, item.mediaType]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) el.muted = muted;
+  }, [muted]);
 
   // Default fallback — gradient placeholder. Used for any item far from
   // the active one, or when the signed URL isn't ready yet.
@@ -198,7 +207,12 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
         playsInline
         loop
         muted={muted}
-        preload="metadata"
+        // The parent already gates mounting (shouldRenderMedia: post is
+        // active in the feed AND sub-item is within ±1 of activeIdx).
+        // Inside that window we want the buffer warm enough to start
+        // playback instantly, so use preload="auto" rather than the old
+        // preload="metadata" which only fetched a few bytes of header.
+        preload="auto"
         className="absolute inset-0 w-full h-full object-contain"
       />
     );
@@ -236,7 +250,7 @@ interface PostSlideProps {
   onDelete: () => void;
 }
 
-export const PostSlide: React.FC<PostSlideProps> = ({
+const PostSlideInner: React.FC<PostSlideProps> = ({
   post, active, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false,
   onActiveItemChange, onLike, onSave, onComment, onShare, onItemAttachmentClick, onDelete,
 }) => {
@@ -538,6 +552,20 @@ export const PostSlide: React.FC<PostSlideProps> = ({
     </div>
   );
 };
+
+// See ReelSlide for the rationale: scroll-induced setActiveKey in the
+// parent feed should only re-render the slide whose `active` actually
+// flipped, not every post on screen. The inline callbacks the parent
+// builds change identity every render and are ignored here.
+export const PostSlide = React.memo(PostSlideInner, (prev, next) =>
+  prev.post === next.post
+  && prev.active === next.active
+  && prev.muted === next.muted
+  && prev.isMine === next.isMine
+  && prev.currentUserId === next.currentUserId
+  && prev.hideActionRail === next.hideActionRail
+  && prev.hideOwnerDelete === next.hideOwnerDelete,
+);
 
 /* ── Compact action column (desktop) ──────────────────────────────── */
 // Re-uses the same visual language as DesktopSideActions in Reels.tsx

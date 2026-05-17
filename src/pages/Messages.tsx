@@ -10,6 +10,7 @@ import { useLists, type RestaurantRating, type RestaurantMeta } from '../context
 import { useSettings } from '../contexts/SettingsContext';
 import { useNavigate } from 'react-router-dom';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 /* ── Restaurant Share Card (iMessage-style rich preview) ── */
 const RestaurantShareCard: React.FC<{
@@ -307,6 +308,7 @@ const ShareRestaurantSheet: React.FC<{
   const { ratings } = useLists();
   const { phoneMode } = useSettings();
   const [searchQuery, setSearchQuery] = useState('');
+  const { dragProps } = useBottomSheet(open, onClose);
 
   const filteredRatings = useMemo(() => {
     if (!searchQuery.trim()) return ratings;
@@ -353,6 +355,7 @@ const ShareRestaurantSheet: React.FC<{
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+            {...dragProps}
             className={cn("fixed bottom-0 left-0 right-0 z-[80] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
               phoneMode ? "max-h-[85vh]" : "max-h-[70vh]")}
           >
@@ -373,7 +376,7 @@ const ShareRestaurantSheet: React.FC<{
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 pb-5">
+            <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
               {filteredRatings.length === 0 ? (
                 <div className="text-center py-12">
                   <Star size={28} className="mx-auto text-on-surface/15 mb-2" />
@@ -541,7 +544,7 @@ const NewChatSheet: React.FC<{
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 pb-5">
+            <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
               {filteredFriends.length === 0 ? (
                 <div className="text-center py-12">
                   <Users size={28} className="mx-auto text-on-surface/15 mb-2" />
@@ -576,7 +579,7 @@ const NewChatSheet: React.FC<{
             </div>
 
             {mode === 'group' && selectedFriends.length >= 2 && (
-              <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+              <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
                 <button onClick={handleCreateGroup}
                   className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                   Create Group ({selectedFriends.length} members)
@@ -938,7 +941,7 @@ const ChatView: React.FC<{
       </AnimatePresence>
 
       {/* Input bar */}
-      <div className="flex items-center gap-2 px-4 py-3 border-t border-on-surface/6 bg-surface flex-shrink-0">
+      <div className="flex items-center gap-2 px-4 pt-3 pb-safe-3 border-t border-on-surface/6 bg-surface flex-shrink-0">
         <button onClick={() => setShareSheetOpen(true)}
           className="p-2.5 text-on-surface/35 hover:text-primary hover:bg-primary/5 rounded-full transition-all flex-shrink-0"
           title="Share restaurant">

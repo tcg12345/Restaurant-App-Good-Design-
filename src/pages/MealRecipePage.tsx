@@ -515,7 +515,7 @@ export const MealRecipePage: React.FC = () => {
     return (
       <div className="max-w-[680px] mx-auto pb-32">
         {/* Back header */}
-        <div className="flex items-center gap-3 px-4 pt-4 pb-2">
+        <div className="flex items-center gap-3 px-4 pt-safe-4 pb-2">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/50 hover:text-on-surface transition-colors" aria-label="Back">
             <ArrowLeft size={22} />
           </button>

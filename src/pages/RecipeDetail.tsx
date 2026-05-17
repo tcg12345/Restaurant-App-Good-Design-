@@ -146,7 +146,7 @@ export const RecipeDetail: React.FC = () => {
         </button>
 
         {/* Top-right actions */}
-        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+        <div className="absolute top-[max(1rem,env(safe-area-inset-top))] right-4 flex items-center gap-2 z-10">
           {isOwner && (
             <button onClick={() => openRecipeModal(recipe)}
               className="p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/80">

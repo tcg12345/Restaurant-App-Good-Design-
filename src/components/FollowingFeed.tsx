@@ -14,6 +14,7 @@ import {
 import { cn } from '../lib/utils';
 import { ScoreBadge } from './RestaurantCard';
 import { extractCityState } from '../lib/places';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 const CHUNK_SIZE = 15;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
@@ -565,6 +566,7 @@ const FollowingFilterSheet: React.FC<{
   const [cuisineOpen, setCuisineOpen] = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
+  const { dragProps } = useBottomSheet(open, onClose);
 
   const filteredCuisines = cuisineSearch.trim()
     ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase()))
@@ -607,12 +609,7 @@ const FollowingFilterSheet: React.FC<{
               ? {
                   initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
                   transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                  drag: 'y' as const,
-                  dragConstraints: { top: 0 },
-                  dragElastic: { top: 0, bottom: 0.4 },
-                  onDragEnd: (_: unknown, info: { offset: { y: number }; velocity: { y: number } }) => {
-                    if (info.offset.y > 80 || info.velocity.y > 300) onClose();
-                  },
+                  ...dragProps,
                 }
               : {
                   initial: { opacity: 0, scale: 0.94, y: -12 },
@@ -648,7 +645,7 @@ const FollowingFilterSheet: React.FC<{
             </div>
             {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
               {/* Sort */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">

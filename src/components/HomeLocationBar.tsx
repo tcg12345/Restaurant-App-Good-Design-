@@ -3,6 +3,7 @@ import { ChevronDown, Search, MapPin, X, Navigation, Loader2 } from 'lucide-reac
 import { motion, AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../pages/useRestaurantDetail';
 import { useSettings } from '../contexts/SettingsContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 export type HomeLocation = { label: string; lat: number; lng: number };
 
@@ -118,6 +119,60 @@ export async function searchLocations(query: string): Promise<HomeLocation[]> {
   }
 }
 
+/**
+ * Resolve the device's current location to a HomeLocation (lat/lng + address
+ * label). Used by every "Use current location" entry point in the app.
+ *
+ * Why this is more than a thin wrapper around `getCurrentPosition`:
+ *
+ *  - On iOS WKWebView (Capacitor), the native geolocation bridge can hang
+ *    silently if `NSLocationWhenInUseUsageDescription` is missing from
+ *    Info.plist, or if the user has the permission set to "Ask Next Time"
+ *    but the prompt never surfaces. The browser-level `timeout` option is
+ *    not always honoured in that path, so we race the call against an
+ *    explicit JS-side deadline that always fires.
+ *  - We start with `enableHighAccuracy: false` (network/Wi-Fi positioning,
+ *    typically <50 m on a phone and resolves in ~1–3 s). That's plenty for
+ *    Mapbox to reverse-geocode to the right street address and it avoids
+ *    the cold-GPS wait that was making the picker sit on "Locating…"
+ *    indefinitely indoors.
+ */
+export async function getCurrentHomeLocation(): Promise<HomeLocation> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    throw Object.assign(new Error('Geolocation is not available in this browser.'), { code: 2 });
+  }
+  const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+    let settled = false;
+    const safety = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(Object.assign(new Error('Location request timed out.'), { code: 3 }));
+    }, 12000);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(safety);
+        resolve(p);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(safety);
+        reject(err);
+      },
+      {
+        maximumAge: 5 * 60 * 1000,
+        timeout: 10000,
+        enableHighAccuracy: false,
+      },
+    );
+  });
+  const { latitude: lat, longitude: lng } = pos.coords;
+  const label = await reverseGeocode(lat, lng);
+  return { label, lat, lng };
+}
+
 // Reverse-geocode a coordinate into a street-address label
 // ("123 Main St, San Francisco, CA") using Mapbox. Falls back to the
 // city/locality label if no address feature is returned, and to
@@ -179,6 +234,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
   const [recents, setRecents] = useState<HomeLocation[]>(() => loadRecentLocations());
   const [currentLoading, setCurrentLoading] = useState(false);
   const [currentError, setCurrentError] = useState<string | null>(null);
+  const { dragProps } = useBottomSheet(open, () => setOpen(false));
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -328,12 +384,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              drag="y"
-              dragConstraints={{ top: 0, bottom: 0 }}
-              dragElastic={{ top: 0, bottom: 0.5 }}
-              onDragEnd={(_: any, info: any) => {
-                if (info.offset.y > 100 || info.velocity.y > 300) setOpen(false);
-              }}
+              {...dragProps}
               className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
             >
               <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
@@ -368,7 +419,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-5">
+              <div className="flex-1 overflow-y-auto px-5 pb-safe-5 space-y-5">
                 {query.trim() ? (
                   <div className="space-y-0.5">
                     {searching && (

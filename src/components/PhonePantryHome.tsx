@@ -91,16 +91,8 @@ export const PhonePantryHome: React.FC<Props> = ({
 
   return (
     <div className="pt-safe-4 pb-32">
-      {/* ── Title ── */}
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">
-        Your Collection
-      </p>
-      <h1 className="font-serif text-[44px] leading-[1.05] mt-1 text-on-surface">
-        The <span className="italic">{tab === 'restaurants' ? 'Pantry' : 'Cookbook'}</span>
-      </h1>
-
       {/* ── Tab pill ── */}
-      <div className="mt-6 inline-flex w-full bg-on-surface/[0.06] rounded-full p-1">
+      <div className="inline-flex w-full bg-on-surface/[0.06] rounded-full p-1">
         {(['restaurants', 'recipes'] as PantryTab[]).map((t) => (
           <button
             key={t}

@@ -8,6 +8,7 @@ import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { getPublicRecipes, type Recipe } from '../lib/supabase-recipes';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 type SourceFilter = 'all' | 'friends' | 'chefs' | 'cooks';
 type SortKey = 'recent' | 'quick' | 'az';
@@ -75,6 +76,7 @@ export const RecipesForYou: React.FC = () => {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const isDesktop = isWideViewport && !phoneMode;
+  const { dragProps } = useBottomSheet(filtersOpen, () => setFiltersOpen(false));
 
   // ── Data load ──
   useEffect(() => {
@@ -391,9 +393,15 @@ export const RecipesForYou: React.FC = () => {
       {/* Body */}
       <div className="px-4 sm:px-6 lg:px-8 py-4">
         {loading ? (
-          <div className={cn('grid gap-3', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6')}>
+          <div className={cn(phoneMode ? 'flex flex-col gap-2.5' : 'grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6')}>
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-[260px] rounded-2xl bg-on-surface/[0.04] animate-pulse" />
+              <div
+                key={i}
+                className={cn(
+                  'rounded-2xl bg-on-surface/[0.04] animate-pulse',
+                  phoneMode ? 'h-[112px]' : 'h-[260px]',
+                )}
+              />
             ))}
           </div>
         ) : filtered.length === 0 ? (
@@ -411,7 +419,7 @@ export const RecipesForYou: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className={cn('grid gap-3', phoneMode ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6')}>
+          <div className={cn(phoneMode ? 'flex flex-col gap-2.5' : 'grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6')}>
             {filtered.map((r) => {
               const author = authors[r.userId];
               const total = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
@@ -427,6 +435,67 @@ export const RecipesForYou: React.FC = () => {
                   : 'bg-on-surface/[0.06] text-on-surface/70';
               const sourceLabel = isExpert ? 'Chef' : isFriend ? 'Friend' : 'Home cook';
               const SourceIcon = isExpert ? Crown : isFriend ? Users : ChefHat;
+              const authorName = author?.display_name || author?.username || 'Unknown';
+              const authorInitial = (author?.display_name?.charAt(0) || author?.username?.charAt(0) || '?').toUpperCase();
+
+              if (phoneMode) {
+                // Horizontal list-item layout for phones — full-width row,
+                // ~110 px tall, leading emerald thumbnail panel anchors the
+                // card visually while the right column stays scannable.
+                return (
+                  <Link
+                    key={r.id}
+                    to={`/recipe/${r.id}`}
+                    className="group relative flex items-stretch rounded-2xl bg-white border border-on-surface/[0.07] active:border-on-surface/[0.2] active:scale-[0.985] transition-all overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                  >
+                    <div className="relative w-[88px] flex-shrink-0 bg-gradient-to-br from-emerald-50 to-emerald-100/30 flex items-center justify-center">
+                      <div className="absolute inset-y-0 left-0 w-[3px] bg-emerald-500/80" />
+                      <SourceIcon size={28} className="text-emerald-600/70" />
+                    </div>
+                    <div className="flex-1 min-w-0 px-3.5 py-3 flex flex-col justify-center gap-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={cn('inline-flex items-center gap-1 rounded-full px-1.5 py-[2px] text-[9px] font-bold uppercase tracking-[0.1em] flex-shrink-0', sourceCls)}>
+                          <SourceIcon size={9} />
+                          {sourceLabel}
+                        </span>
+                        {(r.cuisine || r.difficulty) && (
+                          <span className="text-[10px] text-on-surface/45 font-semibold uppercase tracking-[0.08em] truncate">
+                            {[r.cuisine, DIFFICULTY_LABEL[r.difficulty]].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="font-serif text-[17px] font-bold leading-tight line-clamp-1 text-on-surface group-active:text-primary transition-colors">
+                        {r.title}
+                      </h3>
+                      {r.description && (
+                        <p className="text-[12px] text-on-surface/55 italic line-clamp-1 leading-snug">
+                          {r.description}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-3 text-[11px] text-on-surface/70 font-semibold tabular-nums min-w-0">
+                        {totalLabel && (
+                          <span className="inline-flex items-center gap-1"><Clock size={11} />{totalLabel}</span>
+                        )}
+                        {ingCount > 0 && (
+                          <span className="inline-flex items-center gap-1"><UtensilsCrossed size={11} />{ingCount}</span>
+                        )}
+                        {stepCount > 0 && (
+                          <span className="inline-flex items-center gap-1"><BookOpen size={11} />{stepCount}</span>
+                        )}
+                        <span className="flex-1 min-w-0" />
+                        <div className="flex items-center gap-1.5 text-on-surface/55 font-medium min-w-0">
+                          <div className="w-4 h-4 rounded-full bg-on-surface/10 flex items-center justify-center text-[8.5px] font-serif font-bold text-on-surface/60 flex-shrink-0">
+                            {authorInitial}
+                          </div>
+                          <span className="truncate text-[11px] max-w-[88px]">{authorName}</span>
+                          {isExpert && <Crown size={10} className="text-amber-500 flex-shrink-0" />}
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              }
+
               return (
                 <Link
                   key={r.id}
@@ -539,6 +608,7 @@ export const RecipesForYou: React.FC = () => {
               animate={isDesktop ? { opacity: 1, y: 0, scale: 1 } : { y: 0 }}
               exit={isDesktop ? { opacity: 0, y: 12, scale: 0.98 } : { y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              {...(isDesktop ? {} : dragProps)}
               onClick={(e) => e.stopPropagation()}
               className={cn(
                 'bg-surface flex flex-col w-full',

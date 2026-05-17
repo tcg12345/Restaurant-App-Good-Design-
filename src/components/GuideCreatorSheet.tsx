@@ -25,6 +25,7 @@ import { useLists, type CustomList, type RestaurantRating, type Recipe as ListRe
 import { useRecipes, type Recipe as DbRecipe } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 import { saveGuide, type GuideEntry, type GuideType, type GuideVisibility, type Guide } from '../lib/supabase-guides';
 import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
 import { scoreColor } from '../lib/score';
@@ -98,6 +99,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const [entries, setEntries] = useState<GuideEntry[]>([]);
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const { dragProps } = useBottomSheet(open, onClose);
   const dragRef = useRef<number | null>(null);
 
   // Reset when (re)opening.
@@ -301,6 +304,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+          {...dragProps}
           onClick={(e) => e.stopPropagation()}
           className={cn(
             'bg-[#f4f2ec] w-full overflow-hidden flex flex-col text-on-surface',

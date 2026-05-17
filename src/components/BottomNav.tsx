@@ -16,7 +16,12 @@ const navItems = [
 export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = false }) => {
   const [expanded, setExpanded] = useState(false);
   const [searchSplit, setSearchSplit] = useState(false);
-  const { phoneMode, hideBottomNav } = useSettings();
+  const { phoneMode, hideBottomNav, keyboardOpen } = useSettings();
+  // Hide whenever any consumer asked us to OR the on-screen keyboard is up.
+  // Typing in a search bar shouldn't leave the nav floating in the way and
+  // intercepting taps, especially on phone where the WebView shrinks to fit
+  // above the keyboard and the nav ends up flush against the accessory area.
+  const navHidden = hideBottomNav || keyboardOpen;
   const navigate = useNavigate();
   const location = useLocation();
   const splitTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -57,10 +62,10 @@ export const BottomNav: React.FC<{ collapsible?: boolean }> = ({ collapsible = f
   return (
     <motion.nav
       layout
-      animate={{ opacity: hideBottomNav ? 0 : 1, y: hideBottomNav ? 20 : 0 }}
+      animate={{ opacity: navHidden ? 0 : 1, y: navHidden ? 20 : 0 }}
       className={cn(
         "fixed z-50 flex items-center",
-        hideBottomNav && "pointer-events-none",
+        navHidden && "pointer-events-none",
         phoneMode
           // Phone: solid full-width bar flush with the bottom edge, with
           // a thin top divider. 50px of content + safe-area-inset-bottom

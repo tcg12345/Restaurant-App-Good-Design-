@@ -35,6 +35,8 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { searchPlacesByText, priceLevelToString, CUISINE_TYPES, type PlaceResult } from '../lib/places';
 import { searchLocations, type HomeLocation } from './HomeLocationBar';
+import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
+import { PhotoLibraryGrid } from './PhotoLibraryGrid';
 import {
   MediaEditor,
   applyAllEdits,
@@ -42,6 +44,7 @@ import {
   isEdited,
   type EditState,
 } from './MediaEditor';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 const PLACE_TYPE_TO_CUISINE: Record<string, string> = {};
 for (const c of CUISINE_TYPES) {
@@ -134,6 +137,7 @@ export const AddPostModal: React.FC = () => {
   const { profile, user } = useAuth();
   const { phoneMode } = useSettings();
   const { showToast } = useToast();
+  const { dragProps } = useBottomSheet(addPostModalOpen, closeAddPostModal);
 
   // Step machine. Create flow walks 1 → 2 → 3; edit flow enters at 2
   // (media is locked) and goes 2 → 3.
@@ -258,6 +262,8 @@ export const AddPostModal: React.FC = () => {
     setRecipeSearch('');
     setPlaceResults([]);
     setSearchingPlaces(false);
+    setNativePicks([]);
+    setNativeMaterializing(false);
   }, [addPostModalOpen, editingPostId]);
 
   // Revoke object URLs on unmount. Existing items in edit mode use a
@@ -282,6 +288,9 @@ export const AddPostModal: React.FC = () => {
   useEffect(() => {
     if (!addPostModalOpen) { autoOpenedRef.current = false; return; }
     if (!phoneMode || isEditing || step !== 1 || items.length > 0 || autoOpenedRef.current) return;
+    // On native iOS the page renders an inline PhotoLibraryGrid; the
+    // OS picker would be a redundant second UI.
+    if (canUseNativePhotoLibrary()) { autoOpenedRef.current = true; return; }
     autoOpenedRef.current = true;
     const id = window.setTimeout(() => {
       try { fileInputRef.current?.click(); } catch { /* user gesture lost */ }
@@ -427,6 +436,13 @@ export const AddPostModal: React.FC = () => {
     return url;
   };
 
+  // Native iOS: ordered list of MediaItems the user has tapped on the
+  // PhotoLibraryGrid but hasn't materialized yet. They're flushed to
+  // `items` (via getMedia + onPickFiles) when the user presses Next.
+  const [nativePicks, setNativePicks] = useState<MediaItem[]>([]);
+  const [nativeMaterializing, setNativeMaterializing] = useState(false);
+  const useNativeGrid = canUseNativePhotoLibrary();
+
   const onPickFiles = async (incoming: File[]) => {
     // Editing an existing post — media is locked. Bail.
     if (isEditing) return;
@@ -482,18 +498,87 @@ export const AddPostModal: React.FC = () => {
       });
     }
     if (accepted.length === 0) return;
-    setItems((prev) => {
-      const next = [...prev, ...accepted];
-      // First pick of the session — auto-advance to the Edit step so
-      // the user lands on the editor without an extra tap, matching
-      // Instagram. Subsequent picks (via the strip's "+" tile) stay
-      // put so the user can keep adding before moving on.
-      if (prev.length === 0 && step === 1) {
-        setTimeout(() => goToStep(2), 0);
-      }
-      return next;
-    });
+    setItems((prev) => [...prev, ...accepted]);
     if (!activeKey) setActiveKey(accepted[0].key);
+  };
+
+  // Toggle a thumbnail in/out of the native pre-selection. Enforces the
+  // POST_MAX_ITEMS cap silently — taps past the cap are ignored on
+  // not-yet-selected thumbs so the UI doesn't need a separate disabled
+  // state and the existing 1-based badges stay contiguous.
+  const onNativeToggle = (item: MediaItem) => {
+    setNativePicks((prev) => {
+      const idx = prev.findIndex((p) => p.id === item.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next.splice(idx, 1);
+        return next;
+      }
+      if (prev.length >= POST_MAX_ITEMS) {
+        setValidationMsg(`A post can have at most ${POST_MAX_ITEMS} items.`);
+        return prev;
+      }
+      setValidationMsg(null);
+      return [...prev, item];
+    });
+  };
+
+  // Pull each staged MediaItem off PhotoKit into a File. Doesn't touch
+  // items / state — leaves that to the caller so it can bundle the
+  // resulting files with other sources (e.g. a camera capture).
+  const readStagedNativeFiles = async (): Promise<File[]> => {
+    const files: File[] = [];
+    for (const item of nativePicks) {
+      const { path, mimeType } = await PhotoLibrary.getMedia({ id: item.id });
+      const ext = mimeType.split('/')[1] || (item.type === 'video' ? 'mov' : 'jpg');
+      files.push(await nativePathToFile(path, `${item.type}-${item.id}.${ext}`, mimeType));
+    }
+    return files;
+  };
+
+  // Run on Next-button tap: materialize every staged MediaItem and hand
+  // the resulting Files to onPickFiles (which validates videos, appends
+  // to items, and is followed by an explicit advance). Returns true if
+  // we got at least as far as calling onPickFiles.
+  const materializeNativePicks = async (): Promise<boolean> => {
+    if (nativePicks.length === 0) return false;
+    setNativeMaterializing(true);
+    try {
+      const files = await readStagedNativeFiles();
+      await onPickFiles(files);
+      setNativePicks([]);
+      return true;
+    } catch (err) {
+      console.warn('[AddPost] native materialize failed:', err);
+      setValidationMsg("Couldn't load one of the selected items — try again.");
+      return false;
+    } finally {
+      setNativeMaterializing(false);
+    }
+  };
+
+  // Camera-capture handler for the in-grid Camera tile. We also flush any
+  // staged native picks in the same shot so the user doesn't silently
+  // lose them when the grid disappears post-capture.
+  const onCameraTap = async () => {
+    setNativeMaterializing(true);
+    try {
+      const res = await PhotoLibrary.pickCamera({ mediaType: 'all' });
+      if (res.cancelled || !res.path || !res.mimeType) return;
+      const files: File[] = [];
+      if (nativePicks.length > 0) {
+        files.push(...(await readStagedNativeFiles()));
+        setNativePicks([]);
+      }
+      const ext = res.mimeType.split('/')[1] || (res.mediaType === 'video' ? 'mov' : 'jpg');
+      files.push(await nativePathToFile(res.path, `camera-${Date.now()}.${ext}`, res.mimeType));
+      await onPickFiles(files);
+    } catch (err) {
+      console.warn('[AddPost] camera failed:', err);
+      setValidationMsg("Couldn't open the camera. Check camera permission in Settings.");
+    } finally {
+      setNativeMaterializing(false);
+    }
   };
 
   const onRemoveItem = (key: string) => {
@@ -835,6 +920,7 @@ export const AddPostModal: React.FC = () => {
           <motion.div
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'bg-surface w-full overflow-hidden flex flex-col',
@@ -954,6 +1040,20 @@ export const AddPostModal: React.FC = () => {
               {step === 1 && (<>
               {/* Empty state vs items strip */}
               {items.length === 0 ? (
+                useNativeGrid ? (
+                  <div className="-mx-5">
+                    <p className="text-[12px] text-on-surface/55 px-5 pb-2 leading-relaxed">
+                      Tap a photo or video to add it. Up to {POST_MAX_ITEMS} items, videos up to {POST_VIDEO_MAX_DURATION_SECONDS}s each.
+                    </p>
+                    <PhotoLibraryGrid
+                      mediaType="all"
+                      onSelect={onNativeToggle}
+                      selectedIds={nativePicks.map((p) => p.id)}
+                      selectionMode="multi"
+                      onCameraTap={onCameraTap}
+                    />
+                  </div>
+                ) : (
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -976,6 +1076,7 @@ export const AddPostModal: React.FC = () => {
                     Mix freely · up to {POST_MAX_ITEMS} items · videos up to {POST_VIDEO_MAX_DURATION_SECONDS}s each
                   </span>
                 </button>
+                )
               ) : (
                 <section>
                   <div className="flex items-baseline justify-between mb-2">
@@ -1605,7 +1706,7 @@ export const AddPostModal: React.FC = () => {
 
                   <section>
                     <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Visibility</label>
-                    <div className="flex p-1 rounded-2xl bg-on-surface/[0.06]">
+                    <div className="flex p-1 rounded-2xl bg-on-surface/[0.06] gap-1">
                       {([
                         { value: true, label: 'Public', sub: 'Anyone can see this post', icon: Globe },
                         { value: false, label: 'Followers only', sub: 'Only people who follow you', icon: UsersIcon },
@@ -1619,7 +1720,12 @@ export const AddPostModal: React.FC = () => {
                             onClick={() => setIsPublic(opt.value)}
                             disabled={submitting}
                             className={cn(
-                              'flex-1 flex items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors disabled:opacity-40',
+                              // min-w-0 lets the button shrink past its
+                              // intrinsic content width — without it,
+                              // flex items default to min-width: auto and
+                              // "Followers only / Only people who follow
+                              // you" pushes the segment off-screen.
+                              'flex-1 min-w-0 flex items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors disabled:opacity-40',
                               active ? 'bg-white shadow' : 'hover:bg-on-surface/[0.03]',
                             )}
                           >
@@ -1627,7 +1733,7 @@ export const AddPostModal: React.FC = () => {
                               <Icon size={15} />
                             </span>
                             <span className="min-w-0 flex-1">
-                              <span className={cn('block text-[13px] font-bold leading-tight', active ? 'text-on-surface' : 'text-on-surface/65')}>{opt.label}</span>
+                              <span className={cn('block text-[13px] font-bold leading-tight truncate', active ? 'text-on-surface' : 'text-on-surface/65')}>{opt.label}</span>
                               <span className="block text-[11px] text-on-surface/45 leading-tight truncate">{opt.sub}</span>
                             </span>
                           </button>
@@ -1662,23 +1768,45 @@ export const AddPostModal: React.FC = () => {
             )}
 
             {/* Footer */}
-            <div className="border-t border-on-surface/[0.06] px-5 py-3 bg-surface flex items-center gap-3 flex-shrink-0">
-              {/* Step 1 (Media): Next, gated on at least one item. */}
-              {!isEditing && step === 1 && (
-                <button
-                  type="button"
-                  onClick={() => goToStep(2)}
-                  disabled={items.length === 0}
-                  className={cn(
-                    'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
-                    items.length > 0
-                      ? 'bg-primary text-white hover:bg-primary/90'
-                      : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
-                  )}
-                >
-                  Next <ChevronRight size={15} />
-                </button>
-              )}
+            <div className="border-t border-on-surface/[0.06] px-5 pt-3 pb-safe-3 bg-surface flex items-center gap-3 flex-shrink-0">
+              {/* Step 1 (Media): Next, gated on at least one item OR a
+                  staged native pick that we can materialize on the way
+                  through. */}
+              {!isEditing && step === 1 && (() => {
+                const canAdvance = items.length > 0 || nativePicks.length > 0;
+                const busy = nativeMaterializing;
+                return (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (busy) return;
+                      if (items.length > 0) { goToStep(2); return; }
+                      if (nativePicks.length > 0) {
+                        if (await materializeNativePicks()) goToStep(2);
+                      }
+                    }}
+                    disabled={!canAdvance || busy}
+                    className={cn(
+                      'flex-1 h-11 rounded-full text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors',
+                      canAdvance && !busy
+                        ? 'bg-primary text-white hover:bg-primary/90'
+                        : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
+                    )}
+                  >
+                    {busy ? (
+                      <><Loader2 size={15} className="animate-spin" /> Loading…</>
+                    ) : (
+                      <>
+                        Next
+                        {nativePicks.length > 0 && items.length === 0 && (
+                          <span className="text-white/85 font-semibold">· {nativePicks.length}</span>
+                        )}
+                        <ChevronRight size={15} />
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
               {/* Step 2 (Edit): Next — editing is always optional. */}
               {!isEditing && step === 2 && (
                 <button

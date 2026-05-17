@@ -4,6 +4,7 @@ import { X, FileUp, Upload, CheckCircle, XCircle, Loader2, AlertTriangle, Chevro
 import { cn } from '../lib/utils';
 import { useLists, type RecipeIngredient } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useBottomSheet } from '../lib/useBottomSheet';
 
 interface ParsedRecipe {
   title: string;
@@ -283,6 +284,8 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
   const [showFormat, setShowFormat] = useState(false);
   const abortRef = useRef(false);
 
+  const { dragProps } = useBottomSheet(open, onClose);
+
   const reset = () => {
     setParsed([]);
     setItems([]);
@@ -402,6 +405,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'bg-surface w-full overflow-hidden flex flex-col',
