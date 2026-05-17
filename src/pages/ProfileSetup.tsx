@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { User, AtSign, MapPin, ArrowRight, Loader2 } from 'lucide-react';
+import { User, AtSign, MapPin, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { saveProfile } from '../lib/supabase-community';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { AuthShell, GMark, useDesktopAuthLayout } from '../components/AuthShell';
 
 export const ProfileSetup: React.FC = () => {
-  const { user, refreshProfile } = useAuth();
+  const { user, refreshProfile, signOut } = useAuth();
   const useDesktopLayout = useDesktopAuthLayout();
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
@@ -133,12 +133,27 @@ export const ProfileSetup: React.FC = () => {
     </form>
   );
 
+  // Sign out and return to the email-entry step. Profile setup is the
+  // only post-auth surface the user can't otherwise leave, so "back"
+  // here means abandon setup and reset the flow.
+  const handleBack = () => { void signOut(); };
+
   // ── Desktop split layout ──────────────────────────────────────────────
   // Renders inside the same shell as the sign-in flow so the user
   // stays in the same form column they entered their password in.
   if (useDesktopLayout) {
+    const headerRight = (
+      <button
+        type="button"
+        onClick={handleBack}
+        className="inline-flex items-center gap-1.5 text-on-surface/55 hover:text-on-surface transition-colors cursor-pointer"
+      >
+        <ArrowLeft size={14} />
+        <span>Sign out</span>
+      </button>
+    );
     return (
-      <AuthShell>
+      <AuthShell headerRight={headerRight}>
         <div className="space-y-6">
           <header>
             <h1 className="font-serif font-bold text-4xl xl:text-5xl tracking-tight leading-[1.05] text-on-surface mb-3">
@@ -161,6 +176,15 @@ export const ProfileSetup: React.FC = () => {
         <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-primary/5" />
         <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-secondary/5" />
       </div>
+
+      <button
+        type="button"
+        onClick={handleBack}
+        className="absolute top-[max(1.5rem,env(safe-area-inset-top))] left-6 z-20 flex items-center gap-2 text-on-surface/50 hover:text-on-surface transition-colors cursor-pointer"
+      >
+        <ArrowLeft size={20} />
+        <span className="text-sm font-medium">Sign out</span>
+      </button>
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
         className="relative z-10 flex flex-col items-center text-center mb-8">
