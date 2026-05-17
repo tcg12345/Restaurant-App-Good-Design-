@@ -4,9 +4,11 @@ import { User, AtSign, MapPin, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { saveProfile } from '../lib/supabase-community';
 import { geocodePlace } from '../components/HomeLocationBar';
+import { AuthShell, GMark, useDesktopAuthLayout } from '../components/AuthShell';
 
 export const ProfileSetup: React.FC = () => {
   const { user, refreshProfile } = useAuth();
+  const useDesktopLayout = useDesktopAuthLayout();
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [homeCity, setHomeCity] = useState('');
@@ -55,6 +57,104 @@ export const ProfileSetup: React.FC = () => {
     setSubmitting(false);
   };
 
+  // Shared form body — used inside both the desktop AuthShell column
+  // and the mobile fullscreen layout below.
+  const formBody = (
+    <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
+      <div className="relative">
+        <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+        <input type="text" placeholder="Your name (e.g. Tyler)" value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+      </div>
+
+      <div className="relative">
+        <AtSign size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+        <input type="text" placeholder="Username (e.g. tyler_eats)" value={username}
+          onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+          className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+          autoCapitalize="off" autoCorrect="off" />
+      </div>
+
+      {username && (
+        <p className="text-xs text-on-surface/40 px-1">Your username will be: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></p>
+      )}
+
+      {/* Home city — surfaces the user on /location's "experts in this
+          area" row when they're declared as experts. Required when the
+          expert toggle below is on; optional otherwise. */}
+      <div className="relative">
+        <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+        <input type="text" placeholder={isExpert ? 'Home city (required for experts)' : 'Home city (optional)'}
+          value={homeCity}
+          onChange={(e) => setHomeCity(e.target.value)}
+          autoCapitalize="words" autoCorrect="off"
+          className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+      </div>
+
+      {/* Public/Private toggle */}
+      <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-on-surface">{isPublic ? 'Public Account' : 'Private Account'}</p>
+          <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
+        </div>
+        <button type="button" onClick={() => setIsPublic(!isPublic)}
+          aria-label={isPublic ? 'Make profile private' : 'Make profile public'}
+          className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
+          <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
+        </button>
+      </div>
+
+      {/* Expert toggle */}
+      <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-on-surface">{isExpert ? 'Expert Account' : 'Regular Account'}</p>
+          <p className="text-[11px] text-on-surface/40">{isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}</p>
+        </div>
+        <button type="button" onClick={() => setIsExpert(!isExpert)}
+          aria-label={isExpert ? 'Switch to regular account' : 'Switch to expert account'}
+          className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}>
+          <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isExpert ? 'left-[18px]' : 'left-0.5'}`} />
+        </button>
+      </div>
+
+      {error && (
+        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
+      )}
+
+      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+        type="submit" disabled={submitting}
+        className="group flex items-center justify-center gap-3 bg-primary text-white px-8 py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
+        {submitting ? <Loader2 size={20} className="animate-spin" /> : (
+          <>Continue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" /></>
+        )}
+      </motion.button>
+    </form>
+  );
+
+  // ── Desktop split layout ──────────────────────────────────────────────
+  // Renders inside the same shell as the sign-in flow so the user
+  // stays in the same form column they entered their password in.
+  if (useDesktopLayout) {
+    return (
+      <AuthShell>
+        <div className="space-y-6">
+          <header>
+            <h1 className="font-serif font-bold text-4xl xl:text-5xl tracking-tight leading-[1.05] text-on-surface mb-3">
+              Set up your profile
+            </h1>
+            <p className="text-base text-on-surface/55 font-light leading-relaxed">
+              Choose a display name and username so friends can find you.
+            </p>
+          </header>
+          {formBody}
+        </div>
+      </AuthShell>
+    );
+  }
+
+  // ── Mobile / phone-frame layout (unchanged style) ────────────────────
   return (
     <div className="min-h-screen bg-surface flex flex-col items-center justify-center px-6 py-12">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -64,84 +164,15 @@ export const ProfileSetup: React.FC = () => {
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
         className="relative z-10 flex flex-col items-center text-center mb-8">
-        <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-3xl shadow-lg shadow-primary/25 mb-5">G</div>
+        <GMark size={56} className="mb-5" />
         <h1 className="text-3xl font-serif font-bold tracking-tight text-on-surface mb-2">Set Up Your Profile</h1>
         <p className="text-sm text-on-surface/50 max-w-sm">Choose a display name and username so friends can find you</p>
       </motion.div>
 
-      <motion.form initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-        onSubmit={handleSubmit} className="relative z-10 w-full max-w-sm flex flex-col gap-3">
-
-        <div className="relative">
-          <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-          <input type="text" placeholder="Your name (e.g. Tyler)" value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
-        </div>
-
-        <div className="relative">
-          <AtSign size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-          <input type="text" placeholder="Username (e.g. tyler_eats)" value={username}
-            onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-            className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-            autoCapitalize="off" autoCorrect="off" />
-        </div>
-
-        {username && (
-          <p className="text-xs text-on-surface/40 px-1">Your username will be: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></p>
-        )}
-
-        {/* Home city — surfaces the user on /location's "experts in this
-            area" row when they're declared as experts. Required when the
-            expert toggle below is on; optional otherwise. */}
-        <div className="relative">
-          <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-          <input type="text" placeholder={isExpert ? 'Home city (required for experts)' : 'Home city (optional)'}
-            value={homeCity}
-            onChange={(e) => setHomeCity(e.target.value)}
-            autoCapitalize="words" autoCorrect="off"
-            className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
-        </div>
-
-        {/* Public/Private toggle */}
-        <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-on-surface">{isPublic ? 'Public Account' : 'Private Account'}</p>
-            <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
-          </div>
-          <button type="button" onClick={() => setIsPublic(!isPublic)}
-            aria-label={isPublic ? 'Make profile private' : 'Make profile public'}
-            className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
-            <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
-          </button>
-        </div>
-
-        {/* Expert toggle */}
-        <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-on-surface">{isExpert ? 'Expert Account' : 'Regular Account'}</p>
-            <p className="text-[11px] text-on-surface/40">{isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}</p>
-          </div>
-          <button type="button" onClick={() => setIsExpert(!isExpert)}
-            aria-label={isExpert ? 'Switch to regular account' : 'Switch to expert account'}
-            className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}>
-            <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isExpert ? 'left-[18px]' : 'left-0.5'}`} />
-          </button>
-        </div>
-
-        {error && (
-          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
-        )}
-
-        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-          type="submit" disabled={submitting}
-          className="group flex items-center justify-center gap-3 bg-primary text-white px-8 py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
-          {submitting ? <Loader2 size={20} className="animate-spin" /> : (
-            <>Continue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" /></>
-          )}
-        </motion.button>
-      </motion.form>
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+        className="relative z-10 w-full max-w-sm">
+        {formBody}
+      </motion.div>
     </div>
   );
 };

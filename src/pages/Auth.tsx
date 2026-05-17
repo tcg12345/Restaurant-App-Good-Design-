@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, MapPin, Smartphone } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Smartphone } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
+import { AuthShell, GMark, useDesktopAuthLayout } from '../components/AuthShell';
 
 type Step = 'email' | 'password' | 'signup';
 type PasswordStrength = { score: 0 | 1 | 2 | 3 | 4; label: string; color: string };
@@ -28,33 +29,7 @@ function getPasswordStrength(password: string): PasswordStrength {
   return { score, ...meta[score] };
 }
 
-function useIsDesktopAuth(): boolean {
-  const [isDesktop, setIsDesktop] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
-  );
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(min-width: 1024px)');
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-  return isDesktop;
-}
-
-// ── Brand & social icons ────────────────────────────────────────────────
-const GMark: React.FC<{ size?: number; className?: string }> = ({ size = 36, className }) => (
-  <div
-    className={cn(
-      'rounded-full bg-primary flex items-center justify-center text-white font-serif italic shadow-lg shadow-primary/25',
-      className,
-    )}
-    style={{ width: size, height: size, fontSize: size * 0.55 }}
-  >
-    G
-  </div>
-);
-
+// ── Social icons ────────────────────────────────────────────────────────
 const AppleIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
     <path d="M11.2 8.4c0-1.7 1.4-2.5 1.4-2.5-.8-1.1-2-1.3-2.4-1.3-1-.1-2 .6-2.5.6s-1.3-.6-2.2-.6c-1.1 0-2.2.7-2.8 1.7C1.5 8.4 2.4 11.6 3.6 13.4c.6.9 1.3 1.9 2.2 1.8.9 0 1.2-.6 2.3-.6s1.4.6 2.3.6c.9 0 1.6-.9 2.2-1.8.7-1 .9-2 .9-2-.1 0-1.9-.7-1.9-2.8zM9.6 3.6c.5-.6.8-1.4.7-2.2-.7 0-1.5.5-2 1-.4.5-.8 1.3-.7 2.1.8.1 1.6-.4 2-.9z" />
@@ -172,79 +147,6 @@ const EmailPill: React.FC<{ email: string; onClear: () => void }> = ({ email, on
     <span>{email}</span>
     <ArrowLeft size={12} />
   </button>
-);
-
-// ── Editorial side panel (desktop only) ─────────────────────────────────
-const EditorialPanel: React.FC = () => (
-  <div className="relative h-full overflow-hidden bg-cream-2 text-on-surface">
-    {/* Decorative warm shapes */}
-    <div className="absolute inset-0 pointer-events-none">
-      <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/[0.07]" />
-      <div className="absolute bottom-[-10%] right-[-8%] w-[28rem] h-[28rem] rounded-full bg-secondary/[0.08]" />
-      <div className="absolute top-1/3 right-12 w-40 h-40 rounded-full bg-accent/15" />
-    </div>
-
-    <div className="relative h-full flex flex-col justify-between p-12 xl:p-16">
-      <div className="flex items-center gap-3">
-        <GMark size={36} />
-        <span className="text-xl font-serif font-bold tracking-tight">Gourmet Canvas</span>
-      </div>
-
-      <div className="max-w-md">
-        <p className="text-xs tracking-[0.18em] uppercase text-on-surface/45 font-semibold mb-5">
-          Explore · Taste · Share
-        </p>
-        <h2 className="font-serif font-bold text-5xl xl:text-6xl leading-[1.05] tracking-tight mb-6">
-          Save the places, score what mattered, cook what stayed.
-        </h2>
-        <p className="text-base xl:text-lg text-on-surface/55 font-light leading-relaxed">
-          Your personal guide to extraordinary dining — a quiet, private atlas of the meals you'd
-          recommend if anyone asked.
-        </p>
-      </div>
-
-      {/* A small editorial card mockup to ground the panel */}
-      <div className="max-w-md w-full">
-        <div className="rounded-2xl bg-paper border border-line shadow-sm p-5">
-          <div className="flex items-start justify-between gap-4 mb-4">
-            <div>
-              <div className="font-serif font-bold text-lg leading-tight">Atomix</div>
-              <div className="flex items-center gap-1.5 mt-1 text-xs text-on-surface/55">
-                <MapPin size={12} />
-                <span>NoMad · New York</span>
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="font-serif font-bold text-2xl leading-none text-primary">9.4</div>
-              <div className="text-[10px] uppercase tracking-wider text-on-surface/40 mt-0.5">your rating</div>
-            </div>
-          </div>
-          <div className="space-y-2">
-            {[
-              { k: 'Food', v: 9.6 },
-              { k: 'Vibe', v: 9.0 },
-              { k: 'Service', v: 9.6 },
-            ].map((b) => (
-              <div key={b.k} className="flex items-center gap-3">
-                <span className="w-14 text-[11px] uppercase tracking-wider text-on-surface/50 font-semibold">
-                  {b.k}
-                </span>
-                <span className="flex-1 h-1 rounded-full bg-on-surface/8 overflow-hidden">
-                  <span
-                    className="block h-full rounded-full bg-primary/70"
-                    style={{ width: `${b.v * 10}%` }}
-                  />
-                </span>
-                <span className="text-xs tabular-nums text-on-surface/70 font-medium w-8 text-right">
-                  {b.v.toFixed(1)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 );
 
 // ── Step components ─────────────────────────────────────────────────────
@@ -485,8 +387,8 @@ const StepSignup: React.FC<SharedProps> = ({
 // ── Main page ────────────────────────────────────────────────────────────
 export const Auth: React.FC = () => {
   const { signIn, signUp, checkEmailExists } = useAuth();
-  const { phoneMode, isNative, togglePhoneMode } = useSettings();
-  const isDesktop = useIsDesktopAuth();
+  const { phoneMode, togglePhoneMode } = useSettings();
+  const useDesktopLayout = useDesktopAuthLayout();
 
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
@@ -495,12 +397,6 @@ export const Auth: React.FC = () => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [keepSignedIn, setKeepSignedIn] = useState(true);
-
-  // Desktop split layout only when the viewport is wide AND we're not
-  // wrapped in the phone-frame preview / running natively. The phone
-  // frame from App.tsx limits width to a portrait aspect ratio, so the
-  // desktop split would overflow inside it.
-  const useDesktopLayout = isDesktop && !phoneMode && !isNative;
 
   const handleEmailContinue = useCallback(async () => {
     setError('');
@@ -582,63 +478,20 @@ export const Auth: React.FC = () => {
 
   // ── Desktop split layout ─────────────────────────────────────────────
   if (useDesktopLayout) {
-    return (
-      <div className="min-h-screen bg-surface text-on-surface flex">
-        {/* Left — editorial */}
-        <div className="hidden lg:block lg:w-[44%] xl:w-[46%]">
-          <EditorialPanel />
-        </div>
-
-        {/* Right — auth form */}
-        <div className="flex-1 min-h-screen flex flex-col bg-surface">
-          <header className="flex items-center justify-between px-10 xl:px-16 py-6">
-            <div className="flex items-center gap-2.5 lg:invisible">
-              <GMark size={28} />
-              <span className="text-base font-serif font-bold tracking-tight">Gourmet Canvas</span>
-            </div>
-            <div className="text-sm">
-              {step === 'email' ? (
-                <span className="text-on-surface/45">New to Gourmet Canvas?</span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="inline-flex items-center gap-1.5 text-on-surface/55 hover:text-on-surface transition-colors cursor-pointer"
-                >
-                  <ArrowLeft size={14} />
-                  <span>Use a different email</span>
-                </button>
-              )}
-            </div>
-          </header>
-
-          <main className="flex-1 flex items-center justify-center px-10 xl:px-16 py-8">
-            <div className="w-full max-w-md">{stepContent}</div>
-          </main>
-
-          <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 px-10 xl:px-16 py-6 text-xs text-on-surface/40">
-            <span>© 2026 Gourmet Canvas</span>
-            <span>·</span>
-            <a href="#" className="hover:text-on-surface/70">Terms</a>
-            <span>·</span>
-            <a href="#" className="hover:text-on-surface/70">Privacy</a>
-            <span>·</span>
-            <a href="#" className="hover:text-on-surface/70">Help</a>
-            <span className="ml-auto">
-              <button
-                type="button"
-                onClick={togglePhoneMode}
-                className="inline-flex items-center gap-1.5 text-on-surface/40 hover:text-on-surface/70 transition-colors"
-                aria-pressed={phoneMode}
-              >
-                <Smartphone size={12} />
-                <span>Phone preview</span>
-              </button>
-            </span>
-          </footer>
-        </div>
-      </div>
-    );
+    const headerRight =
+      step === 'email' ? (
+        <span className="text-on-surface/45">New to Gourmet Canvas?</span>
+      ) : (
+        <button
+          type="button"
+          onClick={handleBack}
+          className="inline-flex items-center gap-1.5 text-on-surface/55 hover:text-on-surface transition-colors cursor-pointer"
+        >
+          <ArrowLeft size={14} />
+          <span>Use a different email</span>
+        </button>
+      );
+    return <AuthShell headerRight={headerRight}>{stepContent}</AuthShell>;
   }
 
   // ── Mobile / phone-frame layout ──────────────────────────────────────
