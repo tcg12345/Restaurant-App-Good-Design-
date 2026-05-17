@@ -16,7 +16,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Check, Loader2 } from 'lucide-react';
+import { Crop, Sun, Contrast, Droplet, Scissors, Sparkles, Wand2, Check, Loader2, Play } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 /* ── Types ───────────────────────────────────────────────────────────── */
@@ -557,26 +557,16 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
                     }}
                   />
                 ) : (
-                  <video
-                    ref={(el) => {
+                  <VideoPreview
+                    itemKey={it.key}
+                    src={it.previewUrl}
+                    filter={filter}
+                    isActive={isActive}
+                    onRefChange={(el) => {
                       if (el) videoRefs.current.set(it.key, el);
                       else videoRefs.current.delete(it.key);
                     }}
-                    src={it.previewUrl}
-                    muted
-                    loop
-                    autoPlay={isActive}
-                    // Native browser controls on the active clip so the
-                    // user can pause / scrub. Peeks stay control-less.
-                    controls={isActive}
-                    playsInline
-                    preload="metadata"
-                    className="absolute inset-0 w-full h-full object-contain"
-                    style={{ filter }}
-                    onLoadedMetadata={(e) => {
-                      const v = e.currentTarget;
-                      onNatural(it.key, v.videoWidth, v.videoHeight);
-                    }}
+                    onNatural={onNatural}
                   />
                 )}
                 {/* Crop overlay.
@@ -700,6 +690,99 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({ items, activeKey, onAc
  * Anchored to the on-screen rect of the media itself (computed from
  * the natural size) so the crop indicator lands on the photo, not on
  * any letterbox area inside the slide. */
+
+/** Instagram-style in-app video preview. No native controls bar — those
+ *  would expose fullscreen / AirPlay / PiP affordances and a scrubber the
+ *  user can drag past the trim window, defeating the whole editor. We
+ *  instead overlay a tap-to-play/pause surface and show a play glyph
+ *  when paused.
+ *
+ *  Trim enforcement lives in the parent (a timeupdate effect that loops
+ *  the playhead back to trim.start when it crosses trim.end); without the
+ *  exposed scrubber, the user can't break out of the trimmed range. */
+const VideoPreview: React.FC<{
+  itemKey: string;
+  src: string;
+  filter: string;
+  isActive: boolean;
+  onRefChange: (el: HTMLVideoElement | null) => void;
+  onNatural: (key: string, w: number, h: number) => void;
+}> = ({ itemKey, src, filter, isActive, onRefChange, onNatural }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [paused, setPaused] = useState(!isActive);
+
+  const togglePlayPause = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => { /* user-gesture loss, harmless */ });
+    else v.pause();
+  };
+
+  // Reflect external pause/play state changes (autoPlay on becoming
+  // active, looping back inside the trim window) into the local UI.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onPlay = () => setPaused(false);
+    const onPause = () => setPaused(true);
+    v.addEventListener('play', onPlay);
+    v.addEventListener('pause', onPause);
+    return () => {
+      v.removeEventListener('play', onPlay);
+      v.removeEventListener('pause', onPause);
+    };
+  }, []);
+
+  return (
+    <>
+      <video
+        ref={(el) => {
+          videoRef.current = el;
+          onRefChange(el);
+        }}
+        src={src}
+        muted
+        loop
+        autoPlay={isActive}
+        playsInline
+        preload="metadata"
+        // Strip every browser-supplied affordance: no controls bar, no
+        // fullscreen / PiP / AirPlay buttons, no remote-playback handoff.
+        // controlsList is iOS-Safari-honoured; the others belt-and-brace.
+        controls={false}
+        disablePictureInPicture
+        disableRemotePlayback
+        controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
+        // iOS-specific: keep playback inline (not the legacy fullscreen
+        // auto-launch) and block AirPlay route discovery.
+        webkit-playsinline="true"
+        x-webkit-airplay="deny"
+        className="absolute inset-0 w-full h-full object-contain"
+        style={{ filter }}
+        onLoadedMetadata={(e) => {
+          const v = e.currentTarget;
+          onNatural(itemKey, v.videoWidth, v.videoHeight);
+        }}
+      />
+      {/* Full-bleed tap target. Catches clicks before they reach the
+          underlying <video> (which would otherwise toggle play on its
+          own on some platforms) so the paused-icon state stays
+          consistent with reality. */}
+      <button
+        type="button"
+        onClick={togglePlayPause}
+        className="absolute inset-0 flex items-center justify-center bg-transparent"
+        aria-label={paused ? 'Play' : 'Pause'}
+      >
+        {paused && (
+          <span className="w-14 h-14 rounded-full bg-black/45 backdrop-blur-sm flex items-center justify-center text-white pointer-events-none">
+            <Play size={26} className="fill-white translate-x-[1.5px]" />
+          </span>
+        )}
+      </button>
+    </>
+  );
+};
 
 const CropOverlay: React.FC<{ edits: EditState; natural?: { w: number; h: number } }> = ({ edits, natural }) => {
   const wrapRef = useRef<HTMLDivElement | null>(null);
