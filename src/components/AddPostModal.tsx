@@ -1706,7 +1706,7 @@ export const AddPostModal: React.FC = () => {
 
                   <section>
                     <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Visibility</label>
-                    <div className="flex p-1 rounded-2xl bg-on-surface/[0.06]">
+                    <div className="flex p-1 rounded-2xl bg-on-surface/[0.06] gap-1">
                       {([
                         { value: true, label: 'Public', sub: 'Anyone can see this post', icon: Globe },
                         { value: false, label: 'Followers only', sub: 'Only people who follow you', icon: UsersIcon },
@@ -1720,7 +1720,12 @@ export const AddPostModal: React.FC = () => {
                             onClick={() => setIsPublic(opt.value)}
                             disabled={submitting}
                             className={cn(
-                              'flex-1 flex items-center gap-2 rounded-xl px-3 py-2 text-left transition-colors disabled:opacity-40',
+                              // min-w-0 lets the button shrink past its
+                              // intrinsic content width — without it,
+                              // flex items default to min-width: auto and
+                              // "Followers only / Only people who follow
+                              // you" pushes the segment off-screen.
+                              'flex-1 min-w-0 flex items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors disabled:opacity-40',
                               active ? 'bg-white shadow' : 'hover:bg-on-surface/[0.03]',
                             )}
                           >
@@ -1728,7 +1733,7 @@ export const AddPostModal: React.FC = () => {
                               <Icon size={15} />
                             </span>
                             <span className="min-w-0 flex-1">
-                              <span className={cn('block text-[13px] font-bold leading-tight', active ? 'text-on-surface' : 'text-on-surface/65')}>{opt.label}</span>
+                              <span className={cn('block text-[13px] font-bold leading-tight truncate', active ? 'text-on-surface' : 'text-on-surface/65')}>{opt.label}</span>
                               <span className="block text-[11px] text-on-surface/45 leading-tight truncate">{opt.sub}</span>
                             </span>
                           </button>
