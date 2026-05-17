@@ -1,10 +1,19 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Smartphone } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, Smartphone } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
-import { AuthShell, GMark, useDesktopAuthLayout } from '../components/AuthShell';
+import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
+import {
+  MobileAuthShell,
+  MobileBackButton,
+  MobileBrandMark,
+  MobileEmailPill,
+  MobileField,
+  MobileGhostButton,
+  MobilePrimaryButton,
+} from '../components/AuthMobileShell';
 
 type Step = 'email' | 'password' | 'signup';
 type PasswordStrength = { score: 0 | 1 | 2 | 3 | 4; label: string; color: string };
@@ -387,7 +396,7 @@ const StepSignup: React.FC<SharedProps> = ({
 // ── Main page ────────────────────────────────────────────────────────────
 export const Auth: React.FC = () => {
   const { signIn, signUp, checkEmailExists } = useAuth();
-  const { phoneMode, togglePhoneMode } = useSettings();
+  const { phoneMode, togglePhoneMode, isNative } = useSettings();
   const useDesktopLayout = useDesktopAuthLayout();
 
   const [step, setStep] = useState<Step>('email');
@@ -499,156 +508,261 @@ export const Auth: React.FC = () => {
   }
 
   // ── Mobile / phone-frame layout ──────────────────────────────────────
-  return (
-    <div className="min-h-screen bg-surface flex flex-col">
-      <div className="relative flex-1 flex flex-col items-center justify-center px-6 py-12 overflow-hidden">
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-primary/5" />
-          <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-secondary/5" />
-          <div className="absolute top-1/3 right-1/4 w-48 h-48 rounded-full bg-accent/10" />
-        </div>
+  const passwordStrength = getPasswordStrength(password);
 
-        {step !== 'email' && (
+  return (
+    <MobileAuthShell>
+      {/* Top bar — safe-area aware, holds the back chip on later steps */}
+      <div
+        className="relative z-10 px-5 flex items-center justify-between"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: '0.5rem', minHeight: 56 }}
+      >
+        <div className="min-w-[44px]">
+          {step !== 'email' && (
+            <MobileBackButton onClick={handleBack} />
+          )}
+        </div>
+        {/* Tiny phone-preview toggle, kept reachable on desktop preview;
+            hidden on native where the toggle has no meaning. */}
+        {!isNative && (
           <button
             type="button"
-            onClick={handleBack}
-            className="absolute top-[max(1.5rem,env(safe-area-inset-top))] left-6 z-20 flex items-center gap-2 text-on-surface/50 hover:text-on-surface transition-colors cursor-pointer"
+            onClick={togglePhoneMode}
+            className={cn(
+              'inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold border transition-colors',
+              phoneMode
+                ? 'bg-on-surface/[0.06] border-on-surface/15 text-on-surface/85'
+                : 'bg-transparent border-on-surface/10 text-on-surface/55',
+            )}
+            aria-pressed={phoneMode}
           >
-            <ArrowLeft size={20} />
-            <span className="text-sm font-medium">Back</span>
+            <Smartphone size={12} className={phoneMode ? 'text-primary' : 'text-on-surface/45'} />
+            <span>Preview</span>
           </button>
         )}
+      </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="relative z-10 flex flex-col items-center text-center mb-8"
-        >
-          <GMark size={56} className="mb-5" />
-          <h1 className="text-2xl font-serif font-bold tracking-tight text-on-surface">
-            {step === 'email' && 'Welcome to Gourmet Canvas'}
-            {step === 'password' && 'Welcome back'}
-            {step === 'signup' && 'Create your account'}
-          </h1>
-        </motion.div>
+      {/* Step content — animates in/out per step */}
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col overflow-y-auto">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={step}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="flex-1 flex flex-col px-5 pt-2 pb-4"
+          >
+            {/* Brand + heading */}
+            <div className="flex flex-col items-start gap-4 mb-6">
+              <MobileBrandMark size={48} pulse={step === 'email'} />
+              <div>
+                <h1 className="font-display font-bold text-[28px] tracking-tight leading-[1.05] text-on-surface">
+                  {step === 'email' && 'Continue with email'}
+                  {step === 'password' && 'Welcome back'}
+                  {step === 'signup' && 'Create your account'}
+                </h1>
+                <div className="text-on-surface/55 text-[14px] leading-relaxed mt-2">
+                  {step === 'email' && (
+                    <span>We'll send you in if you have an account, or set one up if not.</span>
+                  )}
+                  {step !== 'email' && (
+                    <MobileEmailPill email={email} onClear={handleBack} />
+                  )}
+                </div>
+              </div>
+            </div>
 
-        <div className="relative z-10 w-full max-w-sm">
-          {step === 'email' && (
-            <div className="space-y-4">
-              <SocialRow />
-              <Divider>or continue with email</Divider>
-              <form onSubmit={(e) => { e.preventDefault(); handleEmailContinue(); }} className="space-y-3">
-                <TextField
+            {/* Form body */}
+            {step === 'email' && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleEmailContinue(); }}
+                className="flex flex-col gap-3"
+              >
+                <MobileField
+                  label="Email"
+                  icon={<Mail size={16} />}
                   type="email"
+                  name="email"
                   value={email}
                   onChange={setEmail}
                   placeholder="you@example.com"
+                  autoFocus
                   autoComplete="email"
                   inputMode="email"
                 />
+                <div className="flex items-center gap-3 my-1">
+                  <span className="flex-1 h-px bg-on-surface/10" />
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-on-surface/40 font-bold">or</span>
+                  <span className="flex-1 h-px bg-on-surface/10" />
+                </div>
+                <MobileGhostButton icon={<AppleIcon size={16} />}>
+                  Continue with Apple
+                </MobileGhostButton>
+                <MobileGhostButton icon={<GoogleIcon size={16} />}>
+                  Continue with Google
+                </MobileGhostButton>
                 {error && (
-                  <p className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</p>
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+                  >
+                    {error}
+                  </motion.p>
                 )}
-                <PrimaryButton loading={submitting}>Continue</PrimaryButton>
               </form>
-            </div>
-          )}
-
-          {step === 'password' && (
-            <form onSubmit={(e) => { e.preventDefault(); handleSignIn(); }} className="space-y-3">
-              <p className="text-center text-sm text-on-surface/55 mb-2">
-                Signing in as <span className="font-medium text-on-surface/80">{email}</span>
-              </p>
-              <TextField
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={setPassword}
-                placeholder="Password"
-                autoComplete="current-password"
-                trailing={
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="text-on-surface/40 hover:text-on-surface/70 p-1"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                }
-              />
-              {error && (
-                <p className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</p>
-              )}
-              <PrimaryButton loading={submitting}>Sign in</PrimaryButton>
-            </form>
-          )}
-
-          {step === 'signup' && (
-            <form onSubmit={(e) => { e.preventDefault(); handleSignUp(); }} className="space-y-3">
-              <p className="text-center text-sm text-on-surface/55 mb-2">
-                Setting up for <span className="font-medium text-on-surface/80">{email}</span>
-              </p>
-              <TextField
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={setPassword}
-                placeholder="Choose a password"
-                autoComplete="new-password"
-                trailing={
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="text-on-surface/40 hover:text-on-surface/70 p-1"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                }
-              />
-              {error && (
-                <p className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</p>
-              )}
-              <PrimaryButton loading={submitting}>Create account</PrimaryButton>
-              <p className="text-xs text-on-surface/45 text-center leading-relaxed">
-                By continuing you agree to our{' '}
-                <a href="#" className="underline">Terms</a> and{' '}
-                <a href="#" className="underline">Privacy Policy</a>.
-              </p>
-            </form>
-          )}
-        </div>
-
-        {/* Phone-mode toggle — stays accessible inside the mobile/phone-frame
-            layout so it can be flipped off to return to desktop. */}
-        <button
-          type="button"
-          onClick={togglePhoneMode}
-          className={cn(
-            'mt-6 mx-auto flex items-center gap-2.5 px-4 py-2.5 rounded-full text-xs font-semibold transition-colors border',
-            phoneMode
-              ? 'bg-on-surface/[0.05] border-on-surface/15 text-on-surface'
-              : 'bg-transparent border-on-surface/10 text-on-surface/50 hover:text-on-surface/80 hover:border-on-surface/20',
-          )}
-          aria-pressed={phoneMode}
-        >
-          <Smartphone size={14} className={phoneMode ? 'text-primary' : 'text-on-surface/40'} />
-          <span>Phone preview</span>
-          <span
-            className={cn(
-              'relative inline-flex h-4 w-7 rounded-full transition-colors',
-              phoneMode ? 'bg-primary' : 'bg-on-surface/15',
             )}
-          >
-            <span
-              className={cn(
-                'absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform',
-                phoneMode ? 'translate-x-3.5' : 'translate-x-0.5',
-              )}
-            />
-          </span>
-        </button>
+
+            {step === 'password' && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleSignIn(); }}
+                className="flex flex-col gap-3"
+              >
+                <MobileField
+                  label="Password"
+                  icon={<Lock size={16} />}
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  value={password}
+                  onChange={setPassword}
+                  placeholder="••••••••"
+                  autoFocus
+                  autoComplete="current-password"
+                  rightSlot={
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-on-surface/40 p-1"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  }
+                />
+                <div className="flex items-center justify-between px-1">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={keepSignedIn}
+                      onChange={(e) => setKeepSignedIn(e.target.checked)}
+                      className="h-4 w-4 accent-primary"
+                    />
+                    <span className="text-[13px] text-on-surface/75">Keep me signed in</span>
+                  </label>
+                  <button type="button" className="text-[13px] text-primary font-medium">
+                    Forgot?
+                  </button>
+                </div>
+                {error && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+                  >
+                    {error}
+                  </motion.p>
+                )}
+              </form>
+            )}
+
+            {step === 'signup' && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleSignUp(); }}
+                className="flex flex-col gap-3"
+              >
+                <MobileField
+                  label="Password"
+                  icon={<Lock size={16} />}
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  value={password}
+                  onChange={setPassword}
+                  placeholder="Choose a password"
+                  autoFocus
+                  autoComplete="new-password"
+                  rightSlot={
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-on-surface/40 p-1"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  }
+                />
+                {password.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-3 px-1"
+                    aria-live="polite"
+                  >
+                    <div className="flex-1 grid grid-cols-4 gap-1.5">
+                      {[0, 1, 2, 3].map((i) => (
+                        <span
+                          key={i}
+                          className={cn(
+                            'h-1 rounded-full transition-colors',
+                            i < passwordStrength.score ? passwordStrength.color : 'bg-on-surface/8',
+                          )}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[11px] font-semibold text-on-surface/60 w-[44px] text-right">
+                      {passwordStrength.label}
+                    </span>
+                  </motion.div>
+                )}
+                {error && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+                  >
+                    {error}
+                  </motion.p>
+                )}
+              </form>
+            )}
+          </motion.div>
+        </AnimatePresence>
       </div>
-    </div>
+
+      {/* Sticky CTA — sits above the iOS home indicator on native */}
+      <div
+        className="relative z-10 px-5 pt-3"
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      >
+        <MobilePrimaryButton
+          type="button"
+          loading={submitting}
+          onClick={
+            step === 'email'
+              ? handleEmailContinue
+              : step === 'password'
+                ? handleSignIn
+                : handleSignUp
+          }
+        >
+          {step === 'email' && (
+            <>
+              <span>Continue</span>
+              <ArrowRight size={18} />
+            </>
+          )}
+          {step === 'password' && 'Sign in'}
+          {step === 'signup' && 'Create account'}
+        </MobilePrimaryButton>
+        {step === 'signup' && (
+          <p className="text-[11px] text-on-surface/45 text-center leading-snug mt-3 px-2">
+            By continuing you agree to our{' '}
+            <a href="#" className="underline">Terms</a> and{' '}
+            <a href="#" className="underline">Privacy</a>.
+          </p>
+        )}
+      </div>
+    </MobileAuthShell>
   );
 };
