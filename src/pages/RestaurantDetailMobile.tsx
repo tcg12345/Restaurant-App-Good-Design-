@@ -216,11 +216,22 @@ export const RestaurantDetailMobile: React.FC = () => {
             </button>
             <button
               onClick={() => {
-                if (navigator.share) {
-                  navigator.share({ title: place.name, url: window.location.href });
-                } else {
-                  navigator.clipboard.writeText(window.location.href);
-                }
+                if (!place) return;
+                setChatShareTarget({
+                  restaurantId: place.id,
+                  name: place.name,
+                  image: place.photoUrl || '',
+                  cuisine,
+                  price: priceStr,
+                  address: place.fullAddress || place.address,
+                  ...(myRating ? {
+                    score: myRating.score,
+                    notes: myRating.notes,
+                    wouldReturn: myRating.wouldReturn,
+                    tags: myRating.tags,
+                    isReview: true,
+                  } : { isReview: false }),
+                });
               }}
               aria-label="Share"
               className="p-2 bg-black/30 backdrop-blur-md rounded-full text-white/90 shadow-sm"
