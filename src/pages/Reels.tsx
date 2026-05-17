@@ -67,7 +67,10 @@ interface ActionRailProps {
 
 const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment, onShare }) => {
   return (
-    <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-5 select-none">
+    // z-30 so the Share button (bottom-most in the rail) sits above the
+    // collapsible details overlay below, which spans inset-x-0 at z-20
+    // and would otherwise eat the tap and toggle the caption open/closed.
+    <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-30 flex flex-col items-center gap-5 select-none">
       <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
         <motion.span
           whileTap={{ scale: 0.8 }}
