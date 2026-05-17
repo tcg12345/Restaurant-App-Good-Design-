@@ -1127,7 +1127,7 @@ const FilterTab: React.FC<{ edits: EditState; setEdits: (n: Partial<EditState>) 
 
 /** Minimum trim duration so we never collapse the handles. */
 const MIN_TRIM_SECONDS = 0.5;
-const FRAME_COUNT = 10;
+const FRAME_COUNT = 8;
 const STRIP_HEIGHT_PX = 64;
 
 function formatTrimTime(seconds: number): string {
@@ -1141,11 +1141,25 @@ function formatTrimTime(seconds: number): string {
  * Extract `FRAME_COUNT` evenly-spaced thumbnails from a video by
  * seeking + drawing each frame to a canvas. Cached per source URL so
  * tab switches and remounts don't pay the seek cost again.
+ *
+ * Streaming-incremental: each thumbnail is handed to `onFrame` as soon
+ * as its seek + paint completes. Seeks are inherently serial on the same
+ * <video> element and each one can take 100-500 ms on iOS WebView for
+ * HEVC clips coming straight from PhotoKit, so a "wait for all 8" model
+ * stares at a black spinner for seconds. Streaming lets the strip paint
+ * left-to-right in real time.
  */
 const framesCache = new Map<string, string[]>();
-async function extractFrames(src: string, duration: number): Promise<string[]> {
+async function extractFrames(
+  src: string,
+  duration: number,
+  onFrame: (i: number, dataUrl: string) => void,
+): Promise<string[]> {
   const cached = framesCache.get(src);
-  if (cached) return cached;
+  if (cached) {
+    cached.forEach((url, i) => onFrame(i, url));
+    return cached;
+  }
   const v = document.createElement('video');
   v.src = src;
   v.crossOrigin = 'anonymous';
@@ -1156,8 +1170,10 @@ async function extractFrames(src: string, duration: number): Promise<string[]> {
     v.onloadedmetadata = () => resolve();
     v.onerror = () => reject(new Error('video metadata load failed'));
   });
+  // Match the actual displayed strip height — encoding at 96 px when the
+  // strip renders at 64 px just burns CPU for no visible difference.
   const ratio = (v.videoWidth || 16) / (v.videoHeight || 9);
-  const h = 96;
+  const h = 72;
   const w = Math.max(48, Math.round(h * ratio));
   const canvas = document.createElement('canvas');
   canvas.width = w;
@@ -1171,7 +1187,9 @@ async function extractFrames(src: string, duration: number): Promise<string[]> {
     v.currentTime = Math.min(total - 0.05, t);
     await new Promise<void>((resolve) => { v.onseeked = () => resolve(); });
     ctx.drawImage(v, 0, 0, w, h);
-    out.push(canvas.toDataURL('image/jpeg', 0.6));
+    const url = canvas.toDataURL('image/jpeg', 0.6);
+    out.push(url);
+    onFrame(i, url);
   }
   framesCache.set(src, out);
   return out;
@@ -1183,19 +1201,30 @@ const TrimTab: React.FC<{ item: EditableItem; edits: EditState; setEdits: (n: Pa
   const start = Math.max(0, Math.min(trim.start, duration - MIN_TRIM_SECONDS));
   const end = Math.max(start + MIN_TRIM_SECONDS, Math.min(trim.end || duration, duration));
 
-  // Extract filmstrip thumbnails for the current source. Cached per
-  // URL so tab/back-forth doesn't re-seek the whole video.
-  const [frames, setFrames] = useState<string[] | null>(() => framesCache.get(item.previewUrl) ?? null);
+  // Extract filmstrip thumbnails for the current source. Slots are
+  // pre-allocated and filled in left-to-right as each seek + paint
+  // completes, so the user sees the strip materialize incrementally
+  // instead of staring at a spinner for the full N×seekTime window.
+  // Cached per URL so tab/back-forth doesn't re-seek the whole video.
+  const [frames, setFrames] = useState<(string | null)[]>(() => {
+    const cached = framesCache.get(item.previewUrl);
+    return cached ? cached.slice() : new Array(FRAME_COUNT).fill(null);
+  });
   const [framesError, setFramesError] = useState(false);
   useEffect(() => {
     let cancelled = false;
     setFramesError(false);
     const cached = framesCache.get(item.previewUrl);
-    if (cached) { setFrames(cached); return; }
-    setFrames(null);
-    extractFrames(item.previewUrl, duration)
-      .then((out) => { if (!cancelled) setFrames(out); })
-      .catch(() => { if (!cancelled) setFramesError(true); });
+    if (cached) { setFrames(cached.slice()); return; }
+    setFrames(new Array(FRAME_COUNT).fill(null));
+    extractFrames(item.previewUrl, duration, (i, url) => {
+      if (cancelled) return;
+      setFrames((prev) => {
+        const next = prev.slice();
+        next[i] = url;
+        return next;
+      });
+    }).catch(() => { if (!cancelled) setFramesError(true); });
     return () => { cancelled = true; };
   }, [item.previewUrl, duration]);
 
@@ -1264,28 +1293,31 @@ const TrimTab: React.FC<{ item: EditableItem; edits: EditState; setEdits: (n: Pa
 
       {/* Filmstrip with draggable handles. */}
       <div className="relative rounded-lg bg-black overflow-hidden select-none" style={{ height: STRIP_HEIGHT_PX }}>
-        {/* Thumbnail frames row */}
+        {/* Thumbnail frames row. Each slot renders a frame as soon as
+            extractFrames hands it off, with a subtle shimmer placeholder
+            in slots that haven't decoded yet — so the strip paints
+            left-to-right instead of waiting for the whole filmstrip. */}
         <div
           ref={stripRef}
           className="absolute inset-0 flex touch-none"
         >
-          {frames ? (
-            frames.map((src, i) => (
-              <img
-                key={i}
-                src={src}
-                alt=""
-                draggable={false}
-                className="flex-1 min-w-0 h-full object-cover pointer-events-none"
-              />
-            ))
-          ) : framesError ? (
-            <div className="absolute inset-0 flex items-center justify-center text-[11px] text-white/60">
-              Couldn&apos;t preview frames
+          {frames.map((src, i) => (
+            <div key={i} className="flex-1 min-w-0 h-full overflow-hidden pointer-events-none">
+              {src ? (
+                <img
+                  src={src}
+                  alt=""
+                  draggable={false}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-white/[0.06] animate-pulse" />
+              )}
             </div>
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Loader2 size={16} className="animate-spin text-white/60" />
+          ))}
+          {framesError && (
+            <div className="absolute inset-0 flex items-center justify-center text-[11px] text-white/60 bg-black/40">
+              Couldn&apos;t preview frames
             </div>
           )}
         </div>
