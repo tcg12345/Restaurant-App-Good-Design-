@@ -645,7 +645,7 @@ const FollowingFilterSheet: React.FC<{
             </div>
             {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
               {/* Sort */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">

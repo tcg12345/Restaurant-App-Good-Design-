@@ -825,7 +825,7 @@ export const AddReelModal: React.FC = () => {
             )}
 
             {/* Footer */}
-            <div className="border-t border-on-surface/[0.06] px-5 py-3 bg-surface flex items-center gap-3 flex-shrink-0">
+            <div className="border-t border-on-surface/[0.06] px-5 pt-3 pb-safe-3 bg-surface flex items-center gap-3 flex-shrink-0">
               {/* Step 1 + 2: Next button. Step 3: Post / Save. */}
               {!isEditing && step === 1 && (
                 <button

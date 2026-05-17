@@ -467,7 +467,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
             </div>
 
             {/* Footer */}
-            <div className="border-t border-on-surface/[0.06] px-5 py-3 bg-surface flex-shrink-0 space-y-2">
+            <div className="border-t border-on-surface/[0.06] px-5 pt-3 pb-safe-3 bg-surface flex-shrink-0 space-y-2">
               <button
                 type="button"
                 onClick={onSend}

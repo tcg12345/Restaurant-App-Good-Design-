@@ -228,7 +228,7 @@ export const ReorderRatings: React.FC = () => {
 
       {/* Bottom action bar */}
       {items.length > 0 && (
-        <div className="sticky bottom-0 left-0 right-0 p-4 bg-surface/80 backdrop-blur-xl border-t border-on-surface/[0.06]">
+        <div className="sticky bottom-0 left-0 right-0 px-4 pt-4 pb-safe-4 bg-surface/80 backdrop-blur-xl border-t border-on-surface/[0.06]">
           <div className="flex gap-3">
             <button
               onClick={handleCancel}

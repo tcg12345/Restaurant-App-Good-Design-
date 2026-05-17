@@ -294,7 +294,7 @@ export const CircleActivity: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+              <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
                 {/* Source */}
                 <div>
                   <div className="flex items-center gap-2 mb-2.5">

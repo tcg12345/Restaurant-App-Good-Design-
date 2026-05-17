@@ -417,7 +417,7 @@ export const AddRecipeModal: React.FC = () => {
                   </div>
 
                   {/* Save button */}
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
+                  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface space-y-2">
                     <button onClick={handleSave} disabled={!title.trim()}
                       className="w-full py-3.5 bg-accent text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40">
                       {existing ? 'Update Recipe' : 'Save Recipe'}
@@ -706,7 +706,7 @@ const SubPage: React.FC<{
 );
 
 const BottomBtn: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
     <button onClick={onClick} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{label}</button>
   </div>
 );

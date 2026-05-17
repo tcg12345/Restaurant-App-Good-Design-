@@ -239,7 +239,7 @@ export const AddHotelDiningModal: React.FC<Props> = ({
                     </div>
                   </div>
 
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+                  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
                     <button
                       onClick={handleSave}
                       disabled={saving}

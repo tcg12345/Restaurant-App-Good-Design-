@@ -284,7 +284,7 @@ export const RatingModal: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+                  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
                     <button onClick={handleSave} className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                       {existing ? 'Update Rating' : 'Save Rating'}
                     </button>
@@ -544,7 +544,7 @@ const SubPage: React.FC<{
 );
 
 const BottomBtn: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
+  <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
     <button onClick={onClick} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{label}</button>
   </div>
 );

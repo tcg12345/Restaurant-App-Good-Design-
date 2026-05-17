@@ -234,7 +234,7 @@ const CreateListSheet: React.FC<{
                     </button>
                   )}
                 </div>
-                <div className="flex-1 overflow-y-auto px-5 pb-5">
+                <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
                   {Object.keys(groupedPresets).length === 0 ? (
                     <div className="text-center py-12">
                       <p className="text-sm text-on-surface/40">No matching lists found</p>
@@ -367,7 +367,7 @@ const AddFromRatedSheet: React.FC<{
             <div className="px-5 pb-2">
               <p className="text-[11px] text-on-surface/40 font-medium">{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}{listRestaurantIds.length > 0 && ` · ${listRestaurantIds.length} in list`}</p>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-1.5">
+            <div className="flex-1 overflow-y-auto px-5 pb-safe-5 space-y-1.5">
               {filtered.length === 0 ? (
                 <div className="text-center py-12"><p className="text-sm text-on-surface/40">{ratings.length === 0 ? 'No rated restaurants yet' : 'No matches found'}</p></div>
               ) : filtered.map((r) => {
@@ -2640,7 +2640,7 @@ const FilterSheet: React.FC<{
             {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
               {/* Sort */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
@@ -2881,7 +2881,7 @@ const WishlistFilterSheet: React.FC<{
             {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
               {/* Sort */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
@@ -5689,7 +5689,7 @@ const RecipeFilterSheet: React.FC<{
             </div>
             {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
               {/* Sort */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">Sort by</p>
@@ -5832,7 +5832,7 @@ const FilterListSheet: React.FC<{
                 />
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 pb-5">
+            <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
               {filtered.length === 0 ? (
                 <p className="text-center py-8 text-sm text-on-surface/40">No matches</p>
               ) : filtered.map((opt) => {
@@ -7548,7 +7548,7 @@ export const Pantry: React.FC = () => {
                   />
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto px-5 pb-5">
+              <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
                 {allCities.filter((c) => {
                   const input = document.getElementById('city-picker-search') as HTMLInputElement | null;
                   const q = input?.value?.toLowerCase() || '';
@@ -7596,7 +7596,7 @@ export const Pantry: React.FC = () => {
                   />
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto px-5 pb-5">
+              <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
                 {allCuisines.filter((c) => {
                   const input = document.getElementById('cuisine-picker-search') as HTMLInputElement | null;
                   const q = input?.value?.toLowerCase() || '';
