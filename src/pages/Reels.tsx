@@ -643,9 +643,18 @@ const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> 
 
 /* ── Playback progress bar ───────────────────────────────────────────── */
 // A thin, draggable progress bar that sits at the bottom of the page
-// and tracks the active reel's playback. Dragging scrubs and pauses
-// playback for the duration of the drag; on release, playback resumes
-// if it was running before. The bar thickens while dragging.
+// and tracks the active reel's playback. Dragging pauses the main video
+// in place and shows a floating thumbnail preview seeked to the scrub
+// target — same affordance Instagram and the native iOS player use.
+// On release we commit the seek to the main video and resume if it had
+// been playing.
+
+function formatSeconds(s: number): string {
+  if (!Number.isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const r = Math.floor(s % 60);
+  return `${m}:${r.toString().padStart(2, '0')}`;
+}
 
 const ReelProgressBar: React.FC<{
   videoEl: HTMLVideoElement | null;
@@ -653,8 +662,16 @@ const ReelProgressBar: React.FC<{
 }> = ({ videoEl, className }) => {
   const [progress, setProgress] = useState(0);
   const [dragging, setDragging] = useState(false);
+  // Independent scrub head while the user drags — does NOT move the
+  // main video element. The main video stays frozen at the frame the
+  // user grabbed; the preview <video> below seeks to dragProgress.
+  const [dragProgress, setDragProgress] = useState(0);
+  const [hoverX, setHoverX] = useState(0);
   const wasPlayingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const previewRef = useRef<HTMLVideoElement | null>(null);
+  const previewSrc = videoEl?.currentSrc || videoEl?.src || '';
+
   // rAF loop sync — using requestAnimationFrame instead of timeupdate
   // gives a smooth 60 Hz fill animation without needing a CSS
   // transition (which would fight per-frame width updates).
@@ -679,6 +696,18 @@ const ReelProgressBar: React.FC<{
     };
   }, [videoEl, dragging]);
 
+  // Drive the preview <video>: seek it to the scrub position whenever
+  // dragProgress changes. Skipping calls when not dragging means we
+  // don't burn CPU seeking the off-screen element.
+  useEffect(() => {
+    if (!dragging) return;
+    const pv = previewRef.current;
+    if (!pv) return;
+    const dur = videoEl?.duration;
+    if (!Number.isFinite(dur) || !dur || dur <= 0) return;
+    try { pv.currentTime = dragProgress * dur; } catch { /* ignore seek errors */ }
+  }, [dragProgress, dragging, videoEl]);
+
   const pointerToProgress = (clientX: number): number => {
     const el = containerRef.current;
     if (!el) return 0;
@@ -687,11 +716,11 @@ const ReelProgressBar: React.FC<{
     return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   };
 
-  const seekTo = (frac: number) => {
-    if (!videoEl) return;
-    const dur = videoEl.duration;
-    if (!Number.isFinite(dur) || dur <= 0) return;
-    try { videoEl.currentTime = frac * dur; } catch { /* ignore */ }
+  const pointerToContainerX = (clientX: number): number => {
+    const el = containerRef.current;
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    return clientX - rect.left;
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -699,28 +728,47 @@ const ReelProgressBar: React.FC<{
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     wasPlayingRef.current = !videoEl.paused;
+    // Pause the main reel but DO NOT seek it — user wants the frame
+    // they grabbed at to stay put. Seeking happens once on release.
     try { videoEl.pause(); } catch { /* ignore */ }
-    setDragging(true);
     const p = pointerToProgress(e.clientX);
-    setProgress(p);
-    seekTo(p);
+    setDragProgress(p);
+    setHoverX(pointerToContainerX(e.clientX));
+    setDragging(true);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging) return;
-    const p = pointerToProgress(e.clientX);
-    setProgress(p);
-    seekTo(p);
+    setDragProgress(pointerToProgress(e.clientX));
+    setHoverX(pointerToContainerX(e.clientX));
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging) return;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     setDragging(false);
-    if (videoEl && wasPlayingRef.current) {
-      videoEl.play().catch(() => { /* autoplay may be blocked */ });
+    // Commit the seek to the main video, then resume if it had been
+    // playing when the drag began.
+    if (videoEl) {
+      const dur = videoEl.duration;
+      if (Number.isFinite(dur) && dur > 0) {
+        try { videoEl.currentTime = dragProgress * dur; } catch { /* ignore */ }
+      }
+      if (wasPlayingRef.current) {
+        videoEl.play().catch(() => { /* autoplay may be blocked */ });
+      }
     }
   };
+
+  // Position the preview popover horizontally over the scrubber, kept
+  // ~6 px inside the bar edges so a 100 px-wide preview never clips
+  // off-screen. width / aspectRatio match a phone reel (9:16 → ~100x178).
+  const PREVIEW_W = 110;
+  const PREVIEW_H = 195;
+  const containerWidth = containerRef.current?.getBoundingClientRect().width ?? 0;
+  const popoverLeft = Math.max(8, Math.min(containerWidth - PREVIEW_W - 8, hoverX - PREVIEW_W / 2));
+  const dur = videoEl?.duration;
+  const fillFrac = dragging ? dragProgress : progress;
 
   return (
     <div
@@ -743,9 +791,40 @@ const ReelProgressBar: React.FC<{
       >
         <div
           className="absolute inset-y-0 left-0 bg-white rounded-full"
-          style={{ width: `${progress * 100}%` }}
+          style={{ width: `${fillFrac * 100}%` }}
         />
       </div>
+
+      {/* Scrub preview popover. Mounted only while the user is dragging
+          so the secondary <video> isn't sitting in the DOM eating
+          memory at idle. */}
+      {dragging && previewSrc && (
+        <div
+          className="absolute pointer-events-none"
+          style={{
+            left: popoverLeft,
+            bottom: 'calc(100% + 4px)',
+            width: PREVIEW_W,
+          }}
+        >
+          <div
+            className="rounded-lg overflow-hidden ring-2 ring-white/95 shadow-[0_8px_24px_rgba(0,0,0,0.5)] bg-black"
+            style={{ width: PREVIEW_W, height: PREVIEW_H }}
+          >
+            <video
+              ref={previewRef}
+              src={previewSrc}
+              muted
+              playsInline
+              preload="auto"
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="mt-1.5 text-center text-white text-[11px] font-bold tabular-nums drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+            {formatSeconds((dur ?? 0) * dragProgress)} / {formatSeconds(dur ?? 0)}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
