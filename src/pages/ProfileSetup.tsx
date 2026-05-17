@@ -153,7 +153,7 @@ export const ProfileSetup: React.FC = () => {
       </button>
     );
     return (
-      <AuthShell headerRight={headerRight}>
+      <AuthShell headerRight={headerRight} panel="profile">
         <div className="space-y-6">
           <header>
             <h1 className="font-serif font-bold text-4xl xl:text-5xl tracking-tight leading-[1.05] text-on-surface mb-3">

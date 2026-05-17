@@ -491,7 +491,11 @@ export const Auth: React.FC = () => {
           <span>Use a different email</span>
         </button>
       );
-    return <AuthShell headerRight={headerRight}>{stepContent}</AuthShell>;
+    return (
+      <AuthShell headerRight={headerRight} panel={step}>
+        {stepContent}
+      </AuthShell>
+    );
   }
 
   // ── Mobile / phone-frame layout ──────────────────────────────────────
