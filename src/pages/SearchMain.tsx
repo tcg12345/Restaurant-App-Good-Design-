@@ -408,68 +408,94 @@ export const SearchMain: React.FC = () => {
                 Clear All
               </button>
             </div>
-            <div className={cn(phoneMode ? "divide-y divide-on-surface/[0.06] border-y border-on-surface/[0.06] bg-white" : "space-y-2")}>
+            <ul className="divide-y divide-on-surface/[0.06]">
               {recentSearches.map((r) => {
                 const wishlisted = isWishlisted(r.id);
                 const location = formatLocationLabel(undefined, r.address);
+                const meta = { id: r.id, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address };
                 return (
-                  <div
-                    key={r.id}
-                    className={cn(
-                      "flex items-center gap-3 cursor-pointer transition-all",
-                      phoneMode
-                        ? "bg-white active:bg-on-surface/[0.03]"
-                        : "rounded-xl bg-white border border-on-surface/[0.06] shadow-sm overflow-hidden hover:shadow-md active:scale-[0.99]",
-                    )}
-                    onClick={() => handleRecentClick(r)}
-                  >
-                    {/* Thumbnail */}
-                    <div className="w-14 h-14 flex-shrink-0 bg-on-surface/5 overflow-hidden">
-                      {r.image ? (
-                        <img src={r.image} alt={r.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif text-lg font-bold">{r.name.charAt(0)}</div>
+                  <li key={r.id}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleRecentClick(r)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleRecentClick(r);
+                        }
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-3 py-4 text-left group transition-colors hover:bg-on-surface/[0.03] active:bg-on-surface/[0.05] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                        phoneMode ? "px-4" : "px-2 -mx-2 rounded-xl",
                       )}
-                    </div>
+                    >
+                      {/* Clock affordance — signals "this is a recent search,
+                          not a fresh result". Sits where the search-results
+                          row has no leading element, so the two rows share a
+                          visual rhythm but recents are still distinguishable
+                          at a glance. */}
+                      <div className="w-9 h-9 flex-shrink-0 rounded-full bg-on-surface/[0.05] flex items-center justify-center text-on-surface/40">
+                        <Clock size={15} />
+                      </div>
 
-                    {/* Info */}
-                    <div className="flex-1 min-w-0 py-2">
-                      <p className="text-sm font-semibold text-on-surface truncate">{r.name}</p>
-                      <p className="text-[11px] text-on-surface/50 truncate">
-                        {r.cuisine && <span className="text-primary/70 font-medium uppercase tracking-wider">{r.cuisine}</span>}
-                        {r.cuisine && location && <span className="text-on-surface/25 mx-1">·</span>}
-                        {location}
-                      </p>
-                    </div>
+                      <div className="flex-1 min-w-0 flex flex-col justify-center">
+                        <h3 className="font-serif font-bold text-[15px] leading-snug line-clamp-2">{r.name}</h3>
+                        {(r.cuisine || location) && (
+                          <p className="mt-0.5 text-[11px] text-on-surface/50 font-medium uppercase tracking-wider truncate">
+                            {r.cuisine}
+                            {r.cuisine && location && <span className="text-on-surface/25 mx-1.5">·</span>}
+                            {location}
+                          </p>
+                        )}
+                      </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1 pr-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => openAddRestaurantModal({ id: r.id, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
-                        className="w-8 h-8 rounded-full bg-on-surface/[0.04] flex items-center justify-center text-on-surface/40 hover:text-primary transition-colors"
-                        aria-label="Rate"
-                      >
-                        <Plus size={14} />
-                      </button>
-                      <button
-                        onClick={() => toggleWishlist({ id: r.id, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
-                        className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors", wishlisted ? "bg-red-50 text-red-400" : "bg-on-surface/[0.04] text-on-surface/40 hover:text-red-400")}
-                        aria-label={wishlisted ? "In wishlist" : "Add to wishlist"}
-                      >
-                        <Heart size={13} className={wishlisted ? "fill-red-400" : ""} />
-                      </button>
-                      <button
-                        onClick={() => handleRemove(r.id)}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface/25 hover:text-on-surface/55 transition-colors"
-                        aria-label={`Remove ${r.name}`}
-                      >
-                        <X size={13} />
-                      </button>
+                      <div className="flex items-center gap-1.5 flex-shrink-0 self-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleWishlist(meta);
+                          }}
+                          className={cn(
+                            'w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm transition-transform duration-150 hover:scale-105 active:scale-95',
+                            wishlisted ? 'text-primary' : 'text-on-surface/70 hover:text-primary',
+                          )}
+                          aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+                        >
+                          <Heart size={16} className={cn(wishlisted && 'fill-primary')} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openAddRestaurantModal(meta);
+                          }}
+                          className="w-9 h-9 rounded-full flex items-center justify-center bg-on-surface/[0.04] shadow-sm text-primary transition-transform duration-150 hover:scale-105 active:scale-95"
+                          aria-label="Add to list"
+                        >
+                          <Plus size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleRemove(r.id);
+                          }}
+                          className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/30 hover:text-on-surface/60 hover:bg-on-surface/[0.04] transition-colors"
+                          aria-label={`Remove ${r.name}`}
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </section>
         ) : (
           <EmptyState
