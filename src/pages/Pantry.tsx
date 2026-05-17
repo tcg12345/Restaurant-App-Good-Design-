@@ -176,7 +176,7 @@ const CreateListSheet: React.FC<{
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col", phoneMode ? "h-full rounded-none" : "h-full sm:h-auto sm:max-w-md sm:max-h-[75vh] rounded-none sm:rounded-3xl")}
           >
-            <div className="flex items-center justify-between px-5 pt-4 sm:pt-5 pb-3 flex-shrink-0">
+            <div className="flex items-center justify-between px-5 pt-safe-4 sm:pt-5 pb-3 flex-shrink-0">
               <h2 className="font-serif font-bold text-lg">
                 {mode === 'browse'
                   ? kind === 'recipes' ? 'New Recipe List' : 'New List'
