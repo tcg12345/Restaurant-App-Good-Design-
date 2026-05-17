@@ -39,7 +39,6 @@ import { RecipeDetail } from './pages/RecipeDetail';
 import { RecipesForYou } from './pages/RecipesForYou';
 import { GuideDetail } from './pages/GuideDetail';
 import { GuideEdit } from './pages/GuideEdit';
-import { SignIn } from './pages/SignIn';
 import { Auth } from './pages/Auth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
@@ -165,9 +164,8 @@ const AppContent: React.FC = () => {
         >
           <div className={showPhoneFrame ? "h-full overflow-y-auto overflow-x-hidden" : ""}>
             <Routes location={location}>
-              <Route path="/auth" element={<Auth />} />
               <Route path="/import" element={<ImportRestaurants />} />
-              <Route path="*" element={<SignIn />} />
+              <Route path="*" element={<Auth />} />
             </Routes>
           </div>
         </div>
