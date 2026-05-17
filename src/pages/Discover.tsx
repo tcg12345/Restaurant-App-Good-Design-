@@ -3235,6 +3235,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
       )}
 
+      {/* Map-page TopBar — always visible, overlays the map. Without it
+          the page chrome was only present while the bottom sheet sat at
+          its 'full' state (where TopBar lives inside the sheet body), so
+          the map view felt like it had no app frame at all. Rendered
+          before the sheet in the DOM so the sheet's z-40 layer covers
+          it when the user pulls the sheet up to full-screen. */}
+      {mode === 'map' && !usingDesktopHeader && (
+        <div className="absolute top-0 left-0 right-0 z-40 pointer-events-none">
+          <div className="pointer-events-auto">
+            <TopBar title="Map" showBackButton />
+          </div>
+        </div>
+      )}
+
       {/* Search this area button — floating pill, appears instantly on pan-end */}
       <AnimatePresence>
         {showSearchHere && (mapMode === 'discover' || mapMode === 'hotels') && (
@@ -3244,7 +3258,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
             exit={{ opacity: 0, y: -8 }}
             transition={{ type: 'spring', damping: 26, stiffness: 380 }}
             onClick={() => { setShowSearchHere(false); setReferenceLocation(null); mapMode === 'hotels' ? fetchHotels() : fetchNearby(); }}
-            className="absolute top-[max(1rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2 text-sm font-medium text-on-surface hover:shadow-lg transition-shadow"
+            className="absolute top-[calc(env(safe-area-inset-top)+4.5rem)] left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white shadow-md rounded-full px-4 py-2 text-sm font-medium text-on-surface hover:shadow-lg transition-shadow"
           >
             <Search size={15} className={mapMode === 'hotels' ? "text-teal-600" : "text-primary"} />
             Search this area
@@ -3252,9 +3266,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
         )}
       </AnimatePresence>
 
-      {/* Floating Action Buttons + Location Search — only on the Map page */}
+      {/* Floating Action Buttons + Location Search — only on the Map page.
+          Positioned to clear the iOS status-bar / Dynamic Island safe area
+          AND sit below the page TopBar above. The bare `top-6` from before
+          punched the buttons up into the status bar on notched phones. */}
       {mode !== 'home' && (
-      <div className="absolute right-6 top-6 flex flex-col gap-3 z-30 items-end">
+      <div className="absolute right-6 top-[calc(env(safe-area-inset-top)+4.5rem)] flex flex-col gap-3 z-30 items-end">
         {/* Location Search */}
         <AnimatePresence>
           {locationSearchOpen ? (
