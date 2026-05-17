@@ -250,7 +250,7 @@ interface PostSlideProps {
   onDelete: () => void;
 }
 
-export const PostSlide: React.FC<PostSlideProps> = ({
+const PostSlideInner: React.FC<PostSlideProps> = ({
   post, active, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false,
   onActiveItemChange, onLike, onSave, onComment, onShare, onItemAttachmentClick, onDelete,
 }) => {
@@ -552,6 +552,20 @@ export const PostSlide: React.FC<PostSlideProps> = ({
     </div>
   );
 };
+
+// See ReelSlide for the rationale: scroll-induced setActiveKey in the
+// parent feed should only re-render the slide whose `active` actually
+// flipped, not every post on screen. The inline callbacks the parent
+// builds change identity every render and are ignored here.
+export const PostSlide = React.memo(PostSlideInner, (prev, next) =>
+  prev.post === next.post
+  && prev.active === next.active
+  && prev.muted === next.muted
+  && prev.isMine === next.isMine
+  && prev.currentUserId === next.currentUserId
+  && prev.hideActionRail === next.hideActionRail
+  && prev.hideOwnerDelete === next.hideOwnerDelete,
+);
 
 /* ── Compact action column (desktop) ──────────────────────────────── */
 // Re-uses the same visual language as DesktopSideActions in Reels.tsx

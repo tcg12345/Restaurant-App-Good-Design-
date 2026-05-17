@@ -225,7 +225,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, near, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
   // object-cover + heavy blur so phone screens taller than 9:16 letterbox
@@ -581,6 +581,26 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, near, muted, setMut
     </div>
   );
 };
+
+// Memoize on data + the props that actually matter for re-render. The
+// inline callbacks the parent builds (onLike, onShare, etc.) get a new
+// identity on every render and would otherwise force every slide in the
+// feed to re-render on every scroll-induced setActiveKey — the main
+// reason scrolling felt choppy. Skipping callbacks here is safe: the
+// callbacks close over stable refs from context, and a captured-but-
+// stale handler still calls the latest impl since it dispatches via
+// item.reel.id which is part of `reel`.
+const ReelSlide = React.memo(ReelSlideInner, (prev, next) =>
+  prev.reel === next.reel
+  && prev.active === next.active
+  && prev.near === next.near
+  && prev.muted === next.muted
+  && prev.isMine === next.isMine
+  && prev.currentUserId === next.currentUserId
+  && prev.hideActionRail === next.hideActionRail
+  && prev.hideOwnerDelete === next.hideOwnerDelete
+  && prev.hideDetailsOverlay === next.hideDetailsOverlay,
+);
 
 /* ── Side details panel (desktop) ───────────────────────────────────── */
 // YouTube-Shorts-style metadata column that lives to the left of the
@@ -1620,7 +1640,13 @@ export const Reels: React.FC = () => {
           setActiveKey(bestEl.dataset.feedKey);
         }
       },
-      { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
+      // Single 0.5 threshold: the callback fires when an item crosses
+      // half-visibility (either direction), at which point one of the
+      // entries is now the dominant-most-visible slide and we promote it.
+      // The previous five-threshold list fired the callback up to 5x per
+      // slide transition, which during fast scroll caused redundant
+      // setActiveKey storms and choppy frames.
+      { root, threshold: [0.5] },
     );
     slides.forEach((s) => observer.observe(s as Element));
     return () => observer.disconnect();
@@ -1796,8 +1822,10 @@ export const Reels: React.FC = () => {
       className="h-full w-full overflow-y-auto snap-y snap-mandatory bg-black scrollbar-hide"
       style={{ scrollbarWidth: 'none' }}
     >
-      <AnimatePresence initial={false}>
-        {loading && feedItems.length === 0 ? (
+      {/* AnimatePresence used to wrap the per-slide motion.div fade-in;
+          now that slides render as plain <div>s there's nothing motion
+          for it to track, so it's gone. */}
+      {loading && feedItems.length === 0 ? (
           <div className="h-full w-full flex items-center justify-center text-white/60">
             <Loader2 size={26} className="animate-spin" />
           </div>
@@ -1833,12 +1861,14 @@ export const Reels: React.FC = () => {
             // in either direction lands on an already-buffered video.
             const isNear = activeIdx >= 0 && Math.abs(idx - activeIdx) <= 1;
             return (
-            <motion.div
+            // Plain div — no per-slide Framer Motion wrapper. With dozens
+            // of items in the feed, even idle motion.div instances impose
+            // tracking overhead Framer Motion pays during reconciliation,
+            // and we never showed the opacity-in animation anyway since
+            // the surrounding AnimatePresence used initial={false}.
+            <div
               key={item.key}
               data-feed-key={item.key}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
               className="h-full w-full snap-start snap-always"
             >
               {item.kind === 'reel' ? (
@@ -1890,11 +1920,10 @@ export const Reels: React.FC = () => {
                   onDelete={() => setConfirmDeletePostId(item.post.id)}
                 />
               )}
-            </motion.div>
+            </div>
             );
           });
         })()}
-      </AnimatePresence>
 
       {/* Comments sheet floats above the feed (mobile only — desktop uses
           the side panel rendered by the layout). The target id and adapter
