@@ -290,7 +290,19 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, near, muted, setMut
         bg.currentTime = 0;
       }
     }
-  }, [active, muted]);
+    // Intentionally NOT depending on `muted`: when only the mute toggle
+    // changes we don't want to call play() again — a separate effect
+    // below mirrors the latest `muted` onto the element so the user can
+    // still toggle audio without unpausing a manually-paused reel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  // Keep the <video> element's muted flag in sync with the latest prop,
+  // without touching play/pause state.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) el.muted = muted;
+  }, [muted]);
 
   // Mirror the video's play/pause state into React so the persistent
   // paused overlay reflects reality (covers system pauses, autoplay

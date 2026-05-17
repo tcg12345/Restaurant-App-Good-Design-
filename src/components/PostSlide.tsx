@@ -170,7 +170,16 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
     } else {
       el.pause();
     }
-  }, [postActive, itemActive, muted, item.mediaType]);
+    // `muted` intentionally excluded — a separate effect mirrors it
+    // without restarting playback, which is what users expect when
+    // toggling the speaker on a paused reel/post.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postActive, itemActive, item.mediaType]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) el.muted = muted;
+  }, [muted]);
 
   // Default fallback — gradient placeholder. Used for any item far from
   // the active one, or when the signed URL isn't ready yet.
