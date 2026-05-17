@@ -198,7 +198,12 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
         playsInline
         loop
         muted={muted}
-        preload="metadata"
+        // The parent already gates mounting (shouldRenderMedia: post is
+        // active in the feed AND sub-item is within ±1 of activeIdx).
+        // Inside that window we want the buffer warm enough to start
+        // playback instantly, so use preload="auto" rather than the old
+        // preload="metadata" which only fetched a few bytes of header.
+        preload="auto"
         className="absolute inset-0 w-full h-full object-contain"
       />
     );

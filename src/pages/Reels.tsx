@@ -201,6 +201,11 @@ interface ReelSlideProps {
   setMuted: (m: boolean) => void;
   isMine: boolean;
   currentUserId: string | null;
+  /** True when this slide is the active one, OR within ±1 of it. Drives
+   *  preload="auto" so swiping forward / back from a freshly-buffered
+   *  neighbour starts playback instantly instead of waiting for a fresh
+   *  network round trip from preload="none". */
+  near: boolean;
   /** When true, skip the right-edge action rail (desktop renders one beside the reel). */
   hideActionRail?: boolean;
   /** When true, skip the in-reel delete button (desktop puts delete in the side rail's "more" menu). */
@@ -220,7 +225,7 @@ interface ReelSlideProps {
   onDelete: () => void;
 }
 
-const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
+const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, near, muted, setMuted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
   // object-cover + heavy blur so phone screens taller than 9:16 letterbox
@@ -354,11 +359,14 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, is
             {!phoneMode && (
               <video
                 ref={backdropRef}
-                src={reel.videoUrl}
+                // Backdrop only fetches when the slide is active; saving
+                // bandwidth on the decorative blurred copy that nobody
+                // sees on adjacent slides.
+                src={active ? reel.videoUrl : undefined}
                 playsInline
                 loop
                 muted
-                preload="metadata"
+                preload={active ? 'auto' : 'none'}
                 aria-hidden
                 tabIndex={-1}
                 className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 pointer-events-none"
@@ -366,12 +374,18 @@ const ReelSlide: React.FC<ReelSlideProps> = ({ reel, active, muted, setMuted, is
             )}
             <video
               ref={videoRef}
-              src={reel.videoUrl}
+              // Only attach the src when this slide is the active one or
+              // an immediate neighbour, so the browser doesn't start a
+              // network fetch for reels far down the feed. Adjacent slides
+              // sit at preload="auto" so their first frames are already in
+              // the buffer when the user swipes — that's what makes the
+              // hand-off feel instant like Instagram.
+              src={near ? reel.videoUrl : undefined}
               poster={reel.posterUrl}
               playsInline
               loop
               muted={muted}
-              preload="metadata"
+              preload={near ? 'auto' : 'none'}
               onClick={onTapVideo}
               className={cn(
                 'absolute inset-0 w-full h-full',
@@ -1720,8 +1734,14 @@ export const Reels: React.FC = () => {
               </button>
             </div>
           </div>
-        ) : (
-          feedItems.map((item) => (
+        ) : (() => {
+          const activeIdx = activeKey ? feedItems.findIndex((f) => f.key === activeKey) : -1;
+          return feedItems.map((item, idx) => {
+            const isActive = activeKey === item.key;
+            // Eager preload window: ±1 around the active slide so a swipe
+            // in either direction lands on an already-buffered video.
+            const isNear = activeIdx >= 0 && Math.abs(idx - activeIdx) <= 1;
+            return (
             <motion.div
               key={item.key}
               data-feed-key={item.key}
@@ -1733,7 +1753,8 @@ export const Reels: React.FC = () => {
               {item.kind === 'reel' ? (
                 <ReelSlide
                   reel={item.reel}
-                  active={activeKey === item.key}
+                  active={isActive}
+                  near={isNear}
                   muted={muted}
                   setMuted={setMuted}
                   isMine={!!currentUserId && item.reel.authorId === currentUserId}
@@ -1758,7 +1779,7 @@ export const Reels: React.FC = () => {
               ) : (
                 <PostSlide
                   post={item.post}
-                  active={activeKey === item.key}
+                  active={isActive}
                   muted={muted}
                   isMine={!!currentUserId && item.post.userId === currentUserId}
                   currentUserId={currentUserId}
@@ -1779,8 +1800,9 @@ export const Reels: React.FC = () => {
                 />
               )}
             </motion.div>
-          ))
-        )}
+            );
+          });
+        })()}
       </AnimatePresence>
 
       {/* Comments sheet floats above the feed (mobile only — desktop uses
