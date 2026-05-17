@@ -60,19 +60,19 @@ export const ProfileSetup: React.FC = () => {
   // Shared form body — used inside both the desktop AuthShell column
   // and the mobile fullscreen layout below.
   const formBody = (
-    <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
+    <form onSubmit={handleSubmit} className="w-full flex flex-col gap-2.5">
       <div className="relative">
         <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
         <input type="text" placeholder="Your name (e.g. Tyler)" value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
-          className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+          className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
       </div>
 
       <div className="relative">
         <AtSign size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
         <input type="text" placeholder="Username (e.g. tyler_eats)" value={username}
           onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-          className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+          className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
           autoCapitalize="off" autoCorrect="off" />
       </div>
 
@@ -89,11 +89,11 @@ export const ProfileSetup: React.FC = () => {
           value={homeCity}
           onChange={(e) => setHomeCity(e.target.value)}
           autoCapitalize="words" autoCorrect="off"
-          className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+          className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
       </div>
 
       {/* Public/Private toggle */}
-      <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
+      <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
         <div>
           <p className="text-sm font-medium text-on-surface">{isPublic ? 'Public Account' : 'Private Account'}</p>
           <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
@@ -106,7 +106,7 @@ export const ProfileSetup: React.FC = () => {
       </div>
 
       {/* Expert toggle */}
-      <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
+      <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
         <div>
           <p className="text-sm font-medium text-on-surface">{isExpert ? 'Expert Account' : 'Regular Account'}</p>
           <p className="text-[11px] text-on-surface/40">{isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}</p>
@@ -125,9 +125,9 @@ export const ProfileSetup: React.FC = () => {
 
       <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
         type="submit" disabled={submitting}
-        className="group flex items-center justify-center gap-3 bg-primary text-white px-8 py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
-        {submitting ? <Loader2 size={20} className="animate-spin" /> : (
-          <>Continue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" /></>
+        className="group flex items-center justify-center gap-3 bg-primary text-white px-8 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
+        {submitting ? <Loader2 size={18} className="animate-spin" /> : (
+          <>Continue <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>
         )}
       </motion.button>
     </form>
@@ -154,12 +154,12 @@ export const ProfileSetup: React.FC = () => {
     );
     return (
       <AuthShell headerRight={headerRight} panel="profile">
-        <div className="space-y-6">
+        <div className="space-y-3">
           <header>
-            <h1 className="font-serif font-bold text-4xl xl:text-5xl tracking-tight leading-[1.05] text-on-surface mb-3">
+            <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-1.5">
               Set up your profile
             </h1>
-            <p className="text-base text-on-surface/55 font-light leading-relaxed">
+            <p className="text-sm text-on-surface/55 font-light leading-relaxed">
               Choose a display name and username so friends can find you.
             </p>
           </header>

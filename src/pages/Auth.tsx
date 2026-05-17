@@ -47,7 +47,7 @@ const GoogleIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
 
 // ── Form atoms (shared between desktop and mobile layouts) ──────────────
 const FieldLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-2">
+  <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
     {children}
   </label>
 );
@@ -74,7 +74,7 @@ const TextField: React.FC<{
       autoFocus={autoFocus}
       inputMode={inputMode}
       className={cn(
-        'w-full px-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface',
+        'w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface',
         'placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 transition-all text-sm',
         trailing && 'pr-11',
       )}
@@ -98,7 +98,7 @@ const PrimaryButton: React.FC<{
     disabled={disabled || loading}
     whileHover={!disabled && !loading ? { scale: 1.01 } : undefined}
     whileTap={!disabled && !loading ? { scale: 0.99 } : undefined}
-    className="group w-full flex items-center justify-center gap-3 bg-primary text-white px-6 py-3.5 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-shadow cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+    className="group w-full flex items-center justify-center gap-3 bg-primary text-white px-6 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-shadow cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
   >
     {loading ? (
       <Loader2 size={18} className="animate-spin" />
@@ -115,14 +115,14 @@ const SocialRow: React.FC = () => (
   <div className="grid grid-cols-2 gap-3">
     <button
       type="button"
-      className="flex items-center justify-center gap-2.5 px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer"
+      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer"
     >
       <AppleIcon size={16} />
       <span>Apple</span>
     </button>
     <button
       type="button"
-      className="flex items-center justify-center gap-2.5 px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer"
+      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer"
     >
       <GoogleIcon size={16} />
       <span>Google</span>
@@ -170,12 +170,12 @@ type SharedProps = {
 const StepEmail: React.FC<SharedProps> = ({
   email, setEmail, submitting, error, onEmailContinue,
 }) => (
-  <div className="space-y-6">
+  <div className="space-y-4">
     <header>
-      <h1 className="font-serif font-bold text-4xl xl:text-5xl tracking-tight leading-[1.05] text-on-surface mb-3">
+      <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
         Welcome to Gourmet&nbsp;Canvas
       </h1>
-      <p className="text-base text-on-surface/55 font-light leading-relaxed max-w-md">
+      <p className="text-sm text-on-surface/55 font-light leading-relaxed max-w-md">
         Sign in or create an account — we'll figure out which one based on your email.
       </p>
     </header>
@@ -223,12 +223,12 @@ const StepPassword: React.FC<SharedProps> = ({
   email, password, setPassword, showPassword, setShowPassword,
   submitting, error, onSignIn, onBack, keepSignedIn, setKeepSignedIn,
 }) => (
-  <div className="space-y-6">
+  <div className="space-y-4">
     <header>
-      <h1 className="font-serif font-bold text-4xl xl:text-5xl tracking-tight leading-[1.05] text-on-surface mb-3">
+      <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
         Welcome back
       </h1>
-      <p className="text-base text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
+      <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
         <span>Signing in as</span>
         <EmailPill email={email} onClear={onBack} />
       </p>
@@ -301,12 +301,12 @@ const StepSignup: React.FC<SharedProps> = ({
   const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <header>
-        <h1 className="font-serif font-bold text-4xl xl:text-5xl tracking-tight leading-[1.05] text-on-surface mb-3">
+        <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
           Create your account
         </h1>
-        <p className="text-base text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
+        <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
           <span>Setting up for</span>
           <EmailPill email={email} onClear={onBack} />
         </p>
