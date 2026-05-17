@@ -4692,23 +4692,27 @@ const HomeCookingTab: React.FC<{
       stepCount: selectedMeal.steps?.length || undefined,
     });
 
+    // Same header geometry as MealRecipePage (the recipe view reached
+    // from Discover) so the two pages feel like one product. Owner-only
+    // affordances (Edit / Delete) replace the read-only author label
+    // that MealRecipePage uses.
     const actionsHeader = (
       <div className="flex items-center gap-3">
-        <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-          <ArrowLeft size={20} />
+        <button onClick={() => onSelectMeal(null)} className="p-2 -ml-2 text-on-surface/50 hover:text-on-surface transition-colors" aria-label="Back">
+          <ArrowLeft size={22} />
         </button>
         <div className="flex-1" />
         <button onClick={() => setShareRecipeData(buildSharedRecipe())}
           className="p-2 text-on-surface/40 hover:text-emerald-600 rounded-full transition-colors" title="Share recipe">
-          <Share2 size={18} />
+          <Share2 size={20} />
         </button>
         <button onClick={() => onOpenModal(selectedMeal)}
           className="p-2 text-on-surface/40 hover:text-primary rounded-full transition-colors" title="Edit meal">
-          <Edit3 size={18} />
+          <Edit3 size={20} />
         </button>
         <button onClick={() => setConfirmDeleteId(selectedMeal.id)}
-          className="p-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
-          <Trash2 size={18} />
+          className="p-2 -mr-2 text-on-surface/40 hover:text-red-500 rounded-full transition-colors" title="Delete meal">
+          <Trash2 size={20} />
         </button>
       </div>
     );
@@ -5106,8 +5110,12 @@ const HomeCookingTab: React.FC<{
     // ── Phone layout: full-width hero + fully stacked sections ──
     if (phoneMode) {
       return (
-        <div className="-mx-3 pb-20">
-          <div className="px-4 pt-2 pb-1">{actionsHeader}</div>
+        // -mx-3 breaks out of the parent <main className="px-3"> so the
+        // hero photo runs edge-to-edge, matching MealRecipePage from
+        // Discover. pb-32 + the pt-safe-4 header row below also mirror
+        // that page's geometry exactly.
+        <div className="-mx-3 pb-32">
+          <div className="px-4 pt-safe-4 pb-2">{actionsHeader}</div>
 
           {coverUrl ? (
             <button onClick={() => setLightboxPhotoIdx(coverLightboxIdx)} className="block w-full text-left mt-2 mb-5">
