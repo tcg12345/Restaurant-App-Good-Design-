@@ -861,15 +861,23 @@ const RestaurantGridCard: React.FC<{
   score?: number;
   /** Full address — used to derive "City, State" for the footer. */
   address?: string;
-  /** User's notes / quote for this rating — rendered as italic text. */
+  /** User's notes / quote for this rating — rendered behind a
+   *  collapsible "Notes" toggle on the no-image editorial variant. */
   notes?: string;
   onEdit?: () => void;
+  /** Opens the rating modal jumped straight to the Notes sub-page so
+   *  the user can author / replace the notes for this restaurant
+   *  without scrolling through the rest of the score editor. */
+  onEditNotes?: () => void;
   onRemove?: () => void;
-}> = ({ restaurantId, name, image, cuisine, price, score, address, notes, onEdit, onRemove }) => {
+}> = ({ restaurantId, name, image, cuisine, price, score, address, notes, onEdit, onEditNotes, onRemove }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
   const { restaurantMeta } = useLists();
+  const trimmedNotes = notes?.trim() ?? '';
+  const hasNotes = trimmedNotes.length > 0;
   const hasScore = score !== undefined && score > 0;
   const cuisineLabel = cuisine === 'Hotel Breakfast' ? 'Hotel' : cuisine;
   const showPrice = cuisine !== 'Hotel Breakfast' && !!price;
@@ -948,13 +956,61 @@ const RestaurantGridCard: React.FC<{
             </p>
           )}
 
-          {/* Notes (italic quote) — only renders when present, so cards
-              without notes collapse to their natural height. */}
-          {notes && notes.trim() && (
-            <p className="mt-2 text-[12px] text-on-surface/55 line-clamp-3 italic leading-snug">
-              &ldquo;{notes}&rdquo;
-            </p>
-          )}
+          {/* Notes affordance — sits in the same slot the italic quote
+              used to occupy.
+                • If the restaurant has notes, render a Notes dropdown
+                  that expands the quoted text in place.
+                • Otherwise, render an "Add notes" button that opens the
+                  rating modal jumped straight to its Notes sub-page. */}
+          {hasNotes ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setNotesOpen((v) => !v);
+                }}
+                aria-expanded={notesOpen}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface/55 hover:text-on-surface transition-colors"
+              >
+                <StickyNote size={12} className="text-on-surface/45" />
+                <span>Notes</span>
+                <ChevronDown
+                  size={12}
+                  className={cn('transition-transform', notesOpen && 'rotate-180')}
+                />
+              </button>
+              <AnimatePresence initial={false}>
+                {notesOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <p className="mt-1.5 text-[12px] text-on-surface/65 italic leading-snug whitespace-pre-wrap">
+                      &ldquo;{trimmedNotes}&rdquo;
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ) : onEditNotes ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onEditNotes();
+              }}
+              className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-on-surface/35 hover:text-primary transition-colors"
+            >
+              <Plus size={12} />
+              <span>Add notes</span>
+            </button>
+          ) : null}
 
           {/* Footer: pin + location (line-clamp 2 so the full Beli-style
               label is never cut off), then a second line with the
@@ -2451,6 +2507,7 @@ const ListDetailView: React.FC<{
                     notes={rating?.notes}
                     score={rating?.score}
                     onEdit={info ? () => openAddRestaurantModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }) : undefined}
+                    onEditNotes={info ? () => openAddRestaurantModal({ id, name: info.name, image: info.image, cuisine: info.cuisine, price: info.price, address: info.address }, 'notes') : undefined}
                     onRemove={() => removeFromList(list.id, id)}
                   />
                 ) : (
@@ -7408,6 +7465,7 @@ export const Pantry: React.FC = () => {
                           notes={r.notes}
                           score={r.score}
                           onEdit={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address })}
+                          onEditNotes={() => openAddRestaurantModal({ id: r.restaurantId, name: r.name, image: r.image, cuisine: r.cuisine, price: r.price, address: r.address }, 'notes')}
                           onRemove={() => removeRating(r.restaurantId)}
                         />
                       ) : (
