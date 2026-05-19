@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, ArrowLeft } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Volume2, VolumeX, ChefHat, ChevronRight, Plus, Star, Trash2, Loader2, X, Send, MoreHorizontal, Play, ArrowLeft, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useReels, type Reel, type ReelKind } from '../contexts/ReelsContext';
@@ -623,7 +623,7 @@ const ReelSlide = React.memo(ReelSlideInner, (prev, next) =>
 
 const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> = ({ reel, onCardClick }) => {
   return (
-    <div className="hidden md:flex w-[300px] flex-col gap-3.5 self-end pb-3">
+    <div className="hidden md:flex w-[300px] flex-col gap-3.5">
       {/* Author + expert chip */}
       <Link
         to={`/user/${encodeURIComponent(reel.authorUsername)}`}
@@ -670,6 +670,153 @@ const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> 
         </div>
       )}
     </div>
+  );
+};
+
+// Post-side counterpart: same column shape as the reel version above,
+// but reads from the Post + its currently-visible sub-item. Posts can
+// be multi-item, so the caption / featured card refresh as the user
+// swipes the carousel — `activeItemIdx` is bubbled up from PostSlide.
+
+const DesktopPostSideDetails: React.FC<{
+  post: Post;
+  activeItemIdx: number;
+  onAttachmentClick: (item: PostItemRow) => void;
+}> = ({ post, activeItemIdx, onAttachmentClick }) => {
+  const item = post.items[activeItemIdx] ?? post.items[0];
+  const caption = (item?.caption?.trim() || post.caption || '').trim();
+  return (
+    <div className="hidden md:flex w-[300px] flex-col gap-3.5">
+      {/* Author + expert chip */}
+      <Link
+        to={`/user/${encodeURIComponent(post.author?.username || post.userId)}`}
+        className="flex items-center gap-3 group min-w-0"
+      >
+        <div className={cn(
+          'w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-on-surface/[0.06] transition-transform group-hover:scale-[1.04] group-active:scale-[0.96] flex-shrink-0',
+          post.author?.avatarColor || 'bg-stone-700',
+        )}>
+          {post.author?.initials || post.userId.slice(0, 2).toUpperCase()}
+        </div>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-bold text-[15px] truncate text-on-surface group-hover:underline underline-offset-2">
+            @{post.author?.username || post.userId.slice(0, 8)}
+          </span>
+          {post.author?.isExpert && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-300/95 text-stone-900 text-[10px] font-bold flex-shrink-0">
+              <Star size={9} className="fill-stone-900" />
+              EXPERT
+            </span>
+          )}
+        </div>
+      </Link>
+
+      {/* Caption — per-item, falls back to the post-level caption */}
+      {caption && (
+        <p className="text-on-surface/85 text-[14.5px] font-serif italic leading-snug line-clamp-5">
+          {caption}
+        </p>
+      )}
+
+      {/* Location pin (post-level) */}
+      {post.locationLabel && (
+        <div className="flex items-center gap-1.5 text-on-surface/55 text-[12.5px]">
+          <MapPin size={12} className="flex-shrink-0" />
+          <span className="truncate">{post.locationLabel}</span>
+        </div>
+      )}
+
+      {/* Featured restaurant / recipe — per-item attachment, animated so
+          it cross-fades as the user swipes the carousel. */}
+      <AnimatePresence mode="wait" initial={false}>
+        {item?.attachedKind === 'restaurant' && item.restaurant && (
+          <motion.div
+            key={`r-${activeItemIdx}`}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="mt-1"
+          >
+            <PostRestaurantSideCard item={item} onClick={() => onAttachmentClick(item)} />
+          </motion.div>
+        )}
+        {item?.attachedKind === 'recipe' && item.recipe && (
+          <motion.div
+            key={`re-${activeItemIdx}`}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="mt-1"
+          >
+            <PostRecipeSideCard item={item} onClick={() => onAttachmentClick(item)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// Inline post-attachment cards — same visual language as the reel
+// RestaurantCard / RecipeCard above, just sourced from a PostItemRow's
+// snapshot instead of a Reel.
+
+const PostRestaurantSideCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item, onClick }) => {
+  const r = item.restaurant!;
+  const score = r.score ?? 0;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 rounded-2xl pl-2 pr-3 py-2 text-left bg-white/95 backdrop-blur shadow-lg hover:bg-white transition-colors"
+    >
+      <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br from-rose-700 to-orange-700 flex items-center justify-center">
+        {r.image ? (
+          <img src={r.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+        ) : (
+          <span className="text-white text-[10px] font-bold uppercase tracking-widest text-center px-1">{r.cuisine}</span>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">Featured place</p>
+        <p className="text-[15px] font-bold leading-tight truncate text-stone-900">{r.name}</p>
+        <p className="text-[11px] truncate mt-0.5 text-stone-500">
+          {[r.cuisine, r.price].filter(Boolean).join(' · ')}
+        </p>
+      </div>
+      {score > 0 && (
+        <span className="inline-flex items-center justify-center min-w-[40px] h-9 px-2.5 rounded-xl text-sm font-bold tabular-nums bg-emerald-700 text-white">
+          {score.toFixed(1)}
+        </span>
+      )}
+      <ChevronRight size={16} className="flex-shrink-0 text-stone-400" />
+    </button>
+  );
+};
+
+const PostRecipeSideCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item, onClick }) => {
+  const r = item.recipe!;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 rounded-2xl pl-2 pr-2 py-2 text-left bg-white/95 backdrop-blur shadow-lg hover:bg-white transition-colors"
+    >
+      <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-blue-50 flex items-center justify-center">
+        {r.image ? (
+          <img src={r.image} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <ChefHat size={26} className="text-blue-600" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-stone-500">Recipe</p>
+        <p className="text-[15px] font-bold leading-tight truncate text-stone-900">{r.title}</p>
+        <p className="text-[11px] truncate mt-0.5 text-stone-500">{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
+      </div>
+      <span className="px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 bg-stone-900 text-white">View</span>
+    </button>
   );
 };
 
@@ -1375,6 +1522,13 @@ export const Reels: React.FC = () => {
   // Single "active feed item" key — `reel-<id>` or `post-<id>` — so the
   // unified scroll-snap feed can track exactly one playing slide.
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  // Tracks which sub-item of the active post is on screen, so the
+  // desktop side-details column can swap its featured card and caption
+  // as the user swipes the horizontal carousel. Reset whenever the
+  // active feed item changes so we don't carry over the prior post's
+  // index.
+  const [activePostItemIdx, setActivePostItemIdx] = useState(0);
+  useEffect(() => { setActivePostItemIdx(0); }, [activeKey]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
@@ -1931,6 +2085,10 @@ export const Reels: React.FC = () => {
                   currentUserId={currentUserId}
                   hideActionRail={opts.hideActionRail}
                   hideOwnerDelete={opts.hideOwnerDelete}
+                  // Only the currently-active PostSlide reports its
+                  // sub-item changes back; otherwise every slide on
+                  // screen would race to write into the same state.
+                  onActiveItemChange={isActive ? setActivePostItemIdx : undefined}
                   onLike={() => {
                     if (!currentUserId) { showToast('Sign in to like posts'); return; }
                     togglePostLike(item.post.id);
@@ -2022,11 +2180,13 @@ export const Reels: React.FC = () => {
      save / share / more buttons live in a column right next to it. */
   if (showDesktopFrame) {
     return (
-      // h-screen because /reels hides the desktop header (no top offset
-      // to subtract). py-3 keeps a hair of breathing room without eating
-      // into the reel — the reel is height-driven, so the smaller the
-      // vertical padding, the bigger the reel ends up.
-      <div className="relative h-screen w-full bg-surface overflow-hidden flex items-center justify-center gap-4 px-6 py-3">
+      // 3-column grid: [1fr] [auto] [1fr]. The reel column auto-sizes
+      // to its 9:16 aspect ratio, and the two 1fr side columns share
+      // the remaining space symmetrically — so the reel is always
+      // horizontally centered on the page regardless of whether the
+      // side-details column is filled (reels have it, some posts do,
+      // pre-load states don't).
+      <div className="relative h-screen w-full bg-surface overflow-hidden grid grid-cols-[1fr_auto_1fr] items-center gap-4 px-6 py-3">
         {focused && (
           <button
             type="button"
@@ -2038,16 +2198,26 @@ export const Reels: React.FC = () => {
           </button>
         )}
 
-        {/* Left details panel — author / audio label / caption /
-            featured card for the active reel. Lives in the blank space
-            to the left of the centered reel column, mirroring how
-            YouTube Shorts surfaces metadata on desktop. */}
-        {activeReel && (
-          <DesktopReelSideDetails
-            reel={activeReel}
-            onCardClick={() => handleCardClick(activeReel)}
-          />
-        )}
+        {/* Left column — side details for the active reel or post,
+            right-edge anchored against the reel column and bottom-aligned
+            so it always reads as "lower-left of the reel". The column
+            itself is always rendered (even if empty) so the reel's
+            center never shifts. */}
+        <div className="h-full min-w-0 flex items-end justify-end pb-3">
+          {activeReel && (
+            <DesktopReelSideDetails
+              reel={activeReel}
+              onCardClick={() => handleCardClick(activeReel)}
+            />
+          )}
+          {activePost && (
+            <DesktopPostSideDetails
+              post={activePost}
+              activeItemIdx={activePostItemIdx}
+              onAttachmentClick={(it) => handlePostItemClick(activePost.userId, it)}
+            />
+          )}
+        </div>
 
         {/* Reel column — full available height; aspect ratio drives width.
             9/16 matches the native reels video ratio and Instagram's desktop
@@ -2061,10 +2231,11 @@ export const Reels: React.FC = () => {
           {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true, hideDetailsOverlay: true, onActiveVideoChange: setActiveVideoEl })}
         </div>
 
-        {/* Side actions — bottom-aligned, dispatched to reel or post APIs
-            based on which tab is active. */}
-        {activeReel && (
-          <div className="self-end pb-2">
+        {/* Right column — side actions, left-edge anchored against the
+            reel column, bottom-aligned. Always rendered so the grid
+            stays balanced even between active-item changes. */}
+        <div className="h-full min-w-0 flex items-end justify-start pb-2">
+          {activeReel && (
             <DesktopSideActions
               reel={activeReel}
               isMine={!!currentUserId && activeReel.authorId === currentUserId}
@@ -2080,10 +2251,8 @@ export const Reels: React.FC = () => {
               onShare={() => handleShare(activeReel)}
               onDelete={() => setConfirmDeleteId(activeReel.id)}
             />
-          </div>
-        )}
-        {activePost && (
-          <div className="self-end pb-2">
+          )}
+          {activePost && (
             <DesktopPostSideActions
               post={activePost}
               isMine={!!currentUserId && activePost.userId === currentUserId}
@@ -2099,8 +2268,8 @@ export const Reels: React.FC = () => {
               onShare={() => handleSharePost(activePost)}
               onDelete={() => setConfirmDeletePostId(activePost.id)}
             />
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Comments panel — switches data source based on active tab. */}
         <CommentsPanel
