@@ -362,6 +362,18 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, s
       <div className="absolute inset-0">
         {reel.videoUrl ? (
           <>
+            {/* Gradient fallback so a not-yet-loaded reel reads as a
+                warm-colored tile (the same per-reel bgGradient used by
+                video-less slides) instead of a pure-black slate. The
+                <video> and its poster paint on top once they're ready;
+                this layer just guarantees there's never a "black hole"
+                while we wait. */}
+            <div
+              className={cn(
+                'absolute inset-0 bg-gradient-to-b',
+                reel.bgGradient || 'from-stone-800 to-stone-900',
+              )}
+            />
             {/* Blurred backdrop only on desktop where the reel sits
                 inside a column with side panels — letterboxing reads
                 as intentional there. On phone we want Instagram-style
@@ -1854,7 +1866,19 @@ export const Reels: React.FC = () => {
             </div>
           </div>
         ) : (() => {
-          const activeIdx = activeKey ? feedItems.findIndex((f) => f.key === activeKey) : -1;
+          // Fall back to feedItems[0] when activeKey hasn't been resolved
+          // yet (first render, before the restore-position effect fires).
+          // Without this, the very first paint has activeIdx = -1, every
+          // slide gets near = false, and the top reel/post sits on its
+          // gradient placeholder while waiting one tick for the effect to
+          // kick off preloading. Defaulting to index 0 means the top of
+          // the feed starts loading on the same frame it mounts.
+          const resolvedIdx = activeKey
+            ? feedItems.findIndex((f) => f.key === activeKey)
+            : -1;
+          const activeIdx = resolvedIdx >= 0
+            ? resolvedIdx
+            : (feedItems.length > 0 ? 0 : -1);
           return feedItems.map((item, idx) => {
             const isActive = activeKey === item.key;
             // Eager preload window: ±1 around the active slide so a swipe
@@ -1901,6 +1925,7 @@ export const Reels: React.FC = () => {
                 <PostSlide
                   post={item.post}
                   active={isActive}
+                  near={isNear}
                   muted={muted}
                   isMine={!!currentUserId && item.post.userId === currentUserId}
                   currentUserId={currentUserId}

@@ -156,10 +156,13 @@ interface MediaFrameProps {
   itemActive: boolean;
   /** Render real media when within this distance of the active item. */
   shouldRenderMedia: boolean;
+  /** True for the active sub-item of the active post — drives loading
+   *  hints so the cover frame paints as fast as the browser allows. */
+  highPriority?: boolean;
   muted: boolean;
 }
 
-const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, shouldRenderMedia, muted }) => {
+const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, shouldRenderMedia, highPriority, muted }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const el = videoRef.current;
@@ -208,10 +211,10 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
         loop
         muted={muted}
         // The parent already gates mounting (shouldRenderMedia: post is
-        // active in the feed AND sub-item is within ±1 of activeIdx).
-        // Inside that window we want the buffer warm enough to start
-        // playback instantly, so use preload="auto" rather than the old
-        // preload="metadata" which only fetched a few bytes of header.
+        // active in the feed AND sub-item is within ±1 of activeIdx, OR
+        // this is the cover of a vertical neighbour). Inside that window
+        // we want the buffer warm enough to start playback instantly, so
+        // use preload="auto".
         preload="auto"
         className="absolute inset-0 w-full h-full object-contain"
       />
@@ -221,8 +224,14 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
     <img
       src={item.mediaUrl}
       alt=""
-      loading="lazy"
+      // `eager` so the cover frame of a near (not yet active) post
+      // actually starts fetching before the user swipes onto it; the
+      // default `lazy` would defer until the slide crossed the
+      // viewport threshold, which on a snap-mandatory full-screen
+      // feed lands too late.
+      loading="eager"
       decoding="async"
+      {...(highPriority ? { fetchpriority: 'high' } : {})}
       className="absolute inset-0 w-full h-full object-contain"
     />
   );
@@ -233,6 +242,11 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
 interface PostSlideProps {
   post: Post;
   active: boolean;
+  /** True when the post is the active feed item OR within ±1 of it.
+   *  Drives cover-frame preloading so the first paint is already in
+   *  the browser cache by the time the user swipes onto it — matches
+   *  the strategy ReelSlide uses for adjacent reel videos. */
+  near?: boolean;
   muted: boolean;
   isMine: boolean;
   currentUserId: string | null;
@@ -251,7 +265,7 @@ interface PostSlideProps {
 }
 
 const PostSlideInner: React.FC<PostSlideProps> = ({
-  post, active, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false,
+  post, active, near = false, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false,
   onActiveItemChange, onLike, onSave, onComment, onShare, onItemAttachmentClick, onDelete,
 }) => {
   const { getPostItemIndex, setPostItemIndex } = usePosts();
@@ -371,11 +385,18 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
       >
         {post.items.map((it, idx) => {
           const itemActive = active && idx === activeIdx;
-          // Only mount real media for the active item ± 1 of the active
-          // post. Everything else stays a cheap gradient until it's
-          // actually about to be shown — keeps the feed snappy when
-          // scrolling past lots of multi-item posts.
-          const shouldRenderMedia = active && Math.abs(idx - activeIdx) <= 1;
+          // Mount real media when:
+          //   • the post is active AND this carousel item is within ±1
+          //     of activeIdx (so horizontal swipes inside the post land
+          //     on an already-loaded frame), OR
+          //   • the post is a vertical neighbour (`near`) — for those
+          //     we only preload the cover (idx 0). That's the frame the
+          //     user will see the instant they swipe in, so it has to
+          //     already be in the browser cache. Other items stay
+          //     gradient until the post actually becomes active.
+          const shouldRenderMedia =
+            (active && Math.abs(idx - activeIdx) <= 1)
+            || (!active && near && idx === 0);
           return (
             <div key={it.id} className="relative flex-shrink-0 w-full h-full snap-start snap-always">
               <MediaFrame
@@ -383,6 +404,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                 postActive={active}
                 itemActive={itemActive}
                 shouldRenderMedia={shouldRenderMedia}
+                highPriority={itemActive}
                 muted={muted}
               />
             </div>
@@ -560,6 +582,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
 export const PostSlide = React.memo(PostSlideInner, (prev, next) =>
   prev.post === next.post
   && prev.active === next.active
+  && prev.near === next.near
   && prev.muted === next.muted
   && prev.isMine === next.isMine
   && prev.currentUserId === next.currentUserId
