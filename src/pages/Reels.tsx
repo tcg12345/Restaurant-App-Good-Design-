@@ -1783,40 +1783,58 @@ export const Reels: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, feedItems.length]);
 
-  // IntersectionObserver picks the most-visible slide so exactly one video
-  // plays. Each slide carries data-feed-key="reel-<id>" | "post-<id>".
+  // Track which slide is on screen by picking the one whose centre is
+  // closest to the viewport's centre on every scroll. Snap-mandatory
+  // scrolling means this resolves cleanly to one slide per rest, and
+  // doing it scroll-driven (rather than IntersectionObserver +
+  // threshold gate) means activeKey updates the instant the new slide
+  // takes over the center — fixes the bug where the desktop side
+  // panel kept showing the previous reel's details after scrolling
+  // onto a post because the threshold callback never fired with a
+  // ratio above the gate.
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
-    const slides = Array.from(root.querySelectorAll<HTMLDivElement>('[data-feed-key]'));
-    if (slides.length === 0) return;
+    let raf = 0;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let bestEl: HTMLDivElement | null = null;
-        let bestRatio = 0;
-        for (const e of entries) {
-          if (e.intersectionRatio > bestRatio) {
-            bestRatio = e.intersectionRatio;
-            bestEl = e.target as HTMLDivElement;
-          }
+    const update = () => {
+      const slides = root.querySelectorAll<HTMLDivElement>('[data-feed-key]');
+      if (slides.length === 0) return;
+      const rootRect = root.getBoundingClientRect();
+      const rootCenter = rootRect.top + rootRect.height / 2;
+      let closestEl: HTMLDivElement | null = null;
+      let closestDist = Infinity;
+      slides.forEach((s) => {
+        const r = s.getBoundingClientRect();
+        const center = r.top + r.height / 2;
+        const dist = Math.abs(center - rootCenter);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestEl = s;
         }
-        if (bestEl && bestRatio > 0.6 && bestEl.dataset.feedKey) {
-          setActiveKey(bestEl.dataset.feedKey);
-        }
-      },
-      // Single 0.5 threshold: the callback fires when an item crosses
-      // half-visibility (either direction), at which point one of the
-      // entries is now the dominant-most-visible slide and we promote it.
-      // The previous five-threshold list fired the callback up to 5x per
-      // slide transition, which during fast scroll caused redundant
-      // setActiveKey storms and choppy frames.
-      { root, threshold: [0.5] },
-    );
-    slides.forEach((s) => observer.observe(s as Element));
-    return () => observer.disconnect();
-  }, [feedItems]);
+      });
+      if (closestEl && (closestEl as HTMLDivElement).dataset.feedKey) {
+        const key = (closestEl as HTMLDivElement).dataset.feedKey!;
+        setActiveKey((prev) => (prev === key ? prev : key));
+      }
+    };
+
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(update);
+    };
+
+    root.addEventListener('scroll', onScroll, { passive: true });
+    // Initial resolution — covers the case where the feed mounts with
+    // a non-zero scrollTop (restored position) so the side panel
+    // starts in sync with the visible slide.
+    update();
+    return () => {
+      root.removeEventListener('scroll', onScroll);
+      cancelAnimationFrame(raf);
+    };
+  }, [feedItems.length]);
 
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
@@ -2085,6 +2103,7 @@ export const Reels: React.FC = () => {
                   currentUserId={currentUserId}
                   hideActionRail={opts.hideActionRail}
                   hideOwnerDelete={opts.hideOwnerDelete}
+                  hideDetailsOverlay={opts.hideDetailsOverlay}
                   // Only the currently-active PostSlide reports its
                   // sub-item changes back; otherwise every slide on
                   // screen would race to write into the same state.

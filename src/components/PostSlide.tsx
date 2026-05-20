@@ -253,6 +253,11 @@ interface PostSlideProps {
   /** Hide the in-slide action rail (desktop renders one beside the slide). */
   hideActionRail?: boolean;
   hideOwnerDelete?: boolean;
+  /** Hide the in-slide bottom info overlay (author chip / caption /
+   *  location / featured card). Desktop moves that content into a
+   *  dedicated side panel to the left of the slide, so leaving the
+   *  in-slide overlay rendered would duplicate everything. */
+  hideDetailsOverlay?: boolean;
   /** Reports the active sub-item index to the parent so it can update side
    *  cards / labels (desktop) — purely informational. */
   onActiveItemChange?: (idx: number) => void;
@@ -265,7 +270,7 @@ interface PostSlideProps {
 }
 
 const PostSlideInner: React.FC<PostSlideProps> = ({
-  post, active, near = false, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false,
+  post, active, near = false, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false,
   onActiveItemChange, onLike, onSave, onComment, onShare, onItemAttachmentClick, onDelete,
 }) => {
   const { getPostItemIndex, setPostItemIndex } = usePosts();
@@ -462,8 +467,10 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
           per-item attached card collapse into a tap-to-expand block, mirroring
           the reel video slide. The author Link is scoped to avatar + handle +
           EXPERT chip only — the audio label and the toggle hitbox live
-          outside it so tapping audio/empty space doesn't open the profile. */}
-      {(() => {
+          outside it so tapping audio/empty space doesn't open the profile.
+          Skipped entirely when the parent (desktop layout) is going to
+          render this content in a dedicated side panel instead. */}
+      {!hideDetailsOverlay && (() => {
         const hasCollapsibleContent = !!captionForItem
           || !!post.locationLabel
           || (item?.attachedKind === 'restaurant' && !!item.restaurant)
@@ -587,7 +594,8 @@ export const PostSlide = React.memo(PostSlideInner, (prev, next) =>
   && prev.isMine === next.isMine
   && prev.currentUserId === next.currentUserId
   && prev.hideActionRail === next.hideActionRail
-  && prev.hideOwnerDelete === next.hideOwnerDelete,
+  && prev.hideOwnerDelete === next.hideOwnerDelete
+  && prev.hideDetailsOverlay === next.hideDetailsOverlay,
 );
 
 /* ── Compact action column (desktop) ──────────────────────────────── */
