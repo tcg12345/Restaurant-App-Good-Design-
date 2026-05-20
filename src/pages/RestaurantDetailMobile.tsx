@@ -945,7 +945,19 @@ export const RestaurantDetailMobile: React.FC = () => {
                     className="overflow-hidden"
                   >
                     <div className="pt-3">
-                      <div className="flex justify-end mb-3">
+                      <div className="flex items-center justify-end gap-3 mb-3">
+                        {/* Re-rate — opens the modal directly on "Log
+                            New Visit", archiving the existing rating to
+                            visit history. */}
+                        <button
+                          onClick={() => openAddRestaurantModal(meta, 'new-visit')}
+                          className="inline-flex items-center gap-1.5 text-white bg-primary active:opacity-90 transition-opacity px-3 py-1.5 rounded-full"
+                          style={{ fontSize: '12.5px', fontWeight: 700 }}
+                        >
+                          <Star size={12} className="fill-white" /> Re-rate
+                        </button>
+                        {/* Edit — opens the modal on "Update Current",
+                            replacing the existing rating in place. */}
                         <button
                           onClick={() => openAt('main')}
                           className="flex items-center gap-1 text-persimmon active:opacity-70 transition-opacity"

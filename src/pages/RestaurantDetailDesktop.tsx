@@ -916,8 +916,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
           return (
             <section ref={myRatingRef} className="mb-12 scroll-mt-4">
-              <div className="flex items-end justify-between mb-5">
-                <div>
+              <div className="flex items-end justify-between mb-5 gap-3">
+                <div className="min-w-0">
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
                     My Rating
                   </p>
@@ -925,12 +925,28 @@ export const RestaurantDetailDesktop: React.FC = () => {
                     Your take on it
                   </h2>
                 </div>
-                <button
-                  onClick={() => openAt('main')}
-                  className="flex items-center gap-1 text-sm font-medium text-accent hover:opacity-70 transition-opacity flex-shrink-0"
-                >
-                  <Edit3 size={14} /> Edit
-                </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Re-rate — opens the modal jumped straight onto its
+                      "Log New Visit" tab so the current rating is archived
+                      to visit history and a fresh score / notes / photos
+                      can be entered. Use this when you've been back to the
+                      restaurant again. */}
+                  <button
+                    onClick={() => openAddRestaurantModal(meta, 'new-visit')}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-white bg-primary hover:opacity-90 transition-opacity px-3 py-1.5 rounded-full"
+                  >
+                    <Star size={13} className="fill-white" /> Re-rate
+                  </button>
+                  {/* Edit — opens the modal on "Update Current", which
+                      replaces the existing rating in place without
+                      touching visit history. */}
+                  <button
+                    onClick={() => openAt('main')}
+                    className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:opacity-70 transition-opacity"
+                  >
+                    <Edit3 size={14} /> Edit
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-6">
