@@ -833,14 +833,9 @@ export const RestaurantDetailMobile: React.FC = () => {
         {isHotel && (
           <section className="mb-10">
             <div className="flex items-end justify-between mb-4">
-              <div>
-                <p className="section-eyebrow mb-1">
-                  Hotel Dining
-                </p>
-                <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight">
-                  Eat and drink on site
-                </h2>
-              </div>
+              <h2 className="text-[22px] font-serif font-bold text-on-surface leading-tight">
+                Hotel Dining
+              </h2>
               {user?.id && (
                 <button onClick={() => setAddDiningOpen(true)} className="text-[13px] font-medium text-accent active:opacity-70 transition-opacity flex-shrink-0">
                   + Add
@@ -1432,11 +1427,8 @@ export const RestaurantDetailMobile: React.FC = () => {
             there are no expert ratings. ── */}
         {expertRecommendations.length > 0 && (
           <section className="mb-10">
-            <p className="section-eyebrow mb-1">
-              Expert Picks
-            </p>
             <h2 className="section-title mb-3">
-              {expertRecommendations.length === 1 ? 'An expert weighed in' : `${expertRecommendations.length} experts weighed in`}
+              Expert Picks
             </h2>
             <ul className="rounded-2xl bg-paper border border-line divide-y divide-line overflow-hidden">
               {expertRecommendations.map((rec) => {
