@@ -16,7 +16,8 @@ import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
 import { useAuth } from '../contexts/AuthContext';
 import { getProfilesByIds, getCommunityStats, type UserProfile as UP, type DiningType } from '../lib/supabase-community';
-import { priceLevelToString } from '../lib/places';
+import { priceLevelToString, extractCityState } from '../lib/places';
+import { buildFilterKey, getUrrForRestaurant, type UrrRatingEntry } from '../lib/supabase-urr';
 import { loadLastSelectedLocation, isExactAddress } from '../components/HomeLocationBar';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useTravelTimes, formatTravelTime } from '../lib/directions';
@@ -127,6 +128,15 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [diningFilter, setDiningFilter] = useState<DiningType | 'all'>('all');
   const [addDiningOpen, setAddDiningOpen] = useState(false);
   const [diningRatings, setDiningRatings] = useState<Record<string, number>>({});
+
+  // URR (Universal Restaurant Rating). Overall + filter-aware variants are
+  // pulled from the world-readable urr_ratings_cache; cache misses simply
+  // leave the slot null and the pill renders a dash.
+  const [urrOverall, setUrrOverall] = useState<UrrRatingEntry | null>(null);
+  const [urrCuisine, setUrrCuisine] = useState<UrrRatingEntry | null>(null);
+  const [urrCuisineCity, setUrrCuisineCity] = useState<UrrRatingEntry | null>(null);
+  const [urrCuisineCityPrice, setUrrCuisineCityPrice] = useState<UrrRatingEntry | null>(null);
+  const [urrOpen, setUrrOpen] = useState(false);
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
   // Profile lookup for the inline friend reviews under "Your Circle"
   // — keyed by user_id so each card can show display name + initial.
@@ -151,6 +161,41 @@ export const RestaurantDetailMobile: React.FC = () => {
       setFriendNames(names);
     });
   }, [myRating?.friendIds]);
+
+  // Load URR slices for this restaurant. Walks from most-specific
+  // (cuisine + city + price) to least-specific (overall) so the breakdown
+  // table renders whatever slices have data.
+  useEffect(() => {
+    if (!place?.id) {
+      setUrrOverall(null);
+      setUrrCuisine(null);
+      setUrrCuisineCity(null);
+      setUrrCuisineCityPrice(null);
+      return;
+    }
+    let cancelled = false;
+    const cuisine = place.cuisine || (myRating?.cuisine ?? '');
+    const city = extractCityState(place.fullAddress || place.address || '', '') || '';
+    const price = place.priceLevel ? priceLevelToString(place.priceLevel) : (myRating?.price ?? '');
+
+    getUrrForRestaurant(place.id, 'overall').then((e) => { if (!cancelled) setUrrOverall(e); });
+    if (cuisine) {
+      getUrrForRestaurant(place.id, buildFilterKey({ cuisine })).then((e) => { if (!cancelled) setUrrCuisine(e); });
+    } else if (!cancelled) {
+      setUrrCuisine(null);
+    }
+    if (cuisine && city) {
+      getUrrForRestaurant(place.id, buildFilterKey({ cuisine, city })).then((e) => { if (!cancelled) setUrrCuisineCity(e); });
+    } else if (!cancelled) {
+      setUrrCuisineCity(null);
+    }
+    if (cuisine && city && price) {
+      getUrrForRestaurant(place.id, buildFilterKey({ cuisine, city, price })).then((e) => { if (!cancelled) setUrrCuisineCityPrice(e); });
+    } else if (!cancelled) {
+      setUrrCuisineCityPrice(null);
+    }
+    return () => { cancelled = true; };
+  }, [place?.id, place?.cuisine, place?.priceLevel, place?.fullAddress, place?.address, myRating?.cuisine, myRating?.price]);
 
   // Load community ratings for hotel dining options
   useEffect(() => {
@@ -649,6 +694,20 @@ export const RestaurantDetailMobile: React.FC = () => {
           };
 
           return (
+            <>
+            {!isHotel && (
+              <UrrSection
+                overall={urrOverall}
+                cuisine={urrCuisine}
+                cuisineCity={urrCuisineCity}
+                cuisineCityPrice={urrCuisineCityPrice}
+                open={urrOpen}
+                setOpen={setUrrOpen}
+                cuisineLabel={getCuisineLabel(place) || ''}
+                cityLabel={extractCityState(place.fullAddress || place.address || '', '') || ''}
+                priceLabel={place.priceLevel ? priceLevelToString(place.priceLevel) : ''}
+              />
+            )}
             <section className="mb-6">
               <p className="section-eyebrow mb-4">Ratings</p>
               <div className={cn('grid gap-2.5', isHotel ? 'grid-cols-1' : 'grid-cols-3')}>
@@ -694,6 +753,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 </p>
               )}
             </section>
+            </>
           );
         })()}
 
@@ -1775,6 +1835,113 @@ export const RestaurantDetailMobile: React.FC = () => {
           onSaved={refreshHotelDining}
         />
       )}
+    </div>
+  );
+};
+
+/* ── Universal Restaurant Rating section. Renders the headline URR pill plus
+   a collapsible breakdown showing how the rating shifts under cuisine /
+   city / price filters. Each filter narrows the competitive pool; per-slice
+   logistic rescaling means a restaurant can score higher in a tighter slice
+   even when its raw Elo position is unchanged — see urr_compute/slices.ts. */
+const UrrSection: React.FC<{
+  overall: UrrRatingEntry | null;
+  cuisine: UrrRatingEntry | null;
+  cuisineCity: UrrRatingEntry | null;
+  cuisineCityPrice: UrrRatingEntry | null;
+  open: boolean;
+  setOpen: (next: boolean) => void;
+  cuisineLabel: string;
+  cityLabel: string;
+  priceLabel: string;
+}> = ({ overall, cuisine, cuisineCity, cuisineCityPrice, open, setOpen, cuisineLabel, cityLabel, priceLabel }) => {
+  const systemStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  const hasAnyBreakdown = !!cuisine || !!cuisineCity || !!cuisineCityPrice;
+  const eyebrow: React.CSSProperties = {
+    fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+    fontSize: '10px',
+    letterSpacing: '0.14em',
+  };
+  const numeric: React.CSSProperties = {
+    fontFamily: '"Fraunces", "Noto Serif", serif',
+    fontSize: '34px',
+    fontWeight: 500,
+    letterSpacing: '-0.5px',
+    fontVariationSettings: '"opsz" 144',
+  };
+  return (
+    <section className="mb-5">
+      <p className="section-eyebrow mb-3">Universal Rating</p>
+      <div className="rounded-[12px] bg-paper border border-line py-4 px-4 text-center">
+        <p className="uppercase text-ink-3" style={eyebrow}>URR · overall</p>
+        {overall ? (
+          <>
+            <p className={cn('leading-none tabular-nums mt-1', scoreColor(overall.score))} style={numeric}>
+              {overall.score.toFixed(1)}
+            </p>
+            <p className="mt-1 text-ink-3" style={{ fontFamily: systemStack, fontSize: '10px' }}>
+              {overall.n_raters.toLocaleString()} {overall.n_raters === 1 ? 'rater' : 'raters'} · {overall.n_matches.toLocaleString()} {overall.n_matches === 1 ? 'match' : 'matches'}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="leading-none tabular-nums mt-1 text-ink-4" style={numeric}>—</p>
+            <p className="mt-1 italic text-ink-4" style={{ fontFamily: systemStack, fontSize: '10px' }}>not enough data yet</p>
+          </>
+        )}
+      </div>
+      {hasAnyBreakdown && (
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            className="mt-3 w-full flex items-center justify-between px-1 text-ink-3"
+            aria-expanded={open}
+          >
+            <span className="uppercase" style={eyebrow}>URR breakdown</span>
+            <ChevronDown size={16} className={cn('transition-transform', open && 'rotate-180')} />
+          </button>
+          {open && (
+            <div className="mt-2 divide-y divide-line border border-line rounded-[12px] overflow-hidden">
+              {cuisine && (
+                <UrrBreakdownRow
+                  label={cuisineLabel || 'Cuisine'}
+                  baseline={overall?.score ?? cuisine.score}
+                  entry={cuisine}
+                />
+              )}
+              {cuisineCity && (
+                <UrrBreakdownRow
+                  label={`${cuisineLabel || 'Cuisine'} (${cityLabel})`}
+                  baseline={overall?.score ?? cuisineCity.score}
+                  entry={cuisineCity}
+                />
+              )}
+              {cuisineCityPrice && (
+                <UrrBreakdownRow
+                  label={`${cuisineLabel || 'Cuisine'} (${cityLabel}, ${priceLabel})`}
+                  baseline={overall?.score ?? cuisineCityPrice.score}
+                  entry={cuisineCityPrice}
+                />
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+};
+
+const UrrBreakdownRow: React.FC<{ label: string; baseline: number; entry: UrrRatingEntry }> = ({ label, baseline, entry }) => {
+  const delta = entry.score - baseline;
+  const Arrow = delta > 0.1 ? TrendingUp : delta < -0.1 ? TrendingDown : null;
+  return (
+    <div className="flex items-center justify-between px-3 py-2.5 bg-paper">
+      <p className="text-[13px] font-medium text-on-surface/85 truncate pr-2">{label}</p>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <p className={cn('text-[15px] font-semibold tabular-nums', scoreColor(entry.score))}>{entry.score.toFixed(1)}</p>
+        {Arrow && <Arrow size={12} className={cn(delta > 0 ? 'text-secondary' : 'text-red-500')} />}
+      </div>
     </div>
   );
 };

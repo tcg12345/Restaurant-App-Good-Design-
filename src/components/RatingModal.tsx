@@ -1,18 +1,23 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, ChevronDown, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
-import { useLists, type PhotoItem } from '../contexts/ListsContext';
+import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar } from './RatingShared';
+import { buildContext, emitMatches, type UrrMatch } from '../lib/supabase-urr';
 
-type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
+type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends' | 'compare';
+
+const COMPARE_MAX_ROUNDS = 3;
 
 export const RatingModal: React.FC = () => {
-  const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList } = useLists();
+  const { ratingModalOpen, ratingModalRestaurant, closeRatingModal, rateRestaurant, getRating, lists, createList, ratings, restaurantMeta } = useLists();
   const { phoneMode } = useSettings();
+  const { user } = useAuth();
 
   const existing = ratingModalRestaurant ? getRating(ratingModalRestaurant.id) : undefined;
 
@@ -38,6 +43,14 @@ export const RatingModal: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedPhotoIdx, setSelectedPhotoIdx] = useState<number | null>(null);
 
+  // URR compare flow state. Populated by handleSave when the user has at
+  // least 3 prior ratings; pairs the just-rated restaurant against a
+  // similarly-scored peer for a head-to-head match record.
+  const [savedRating, setSavedRating] = useState<RestaurantRating | null>(null);
+  const [compareCandidate, setCompareCandidate] = useState<RestaurantRating | null>(null);
+  const [compareCount, setCompareCount] = useState(0);
+  const compareUsedRef = useRef<Set<string>>(new Set());
+
   const { dragProps } = useBottomSheet(ratingModalOpen, closeRatingModal);
 
   useEffect(() => {
@@ -60,6 +73,10 @@ export const RatingModal: React.FC = () => {
       setTagSearch('');
       setFriendSearch('');
       setSelectedPhotoIdx(null);
+      setSavedRating(null);
+      setCompareCandidate(null);
+      setCompareCount(0);
+      compareUsedRef.current = new Set();
     }
   }, [ratingModalOpen, ratingModalRestaurant]);
 
@@ -124,16 +141,129 @@ export const RatingModal: React.FC = () => {
     setNewName(''); setNewEmoji('📋'); setCreatingList(false);
   };
 
+  // Pick the prior rating whose score is closest to `target`, excluding the
+  // just-rated restaurant and any already used in this compare session.
+  const pickCompareCandidate = useCallback(
+    (target: number, excludeId: string): RestaurantRating | null => {
+      const eligible = ratings.filter(
+        (r) =>
+          r.restaurantId !== excludeId &&
+          r.score > 0 &&
+          !compareUsedRef.current.has(r.restaurantId),
+      );
+      if (eligible.length === 0) return null;
+      let best: RestaurantRating | null = null;
+      let bestDelta = Infinity;
+      for (const r of eligible) {
+        const d = Math.abs(r.score - target);
+        if (d < bestDelta) {
+          best = r;
+          bestDelta = d;
+        }
+      }
+      return best;
+    },
+    [ratings],
+  );
+
   const handleSave = () => {
     if (!ratingModalRestaurant) return;
-    rateRestaurant({
-      restaurantId: ratingModalRestaurant.id, name: ratingModalRestaurant.name, image: ratingModalRestaurant.image,
-      cuisine: ratingModalRestaurant.cuisine, price: resolvedPrice, address: ratingModalRestaurant.address,
-      score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
-      listIds: selectedListIds, createdAt: Date.now(),
-    });
+    const saved: RestaurantRating = {
+      restaurantId: ratingModalRestaurant.id,
+      name: ratingModalRestaurant.name,
+      image: ratingModalRestaurant.image,
+      cuisine: ratingModalRestaurant.cuisine,
+      price: resolvedPrice,
+      address: ratingModalRestaurant.address,
+      score,
+      notes,
+      visitDate,
+      wouldReturn,
+      tags: selectedTags,
+      photos,
+      listIds: selectedListIds,
+      friendIds: [],
+      createdAt: Date.now(),
+    };
+    rateRestaurant(saved);
+
+    // Gate the URR compare step: need auth, ≥ 3 prior ratings (excluding the
+    // restaurant just rated), and a viable candidate within scoring range.
+    const priorRatings = ratings.filter(
+      (r) => r.restaurantId !== ratingModalRestaurant.id && r.score > 0,
+    );
+    if (user?.id && priorRatings.length >= 3) {
+      const candidate = pickCompareCandidate(score, ratingModalRestaurant.id);
+      if (candidate) {
+        setSavedRating(saved);
+        setCompareCandidate(candidate);
+        setCompareCount(0);
+        compareUsedRef.current = new Set();
+        setPage('compare');
+        return;
+      }
+    }
     closeRatingModal();
   };
+
+  // Record a head-to-head choice. `winner` is the restaurantId the user
+  // preferred; `margin` reflects strength of preference (0.5..0.95). After
+  // recording, advance to the next candidate or close.
+  const handleCompareChoice = useCallback(
+    (winnerId: string, margin: number) => {
+      if (!user?.id || !savedRating || !compareCandidate) return;
+      const loserId = winnerId === savedRating.restaurantId ? compareCandidate.restaurantId : savedRating.restaurantId;
+      const winnerRating = winnerId === savedRating.restaurantId ? savedRating : compareCandidate;
+      const loserRating = winnerId === savedRating.restaurantId ? compareCandidate : savedRating;
+      const ts = Date.now();
+      const match: UrrMatch = {
+        winnerId,
+        loserId,
+        margin,
+        winnerCtx: buildContext(winnerRating, restaurantMeta[winnerId]),
+        loserCtx: buildContext(loserRating, restaurantMeta[loserId]),
+        source: 'explicit',
+        sourceRef: `explicit:${ts}:${user.id.slice(0, 8)}:${winnerId.slice(0, 6)}:${loserId.slice(0, 6)}`,
+      };
+      emitMatches(user.id, [match]).catch(() => {});
+      compareUsedRef.current.add(compareCandidate.restaurantId);
+
+      const nextCount = compareCount + 1;
+      if (nextCount >= COMPARE_MAX_ROUNDS) {
+        closeRatingModal();
+        return;
+      }
+      const next = pickCompareCandidate(savedRating.score, savedRating.restaurantId);
+      if (!next) {
+        closeRatingModal();
+        return;
+      }
+      setCompareCandidate(next);
+      setCompareCount(nextCount);
+    },
+    [user?.id, savedRating, compareCandidate, compareCount, restaurantMeta, pickCompareCandidate, closeRatingModal],
+  );
+
+  const handleCompareEqual = useCallback(() => {
+    // No match emitted — equal preferences don't carry signal. Just advance.
+    if (!savedRating) {
+      closeRatingModal();
+      return;
+    }
+    if (compareCandidate) compareUsedRef.current.add(compareCandidate.restaurantId);
+    const nextCount = compareCount + 1;
+    if (nextCount >= COMPARE_MAX_ROUNDS) {
+      closeRatingModal();
+      return;
+    }
+    const next = pickCompareCandidate(savedRating.score, savedRating.restaurantId);
+    if (!next) {
+      closeRatingModal();
+      return;
+    }
+    setCompareCandidate(next);
+    setCompareCount(nextCount);
+  }, [savedRating, compareCandidate, compareCount, pickCompareCandidate, closeRatingModal]);
 
   const scoreClr = scoreColorLight(score);
   const scoreBg = scoreBgGradient(score);
@@ -504,6 +634,49 @@ export const RatingModal: React.FC = () => {
                   <BottomBtn label={hasFriends ? `Done (${selectedFriends.length})` : 'Done'} onClick={() => { setPage('main'); setFriendSearch(''); }} />
                 </SubPage>
               )}
+
+              {page === 'compare' && savedRating && compareCandidate && (
+                <SubPage key="compare" onBack={closeRatingModal} title="Compare">
+                  <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-3">
+                    <p className="text-[13px] text-on-surface/55 mb-4">
+                      Helps Universal Rating learn — pick the one you liked more.
+                      <span className="ml-1 text-on-surface/30">{compareCount + 1} / {COMPARE_MAX_ROUNDS}</span>
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 mb-5">
+                      <CompareCard rating={savedRating} />
+                      <CompareCard rating={compareCandidate} />
+                    </div>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => handleCompareChoice(savedRating.restaurantId, 0.9)}
+                        className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
+                        {savedRating.name} much better
+                      </button>
+                      <button
+                        onClick={() => handleCompareChoice(savedRating.restaurantId, 0.6)}
+                        className="w-full py-3 bg-primary/15 text-primary rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
+                        {savedRating.name} slightly better
+                      </button>
+                      <button
+                        onClick={handleCompareEqual}
+                        className="w-full py-3 bg-on-surface/[0.04] text-on-surface/70 rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
+                        About the same
+                      </button>
+                      <button
+                        onClick={() => handleCompareChoice(compareCandidate.restaurantId, 0.6)}
+                        className="w-full py-3 bg-primary/15 text-primary rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
+                        {compareCandidate.name} slightly better
+                      </button>
+                      <button
+                        onClick={() => handleCompareChoice(compareCandidate.restaurantId, 0.9)}
+                        className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
+                        {compareCandidate.name} much better
+                      </button>
+                    </div>
+                  </div>
+                  <BottomBtn label="Skip" onClick={closeRatingModal} />
+                </SubPage>
+              )}
             </AnimatePresence>
           </motion.div>
         </motion.div>
@@ -546,5 +719,20 @@ const SubPage: React.FC<{
 const BottomBtn: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
   <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
     <button onClick={onClick} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">{label}</button>
+  </div>
+);
+
+const CompareCard: React.FC<{ rating: RestaurantRating }> = ({ rating }) => (
+  <div className="bg-on-surface/[0.03] rounded-2xl p-3 flex flex-col">
+    <div className="aspect-square rounded-xl overflow-hidden bg-on-surface/[0.06] mb-2 flex-shrink-0">
+      {rating.image ? (
+        <img src={rating.image} alt="" className="w-full h-full object-cover" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-on-surface/20 text-2xl font-bold">?</div>
+      )}
+    </div>
+    <p className="text-[13px] font-semibold text-on-surface truncate">{rating.name}</p>
+    <p className="text-[11px] text-on-surface/50 truncate">{rating.cuisine || rating.price}</p>
+    <p className={cn('text-[13px] font-bold tabular-nums mt-1', scoreColorLight(rating.score))}>{rating.score.toFixed(1)}</p>
   </div>
 );

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, GripVertical, Undo2, Save, X } from 'lucide-react';
 import { Reorder, useDragControls, motion } from 'motion/react';
 import { useLists } from '../contexts/ListsContext';
+import { useAuth } from '../contexts/AuthContext';
+import { buildContext, replaceReorderMatches, type UrrMatch } from '../lib/supabase-urr';
 
 interface RatedItem {
   restaurantId: string;
@@ -19,8 +21,9 @@ function roundScore(n: number): number {
 const ReorderItem: React.FC<{
   item: RatedItem;
   originalScore: number | undefined;
+  onDragStart: (id: string) => void;
   onDragEnd: (id: string) => void;
-}> = ({ item, originalScore, onDragEnd }) => {
+}> = ({ item, originalScore, onDragStart, onDragEnd }) => {
   const controls = useDragControls();
   const changed = originalScore !== undefined && originalScore !== item.score;
 
@@ -29,6 +32,7 @@ const ReorderItem: React.FC<{
       value={item}
       dragListener={false}
       dragControls={controls}
+      onDragStart={() => onDragStart(item.restaurantId)}
       onDragEnd={() => onDragEnd(item.restaurantId)}
       className="flex items-center gap-3 bg-white rounded-2xl px-3 py-3 shadow-sm border border-on-surface/[0.06] touch-none"
       whileDrag={{ scale: 1.03, boxShadow: '0 8px 30px rgba(0,0,0,0.12)', zIndex: 50 }}
@@ -76,7 +80,8 @@ const ReorderItem: React.FC<{
 
 export const ReorderRatings: React.FC = () => {
   const navigate = useNavigate();
-  const { ratings, updateRating } = useLists();
+  const { ratings, updateRating, restaurantMeta, getRating } = useLists();
+  const { user } = useAuth();
 
   // Build initial sorted list from rated restaurants (not wishlist)
   const buildInitialItems = useCallback((): RatedItem[] => {
@@ -97,48 +102,92 @@ export const ReorderRatings: React.FC = () => {
   const originalScores = useRef<Record<string, number>>(
     Object.fromEntries(buildInitialItems().map((i) => [i.restaurantId, i.score]))
   );
+  // Snapshot of the items list at the moment a drag started — Reorder.Group
+  // mutates `items` during the drag, so this is the only way to recover the
+  // pre-drag order when emitting URR reorder matches at drag-end.
+  const preDragOrderRef = useRef<RatedItem[] | null>(null);
 
   const handleReorder = useCallback((newOrder: RatedItem[]) => {
     setItems(newOrder);
   }, []);
 
+  const handleItemDragStart = useCallback((_draggedId: string) => {
+    setItems((current) => {
+      preDragOrderRef.current = current;
+      return current;
+    });
+  }, []);
+
   // When a specific item finishes dragging, update only that item's score
-  // to the midpoint of its new neighbours.
+  // to the midpoint of its new neighbours and emit URR match records for
+  // every restaurant the dragged item crossed.
   const handleItemDragEnd = useCallback((draggedId: string) => {
     setItems((current) => {
       const idx = current.findIndex((i) => i.restaurantId === draggedId);
       if (idx === -1) return current;
 
-      // Save snapshot for undo before mutating
+      // Snapshot captured on drag-start (Reorder.Group has already mutated
+      // `current` to the new order by the time onDragEnd fires).
+      const previousOrder = preDragOrderRef.current ?? current;
+      preDragOrderRef.current = null;
       setUndoStack((prev) => [...prev, current]);
 
       let newScore: number;
       if (current.length === 1) {
-        // Only one item, keep its score
         return current;
       } else if (idx === 0) {
-        // Dragged to top: score should be above the item below it
         const below = current[1].score;
         newScore = roundScore(Math.min(10, below + 0.5));
       } else if (idx === current.length - 1) {
-        // Dragged to bottom: score should be below the item above it
         const above = current[idx - 1].score;
         newScore = roundScore(Math.max(0.1, above - 0.5));
       } else {
-        // Middle: midpoint of the two neighbours
         const above = current[idx - 1].score;
         const below = current[idx + 1].score;
         newScore = roundScore((above + below) / 2);
       }
 
-      // Only update if the score actually changed
-      if (newScore === current[idx].score) return current;
+      // Emit URR reorder matches for every restaurant the dragged item
+      // crossed. Fire-and-forget; replaceReorderMatches handles DELETE-
+      // then-INSERT atomically per pair so re-drags don't accumulate
+      // contradictory rows.
+      const oldIdx = previousOrder.findIndex((i) => i.restaurantId === draggedId);
+      if (user?.id && oldIdx !== -1 && oldIdx !== idx) {
+        const direction: 'up' | 'down' = idx < oldIdx ? 'up' : 'down';
+        const lo = Math.min(oldIdx, idx);
+        const hi = Math.max(oldIdx, idx);
+        const crossed = previousOrder
+          .slice(lo, hi + 1)
+          .filter((x) => x.restaurantId !== draggedId);
+        const ts = Date.now();
+        const matches: UrrMatch[] = [];
+        crossed.forEach((other, k) => {
+          const distance = Math.max(1, Math.abs(oldIdx - idx) - k);
+          const margin = Math.max(0.5, Math.min(0.95, 0.5 + 0.4 * Math.tanh(distance / 5)));
+          const winnerId = direction === 'up' ? draggedId : other.restaurantId;
+          const loserId = direction === 'up' ? other.restaurantId : draggedId;
+          const wRating = getRating(winnerId);
+          const lRating = getRating(loserId);
+          if (!wRating || !lRating) return;
+          matches.push({
+            winnerId,
+            loserId,
+            margin,
+            winnerCtx: buildContext(wRating, restaurantMeta[winnerId]),
+            loserCtx: buildContext(lRating, restaurantMeta[loserId]),
+            source: 'reorder',
+            sourceRef: `reorder:${ts}:${winnerId.slice(0, 6)}:${loserId.slice(0, 6)}`,
+          });
+        });
+        if (matches.length > 0) {
+          replaceReorderMatches(user.id, matches).catch(() => {});
+        }
+      }
 
-      return current.map((item, i) =>
-        i === idx ? { ...item, score: newScore } : item
-      );
+      if (newScore === current[idx].score) return current;
+      return current.map((item, i) => (i === idx ? { ...item, score: newScore } : item));
     });
-  }, []);
+  }, [user?.id, getRating, restaurantMeta]);
 
   const handleUndo = useCallback(() => {
     setUndoStack((prev) => {
@@ -219,6 +268,7 @@ export const ReorderRatings: React.FC = () => {
                 key={item.restaurantId}
                 item={item}
                 originalScore={originalScores.current[item.restaurantId]}
+                onDragStart={handleItemDragStart}
                 onDragEnd={handleItemDragEnd}
               />
             ))}
