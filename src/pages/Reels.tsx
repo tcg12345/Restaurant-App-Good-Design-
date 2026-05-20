@@ -277,18 +277,28 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, muted, s
       // paused overlay doesn't flash for a few ms on slide-in.
       setIsPaused(false);
       el.muted = muted;
+      // Reset to the first frame on activation rather than on
+      // deactivation. Resetting on deactivate caused a visible
+      // "flash" mid-scroll: the previously-playing reel snapped
+      // back to frame 0 while the user could still see it scrolling
+      // out of the viewport. Doing it here means the seek happens
+      // on the slide that's about to be the focus, before it's
+      // fully on screen — there's no visible jump on the way out,
+      // and the new slide still starts at the top each visit.
+      try { el.currentTime = 0; } catch { /* ignore seek errors */ }
       el.play().catch(() => { /* autoplay may be blocked until user gesture */ });
       if (bg) {
         bg.muted = true; // backdrop is always silent
+        try { bg.currentTime = 0; } catch { /* ignore */ }
         bg.play().catch(() => { /* see above */ });
       }
     } else {
+      // Just pause — leave the video parked at its current frame.
+      // The slide is still rendered in the DOM as it scrolls out of
+      // view, and forcing currentTime back to 0 here was the
+      // primary cause of the flash between reels.
       el.pause();
-      el.currentTime = 0;
-      if (bg) {
-        bg.pause();
-        bg.currentTime = 0;
-      }
+      if (bg) bg.pause();
     }
     // Intentionally NOT depending on `muted`: when only the mute toggle
     // changes we don't want to call play() again — a separate effect

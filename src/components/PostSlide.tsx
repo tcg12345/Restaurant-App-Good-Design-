@@ -390,18 +390,20 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
       >
         {post.items.map((it, idx) => {
           const itemActive = active && idx === activeIdx;
-          // Mount real media when:
-          //   • the post is active AND this carousel item is within ±1
-          //     of activeIdx (so horizontal swipes inside the post land
-          //     on an already-loaded frame), OR
-          //   • the post is a vertical neighbour (`near`) — for those
-          //     we only preload the cover (idx 0). That's the frame the
-          //     user will see the instant they swipe in, so it has to
-          //     already be in the browser cache. Other items stay
-          //     gradient until the post actually becomes active.
+          // Mount real media when this post is the active feed item
+          // OR a vertical neighbour ("near") AND this carousel item
+          // is within ±1 of the post's own activeIdx — plus the cover
+          // (idx 0) for any near post regardless of activeIdx, so the
+          // first frame is buffered before the user swipes in.
+          //
+          // Keeping the ±1 window mounted across the active→near
+          // transition is what makes vertical scrolling not flash:
+          // the previously-visible item stays rendered while the post
+          // slides out, instead of being torn down to its gradient
+          // placeholder mid-scroll.
           const shouldRenderMedia =
-            (active && Math.abs(idx - activeIdx) <= 1)
-            || (!active && near && idx === 0);
+            ((active || near) && Math.abs(idx - activeIdx) <= 1)
+            || (near && idx === 0);
           return (
             <div key={it.id} className="relative flex-shrink-0 w-full h-full snap-start snap-always">
               <MediaFrame
