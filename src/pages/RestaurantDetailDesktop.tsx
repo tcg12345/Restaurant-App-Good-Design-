@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, ImageOff,
-  Car, Footprints,
+  Car, Footprints, Trash2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -104,7 +104,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
   // locally so the shared hook can keep its collapsed default elsewhere.
   const [hoursOpen, setHoursOpen] = useState(false);
 
-  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit } = useLists();
+  const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
   const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
@@ -1242,6 +1243,50 @@ export const RestaurantDetailDesktop: React.FC = () => {
                                     <img key={i} src={p.url} className="w-24 h-24 rounded-lg object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />
                                   ))}
                                 </div>
+                              )}
+
+                              {/* Two-stage delete — first tap arms the
+                                  confirmation, second confirms. Keeps
+                                  it hard to nuke a visit accidentally.
+                                  Deleting the special 'current' entry
+                                  promotes the next-newest visit to
+                                  current, or clears the rating
+                                  entirely if it was the only one. */}
+                              {confirmDeleteVisitId === e.id ? (
+                                <div className="flex items-center justify-between gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                                  <p className="text-xs font-medium text-red-700">
+                                    Delete this visit?
+                                  </p>
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteVisitId(null)}
+                                      className="px-2.5 py-1 text-[11px] font-semibold text-on-surface/70 border border-on-surface/15 rounded-md bg-white hover:bg-on-surface/[0.04]"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (!place) return;
+                                        deleteVisit(place.id, e.id);
+                                        setConfirmDeleteVisitId(null);
+                                        setExpandedVisit(null);
+                                      }}
+                                      className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-500 rounded-md hover:bg-red-600"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteVisitId(e.id)}
+                                  className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-red-500 hover:text-red-600 transition-colors"
+                                >
+                                  <Trash2 size={13} /> Delete visit
+                                </button>
                               )}
                             </div>
                           </motion.div>
