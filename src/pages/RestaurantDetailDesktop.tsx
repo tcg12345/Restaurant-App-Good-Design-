@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Loader2,
   Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
   DollarSign, CalendarDays, Tag, Image, Edit3, MessageCircle, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, ImageOff,
-  Car, Footprints,
+  Car, Footprints, Trash2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -104,7 +104,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
   // locally so the shared hook can keep its collapsed default elsewhere.
   const [hoursOpen, setHoursOpen] = useState(false);
 
-  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit } = useLists();
+  const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
   const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
@@ -600,11 +601,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
           return (
             <section className="mb-12">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-                The Community Says
-              </p>
               <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
-                {!hasCommunity && !hasFriends && !hasExperts ? 'No ratings yet' : 'Scores across your network'}
+                Ratings
               </h2>
 
               <div className={cn('grid gap-4', isHotel ? 'grid-cols-1' : 'grid-cols-3')}>
@@ -666,11 +664,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const topFlavorNames = new Set(ranked.slice(0, 3).map((f) => f.subject));
           return (
             <section className="mb-12">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-                Flavor Profile
-              </p>
               <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
-                What people taste here
+                Flavor Profile
               </h2>
               <div className="rounded-2xl bg-white/60 border border-on-surface/10 px-6 py-6">
                 <div className="flex items-center gap-8">
@@ -715,13 +710,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <section className="mb-12">
               <div className="flex items-end justify-between mb-5">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-                    Your Circle
-                  </p>
                   <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight">
-                    {hasFriends
-                      ? `${friendsStats.totalRatings} friend${friendsStats.totalRatings === 1 ? '' : 's'} rated here`
-                      : 'No friends yet'}
+                    Your Circle
                   </h2>
                 </div>
                 {hasFriends && friendsStats.ratings.length > topFriends.length && (
@@ -820,11 +810,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
           <section className="mb-12">
             <div className="flex items-end justify-between mb-5">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-                  Hotel Dining
-                </p>
                 <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight">
-                  Eat and drink on site
+                  Hotel Dining
                 </h2>
               </div>
               {user?.id && (
@@ -916,21 +903,32 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const dateLabel = hasDate ? new Date(myRating.visitDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null;
           return (
             <section ref={myRatingRef} className="mb-12 scroll-mt-4">
-              <div className="flex items-end justify-between mb-5">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-                    My Rating
-                  </p>
-                  <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight">
-                    Your take on it
-                  </h2>
+              <div className="flex items-center justify-between mb-5 gap-3">
+                <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight min-w-0">
+                  My Rating
+                </h2>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Re-rate — opens the modal jumped straight onto its
+                      "Log New Visit" tab so the current rating is archived
+                      to visit history and a fresh score / notes / photos
+                      can be entered. Use this when you've been back to the
+                      restaurant again. */}
+                  <button
+                    onClick={() => openAddRestaurantModal(meta, 'new-visit')}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-white bg-primary hover:opacity-90 transition-opacity px-3 py-1.5 rounded-full"
+                  >
+                    <Star size={13} className="fill-white" /> Re-rate
+                  </button>
+                  {/* Edit — opens the modal on "Update Current", which
+                      replaces the existing rating in place without
+                      touching visit history. */}
+                  <button
+                    onClick={() => openAt('main')}
+                    className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:opacity-70 transition-opacity"
+                  >
+                    <Edit3 size={14} /> Edit
+                  </button>
                 </div>
-                <button
-                  onClick={() => openAt('main')}
-                  className="flex items-center gap-1 text-sm font-medium text-accent hover:opacity-70 transition-opacity flex-shrink-0"
-                >
-                  <Edit3 size={14} /> Edit
-                </button>
               </div>
 
               <div className="space-y-6">
@@ -1164,11 +1162,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
           return (
             <section className="mb-12">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-                Visit History
-              </p>
               <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
-                Your {entries.length} {entries.length === 1 ? 'visit' : 'visits'}
+                Visit History
               </h2>
 
               <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
@@ -1249,6 +1244,50 @@ export const RestaurantDetailDesktop: React.FC = () => {
                                   ))}
                                 </div>
                               )}
+
+                              {/* Two-stage delete — first tap arms the
+                                  confirmation, second confirms. Keeps
+                                  it hard to nuke a visit accidentally.
+                                  Deleting the special 'current' entry
+                                  promotes the next-newest visit to
+                                  current, or clears the rating
+                                  entirely if it was the only one. */}
+                              {confirmDeleteVisitId === e.id ? (
+                                <div className="flex items-center justify-between gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                                  <p className="text-xs font-medium text-red-700">
+                                    Delete this visit?
+                                  </p>
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteVisitId(null)}
+                                      className="px-2.5 py-1 text-[11px] font-semibold text-on-surface/70 border border-on-surface/15 rounded-md bg-white hover:bg-on-surface/[0.04]"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (!place) return;
+                                        deleteVisit(place.id, e.id);
+                                        setConfirmDeleteVisitId(null);
+                                        setExpandedVisit(null);
+                                      }}
+                                      className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-500 rounded-md hover:bg-red-600"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteVisitId(e.id)}
+                                  className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-red-500 hover:text-red-600 transition-colors"
+                                >
+                                  <Trash2 size={13} /> Delete visit
+                                </button>
+                              )}
                             </div>
                           </motion.div>
                         )}
@@ -1267,11 +1306,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
             there are no expert ratings. ── */}
         {expertRecommendations.length > 0 && (
           <section className="mb-12">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-              Expert Picks
-            </p>
             <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
-              {expertRecommendations.length === 1 ? 'An expert weighed in' : `${expertRecommendations.length} experts weighed in`}
+              Expert Picks
             </h2>
             <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
               {expertRecommendations.map((rec) => {
@@ -1348,11 +1384,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {/* ── Hours — accordion inside a subtle container. ── */}
         {place.hours.length > 0 && (
           <section className="mb-12">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-              Hours
-            </p>
             <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
-              When they're open
+              Hours
             </h2>
             <div className="rounded-2xl bg-white/60 border border-on-surface/10 overflow-hidden">
               <button
@@ -1409,11 +1442,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {/* ── Contact & Address — quiet, functional. Muted icon + text
             rows in a subtle container, not competing for attention. ── */}
         <section className="mb-12">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-            Contact
-          </p>
           <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
-            Get in touch
+            Contact
           </h2>
           <ul className="rounded-2xl bg-white/60 border border-on-surface/10 divide-y divide-on-surface/[0.06] overflow-hidden">
             {place.phone && (
@@ -1448,11 +1478,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
             restaurant focused. Inline width/height keep the Mapbox
             canvas full-sized; see Map.tsx for context. ── */}
         <section className="mb-12">
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-on-surface/45 mb-1.5">
-            Location
-          </p>
           <h2 className="text-[28px] font-serif font-bold text-on-surface leading-tight mb-5">
-            Where to find it
+            Location
           </h2>
           <div className="rounded-2xl overflow-hidden border border-on-surface/10">
             {/* h-96 (384px) gives a comfortable aspect ratio on desktop

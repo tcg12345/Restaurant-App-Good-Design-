@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
-import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, getVisitHistory, getUserRatings } from '../lib/supabase-community';
+import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { safeImage } from '../lib/utils';
@@ -189,7 +189,15 @@ export interface HomeMeal {
 interface ListsContextValue {
   // Ratings
   ratings: RestaurantRating[];
-  rateRestaurant: (rating: RestaurantRating) => void;
+  /** Add or replace this restaurant's "current" rating.
+   *
+   *  Pass `{ isNewVisit: true }` when the user is logging a fresh
+   *  visit — that branch pushes the previously-current rating into
+   *  visit history (locally and to Supabase) before the new rating
+   *  takes its place. Without the flag (the default) the call is an
+   *  in-place update: the current rating is replaced and no phantom
+   *  visit record gets created. */
+  rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean }) => void;
   updateRating: (restaurantId: string, rating: Partial<RestaurantRating>) => void;
   removeRating: (restaurantId: string) => void;
   getRating: (restaurantId: string) => RestaurantRating | undefined;
@@ -361,6 +369,19 @@ function removeLocalVisitRecord(restaurantId: string, visitId: string) {
     else all[restaurantId] = next;
     localStorage.setItem(STORAGE_KEY_VISIT_HISTORY, JSON.stringify(all));
   } catch (err) { console.warn('[VisitHistory] removeLocal failed', err); }
+}
+
+/** Wipe every local visit record for a restaurant. Paired with the
+ *  remote `deleteAllVisitRecordsForRestaurant` so that removing the
+ *  rating actually erases the history — otherwise the next time the
+ *  user rates the place those old visits resurface in the timeline. */
+function clearLocalVisitHistory(restaurantId: string) {
+  try {
+    const all = loadLocalVisitHistory();
+    if (!(restaurantId in all)) return;
+    delete all[restaurantId];
+    localStorage.setItem(STORAGE_KEY_VISIT_HISTORY, JSON.stringify(all));
+  } catch (err) { console.warn('[VisitHistory] clearLocal failed', err); }
 }
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -1174,19 +1195,27 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [restaurantMeta, ratings, wishlist]);
 
   // Ratings
-  const rateRestaurant = useCallback((rating: RestaurantRating) => {
+  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean }) => {
+    // When `isNewVisit` is true the caller is logging a brand-new
+    // visit on top of an existing rating, and the previously-current
+    // record needs to be pushed into visit history. When it's false
+    // (or absent), this call is just editing the current rating in
+    // place — we replace the row and leave visit history alone.
+    const isNewVisit = options?.isNewVisit === true;
     // Capture previous-state context for the toast: was this restaurant
     // already rated? Read from the closure ratings (committed state) since
     // the setRatings updater below runs during render — by then it's too
     // late to know the prior value.
     const wasRated = ratings.some((r) => r.restaurantId === rating.restaurantId);
     setRatings((prev) => {
-      // Save old rating to visit history before overwriting. Writes to
-      // BOTH localStorage (synchronous, always works) and Supabase
-      // (async, cross-device) so visit records persist regardless of
-      // sign-in status or network state.
       const existing = prev.find((r) => r.restaurantId === rating.restaurantId);
-      if (existing) {
+      // Only archive the existing rating when this is genuinely a new
+      // visit. Skipping this on edits is what stops "Update Current"
+      // from creating a phantom history entry every time the user
+      // tweaks a note or a tag. The write goes to BOTH localStorage
+      // (synchronous, persists across reloads / sign-out) and Supabase
+      // (async, cross-device) so visit records survive either way.
+      if (existing && isNewVisit) {
         appendLocalVisitRecord(existing.restaurantId, {
           score: existing.score,
           notes: existing.notes,
@@ -1288,9 +1317,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       saveToStorage(STORAGE_KEY_CUSTOM_ORDER, next);
       return next;
     });
+    // Tear down the whole rating footprint — current rating, list
+    // memberships, community publication, AND visit history. Without
+    // wiping visit history here, a user who deletes a rating and
+    // then rates the same restaurant again sees their old visits
+    // resurface in the timeline, because both the localStorage
+    // mirror and the Supabase visit_history table outlive the
+    // current rating row.
+    clearLocalVisitHistory(restaurantId);
     if (userIdRef.current) {
       removeCommunityRating(userIdRef.current, restaurantId);
       removeCommunityPhotos(userIdRef.current, restaurantId);
+      deleteAllVisitRecordsForRestaurant(userIdRef.current, restaurantId).catch(() => {
+        console.warn('[VisitHistory] Failed to delete visit records for', restaurantId);
+      });
     }
   }, [syncRatingsToCloud]);
 

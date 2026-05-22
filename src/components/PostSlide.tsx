@@ -156,10 +156,13 @@ interface MediaFrameProps {
   itemActive: boolean;
   /** Render real media when within this distance of the active item. */
   shouldRenderMedia: boolean;
+  /** True for the active sub-item of the active post — drives loading
+   *  hints so the cover frame paints as fast as the browser allows. */
+  highPriority?: boolean;
   muted: boolean;
 }
 
-const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, shouldRenderMedia, muted }) => {
+const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, shouldRenderMedia, highPriority, muted }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const el = videoRef.current;
@@ -208,10 +211,10 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
         loop
         muted={muted}
         // The parent already gates mounting (shouldRenderMedia: post is
-        // active in the feed AND sub-item is within ±1 of activeIdx).
-        // Inside that window we want the buffer warm enough to start
-        // playback instantly, so use preload="auto" rather than the old
-        // preload="metadata" which only fetched a few bytes of header.
+        // active in the feed AND sub-item is within ±1 of activeIdx, OR
+        // this is the cover of a vertical neighbour). Inside that window
+        // we want the buffer warm enough to start playback instantly, so
+        // use preload="auto".
         preload="auto"
         className="absolute inset-0 w-full h-full object-contain"
       />
@@ -221,8 +224,14 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
     <img
       src={item.mediaUrl}
       alt=""
-      loading="lazy"
+      // `eager` so the cover frame of a near (not yet active) post
+      // actually starts fetching before the user swipes onto it; the
+      // default `lazy` would defer until the slide crossed the
+      // viewport threshold, which on a snap-mandatory full-screen
+      // feed lands too late.
+      loading="eager"
       decoding="async"
+      {...(highPriority ? { fetchpriority: 'high' } : {})}
       className="absolute inset-0 w-full h-full object-contain"
     />
   );
@@ -233,12 +242,22 @@ const MediaFrame: React.FC<MediaFrameProps> = ({ item, postActive, itemActive, s
 interface PostSlideProps {
   post: Post;
   active: boolean;
+  /** True when the post is the active feed item OR within ±1 of it.
+   *  Drives cover-frame preloading so the first paint is already in
+   *  the browser cache by the time the user swipes onto it — matches
+   *  the strategy ReelSlide uses for adjacent reel videos. */
+  near?: boolean;
   muted: boolean;
   isMine: boolean;
   currentUserId: string | null;
   /** Hide the in-slide action rail (desktop renders one beside the slide). */
   hideActionRail?: boolean;
   hideOwnerDelete?: boolean;
+  /** Hide the in-slide bottom info overlay (author chip / caption /
+   *  location / featured card). Desktop moves that content into a
+   *  dedicated side panel to the left of the slide, so leaving the
+   *  in-slide overlay rendered would duplicate everything. */
+  hideDetailsOverlay?: boolean;
   /** Reports the active sub-item index to the parent so it can update side
    *  cards / labels (desktop) — purely informational. */
   onActiveItemChange?: (idx: number) => void;
@@ -251,7 +270,7 @@ interface PostSlideProps {
 }
 
 const PostSlideInner: React.FC<PostSlideProps> = ({
-  post, active, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false,
+  post, active, near = false, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false,
   onActiveItemChange, onLike, onSave, onComment, onShare, onItemAttachmentClick, onDelete,
 }) => {
   const { getPostItemIndex, setPostItemIndex } = usePosts();
@@ -371,11 +390,20 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
       >
         {post.items.map((it, idx) => {
           const itemActive = active && idx === activeIdx;
-          // Only mount real media for the active item ± 1 of the active
-          // post. Everything else stays a cheap gradient until it's
-          // actually about to be shown — keeps the feed snappy when
-          // scrolling past lots of multi-item posts.
-          const shouldRenderMedia = active && Math.abs(idx - activeIdx) <= 1;
+          // Mount real media when this post is the active feed item
+          // OR a vertical neighbour ("near") AND this carousel item
+          // is within ±1 of the post's own activeIdx — plus the cover
+          // (idx 0) for any near post regardless of activeIdx, so the
+          // first frame is buffered before the user swipes in.
+          //
+          // Keeping the ±1 window mounted across the active→near
+          // transition is what makes vertical scrolling not flash:
+          // the previously-visible item stays rendered while the post
+          // slides out, instead of being torn down to its gradient
+          // placeholder mid-scroll.
+          const shouldRenderMedia =
+            ((active || near) && Math.abs(idx - activeIdx) <= 1)
+            || (near && idx === 0);
           return (
             <div key={it.id} className="relative flex-shrink-0 w-full h-full snap-start snap-always">
               <MediaFrame
@@ -383,6 +411,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                 postActive={active}
                 itemActive={itemActive}
                 shouldRenderMedia={shouldRenderMedia}
+                highPriority={itemActive}
                 muted={muted}
               />
             </div>
@@ -440,8 +469,10 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
           per-item attached card collapse into a tap-to-expand block, mirroring
           the reel video slide. The author Link is scoped to avatar + handle +
           EXPERT chip only — the audio label and the toggle hitbox live
-          outside it so tapping audio/empty space doesn't open the profile. */}
-      {(() => {
+          outside it so tapping audio/empty space doesn't open the profile.
+          Skipped entirely when the parent (desktop layout) is going to
+          render this content in a dedicated side panel instead. */}
+      {!hideDetailsOverlay && (() => {
         const hasCollapsibleContent = !!captionForItem
           || !!post.locationLabel
           || (item?.attachedKind === 'restaurant' && !!item.restaurant)
@@ -560,11 +591,13 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
 export const PostSlide = React.memo(PostSlideInner, (prev, next) =>
   prev.post === next.post
   && prev.active === next.active
+  && prev.near === next.near
   && prev.muted === next.muted
   && prev.isMine === next.isMine
   && prev.currentUserId === next.currentUserId
   && prev.hideActionRail === next.hideActionRail
-  && prev.hideOwnerDelete === next.hideOwnerDelete,
+  && prev.hideOwnerDelete === next.hideOwnerDelete
+  && prev.hideDetailsOverlay === next.hideDetailsOverlay,
 );
 
 /* ── Compact action column (desktop) ──────────────────────────────── */

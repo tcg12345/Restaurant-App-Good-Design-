@@ -1249,3 +1249,20 @@ export async function deleteVisitRecord(userId: string, recordId: string): Promi
     return true;
   } catch (err) { console.error('[VisitHistory] deleteVisitRecord exception:', err); return false; }
 }
+
+/** Delete every visit history record for a (user, restaurant) pair.
+ *  Used when the user removes their rating entirely — without this
+ *  the next time they rate the same place their previous history
+ *  resurfaces, even though the "current" rating is gone. */
+export async function deleteAllVisitRecordsForRestaurant(
+  userId: string,
+  restaurantId: string,
+): Promise<boolean> {
+  if (!supabaseConfigured || !userId || !restaurantId) return false;
+  try {
+    const { error } = await supabase.from('visit_history')
+      .delete().eq('user_id', userId).eq('restaurant_id', restaurantId);
+    if (error) { console.error('[VisitHistory] deleteAllVisitRecordsForRestaurant error:', error); return false; }
+    return true;
+  } catch (err) { console.error('[VisitHistory] deleteAllVisitRecordsForRestaurant exception:', err); return false; }
+}

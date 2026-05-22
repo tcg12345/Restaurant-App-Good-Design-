@@ -1,12 +1,21 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { User, AtSign, MapPin, ArrowRight, Loader2 } from 'lucide-react';
+import { User, AtSign, MapPin, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { saveProfile } from '../lib/supabase-community';
 import { geocodePlace } from '../components/HomeLocationBar';
+import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
+import {
+  MobileAuthShell,
+  MobileBackButton,
+  MobileBrandMark,
+  MobileField,
+  MobilePrimaryButton,
+} from '../components/AuthMobileShell';
 
 export const ProfileSetup: React.FC = () => {
-  const { user, refreshProfile } = useAuth();
+  const { user, refreshProfile, signOut } = useAuth();
+  const useDesktopLayout = useDesktopAuthLayout();
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
   const [homeCity, setHomeCity] = useState('');
@@ -15,8 +24,8 @@ export const ProfileSetup: React.FC = () => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setError('');
 
     if (!displayName.trim()) { setError('Please enter your name'); return; }
@@ -55,93 +64,234 @@ export const ProfileSetup: React.FC = () => {
     setSubmitting(false);
   };
 
+  // Sign out and return to the email-entry step. Profile setup is the
+  // only post-auth surface the user can't otherwise leave, so "back"
+  // here means abandon setup and reset the flow.
+  const handleBack = () => { void signOut(); };
+
+  // ── Desktop split layout ──────────────────────────────────────────────
+  if (useDesktopLayout) {
+    const headerRight = (
+      <button
+        type="button"
+        onClick={handleBack}
+        className="inline-flex items-center gap-1.5 text-on-surface/55 hover:text-on-surface transition-colors cursor-pointer"
+      >
+        <ArrowLeft size={14} />
+        <span>Sign out</span>
+      </button>
+    );
+    return (
+      <AuthShell headerRight={headerRight} panel="profile">
+        <div className="space-y-3">
+          <header>
+            <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-1.5">
+              Set up your profile
+            </h1>
+            <p className="text-sm text-on-surface/55 font-light leading-relaxed">
+              Choose a display name and username so friends can find you.
+            </p>
+          </header>
+          <form onSubmit={handleSubmit} className="w-full flex flex-col gap-2.5">
+            <div className="relative">
+              <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+              <input type="text" placeholder="Your name (e.g. Tyler)" value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+            </div>
+            <div className="relative">
+              <AtSign size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+              <input type="text" placeholder="Username (e.g. tyler_eats)" value={username}
+                onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+                autoCapitalize="off" autoCorrect="off" />
+            </div>
+            {username && (
+              <p className="text-xs text-on-surface/40 px-1">Your username will be: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></p>
+            )}
+            <div className="relative">
+              <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+              <input type="text" placeholder={isExpert ? 'Home city (required for experts)' : 'Home city (optional)'}
+                value={homeCity}
+                onChange={(e) => setHomeCity(e.target.value)}
+                autoCapitalize="words" autoCorrect="off"
+                className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
+            </div>
+            <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
+              <div>
+                <p className="text-sm font-medium text-on-surface">{isPublic ? 'Public Account' : 'Private Account'}</p>
+                <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
+              </div>
+              <button type="button" onClick={() => setIsPublic(!isPublic)}
+                aria-label={isPublic ? 'Make profile private' : 'Make profile public'}
+                className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
+                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
+              </button>
+            </div>
+            <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
+              <div>
+                <p className="text-sm font-medium text-on-surface">{isExpert ? 'Expert Account' : 'Regular Account'}</p>
+                <p className="text-[11px] text-on-surface/40">{isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}</p>
+              </div>
+              <button type="button" onClick={() => setIsExpert(!isExpert)}
+                aria-label={isExpert ? 'Switch to regular account' : 'Switch to expert account'}
+                className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}>
+                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isExpert ? 'left-[18px]' : 'left-0.5'}`} />
+              </button>
+            </div>
+            {error && (
+              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
+            )}
+            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              type="submit" disabled={submitting}
+              className="group flex items-center justify-center gap-3 bg-primary text-white px-8 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
+              {submitting ? <Loader2 size={18} className="animate-spin" /> : (
+                <>Continue <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>
+              )}
+            </motion.button>
+          </form>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  // ── Mobile / phone-frame layout — matches the new mobile auth design ─
   return (
-    <div className="min-h-screen bg-surface flex flex-col items-center justify-center px-6 py-12">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-primary/5" />
-        <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-secondary/5" />
+    <MobileAuthShell>
+      {/* Top bar with sign-out back button, safe-area aware */}
+      <div
+        className="relative z-10 px-5 flex items-center justify-between"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: '0.5rem', minHeight: 56 }}
+      >
+        <MobileBackButton onClick={handleBack} label="Sign out" />
+        <div className="min-w-[44px]" />
       </div>
 
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-        className="relative z-10 flex flex-col items-center text-center mb-8">
-        <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-3xl shadow-lg shadow-primary/25 mb-5">G</div>
-        <h1 className="text-3xl font-serif font-bold tracking-tight text-on-surface mb-2">Set Up Your Profile</h1>
-        <p className="text-sm text-on-surface/50 max-w-sm">Choose a display name and username so friends can find you</p>
-      </motion.div>
-
-      <motion.form initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-        onSubmit={handleSubmit} className="relative z-10 w-full max-w-sm flex flex-col gap-3">
-
-        <div className="relative">
-          <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-          <input type="text" placeholder="Your name (e.g. Tyler)" value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
-        </div>
-
-        <div className="relative">
-          <AtSign size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-          <input type="text" placeholder="Username (e.g. tyler_eats)" value={username}
-            onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-            className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-            autoCapitalize="off" autoCorrect="off" />
-        </div>
-
-        {username && (
-          <p className="text-xs text-on-surface/40 px-1">Your username will be: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></p>
-        )}
-
-        {/* Home city — surfaces the user on /location's "experts in this
-            area" row when they're declared as experts. Required when the
-            expert toggle below is on; optional otherwise. */}
-        <div className="relative">
-          <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-          <input type="text" placeholder={isExpert ? 'Home city (required for experts)' : 'Home city (optional)'}
-            value={homeCity}
-            onChange={(e) => setHomeCity(e.target.value)}
-            autoCapitalize="words" autoCorrect="off"
-            className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
-        </div>
-
-        {/* Public/Private toggle */}
-        <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-on-surface">{isPublic ? 'Public Account' : 'Private Account'}</p>
-            <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
+      {/* Form content */}
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col overflow-y-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+          className="flex-1 flex flex-col px-5 pt-2 pb-4"
+        >
+          <div className="flex flex-col items-start gap-4 mb-6">
+            <MobileBrandMark size={48} />
+            <div>
+              <h1 className="font-display font-bold text-[28px] tracking-tight leading-[1.05] text-on-surface">
+                Set up your profile
+              </h1>
+              <p className="text-on-surface/55 text-[14px] leading-relaxed mt-2">
+                A name, a handle, and where you eat from — that's it.
+              </p>
+            </div>
           </div>
-          <button type="button" onClick={() => setIsPublic(!isPublic)}
-            aria-label={isPublic ? 'Make profile private' : 'Make profile public'}
-            className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
-            <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
-          </button>
-        </div>
 
-        {/* Expert toggle */}
-        <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-on-surface">{isExpert ? 'Expert Account' : 'Regular Account'}</p>
-            <p className="text-[11px] text-on-surface/40">{isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}</p>
-          </div>
-          <button type="button" onClick={() => setIsExpert(!isExpert)}
-            aria-label={isExpert ? 'Switch to regular account' : 'Switch to expert account'}
-            className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}>
-            <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isExpert ? 'left-[18px]' : 'left-0.5'}`} />
-          </button>
-        </div>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            <MobileField
+              label="Your name"
+              icon={<User size={16} />}
+              type="text"
+              value={displayName}
+              onChange={setDisplayName}
+              placeholder="e.g. Tyler"
+              autoComplete="name"
+            />
+            <MobileField
+              label="Username"
+              icon={<AtSign size={16} />}
+              type="text"
+              value={username}
+              onChange={(v) => setUsername(v.replace(/[^a-zA-Z0-9_]/g, ''))}
+              placeholder="tyler_eats"
+              autoComplete="username"
+            />
+            {username && (
+              <p className="text-[11px] text-on-surface/45 px-1 -mt-1">
+                Your handle: <span className="font-semibold text-primary">@{username.toLowerCase()}</span>
+              </p>
+            )}
+            <MobileField
+              label="Home city"
+              icon={<MapPin size={16} />}
+              type="text"
+              value={homeCity}
+              onChange={setHomeCity}
+              placeholder={isExpert ? 'Required for experts' : 'Optional'}
+              autoComplete="address-level2"
+            />
 
-        {error && (
-          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
-        )}
+            {/* Toggles styled to sit on the mesh background */}
+            <button
+              type="button"
+              onClick={() => setIsPublic(!isPublic)}
+              aria-pressed={isPublic}
+              className="flex items-center justify-between rounded-2xl bg-white/65 backdrop-blur-md border border-on-surface/8 px-4 py-3 text-left"
+            >
+              <div className="min-w-0 pr-3">
+                <p className="text-[13px] font-semibold text-on-surface">
+                  {isPublic ? 'Public account' : 'Private account'}
+                </p>
+                <p className="text-[11px] text-on-surface/55 mt-0.5 leading-snug">
+                  {isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}
+                </p>
+              </div>
+              <span
+                className={`relative h-7 w-12 rounded-full flex-shrink-0 transition-colors ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}
+              >
+                <span
+                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all ${isPublic ? 'left-[22px]' : 'left-0.5'}`}
+                />
+              </span>
+            </button>
 
-        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-          type="submit" disabled={submitting}
-          className="group flex items-center justify-center gap-3 bg-primary text-white px-8 py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
-          {submitting ? <Loader2 size={20} className="animate-spin" /> : (
-            <>Continue <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" /></>
-          )}
-        </motion.button>
-      </motion.form>
-    </div>
+            <button
+              type="button"
+              onClick={() => setIsExpert(!isExpert)}
+              aria-pressed={isExpert}
+              className="flex items-center justify-between rounded-2xl bg-white/65 backdrop-blur-md border border-on-surface/8 px-4 py-3 text-left"
+            >
+              <div className="min-w-0 pr-3">
+                <p className="text-[13px] font-semibold text-on-surface">
+                  {isExpert ? 'Expert account' : 'Regular account'}
+                </p>
+                <p className="text-[11px] text-on-surface/55 mt-0.5 leading-snug">
+                  {isExpert ? 'Your ratings appear as expert recommendations' : 'Sign up as an expert reviewer'}
+                </p>
+              </div>
+              <span
+                className={`relative h-7 w-12 rounded-full flex-shrink-0 transition-colors ${isExpert ? 'bg-primary' : 'bg-on-surface/15'}`}
+              >
+                <span
+                  className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-md transition-all ${isExpert ? 'left-[22px]' : 'left-0.5'}`}
+                />
+              </span>
+            </button>
+
+            {error && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+              >
+                {error}
+              </motion.p>
+            )}
+          </form>
+        </motion.div>
+      </div>
+
+      {/* Sticky CTA above home indicator */}
+      <div
+        className="relative z-10 px-5 pt-3"
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      >
+        <MobilePrimaryButton type="button" loading={submitting} onClick={() => handleSubmit()}>
+          <span>Continue</span>
+          <ArrowRight size={18} />
+        </MobilePrimaryButton>
+      </div>
+    </MobileAuthShell>
   );
 };

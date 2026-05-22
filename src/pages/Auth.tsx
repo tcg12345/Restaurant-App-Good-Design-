@@ -1,15 +1,24 @@
-import React, { useState, useMemo } from 'react';
-import { motion } from 'motion/react';
-import { ArrowLeft, ArrowRight, Mail, Lock, Eye, EyeOff, Loader2, Smartphone } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, Smartphone } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
+import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
+import {
+  MobileAuthShell,
+  MobileBackButton,
+  MobileBrandMark,
+  MobileEmailPill,
+  MobileField,
+  MobileGhostButton,
+  MobilePrimaryButton,
+} from '../components/AuthMobileShell';
 
+type Step = 'email' | 'password' | 'signup';
 type PasswordStrength = { score: 0 | 1 | 2 | 3 | 4; label: string; color: string };
 
 // Lightweight password strength heuristic: length + character-class diversity.
-// Score caps at 4 so the indicator bar fills in four discrete steps.
 function getPasswordStrength(password: string): PasswordStrength {
   if (!password) return { score: 0, label: '', color: '' };
   let raw = 0;
@@ -29,157 +38,325 @@ function getPasswordStrength(password: string): PasswordStrength {
   return { score, ...meta[score] };
 }
 
-export const Auth: React.FC = () => {
-  const { signIn, signUp } = useAuth();
-  const { phoneMode, togglePhoneMode } = useSettings();
-  const navigate = useNavigate();
-  const [isSignUpMode, setIsSignUpMode] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+// ── Social icons ────────────────────────────────────────────────────────
+const AppleIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+    <path d="M11.2 8.4c0-1.7 1.4-2.5 1.4-2.5-.8-1.1-2-1.3-2.4-1.3-1-.1-2 .6-2.5.6s-1.3-.6-2.2-.6c-1.1 0-2.2.7-2.8 1.7C1.5 8.4 2.4 11.6 3.6 13.4c.6.9 1.3 1.9 2.2 1.8.9 0 1.2-.6 2.3-.6s1.4.6 2.3.6c.9 0 1.6-.9 2.2-1.8.7-1 .9-2 .9-2-.1 0-1.9-.7-1.9-2.8zM9.6 3.6c.5-.6.8-1.4.7-2.2-.7 0-1.5.5-2 1-.4.5-.8 1.3-.7 2.1.8.1 1.6-.4 2-.9z" />
+  </svg>
+);
 
-  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
+const GoogleIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+    <path fill="#4285F4" d="M15.5 8.2c0-.5 0-1-.1-1.5H8v2.9h4.2c-.2 1-.7 1.8-1.6 2.4v2h2.6c1.5-1.4 2.3-3.5 2.3-5.8z" />
+    <path fill="#34A853" d="M8 16c2.2 0 4-.7 5.3-1.9l-2.6-2c-.7.5-1.6.8-2.7.8-2.1 0-3.8-1.4-4.4-3.3H1v2.1A8 8 0 008 16z" />
+    <path fill="#FBBC05" d="M3.6 9.6c-.2-.5-.3-1-.3-1.6s.1-1.1.3-1.6V4.3H1A8 8 0 000 8c0 1.3.3 2.5.9 3.7l2.7-2.1z" />
+    <path fill="#EA4335" d="M8 3.2c1.2 0 2.3.4 3.1 1.2L13.4 2A8 8 0 001 4.3l2.6 2.1C4.2 4.6 5.9 3.2 8 3.2z" />
+  </svg>
+);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
+// ── Form atoms (shared between desktop and mobile layouts) ──────────────
+const FieldLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
+    {children}
+  </label>
+);
 
-    if (!email || !password) {
-      setError('Please fill in all fields');
-      return;
-    }
+const TextField: React.FC<{
+  type?: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  autoComplete?: string;
+  autoFocus?: boolean;
+  trailing?: React.ReactNode;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  name?: string;
+}> = ({ type = 'text', value, onChange, placeholder, autoComplete, autoFocus, trailing, inputMode, name }) => (
+  <div className="relative">
+    <input
+      type={type}
+      name={name}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      autoComplete={autoComplete}
+      autoFocus={autoFocus}
+      inputMode={inputMode}
+      className={cn(
+        'w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface',
+        'placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 transition-all text-sm',
+        trailing && 'pr-11',
+      )}
+    />
+    {trailing && (
+      <div className="absolute right-3 top-1/2 -translate-y-1/2">{trailing}</div>
+    )}
+  </div>
+);
 
-    if (isSignUpMode && password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
+const PrimaryButton: React.FC<{
+  children: React.ReactNode;
+  type?: 'button' | 'submit';
+  onClick?: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+}> = ({ children, type = 'submit', onClick, disabled, loading }) => (
+  <motion.button
+    type={type}
+    onClick={onClick}
+    disabled={disabled || loading}
+    whileHover={!disabled && !loading ? { scale: 1.01 } : undefined}
+    whileTap={!disabled && !loading ? { scale: 0.99 } : undefined}
+    className="group w-full flex items-center justify-center gap-3 bg-primary text-white px-6 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-shadow cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+  >
+    {loading ? (
+      <Loader2 size={18} className="animate-spin" />
+    ) : (
+      <>
+        <span>{children}</span>
+        <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+      </>
+    )}
+  </motion.button>
+);
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
+const SocialRow: React.FC = () => (
+  <div className="grid grid-cols-2 gap-3">
+    <button
+      type="button"
+      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer"
+    >
+      <AppleIcon size={16} />
+      <span>Apple</span>
+    </button>
+    <button
+      type="button"
+      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer"
+    >
+      <GoogleIcon size={16} />
+      <span>Google</span>
+    </button>
+  </div>
+);
 
-    setSubmitting(true);
+const Divider: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="relative flex items-center my-1">
+    <div className="flex-1 h-px bg-on-surface/10" />
+    <span className="px-3 text-[11px] uppercase tracking-wider text-on-surface/40 font-medium">{children}</span>
+    <div className="flex-1 h-px bg-on-surface/10" />
+  </div>
+);
 
-    if (isSignUpMode) {
-      const { error: err } = await signUp(email, password);
-      if (err) {
-        setError(err);
-      } else {
-        setSuccess('Account created! Check your email to confirm, then sign in.');
-        setIsSignUpMode(false);
-        setPassword('');
-        setConfirmPassword('');
-      }
-    } else {
-      const { error: err } = await signIn(email, password);
-      if (err) {
-        setError(err);
-      }
-    }
+const EmailPill: React.FC<{ email: string; onClear: () => void }> = ({ email, onClear }) => (
+  <button
+    type="button"
+    onClick={onClear}
+    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-on-surface/[0.05] text-on-surface/80 text-[13px] font-medium hover:bg-on-surface/[0.08] transition-colors"
+  >
+    <span>{email}</span>
+    <ArrowLeft size={12} />
+  </button>
+);
 
-    setSubmitting(false);
-  };
+// ── Step components ─────────────────────────────────────────────────────
+type SharedProps = {
+  email: string;
+  setEmail: (v: string) => void;
+  password: string;
+  setPassword: (v: string) => void;
+  showPassword: boolean;
+  setShowPassword: (v: boolean) => void;
+  submitting: boolean;
+  error: string;
+  onEmailContinue: () => void;
+  onSignIn: () => void;
+  onSignUp: () => void;
+  onBack: () => void;
+  keepSignedIn: boolean;
+  setKeepSignedIn: (v: boolean) => void;
+};
 
-  return (
-    <div className="min-h-screen bg-surface flex flex-col">
-      <div className="relative flex-1 flex flex-col items-center justify-center px-6 py-12 overflow-hidden">
-        {/* Background decoration */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-primary/5" />
-          <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-secondary/5" />
-          <div className="absolute top-1/3 right-1/4 w-48 h-48 rounded-full bg-accent/10" />
-        </div>
+const StepEmail: React.FC<SharedProps> = ({
+  email, setEmail, submitting, error, onEmailContinue,
+}) => (
+  <div className="space-y-4">
+    <header>
+      <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
+        Welcome to Gourmet&nbsp;Canvas
+      </h1>
+      <p className="text-sm text-on-surface/55 font-light leading-relaxed max-w-md">
+        Sign in or create an account — we'll figure out which one based on your email.
+      </p>
+    </header>
 
-        {/* Back button */}
-        <motion.button
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.3 }}
-          onClick={() => navigate('/')}
-          className="absolute top-[max(1.5rem,env(safe-area-inset-top))] left-6 z-20 flex items-center gap-2 text-on-surface/50 hover:text-on-surface transition-colors cursor-pointer"
+    <SocialRow />
+    <Divider>or continue with email</Divider>
+
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onEmailContinue();
+      }}
+      className="space-y-4"
+    >
+      <div>
+        <FieldLabel>Email address</FieldLabel>
+        <TextField
+          type="email"
+          name="email"
+          value={email}
+          onChange={setEmail}
+          placeholder="you@example.com"
+          autoComplete="email"
+          autoFocus
+          inputMode="email"
+        />
+      </div>
+
+      {error && (
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
         >
-          <ArrowLeft size={20} />
-          <span className="text-sm font-medium">Back</span>
-        </motion.button>
+          {error}
+        </motion.p>
+      )}
 
-        {/* Logo & title */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: 'easeOut' }}
-          className="relative z-10 flex flex-col items-center text-center mb-8"
-        >
-          <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-3xl shadow-lg shadow-primary/25 mb-5">
-            G
-          </div>
-          <h1 className="text-3xl md:text-4xl font-serif font-bold tracking-tight text-on-surface mb-2">
-            {isSignUpMode ? 'Create Account' : 'Welcome Back'}
-          </h1>
-          <p className="text-sm text-on-surface/50 max-w-sm font-light">
-            {isSignUpMode
-              ? 'Join Gourmet Canvas and start your culinary journey'
-              : 'Sign in to continue your culinary journey'}
-          </p>
-        </motion.div>
+      <PrimaryButton loading={submitting}>Continue</PrimaryButton>
+    </form>
+  </div>
+);
 
-        {/* Auth form */}
-        <motion.form
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-          onSubmit={handleSubmit}
-          className="relative z-10 w-full max-w-sm flex flex-col gap-3"
-        >
-          {/* Email input */}
-          <div className="relative">
-            <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-            <input
-              type="email"
-              placeholder="Email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 transition-all text-sm"
-              autoComplete="email"
-            />
-          </div>
+const StepPassword: React.FC<SharedProps> = ({
+  email, password, setPassword, showPassword, setShowPassword,
+  submitting, error, onSignIn, onBack, keepSignedIn, setKeepSignedIn,
+}) => (
+  <div className="space-y-4">
+    <header>
+      <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
+        Welcome back
+      </h1>
+      <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
+        <span>Signing in as</span>
+        <EmailPill email={email} onClear={onBack} />
+      </p>
+    </header>
 
-          {/* Password input */}
-          <div className="relative">
-            <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full pl-11 pr-11 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 transition-all text-sm"
-              autoComplete={isSignUpMode ? 'new-password' : 'current-password'}
-            />
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSignIn();
+      }}
+      className="space-y-4"
+    >
+      <div>
+        <FieldLabel>Password</FieldLabel>
+        <TextField
+          type={showPassword ? 'text' : 'password'}
+          name="password"
+          value={password}
+          onChange={setPassword}
+          placeholder="••••••••"
+          autoComplete="current-password"
+          autoFocus
+          trailing={
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface/30 hover:text-on-surface/50 transition-colors"
+              className="text-on-surface/40 hover:text-on-surface/70 p-1"
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
-          </div>
+          }
+        />
+      </div>
 
-          {/* Password strength indicator (sign up only) */}
-          {isSignUpMode && password.length > 0 && (
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={keepSignedIn}
+            onChange={(e) => setKeepSignedIn(e.target.checked)}
+            className="h-4 w-4 accent-primary"
+          />
+          <span className="text-sm text-on-surface/70">Keep me signed in</span>
+        </label>
+        <button type="button" className="text-sm text-primary font-medium hover:underline cursor-pointer">
+          Forgot password?
+        </button>
+      </div>
+
+      {error && (
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+        >
+          {error}
+        </motion.p>
+      )}
+
+      <PrimaryButton loading={submitting}>Sign in</PrimaryButton>
+    </form>
+  </div>
+);
+
+const StepSignup: React.FC<SharedProps> = ({
+  email, password, setPassword, showPassword, setShowPassword,
+  submitting, error, onSignUp, onBack,
+}) => {
+  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
+
+  return (
+    <div className="space-y-4">
+      <header>
+        <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
+          Create your account
+        </h1>
+        <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
+          <span>Setting up for</span>
+          <EmailPill email={email} onClear={onBack} />
+        </p>
+      </header>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSignUp();
+        }}
+        className="space-y-4"
+      >
+        <div>
+          <FieldLabel>Password</FieldLabel>
+          <TextField
+            type={showPassword ? 'text' : 'password'}
+            name="password"
+            value={password}
+            onChange={setPassword}
+            placeholder="Choose a password"
+            autoComplete="new-password"
+            autoFocus
+            trailing={
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="text-on-surface/40 hover:text-on-surface/70 p-1"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            }
+          />
+          {password.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-              className="flex items-center gap-3 px-2 -mt-1"
+              className="flex items-center gap-3 mt-2 px-1"
               aria-live="polite"
             >
-              <div className="flex-1 h-1 rounded-full bg-on-surface/[0.06] overflow-hidden">
+              <div className="flex-1 h-1 rounded-full bg-on-surface/8 overflow-hidden">
                 <motion.div
                   initial={false}
                   animate={{ width: `${passwordStrength.score * 25}%` }}
@@ -192,116 +369,400 @@ export const Auth: React.FC = () => {
               </span>
             </motion.div>
           )}
+        </div>
 
-          {/* Confirm password (sign up only) */}
-          {isSignUpMode && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="relative"
-            >
-              <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Confirm password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 transition-all text-sm"
-                autoComplete="new-password"
-              />
-            </motion.div>
-          )}
-
-          {/* Error message */}
-          {error && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
-            >
-              {error}
-            </motion.p>
-          )}
-
-          {/* Success message */}
-          {success && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-sm text-green-700 bg-green-50 px-4 py-2.5 rounded-xl"
-            >
-              {success}
-            </motion.p>
-          )}
-
-          {/* Submit button */}
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            type="submit"
-            disabled={submitting}
-            className="group flex items-center justify-center gap-3 bg-primary text-white px-8 py-4 rounded-2xl text-lg font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-shadow cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed mt-1"
+        {error && (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
           >
-            {submitting ? (
-              <Loader2 size={20} className="animate-spin" />
-            ) : (
-              <>
-                {isSignUpMode ? 'Create Account' : 'Sign In'}
-                <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-              </>
-            )}
-          </motion.button>
+            {error}
+          </motion.p>
+        )}
 
-          {/* Toggle sign in / sign up */}
-          <p className="text-center text-sm text-on-surface/40 mt-1">
-            {isSignUpMode ? 'Already have an account?' : "Don't have an account?"}{' '}
-            <button
-              type="button"
-              onClick={() => {
-                setIsSignUpMode(!isSignUpMode);
-                setError('');
-                setSuccess('');
-              }}
-              className="text-primary font-medium hover:underline cursor-pointer"
-            >
-              {isSignUpMode ? 'Sign In' : 'Sign Up'}
-            </button>
-          </p>
+        <PrimaryButton loading={submitting}>Create account</PrimaryButton>
 
-          {/* Phone-mode toggle — wraps the app in a portrait phone frame
-              on desktop. Choice is persisted to localStorage so it
-              survives the redirect after sign-in. */}
+        <p className="text-xs text-on-surface/45 text-center leading-relaxed">
+          By continuing you agree to our{' '}
+          <a href="#" className="text-on-surface/70 underline">Terms</a> and{' '}
+          <a href="#" className="text-on-surface/70 underline">Privacy Policy</a>.
+        </p>
+      </form>
+    </div>
+  );
+};
+
+// ── Main page ────────────────────────────────────────────────────────────
+export const Auth: React.FC = () => {
+  const { signIn, signUp, checkEmailExists } = useAuth();
+  const { phoneMode, togglePhoneMode, isNative } = useSettings();
+  const useDesktopLayout = useDesktopAuthLayout();
+
+  const [step, setStep] = useState<Step>('email');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
+
+  const handleEmailContinue = useCallback(async () => {
+    setError('');
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setError('Please enter an email address');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+    setEmail(trimmed);
+    setSubmitting(true);
+    const exists = await checkEmailExists(trimmed);
+    setSubmitting(false);
+    setStep(exists ? 'password' : 'signup');
+  }, [email, checkEmailExists]);
+
+  const handleSignIn = useCallback(async () => {
+    setError('');
+    if (!password) {
+      setError('Please enter your password');
+      return;
+    }
+    setSubmitting(true);
+    const { error: err } = await signIn(email, password);
+    if (err) setError(err);
+    setSubmitting(false);
+  }, [email, password, signIn]);
+
+  const handleSignUp = useCallback(async () => {
+    setError('');
+    if (!password) {
+      setError('Please choose a password');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+    setSubmitting(true);
+    const { error: err } = await signUp(email, password);
+    if (err) setError(err);
+    setSubmitting(false);
+  }, [email, password, signUp]);
+
+  const handleBack = useCallback(() => {
+    setStep('email');
+    setPassword('');
+    setError('');
+  }, []);
+
+  const sharedProps: SharedProps = {
+    email, setEmail, password, setPassword, showPassword, setShowPassword,
+    submitting, error,
+    onEmailContinue: handleEmailContinue,
+    onSignIn: handleSignIn,
+    onSignUp: handleSignUp,
+    onBack: handleBack,
+    keepSignedIn, setKeepSignedIn,
+  };
+
+  const stepContent = (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={step}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -6 }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
+      >
+        {step === 'email' && <StepEmail {...sharedProps} />}
+        {step === 'password' && <StepPassword {...sharedProps} />}
+        {step === 'signup' && <StepSignup {...sharedProps} />}
+      </motion.div>
+    </AnimatePresence>
+  );
+
+  // ── Desktop split layout ─────────────────────────────────────────────
+  if (useDesktopLayout) {
+    const headerRight =
+      step === 'email' ? (
+        <span className="text-on-surface/45">New to Gourmet Canvas?</span>
+      ) : (
+        <button
+          type="button"
+          onClick={handleBack}
+          className="inline-flex items-center gap-1.5 text-on-surface/55 hover:text-on-surface transition-colors cursor-pointer"
+        >
+          <ArrowLeft size={14} />
+          <span>Use a different email</span>
+        </button>
+      );
+    return (
+      <AuthShell headerRight={headerRight} panel={step}>
+        {stepContent}
+      </AuthShell>
+    );
+  }
+
+  // ── Mobile / phone-frame layout ──────────────────────────────────────
+  const passwordStrength = getPasswordStrength(password);
+
+  return (
+    <MobileAuthShell>
+      {/* Top bar — safe-area aware, holds the back chip on later steps */}
+      <div
+        className="relative z-10 px-5 flex items-center justify-between"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))', paddingBottom: '0.5rem', minHeight: 56 }}
+      >
+        <div className="min-w-[44px]">
+          {step !== 'email' && (
+            <MobileBackButton onClick={handleBack} />
+          )}
+        </div>
+        {/* Tiny phone-preview toggle, kept reachable on desktop preview;
+            hidden on native where the toggle has no meaning. */}
+        {!isNative && (
           <button
             type="button"
             onClick={togglePhoneMode}
             className={cn(
-              'mt-2 mx-auto flex items-center gap-2.5 px-4 py-2.5 rounded-full text-xs font-semibold transition-colors border',
+              'inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold border transition-colors',
               phoneMode
-                ? 'bg-on-surface/[0.05] border-on-surface/15 text-on-surface'
-                : 'bg-transparent border-on-surface/10 text-on-surface/50 hover:text-on-surface/80 hover:border-on-surface/20',
+                ? 'bg-on-surface/[0.06] border-on-surface/15 text-on-surface/85'
+                : 'bg-transparent border-on-surface/10 text-on-surface/55',
             )}
             aria-pressed={phoneMode}
           >
-            <Smartphone size={14} className={phoneMode ? 'text-primary' : 'text-on-surface/40'} />
-            <span>Phone preview</span>
-            {/* Compact pill-style toggle indicator */}
-            <span
-              className={cn(
-                'relative inline-flex h-4 w-7 rounded-full transition-colors',
-                phoneMode ? 'bg-primary' : 'bg-on-surface/15',
-              )}
-            >
-              <span
-                className={cn(
-                  'absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform',
-                  phoneMode ? 'translate-x-3.5' : 'translate-x-0.5',
-                )}
-              />
-            </span>
+            <Smartphone size={12} className={phoneMode ? 'text-primary' : 'text-on-surface/45'} />
+            <span>Preview</span>
           </button>
-        </motion.form>
+        )}
       </div>
-    </div>
+
+      {/* Step content — animates in/out per step */}
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col overflow-y-auto">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={step}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="flex-1 flex flex-col px-5 pt-2 pb-4"
+          >
+            {/* Brand + heading */}
+            <div className="flex flex-col items-start gap-4 mb-6">
+              <MobileBrandMark size={48} pulse={step === 'email'} />
+              <div>
+                <h1 className="font-display font-bold text-[28px] tracking-tight leading-[1.05] text-on-surface">
+                  {step === 'email' && 'Continue with email'}
+                  {step === 'password' && 'Welcome back'}
+                  {step === 'signup' && 'Create your account'}
+                </h1>
+                <div className="text-on-surface/55 text-[14px] leading-relaxed mt-2">
+                  {step === 'email' && (
+                    <span>We'll send you in if you have an account, or set one up if not.</span>
+                  )}
+                  {step !== 'email' && (
+                    <MobileEmailPill email={email} onClear={handleBack} />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Form body */}
+            {step === 'email' && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleEmailContinue(); }}
+                className="flex flex-col gap-3"
+              >
+                <MobileField
+                  label="Email"
+                  icon={<Mail size={16} />}
+                  type="email"
+                  name="email"
+                  value={email}
+                  onChange={setEmail}
+                  placeholder="you@example.com"
+                  autoFocus
+                  autoComplete="email"
+                  inputMode="email"
+                />
+                <div className="flex items-center gap-3 my-1">
+                  <span className="flex-1 h-px bg-on-surface/10" />
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-on-surface/40 font-bold">or</span>
+                  <span className="flex-1 h-px bg-on-surface/10" />
+                </div>
+                <MobileGhostButton icon={<AppleIcon size={16} />}>
+                  Continue with Apple
+                </MobileGhostButton>
+                <MobileGhostButton icon={<GoogleIcon size={16} />}>
+                  Continue with Google
+                </MobileGhostButton>
+                {error && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+                  >
+                    {error}
+                  </motion.p>
+                )}
+              </form>
+            )}
+
+            {step === 'password' && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleSignIn(); }}
+                className="flex flex-col gap-3"
+              >
+                <MobileField
+                  label="Password"
+                  icon={<Lock size={16} />}
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  value={password}
+                  onChange={setPassword}
+                  placeholder="••••••••"
+                  autoFocus
+                  autoComplete="current-password"
+                  rightSlot={
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-on-surface/40 p-1"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  }
+                />
+                <div className="flex items-center justify-between px-1">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={keepSignedIn}
+                      onChange={(e) => setKeepSignedIn(e.target.checked)}
+                      className="h-4 w-4 accent-primary"
+                    />
+                    <span className="text-[13px] text-on-surface/75">Keep me signed in</span>
+                  </label>
+                  <button type="button" className="text-[13px] text-primary font-medium">
+                    Forgot?
+                  </button>
+                </div>
+                {error && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+                  >
+                    {error}
+                  </motion.p>
+                )}
+              </form>
+            )}
+
+            {step === 'signup' && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleSignUp(); }}
+                className="flex flex-col gap-3"
+              >
+                <MobileField
+                  label="Password"
+                  icon={<Lock size={16} />}
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  value={password}
+                  onChange={setPassword}
+                  placeholder="Choose a password"
+                  autoFocus
+                  autoComplete="new-password"
+                  rightSlot={
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="text-on-surface/40 p-1"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  }
+                />
+                {password.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-3 px-1"
+                    aria-live="polite"
+                  >
+                    <div className="flex-1 grid grid-cols-4 gap-1.5">
+                      {[0, 1, 2, 3].map((i) => (
+                        <span
+                          key={i}
+                          className={cn(
+                            'h-1 rounded-full transition-colors',
+                            i < passwordStrength.score ? passwordStrength.color : 'bg-on-surface/8',
+                          )}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[11px] font-semibold text-on-surface/60 w-[44px] text-right">
+                      {passwordStrength.label}
+                    </span>
+                  </motion.div>
+                )}
+                {error && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
+                  >
+                    {error}
+                  </motion.p>
+                )}
+              </form>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* Sticky CTA — sits above the iOS home indicator on native */}
+      <div
+        className="relative z-10 px-5 pt-3"
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      >
+        <MobilePrimaryButton
+          type="button"
+          loading={submitting}
+          onClick={
+            step === 'email'
+              ? handleEmailContinue
+              : step === 'password'
+                ? handleSignIn
+                : handleSignUp
+          }
+        >
+          {step === 'email' && (
+            <>
+              <span>Continue</span>
+              <ArrowRight size={18} />
+            </>
+          )}
+          {step === 'password' && 'Sign in'}
+          {step === 'signup' && 'Create account'}
+        </MobilePrimaryButton>
+        {step === 'signup' && (
+          <p className="text-[11px] text-on-surface/45 text-center leading-snug mt-3 px-2">
+            By continuing you agree to our{' '}
+            <a href="#" className="underline">Terms</a> and{' '}
+            <a href="#" className="underline">Privacy</a>.
+          </p>
+        )}
+      </div>
+    </MobileAuthShell>
   );
 };

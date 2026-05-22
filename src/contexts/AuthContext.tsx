@@ -15,6 +15,11 @@ interface AuthContextType {
   refreshProfile: () => Promise<void>;
   pendingRequestCount: number;
   refreshPendingRequests: () => Promise<void>;
+  /** Probe whether an email is already registered. Returns `true` when
+   *  Supabase reports the address exists, `false` when it doesn't (or
+   *  the check can't be performed). Used by the desktop sign-in to
+   *  branch between "Welcome back" and "Create account". */
+  checkEmailExists: (email: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -29,6 +34,7 @@ const AuthContext = createContext<AuthContextType>({
   refreshProfile: async () => {},
   pendingRequestCount: 0,
   refreshPendingRequests: async () => {},
+  checkEmailExists: async () => false,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -119,10 +125,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user]);
 
+  // Probe Supabase for an existing account by attempting a passwordless
+  // OTP sign-in with `shouldCreateUser: false`. Supabase rejects the
+  // request when the email isn't registered and accepts it (mailing an
+  // OTP) when it is. We only need the existence signal — the user will
+  // type their password on the next step. The OTP email is a known
+  // side effect; replace this with a backend RPC / edge function when
+  // you want to suppress the email.
+  const checkEmailExists = useCallback(async (email: string): Promise<boolean> => {
+    if (!supabaseConfigured) return false;
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false },
+      });
+      return !error;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading, signIn, signUp, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, user, profile, profileComplete, loading, signIn, signUp, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists }}>
       {children}
     </AuthContext.Provider>
   );

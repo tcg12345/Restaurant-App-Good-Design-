@@ -208,12 +208,19 @@ export const AddRestaurantModal: React.FC = () => {
       setPage('date');
       return;
     }
-    rateRestaurant({
-      restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
-      cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
-      score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
-      listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
-    });
+    rateRestaurant(
+      {
+        restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
+        cuisine: restaurant.cuisine, price: resolvedPrice, address: restaurant.address,
+        score, notes, visitDate, wouldReturn, tags: selectedTags, photos,
+        listIds: selectedListIds, friendIds: selectedFriends, createdAt: Date.now(),
+      },
+      // Only archive the existing rating into visit history when the
+      // user is on the "Log New Visit" tab. The "Update Current" tab
+      // edits the existing record in place and shouldn't manufacture
+      // a phantom visit.
+      { isNewVisit },
+    );
     closeAddRestaurantModal();
   };
 
