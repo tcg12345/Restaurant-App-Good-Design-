@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, saveUserData, saveRecentViews, saveTrips, saveHomeMeals } from '../lib/supabase-db';
-import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, getVisitHistory, getUserRatings } from '../lib/supabase-community';
+import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { safeImage } from '../lib/utils';
@@ -369,6 +369,19 @@ function removeLocalVisitRecord(restaurantId: string, visitId: string) {
     else all[restaurantId] = next;
     localStorage.setItem(STORAGE_KEY_VISIT_HISTORY, JSON.stringify(all));
   } catch (err) { console.warn('[VisitHistory] removeLocal failed', err); }
+}
+
+/** Wipe every local visit record for a restaurant. Paired with the
+ *  remote `deleteAllVisitRecordsForRestaurant` so that removing the
+ *  rating actually erases the history — otherwise the next time the
+ *  user rates the place those old visits resurface in the timeline. */
+function clearLocalVisitHistory(restaurantId: string) {
+  try {
+    const all = loadLocalVisitHistory();
+    if (!(restaurantId in all)) return;
+    delete all[restaurantId];
+    localStorage.setItem(STORAGE_KEY_VISIT_HISTORY, JSON.stringify(all));
+  } catch (err) { console.warn('[VisitHistory] clearLocal failed', err); }
 }
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -1304,9 +1317,20 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       saveToStorage(STORAGE_KEY_CUSTOM_ORDER, next);
       return next;
     });
+    // Tear down the whole rating footprint — current rating, list
+    // memberships, community publication, AND visit history. Without
+    // wiping visit history here, a user who deletes a rating and
+    // then rates the same restaurant again sees their old visits
+    // resurface in the timeline, because both the localStorage
+    // mirror and the Supabase visit_history table outlive the
+    // current rating row.
+    clearLocalVisitHistory(restaurantId);
     if (userIdRef.current) {
       removeCommunityRating(userIdRef.current, restaurantId);
       removeCommunityPhotos(userIdRef.current, restaurantId);
+      deleteAllVisitRecordsForRestaurant(userIdRef.current, restaurantId).catch(() => {
+        console.warn('[VisitHistory] Failed to delete visit records for', restaurantId);
+      });
     }
   }, [syncRatingsToCloud]);
 
