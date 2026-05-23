@@ -8,7 +8,6 @@ import {
   Car, Footprints, Trash2, RotateCw,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { useLists } from '../contexts/ListsContext';
@@ -541,9 +540,10 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </div>
         </section>
 
-        {/* ── Ratings — three inline columns with vertical hairlines.
-            EVERYONE / FRIENDS / EXPERTS. Below: a quiet GOOGLE chip
-            with the place's external rating, if known. */}
+        {/* ── Ratings — each audience score sits inside its own soft
+            circle. Label above, count below. The circle fills with a
+            score-coded color when there's data, and falls back to a
+            quiet outlined "—" disc for empty states. */}
         {(() => {
           const expertAvg = expertRecommendations.length > 0
             ? expertRecommendations.reduce((sum, r) => sum + Number(r.rating), 0) / expertRecommendations.length
@@ -560,35 +560,57 @@ export const RestaurantDetailDesktop: React.FC = () => {
             count: number;
             countLabel: string;
             emptyCopy: string;
-            align: 'left' | 'center' | 'right';
             onClick?: () => void;
           };
-          const Cell: React.FC<CellProps> = ({ label, score, count, countLabel, emptyCopy, align, onClick }) => {
-            const alignClass = align === 'left' ? 'text-left items-start' : align === 'right' ? 'text-right items-end' : 'text-center items-center';
+          const Cell: React.FC<CellProps> = ({ label, score, count, countLabel, emptyCopy, onClick }) => {
+            const fillClass = score == null
+              ? ''
+              : score >= 8 ? 'bg-secondary' : score >= 5 ? 'bg-amber-600' : 'bg-red-500';
+            const shadow = score == null
+              ? ''
+              : score >= 8 ? '0 10px 24px rgba(92, 97, 68, 0.22)'
+              : score >= 5 ? '0 10px 24px rgba(217, 119, 6, 0.22)'
+              : '0 10px 24px rgba(239, 68, 68, 0.22)';
             const body = (
-              <div className={cn('flex flex-col gap-2 py-2', alignClass)}>
+              <div className="flex flex-col items-center gap-3 py-1">
                 <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface/55">
                   {label}
                 </p>
                 {score != null ? (
-                  <>
-                    <p className={cn('font-serif font-bold text-[36px] leading-none tabular-nums tracking-[-0.02em]', scoreColor(score))}>
+                  <div
+                    className={cn(
+                      'w-[104px] h-[104px] rounded-full grid place-items-center',
+                      fillClass,
+                    )}
+                    style={{ boxShadow: shadow }}
+                  >
+                    <span className="font-serif font-bold text-[32px] leading-none tabular-nums tracking-[-0.02em] text-white">
                       {score.toFixed(1)}
-                    </p>
-                    <p className="text-[12px] font-medium text-on-surface/55 mt-1">
-                      {count.toLocaleString()} {countLabel}
-                    </p>
-                  </>
+                    </span>
+                  </div>
                 ) : (
-                  <>
-                    <p className="font-serif font-bold text-[32px] leading-none tabular-nums text-on-surface/30">—</p>
-                    <p className="text-[12px] italic text-on-surface/45 mt-1">{emptyCopy}</p>
-                  </>
+                  <div className="w-[104px] h-[104px] rounded-full grid place-items-center border border-on-surface/15 bg-on-surface/[0.02]">
+                    <span className="font-serif font-bold text-[30px] leading-none tabular-nums text-on-surface/25">
+                      —
+                    </span>
+                  </div>
                 )}
+                <p
+                  className={cn(
+                    'text-[12px] mt-1 text-center',
+                    score != null ? 'font-medium text-on-surface/55' : 'italic text-on-surface/45',
+                  )}
+                >
+                  {score != null ? `${count.toLocaleString()} ${countLabel}` : emptyCopy}
+                </p>
               </div>
             );
             return onClick ? (
-              <button type="button" onClick={onClick} className="w-full hover:opacity-75 transition-opacity">
+              <button
+                type="button"
+                onClick={onClick}
+                className="w-full transition-transform hover:-translate-y-0.5"
+              >
                 {body}
               </button>
             ) : (
@@ -598,61 +620,51 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
           return (
             <section className="py-9">
-              <div className="flex items-baseline justify-between gap-4 mb-5">
+              <div className="flex items-baseline justify-between gap-4 mb-7">
                 <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                   Ratings
                 </h2>
               </div>
 
               {isHotel ? (
-                <div className="grid grid-cols-1 gap-0">
+                <div className="flex justify-start">
                   <Cell
                     label="Breakfast"
                     score={hasCommunity ? communityStats.avgScore : null}
                     count={communityStats.totalRatings}
                     countLabel={communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
                     emptyCopy="Be the first"
-                    align="left"
                   />
                 </div>
               ) : (
-                <div className="grid grid-cols-3 divide-x divide-on-surface/[0.08]">
-                  <div className="pr-6">
-                    <Cell
-                      label="Everyone"
-                      score={hasCommunity ? communityStats.avgScore : null}
-                      count={communityStats.totalRatings}
-                      countLabel={communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
-                      emptyCopy="Be the first"
-                      align="left"
-                    />
-                  </div>
-                  <div className="px-6">
-                    <Cell
-                      label="Friends"
-                      score={hasFriends ? friendsStats.avgScore : null}
-                      count={friendsStats.totalRatings}
-                      countLabel={friendsStats.totalRatings === 1 ? 'rating' : 'ratings'}
-                      emptyCopy="No friends yet"
-                      align="center"
-                      onClick={hasFriends ? () => setShowFriendsDetail(true) : undefined}
-                    />
-                  </div>
-                  <div className="pl-6">
-                    <Cell
-                      label="Experts"
-                      score={hasExperts ? expertAvg : null}
-                      count={expertCount}
-                      countLabel={expertCount === 1 ? 'rating' : 'ratings'}
-                      emptyCopy="No expert picks"
-                      align="right"
-                    />
-                  </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <Cell
+                    label="Everyone"
+                    score={hasCommunity ? communityStats.avgScore : null}
+                    count={communityStats.totalRatings}
+                    countLabel={communityStats.totalRatings === 1 ? 'rating' : 'ratings'}
+                    emptyCopy="Be the first"
+                  />
+                  <Cell
+                    label="Friends"
+                    score={hasFriends ? friendsStats.avgScore : null}
+                    count={friendsStats.totalRatings}
+                    countLabel={friendsStats.totalRatings === 1 ? 'rating' : 'ratings'}
+                    emptyCopy="No friends yet"
+                    onClick={hasFriends ? () => setShowFriendsDetail(true) : undefined}
+                  />
+                  <Cell
+                    label="Experts"
+                    score={hasExperts ? expertAvg : null}
+                    count={expertCount}
+                    countLabel={expertCount === 1 ? 'rating' : 'ratings'}
+                    emptyCopy="No expert picks"
+                  />
                 </div>
               )}
 
               {hasGoogle && (
-                <div className="mt-5 inline-flex items-center gap-2 text-[13px] font-medium text-on-surface/55">
+                <div className="mt-7 inline-flex items-center gap-2 text-[13px] font-medium text-on-surface/55">
                   <span
                     className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/70 px-2 py-[3px] rounded bg-on-surface/[0.05]"
                   >
