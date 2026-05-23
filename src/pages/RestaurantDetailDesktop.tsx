@@ -192,7 +192,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const badgeIsPersonal = !!myRating;
 
   return (
-    <div className="bg-surface min-h-screen pb-24">
+    <div className="bg-surface min-h-screen pb-16">
       {/* ── Sticky top nav ────────────────────────────────────────────
           Always present at the top. Back chip on the left, restaurant
           name (fades in once you've scrolled past the hero) in the
@@ -319,7 +319,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {/* ── Hero ── eyebrow, name, address line, open status, score.
             No photo of its own — when photos exist they sit above this
             block in the dedicated photo header. */}
-        <section className={cn('pb-9', hasPhotos ? 'pt-7' : 'pt-12')}>
+        <section className={cn('pb-5', hasPhotos ? 'pt-7' : 'pt-12')}>
           <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-on-surface/55 mb-4 flex items-center gap-2.5">
             <span>{isHotel ? 'Hotel' : cuisine}</span>
             {!isHotel && priceStr && (
@@ -619,7 +619,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           };
 
           return (
-            <section className="py-9">
+            <section className="py-4">
               <div className="flex items-baseline justify-between gap-4 mb-7">
                 <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                   Ratings
@@ -696,7 +696,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const flavorData = getFlavorProfile(place.types, place.name);
           const ranked = [...flavorData].sort((a, b) => b.value - a.value);
           return (
-            <section className="py-9">
+            <section className="py-4">
               <div className="flex items-baseline justify-between gap-4 mb-5">
                 <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                   Flavor profile
@@ -744,7 +744,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const hasFriends = friendsStats.ratings.length > 0;
           const topFriends = friendsStats.ratings.slice(0, 3);
           return (
-            <section className="py-9">
+            <section className="py-4">
               <div className="flex items-baseline justify-between gap-4 mb-5">
                 <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                   Your circle
@@ -832,7 +832,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             hotel. Kept from previous design; styled to match the new
             section pattern. */}
         {isHotel && (
-          <section className="py-9">
+          <section className="py-4">
             <div className="flex items-baseline justify-between gap-4 mb-5">
               <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                 Hotel dining
@@ -961,7 +961,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           );
 
           return (
-            <section ref={myRatingRef} className="py-9 scroll-mt-20">
+            <section ref={myRatingRef} className="py-4 scroll-mt-20">
               <div className="flex items-center justify-between gap-3 mb-5">
                 <button
                   type="button"
@@ -1187,7 +1187,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           }
 
           return (
-            <section className="py-9">
+            <section className="py-4">
               <div className="flex items-baseline justify-between gap-4 mb-5">
                 <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                   Visit history
@@ -1339,7 +1339,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
         {/* ── Expert picks — kept as editorial list. Hidden when none. */}
         {expertRecommendations.length > 0 && (
-          <section className="py-9">
+          <section className="py-4">
             <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-5">
               Expert picks
             </h2>
@@ -1412,7 +1412,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {/* ── Featured reels — "More from {restaurant}". Header style
             matches the rest of the page so the existing component's
             internal title stays consistent. */}
-        <div className="py-9">
+        <div className="py-4">
           <RestaurantFeaturedReels
             restaurantId={place.id}
             restaurantName={place.name}
@@ -1423,7 +1423,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {/* ── Hours — inline open/closed status row that expands to the
             full weekly table. */}
         {place.hours.length > 0 && (
-          <section className="py-9">
+          <section className="py-4">
             <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-3">
               Hours
             </h2>
@@ -1484,7 +1484,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         )}
 
         {/* ── Contact — quiet hairline rows. ── */}
-        <section className="py-9">
+        <section className="py-4">
           <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-3">
             Contact
           </h2>
@@ -1539,7 +1539,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         </section>
 
         {/* ── Location — Mapbox map with overlay chip + open-in-maps. */}
-        <section className="py-9">
+        <section className="py-4">
           <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-5">
             Location
           </h2>
