@@ -107,6 +107,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const walkLabel = formatTravelTime(walkMin);
 
   const [hoursOpen, setHoursOpen] = useState(false);
+  const [myRatingOpen, setMyRatingOpen] = useState(true);
 
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit } = useLists();
   const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
@@ -596,7 +597,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           };
 
           return (
-            <section className="py-9 border-t border-on-surface/[0.08]">
+            <section className="py-9">
               <div className="flex items-baseline justify-between gap-4 mb-5">
                 <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                   Ratings
@@ -683,7 +684,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const flavorData = getFlavorProfile(place.types, place.name);
           const ranked = [...flavorData].sort((a, b) => b.value - a.value);
           return (
-            <section className="py-9 border-t border-on-surface/[0.08]">
+            <section className="py-9">
               <div className="flex items-baseline justify-between gap-4 mb-5">
                 <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                   Flavor profile
@@ -731,7 +732,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           const hasFriends = friendsStats.ratings.length > 0;
           const topFriends = friendsStats.ratings.slice(0, 3);
           return (
-            <section className="py-9 border-t border-on-surface/[0.08]">
+            <section className="py-9">
               <div className="flex items-baseline justify-between gap-4 mb-5">
                 <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                   Your circle
@@ -819,7 +820,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
             hotel. Kept from previous design; styled to match the new
             section pattern. */}
         {isHotel && (
-          <section className="py-9 border-t border-on-surface/[0.08]">
+          <section className="py-9">
             <div className="flex items-baseline justify-between gap-4 mb-5">
               <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                 Hotel dining
@@ -948,11 +949,25 @@ export const RestaurantDetailDesktop: React.FC = () => {
           );
 
           return (
-            <section ref={myRatingRef} className="py-9 border-t border-on-surface/[0.08] scroll-mt-20">
+            <section ref={myRatingRef} className="py-9 scroll-mt-20">
               <div className="flex items-center justify-between gap-3 mb-5">
-                <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
-                  My rating
-                </h2>
+                <button
+                  type="button"
+                  onClick={() => setMyRatingOpen((o) => !o)}
+                  className="inline-flex items-center gap-2 group"
+                  aria-expanded={myRatingOpen}
+                >
+                  <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
+                    My rating
+                  </h2>
+                  <ChevronDown
+                    size={18}
+                    className={cn(
+                      'text-on-surface/45 group-hover:text-on-surface/70 transition-transform duration-200',
+                      myRatingOpen && 'rotate-180',
+                    )}
+                  />
+                </button>
                 <button
                   type="button"
                   onClick={() => openAddRestaurantModal(meta, 'new-visit')}
@@ -963,7 +978,17 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 </button>
               </div>
 
-              <div className="flex flex-col">
+              <AnimatePresence initial={false}>
+                {myRatingOpen && (
+                  <motion.div
+                    key="my-rating-body"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="flex flex-col">
                 {/* Notes — top row, no top border */}
                 <div className="grid grid-cols-[110px_minmax(0,1fr)_auto] items-start gap-5 pt-1 pb-4">
                   <FieldLabel>Notes</FieldLabel>
@@ -1083,7 +1108,10 @@ export const RestaurantDetailDesktop: React.FC = () => {
                     <FieldEdit onClick={() => openAt('friends')} />
                   </div>
                 )}
-              </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </section>
           );
         })()}
@@ -1147,7 +1175,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
           }
 
           return (
-            <section className="py-9 border-t border-on-surface/[0.08]">
+            <section className="py-9">
               <div className="flex items-baseline justify-between gap-4 mb-5">
                 <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface">
                   Visit history
@@ -1299,7 +1327,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
         {/* ── Expert picks — kept as editorial list. Hidden when none. */}
         {expertRecommendations.length > 0 && (
-          <section className="py-9 border-t border-on-surface/[0.08]">
+          <section className="py-9">
             <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-5">
               Expert picks
             </h2>
@@ -1372,7 +1400,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {/* ── Featured reels — "More from {restaurant}". Header style
             matches the rest of the page so the existing component's
             internal title stays consistent. */}
-        <div className="py-9 border-t border-on-surface/[0.08]">
+        <div className="py-9">
           <RestaurantFeaturedReels
             restaurantId={place.id}
             restaurantName={place.name}
@@ -1383,7 +1411,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {/* ── Hours — inline open/closed status row that expands to the
             full weekly table. */}
         {place.hours.length > 0 && (
-          <section className="py-9 border-t border-on-surface/[0.08]">
+          <section className="py-9">
             <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-3">
               Hours
             </h2>
@@ -1444,7 +1472,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         )}
 
         {/* ── Contact — quiet hairline rows. ── */}
-        <section className="py-9 border-t border-on-surface/[0.08]">
+        <section className="py-9">
           <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-3">
             Contact
           </h2>
@@ -1499,7 +1527,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         </section>
 
         {/* ── Location — Mapbox map with overlay chip + open-in-maps. */}
-        <section className="py-9 border-t border-on-surface/[0.08]">
+        <section className="py-9">
           <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-5">
             Location
           </h2>
