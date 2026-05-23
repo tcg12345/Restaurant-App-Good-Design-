@@ -1020,7 +1020,7 @@ const RestaurantGridCard: React.FC<{
               <MapPin size={13} className="flex-shrink-0 text-on-surface/40 mt-[2px]" />
               <span className="line-clamp-2 leading-snug">{streetCity || 'Location unavailable'}</span>
             </div>
-            <div className="mt-1 pl-[20px] flex items-center justify-between gap-2 min-h-[28px]">
+            <div className="mt-1 flex items-center justify-between gap-2 min-h-[28px]">
               {(todayHours || distanceLabel) ? (
                 <span className="flex items-center gap-1.5 min-w-0">
                   {todayHours && (
