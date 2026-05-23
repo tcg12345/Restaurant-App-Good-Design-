@@ -1483,61 +1483,6 @@ export const RestaurantDetailDesktop: React.FC = () => {
           </section>
         )}
 
-        {/* ── Contact — quiet hairline rows. ── */}
-        <section className="py-4">
-          <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-3">
-            Contact
-          </h2>
-          <ul className="flex flex-col">
-            {place.phone && (
-              <li>
-                <a
-                  href={`tel:${place.phone}`}
-                  className="flex items-center gap-3.5 py-3.5 hover:opacity-70 transition-opacity"
-                >
-                  <span className="w-8 h-8 rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface/70 flex-shrink-0">
-                    <Phone size={14} />
-                  </span>
-                  <span className="flex-1 text-sm font-medium text-on-surface tabular-nums truncate">{place.phone}</span>
-                  <ChevronRight size={14} className="text-on-surface/40 flex-shrink-0" />
-                </a>
-              </li>
-            )}
-            {place.website && (
-              <li className={cn(place.phone && 'border-t border-on-surface/[0.06]')}>
-                <a
-                  href={place.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3.5 py-3.5 hover:opacity-70 transition-opacity"
-                >
-                  <span className="w-8 h-8 rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface/70 flex-shrink-0">
-                    <Globe size={14} />
-                  </span>
-                  <span className="flex-1 text-sm font-medium text-on-surface truncate">
-                    {place.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}
-                  </span>
-                  <ExternalLink size={14} className="text-on-surface/40 flex-shrink-0" />
-                </a>
-              </li>
-            )}
-            <li className={cn((place.phone || place.website) && 'border-t border-on-surface/[0.06]')}>
-              <a
-                href={directionsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3.5 py-3.5 hover:opacity-70 transition-opacity"
-              >
-                <span className="w-8 h-8 rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface/70 flex-shrink-0">
-                  <MapPin size={14} />
-                </span>
-                <span className="flex-1 text-sm font-medium text-on-surface truncate">{place.address}</span>
-                <Navigation size={14} className="text-on-surface/40 flex-shrink-0" />
-              </a>
-            </li>
-          </ul>
-        </section>
-
         {/* ── Location — Mapbox map with overlay chip + open-in-maps. */}
         <section className="py-4">
           <h2 className="font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface mb-5">
