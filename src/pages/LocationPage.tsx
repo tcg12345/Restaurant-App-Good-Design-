@@ -1432,12 +1432,20 @@ export const LocationPage: React.FC = () => {
     markersRef.current = {};
     for (const place of visible) {
       if (!Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
+      // Mapbox sets a transform:translate(...) on the marker root to
+      // position it. If our CSS adds another `transform` (e.g. a hover
+      // scale) it overrides the translate and the marker jumps to (0,0)
+      // of the map container until the hover ends. Solution: keep the
+      // root transparent/transform-free and put the visual pill inside.
       const el = document.createElement('button');
       el.type = 'button';
       el.className = 'minimap-marker';
-      el.style.backgroundColor = miniMapMarkerColor(place.rating);
       el.title = place.name;
-      el.textContent = place.rating > 0 ? (place.rating * 2).toFixed(1) : '·';
+      const inner = document.createElement('span');
+      inner.className = 'minimap-marker-inner';
+      inner.style.backgroundColor = miniMapMarkerColor(place.rating);
+      inner.textContent = place.rating > 0 ? (place.rating * 2).toFixed(1) : '·';
+      el.appendChild(inner);
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();
         navigate(`/restaurant/${place.id}`);
