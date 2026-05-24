@@ -2251,6 +2251,18 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
 }) => {
   const { phoneMode } = useSettings();
   const { dragProps } = useBottomSheet(open, onClose);
+  const [cuisineOpen, setCuisineOpen] = useState(false);
+  const [cuisineQuery, setCuisineQuery] = useState('');
+  const cuisineOptions = useMemo(
+    () => CUISINE_TYPES.filter((c) => c.type),
+    [],
+  );
+  const filteredCuisines = useMemo(() => {
+    const q = cuisineQuery.trim().toLowerCase();
+    if (!q) return cuisineOptions;
+    return cuisineOptions.filter((c) => c.label.toLowerCase().includes(q));
+  }, [cuisineOptions, cuisineQuery]);
+
   const toggleCuisine = (type: string) => {
     onCuisinesChange(
       selectedCuisines.includes(type)
@@ -2269,17 +2281,23 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
     onDriveMinChange(0);
   };
 
+  // Trigger label for the cuisine dropdown — "All cuisines" / "Italian" /
+  // "Italian + 2 more" so the closed state still communicates state.
+  const cuisineTriggerLabel = (() => {
+    if (selectedCuisines.length === 0) return 'All cuisines';
+    const first = cuisineOptions.find((c) => c.type === selectedCuisines[0]);
+    const firstLabel = first?.label || selectedCuisines[0];
+    if (selectedCuisines.length === 1) return firstLabel;
+    return `${firstLabel} + ${selectedCuisines.length - 1} more`;
+  })();
+
   return (
     <AnimatePresence>
       {open && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           transition={{ duration: phoneMode ? 0.18 : 0.16 }}
-          className={cn(
-            'fixed inset-0 z-50',
-            phoneMode ? 'bg-black/30 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
-            !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
-          )}
+          className="lp-filter-overlay"
           onClick={onClose}
         >
           <motion.div
@@ -2290,97 +2308,76 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
                   ...dragProps,
                 }
               : {
-                  initial: { opacity: 0, scale: 0.94, y: -12 },
+                  initial: { opacity: 0, scale: 0.96, y: -8 },
                   animate: { opacity: 1, scale: 1, y: 0 },
-                  exit: { opacity: 0, scale: 0.96, y: -8 },
+                  exit: { opacity: 0, scale: 0.97, y: -4 },
                   transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
                 })}
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            className={cn(
-              'flex flex-col overflow-hidden bg-surface',
-              phoneMode
-                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl max-h-[85vh] shadow-2xl'
-                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
-            )}
+            className={cn('lp-filter-sheet', phoneMode ? 'is-phone' : 'is-desktop')}
           >
             {phoneMode && (
-              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+              <div className="lp-filter-drag-handle">
+                <span />
               </div>
             )}
-            <div className={cn(
-              'flex items-center justify-between flex-shrink-0',
-              phoneMode ? 'px-5 pt-1 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
-            )}>
-              <h3 className={cn(
-                phoneMode
-                  ? 'text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface/60'
-                  : 'font-serif font-bold text-[20px]',
-              )}>
-                Filters
-              </h3>
+
+            <div className="lp-filter-head">
+              <h3 className="lp-filter-title">Filters</h3>
               <button
+                type="button"
                 onClick={onClose}
-                className="w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
-                aria-label="Close"
+                className="lp-filter-close"
+                aria-label="Close filters"
               >
-                <X size={16} className="text-on-surface/60" />
+                <X size={16} />
               </button>
             </div>
-            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
 
-            <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">Sort by</h4>
-                <div className="grid grid-cols-2 gap-2">
+            <div className="lp-filter-body">
+              {/* ── Sort by ─────────────────────────────────────────── */}
+              <section className="lp-filter-section">
+                <div className="lp-filter-label">Sort by</div>
+                <div className="lp-pill-row">
                   {SORT_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
+                      type="button"
                       onClick={() => onSortChange(opt.value)}
-                      className={cn(
-                        'flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left',
-                        sortBy === opt.value
-                          ? 'border-primary bg-primary/5 text-primary'
-                          : 'border-on-surface/10 text-on-surface/60 hover:border-on-surface/20',
-                      )}
+                      className={cn('lp-pill', sortBy === opt.value && 'is-active')}
                     >
-                      {sortBy === opt.value && <Check size={14} />}
                       {opt.label}
                     </button>
                   ))}
                 </div>
-              </div>
+              </section>
 
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">Price</h4>
-                <div className="flex gap-2">
+              {/* ── Price ───────────────────────────────────────────── */}
+              <section className="lp-filter-section">
+                <div className="lp-filter-label">Price</div>
+                <div className="lp-segment">
                   {PRICE_LEVELS.map((p) => (
                     <button
                       key={p.value}
+                      type="button"
                       onClick={() => onPriceChange(p.value)}
-                      className={cn(
-                        'flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all',
-                        selectedPrice === p.value
-                          ? 'border-primary bg-primary/5 text-primary'
-                          : 'border-on-surface/10 text-on-surface/60 hover:border-on-surface/20',
-                      )}
+                      className={cn('lp-segment-item', selectedPrice === p.value && 'is-active')}
                     >
                       {p.label}
                     </button>
                   ))}
                 </div>
-              </div>
+              </section>
 
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">
-                    Distance
-                  </h4>
-                  <span className="text-xs font-bold tabular-nums text-primary">
+              {/* ── Distance ────────────────────────────────────────── */}
+              <section className="lp-filter-section">
+                <div className="lp-filter-label-row">
+                  <div className="lp-filter-label">Distance</div>
+                  <div className={cn('lp-filter-value', selectedRadius > 0 && 'is-set')}>
                     {selectedRadius === 0 ? 'Any' : `Within ${selectedRadius} mi`}
-                  </span>
+                  </div>
                 </div>
-                <p className="text-[11px] text-on-surface/45 mb-2.5">
+                <p className="lp-filter-sub">
                   From the city centre. Drag to the far left for no limit.
                 </p>
                 <input
@@ -2391,144 +2388,154 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
                   value={selectedRadius}
                   onChange={(e) => onRadiusChange(Number(e.target.value))}
                   aria-label="Maximum distance from city centre in miles"
-                  className="accent-primary w-full h-2"
+                  className="lp-slider"
                 />
-                <div className="mt-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-on-surface/40">
+                <div className="lp-slider-range">
                   <span>Any</span>
                   <span>25 mi</span>
                 </div>
-              </div>
+              </section>
 
-              {/* Walk / drive time caps — hidden entirely when the user's
-                  home isn't a precise address, since there's no routable
-                  origin for Mapbox Directions to measure from. */}
+              {/* ── Walk / drive time caps ──────────────────────────── */}
               {canFilterByTravelTime && (
                 <>
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Footprints size={14} className="text-on-surface/60" />
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">Walk time</h4>
+                  <section className="lp-filter-section">
+                    <div className="lp-filter-label-row">
+                      <div className="lp-filter-label">
+                        <Footprints size={12} style={{ display: 'inline-block', verticalAlign: '-1px', marginRight: 6 }} />
+                        Walk time
+                      </div>
+                      <div className={cn('lp-filter-value', selectedWalkMin > 0 && 'is-set')}>
+                        {selectedWalkMin === 0 ? 'Any' : WALK_MIN_OPTIONS.find((o) => o.value === selectedWalkMin)?.label}
+                      </div>
                     </div>
-                    <p className="text-[11px] text-on-surface/45 -mt-2 mb-2.5">
-                      From {homeLabel || 'your address'}.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
+                    <p className="lp-filter-sub">From {homeLabel || 'your address'}.</p>
+                    <div className="lp-pill-row">
                       {WALK_MIN_OPTIONS.map((o) => (
                         <button
                           key={o.value}
+                          type="button"
                           onClick={() => onWalkMinChange(o.value)}
-                          className={cn(
-                            'px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all',
-                            selectedWalkMin === o.value
-                              ? 'border-primary bg-primary/5 text-primary'
-                              : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                          )}
+                          className={cn('lp-pill', 'is-sm', selectedWalkMin === o.value && 'is-active')}
                         >
                           {o.label}
                         </button>
                       ))}
                     </div>
-                  </div>
+                  </section>
 
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Car size={14} className="text-on-surface/60" />
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">Drive time</h4>
+                  <section className="lp-filter-section">
+                    <div className="lp-filter-label-row">
+                      <div className="lp-filter-label">
+                        <Car size={12} style={{ display: 'inline-block', verticalAlign: '-1px', marginRight: 6 }} />
+                        Drive time
+                      </div>
+                      <div className={cn('lp-filter-value', selectedDriveMin > 0 && 'is-set')}>
+                        {selectedDriveMin === 0 ? 'Any' : DRIVE_MIN_OPTIONS.find((o) => o.value === selectedDriveMin)?.label}
+                      </div>
                     </div>
-                    <p className="text-[11px] text-on-surface/45 -mt-2 mb-2.5">
-                      From {homeLabel || 'your address'}.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
+                    <p className="lp-filter-sub">From {homeLabel || 'your address'}.</p>
+                    <div className="lp-pill-row">
                       {DRIVE_MIN_OPTIONS.map((o) => (
                         <button
                           key={o.value}
+                          type="button"
                           onClick={() => onDriveMinChange(o.value)}
-                          className={cn(
-                            'px-4 py-2 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all',
-                            selectedDriveMin === o.value
-                              ? 'border-primary bg-primary/5 text-primary'
-                              : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                          )}
+                          className={cn('lp-pill', 'is-sm', selectedDriveMin === o.value && 'is-active')}
                         >
                           {o.label}
                         </button>
                       ))}
                     </div>
-                  </div>
+                  </section>
                 </>
               )}
 
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">
-                  From your circle
-                </h4>
-                <p className="text-[11px] text-on-surface/45 -mt-2 mb-2.5">
+              {/* ── From your circle ────────────────────────────────── */}
+              <section className="lp-filter-section">
+                <div className="lp-filter-label">From your circle</div>
+                <p className="lp-filter-sub">
                   Show only places with ratings from people you trust.
                 </p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="lp-circle-grid">
                   <button
+                    type="button"
                     onClick={() => onFriendsOnlyChange(!friendsOnly)}
-                    className={cn(
-                      'flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left',
-                      friendsOnly
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-on-surface/10 text-on-surface/60 hover:border-on-surface/20',
-                    )}
+                    className={cn('lp-circle-card', friendsOnly && 'is-active')}
                   >
-                    <Users size={15} className={friendsOnly ? 'text-primary' : 'text-on-surface/50'} />
-                    Friends only
+                    <Users size={16} className="lp-circle-icon" />
+                    <span className="lp-circle-label">Friends only</span>
+                    <span className={cn('lp-radio-dot', friendsOnly && 'is-on')} />
                   </button>
                   <button
+                    type="button"
                     onClick={() => onExpertsOnlyChange(!expertsOnly)}
-                    className={cn(
-                      'flex items-center gap-2 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left',
-                      expertsOnly
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-on-surface/10 text-on-surface/60 hover:border-on-surface/20',
-                    )}
+                    className={cn('lp-circle-card', expertsOnly && 'is-active')}
                   >
-                    <UserCheck size={15} className={expertsOnly ? 'text-primary' : 'text-on-surface/50'} />
-                    Experts only
+                    <UserCheck size={16} className="lp-circle-icon" />
+                    <span className="lp-circle-label">Experts only</span>
+                    <span className={cn('lp-radio-dot', expertsOnly && 'is-on')} />
                   </button>
                 </div>
-              </div>
+              </section>
 
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-on-surface/60 mb-3">Cuisine</h4>
-                <div className="flex flex-wrap gap-2">
-                  {CUISINE_TYPES.filter((c) => c.type).map((c) => {
-                    const isActive = selectedCuisines.includes(c.type);
-                    return (
-                      <button
-                        key={c.type}
-                        onClick={() => toggleCuisine(c.type)}
-                        className={cn(
-                          'px-3 py-1.5 rounded-full border-2 text-xs font-bold uppercase tracking-wider transition-all',
-                          isActive
-                            ? 'border-primary bg-primary/5 text-primary'
-                            : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                        )}
-                      >
-                        {isActive && <Check size={11} className="inline mr-1 -mt-0.5" />}
-                        {c.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              {/* ── Cuisine (dropdown) ──────────────────────────────── */}
+              <section className="lp-filter-section">
+                <div className="lp-filter-label">Cuisine</div>
+                <button
+                  type="button"
+                  onClick={() => setCuisineOpen((v) => !v)}
+                  className={cn('lp-cuisine-trigger', cuisineOpen && 'is-open', selectedCuisines.length > 0 && 'is-set')}
+                  aria-expanded={cuisineOpen}
+                >
+                  <span>{cuisineTriggerLabel}</span>
+                  <ChevronDown className={cn('lp-cuisine-chev', cuisineOpen && 'is-open')} />
+                </button>
+                {cuisineOpen && (
+                  <div className="lp-cuisine-panel">
+                    <div className="lp-cuisine-search">
+                      <Search />
+                      <input
+                        type="text"
+                        placeholder="Search cuisines"
+                        value={cuisineQuery}
+                        onChange={(e) => setCuisineQuery(e.target.value)}
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                      />
+                    </div>
+                    <div className="lp-cuisine-list">
+                      {filteredCuisines.length === 0 ? (
+                        <div className="lp-cuisine-empty">No matches</div>
+                      ) : (
+                        filteredCuisines.map((c) => {
+                          const active = selectedCuisines.includes(c.type);
+                          return (
+                            <button
+                              key={c.type}
+                              type="button"
+                              className={cn('lp-cuisine-row', active && 'is-active')}
+                              onClick={() => toggleCuisine(c.type)}
+                            >
+                              <span className={cn('lp-checkbox', active && 'is-on')}>
+                                {active && <Check size={11} strokeWidth={3} />}
+                              </span>
+                              <span>{c.label}</span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </section>
             </div>
 
-            <div className="flex-shrink-0 bg-surface border-t border-black/5 px-5 py-4 flex gap-3">
-              <button
-                onClick={reset}
-                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors"
-              >
+            <div className="lp-filter-foot">
+              <button type="button" onClick={reset} className="lp-reset">
                 Reset
               </button>
-              <button
-                onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all"
-              >
+              <button type="button" onClick={onClose} className="lp-apply">
                 Apply
               </button>
             </div>
