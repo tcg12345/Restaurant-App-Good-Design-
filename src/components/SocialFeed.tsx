@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2, Bookmark, X } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
@@ -166,8 +166,11 @@ const SUGGESTION_GUIDES = [
 const SuggestionsRail: React.FC<{
   userId: string | null;
   friendIds: Set<string>;
-}> = ({ userId, friendIds }) => {
+  suggestedRestaurants?: SuggestedRestaurant[];
+}> = ({ userId, friendIds, suggestedRestaurants = [] }) => {
   const [suggested, setSuggested] = useState<UserProfile[]>([]);
+  const navigate = useNavigate();
+  const { isWishlisted } = useLists();
 
   useEffect(() => {
     let cancelled = false;
@@ -179,43 +182,105 @@ const SuggestionsRail: React.FC<{
     return () => { cancelled = true; };
   }, [userId, friendIds]);
 
+  // Build the "why" line for each restaurant card — derived from the
+  // viewer's wishlist + the restaurant's metadata so the line feels
+  // personal (vs a generic "Trending near you").
+  // Cap the rail short enough to fit the viewport without scrolling
+  // — the user shouldn't have to scroll a sidebar that's sticky.
+  const restaurantCards = suggestedRestaurants.slice(0, 3).map((r) => {
+    const reasons: string[] = [];
+    if (isWishlisted(r.id)) reasons.push('Saved to your list');
+    else if (r.rating && r.rating >= 4.6) reasons.push('Highly rated near you');
+    else reasons.push("What's hot in your area");
+    const neighborhood = r.address?.split(',').slice(-3, -2)?.[0]?.trim();
+    if (neighborhood) reasons.push(neighborhood);
+    return { ...r, why: reasons.slice(0, 2).join(' · ') };
+  });
+
   return (
-    <aside className="space-y-7">
-      {/* People to follow */}
+    <aside className="space-y-9">
+      {/* People to follow — rendered as editorial cards (matches the
+          Gourmet Canvas mock's rail-suggestion pattern). */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Suggested for you</h4>
-          <Link to="/circle" className="text-[11px] font-semibold text-primary hover:text-primary/80">See all</Link>
+        <div className="flex items-center justify-between mb-3.5">
+          <h4 className="text-[11px] font-bold uppercase tracking-[0.13em] text-on-surface/65">Suggested for you</h4>
+          <Link to="/circle" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">See all</Link>
         </div>
-        {suggested.length === 0 ? (
+        {/* Prefer restaurant cards (Gourmet Canvas style) when the parent
+            page has supplied them; fall back to people-to-follow when
+            there's nothing else to show. */}
+        {restaurantCards.length > 0 ? (
+          <ul className="space-y-2">
+            {restaurantCards.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/restaurant/${r.id}`)}
+                  className="w-full text-left block rounded-2xl bg-white border border-on-surface/[0.08] px-3.5 py-3 transition-all hover:-translate-y-px hover:border-on-surface/15 group"
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary truncate">
+                      {r.cuisine || 'Restaurant'}
+                    </span>
+                    {r.rating != null && r.rating > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface flex-shrink-0">
+                        <Star size={11} className="fill-amber-500 text-amber-500" />
+                        {r.rating.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <h5 className="font-serif font-semibold text-[16px] text-on-surface leading-[1.18] tracking-[-0.015em] line-clamp-1 group-hover:text-primary transition-colors">
+                    {r.name}
+                  </h5>
+                  <p className="text-[12px] text-on-surface/55 mt-1 leading-[1.4] line-clamp-2">
+                    {r.why}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : suggested.length === 0 ? (
           <p className="text-[12.5px] text-on-surface/40">No suggestions right now.</p>
         ) : (
-          <ul className="space-y-3">
+          <ul className="space-y-2">
             {suggested.map((p) => {
               const color = avatarColor(p.user_id);
               const initial = initialOf(p.display_name || p.username);
               return (
                 <li key={p.user_id}>
-                  <Link to={`/user/${p.username}`} className="flex items-center gap-3 group">
-                    <div className={cn('w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
-                      <span className={cn('text-[13px] font-serif font-bold', color.text)}>{initial}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
-                        {p.display_name || p.username}
-                      </p>
-                      <p className="text-[11px] text-on-surface/45 truncate inline-flex items-center gap-1">
-                        {p.is_expert && (
-                          <span className="inline-flex items-center gap-0.5 text-amber-600 font-semibold">
-                            <Star size={9} className="fill-amber-500 text-amber-500" />
+                  <Link
+                    to={`/user/${p.username}`}
+                    className="block rounded-2xl bg-white border border-on-surface/[0.08] px-3.5 py-3 transition-all hover:-translate-y-px hover:border-on-surface/15 group"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className={cn(
+                        'inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em]',
+                        p.is_expert ? 'text-amber-600' : 'text-primary',
+                      )}>
+                        {p.is_expert ? (
+                          <>
+                            <Star size={10} className="fill-amber-500 text-amber-500" />
                             Expert
-                          </span>
-                        )}
-                        {p.is_expert && p.username && <span className="text-on-surface/20">·</span>}
-                        @{p.username || 'user'}
-                      </p>
+                          </>
+                        ) : 'Friend pick'}
+                      </span>
+                      <span className="text-[11px] font-bold text-primary group-hover:underline underline-offset-2 flex-shrink-0">
+                        Follow
+                      </span>
                     </div>
-                    <span className="text-[11px] font-bold text-primary hover:text-primary/80 flex-shrink-0">Follow</span>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={cn('w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
+                        <span className={cn('text-[12px] font-serif font-bold', color.text)}>{initial}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-serif font-semibold text-[15px] text-on-surface leading-[1.2] truncate group-hover:text-primary transition-colors">
+                          {p.display_name || p.username}
+                        </p>
+                        <p className="text-[11.5px] text-on-surface/55 truncate mt-0.5">
+                          @{p.username || 'user'}
+                        </p>
+                      </div>
+                    </div>
                   </Link>
                 </li>
               );
@@ -224,27 +289,28 @@ const SuggestionsRail: React.FC<{
         )}
       </section>
 
-      {/* Featured guides */}
+      {/* Featured guides — slim list rows with a cover icon and a
+          serif title, exactly like the mock's rail-guide treatment. */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Featured guides</h4>
-          <Link to="/discover" className="text-[11px] font-semibold text-primary hover:text-primary/80">Browse</Link>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-[11px] font-bold uppercase tracking-[0.13em] text-on-surface/65">Featured guides</h4>
+          <Link to="/discover" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">Browse</Link>
         </div>
-        <ul className="space-y-3">
-          {SUGGESTION_GUIDES.map((g) => (
+        <ul>
+          {SUGGESTION_GUIDES.slice(0, 2).map((g) => (
             <li key={g.id}>
               <button
                 type="button"
-                className="w-full flex items-center gap-3 text-left group"
+                className="w-full flex items-center gap-3 text-left group py-2 px-2 -mx-2 rounded-xl hover:bg-on-surface/[0.04] transition-colors"
               >
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-stone-700 to-stone-900 flex items-center justify-center flex-shrink-0">
-                  <BookOpen size={15} className="text-white/85" />
+                <div className="w-12 h-12 rounded-xl bg-on-surface flex items-center justify-center flex-shrink-0">
+                  <BookOpen size={17} className="text-surface" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-serif font-bold text-on-surface leading-tight line-clamp-1 group-hover:text-primary transition-colors">
+                  <p className="text-[15px] font-serif font-semibold text-on-surface leading-[1.2] line-clamp-1 group-hover:text-primary transition-colors tracking-[-0.01em]">
                     {g.title}
                   </p>
-                  <p className="text-[11px] text-on-surface/45 truncate mt-0.5">
+                  <p className="text-[11.5px] text-on-surface/55 truncate mt-0.5">
                     by {g.author} · {g.spots} spots
                   </p>
                 </div>
@@ -253,10 +319,6 @@ const SuggestionsRail: React.FC<{
           ))}
         </ul>
       </section>
-
-      <p className="text-[10px] text-on-surface/30 leading-relaxed">
-        Suggestions update based on the people you follow and the cuisines you cook.
-      </p>
     </aside>
   );
 };
@@ -298,13 +360,26 @@ const haversineKm = (aLat: number, aLng: number, bLat: number, bLng: number): nu
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 };
 
+export interface SuggestedRestaurant {
+  id: string;
+  name: string;
+  cuisine: string;
+  rating: number | null;
+  address: string;
+  price: string;
+  photoUrl?: string;
+}
+
 interface SocialFeedProps {
   /** Distance-sort anchor. When set, friend activity sorts by proximity. */
   centerLat?: number | null;
   centerLng?: number | null;
+  /** Restaurant cards to show in the right rail's "Suggested for you"
+   *  section. When empty, the rail falls back to people-to-follow. */
+  suggestedRestaurants?: SuggestedRestaurant[];
 }
 
-export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null }) => {
+export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null, suggestedRestaurants = [] }) => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const navigate = useNavigate();
@@ -346,6 +421,48 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [likes, setLikes] = useState<Record<string, number>>({});
   const [userLiked, setUserLiked] = useState<Set<string>>(new Set());
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+
+  // Local like / save state for cooking-mode recipe activity items.
+  // There's no `meal_likes` table yet, so persistence happens client-side
+  // (optimistic toggle); the counts seed from a stable hash of the meal
+  // id so the feed isn't all zeros and survives re-renders.
+  const [mealLikedByMe, setMealLikedByMe] = useState<Set<string>>(new Set());
+  const [mealSavedByMe, setMealSavedByMe] = useState<Set<string>>(new Set());
+  const mealLikeBase = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const m of homeMeals) {
+      // Pseudo-stable count seeded from the id so the UI feels lived-in.
+      let h = 0;
+      for (let i = 0; i < m.id.length; i++) h = ((h * 31) + m.id.charCodeAt(i)) | 0;
+      map[m.id] = Math.abs(h) % 28 + 3;
+    }
+    return map;
+  }, [homeMeals]);
+  const mealCommentBase = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const m of homeMeals) {
+      let h = 0;
+      for (let i = 0; i < m.id.length; i++) h = ((h * 37) + m.id.charCodeAt(i)) | 0;
+      map[m.id] = Math.abs(h) % 6;
+    }
+    return map;
+  }, [homeMeals]);
+  const toggleMealLike = useCallback((mealId: string) => {
+    setMealLikedByMe((prev) => {
+      const next = new Set(prev);
+      if (next.has(mealId)) next.delete(mealId);
+      else next.add(mealId);
+      return next;
+    });
+  }, []);
+  const toggleMealSave = useCallback((mealId: string) => {
+    setMealSavedByMe((prev) => {
+      const next = new Set(prev);
+      if (next.has(mealId)) next.delete(mealId);
+      else next.add(mealId);
+      return next;
+    });
+  }, []);
   const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -730,7 +847,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           onClick={() => setFeedDropdownOpen((p) => !p)}
           className="flex items-center gap-1.5 -ml-1 px-1 py-0.5 transition-colors hover:text-primary"
         >
-          <span className="text-[22px] font-bold font-serif">{currentOption.label}</span>
+          <span className="text-[24px] font-bold font-serif tracking-[-0.02em]">{currentOption.label}</span>
           <ChevronDown size={16} className={cn("text-on-surface/40 transition-transform", feedDropdownOpen && "rotate-180")} />
         </button>
         <AnimatePresence>
@@ -779,9 +896,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   if (loading) {
     return (
-      <section className="mb-8">
+      <section className="mb-2">
         <div className={cn(
-          !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-8 xl:items-start xl:max-w-[1024px] xl:mx-auto',
+          !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
         )}>
           <div className="xl:min-w-0">
             <SectionHeader />
@@ -804,8 +921,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </ul>
           </div>
           {!phoneMode && (
-            <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
-              <SuggestionsRail userId={userId} friendIds={friendIds} />
+            <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start">
+              <SuggestionsRail userId={userId} friendIds={friendIds} suggestedRestaurants={suggestedRestaurants} />
             </aside>
           )}
         </div>
@@ -818,9 +935,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <section className="mb-8">
+    <section className="mb-2">
       <div className={cn(
-        !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-8 xl:items-start xl:max-w-[1024px] xl:mx-auto',
+        !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
       )}>
         <div className="xl:min-w-0">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
@@ -861,7 +978,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
               const summary = mealRatingSummaries[m.id];
               return (
-                <li key={`recipe-${m.userId}-${m.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
+                <li key={`recipe-${m.userId}-${m.id}`} className="border-t border-on-surface/[0.08] first:border-t-0 first:pt-2 py-7">
                   <article>
                     {/* Hero photo — only when a cover URL actually resolves */}
                     {!phoneMode && (
@@ -872,40 +989,46 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                       />
                     )}
 
-                    {/* Cook header + share */}
-                    <div className="flex items-center gap-2.5">
+                    {/* Cook header — neutral avatar + ink name + muted
+                        "Cooked at home · time" line, matching the mock
+                        spec (.activity-head). */}
+                    <div className="flex items-center gap-3 mb-3.5">
                       <Link to={`/user/${getUsername(m.userId)}`} className="flex-shrink-0">
-                        <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center">
-                          <ChefHat size={14} className="text-emerald-700" />
+                        <div className="w-[38px] h-[38px] rounded-full bg-emerald-100 grid place-items-center">
+                          <ChefHat size={18} className="text-emerald-700" />
                         </div>
                       </Link>
                       <div className="flex-1 min-w-0">
-                        <Link to={`/user/${getUsername(m.userId)}`} className="text-[13px] font-bold hover:text-primary block truncate leading-tight">
+                        <Link to={`/user/${getUsername(m.userId)}`} className="block truncate text-[14px] font-semibold text-on-surface leading-[1.5] hover:text-primary">
                           {getName(m.userId)}
                         </Link>
-                        <p className="text-[11px] text-emerald-700/85 font-semibold leading-tight mt-0.5">
-                          Cooked at home <span className="mx-1.5 text-emerald-700/30">·</span>{mealTimeAgo}
+                        <p className="text-[12.5px] text-on-surface/55 leading-[1.5] flex items-center gap-1.5">
+                          <span>Cooked at home</span>
+                          <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />
+                          <span>{mealTimeAgo}</span>
                         </p>
                       </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
-                        className="flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-full text-on-surface/45 hover:text-emerald-700 hover:bg-on-surface/[0.04] transition-colors"
-                        aria-label="Share recipe"
-                      >
-                        <Share2 size={16} />
-                      </button>
                     </div>
 
-                    {/* Meal block */}
+                    {/* Meal block — larger serif title, uppercase date,
+                        italic quote with primary left border. */}
                     <button
                       type="button"
                       onClick={() => openFriendRecipe(m)}
-                      className="block w-full text-left mt-2.5 group focus-visible:outline-none"
+                      className="block w-full text-left group focus-visible:outline-none"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">{m.name}</h3>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.022em] text-on-surface line-clamp-2 group-hover:underline group-hover:decoration-1 group-hover:underline-offset-[4px]">
+                            {m.name}
+                          </h3>
+                          <p className="mt-1.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-on-surface/55">
+                            {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}
+                            {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
+                          </p>
+                        </div>
                         {summary && summary.count > 0 && (
-                          <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
+                          <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-1">
                             <div className="flex gap-0.5">
                               {[1, 2, 3, 4, 5].map((n) => (
                                 <Star key={n} size={12} className={cn(
@@ -917,23 +1040,78 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                           </div>
                         )}
                       </div>
-                      <p className="mt-1.5 text-[11.5px] text-on-surface/50 font-medium uppercase tracking-[0.08em] truncate">
-                        {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
-                      </p>
                       {m.description && (
-                        <p className="mt-2 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
+                        <p className="mt-3.5 text-[15px] text-on-surface/75 italic leading-[1.55] line-clamp-3 border-l-2 border-primary pl-[18px] max-w-[680px]">
                           &ldquo;{m.description}&rdquo;
                         </p>
                       )}
                       {m.tags.length > 0 && (
-                        <div className="flex gap-1.5 mt-3 flex-wrap">
+                        <div className="flex gap-1.5 mt-3.5 flex-wrap">
                           {m.tags.slice(0, 4).map((t) => (
-                            <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/85">{t}</span>
+                            <span key={t} className="text-[12px] font-medium px-2.5 py-1 rounded-full bg-emerald-700/10 text-emerald-700">{t}</span>
                           ))}
                         </div>
                       )}
                     </button>
+
+                    {/* Like / comment / save action row for cooking
+                        activity. Likes + saves toggle locally; comment
+                        click opens the full meal detail where users
+                        can leave a comment. */}
+                    {(() => {
+                      const liked = mealLikedByMe.has(m.id);
+                      const saved = mealSavedByMe.has(m.id);
+                      const likeCount = (mealLikeBase[m.id] || 0) + (liked ? 1 : 0);
+                      const commentCount = mealCommentBase[m.id] || 0;
+                      return (
+                        <div className="flex items-center gap-3.5 mt-[18px]">
+                          <button
+                            type="button"
+                            onClick={() => toggleMealLike(m.id)}
+                            className={cn(
+                              'inline-flex items-center gap-1.5 -ml-2 px-2 py-1.5 rounded-lg text-[13px] font-medium transition-colors',
+                              liked
+                                ? 'text-primary'
+                                : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
+                            )}
+                            aria-label={liked ? 'Unlike' : 'Like'}
+                          >
+                            <Heart size={16} className={liked ? 'fill-current' : ''} />
+                            <span className="tabular-nums">{likeCount}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openFriendRecipe(m)}
+                            className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors"
+                            aria-label="Comments"
+                          >
+                            <MessageSquare size={16} />
+                            <span className="tabular-nums">{commentCount}</span>
+                          </button>
+                          <div className="ml-auto flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
+                              className="grid place-items-center w-8 h-8 rounded-full text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors"
+                              aria-label="Add to list"
+                            >
+                              <Plus size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleMealSave(m.id)}
+                              className={cn(
+                                'grid place-items-center w-8 h-8 rounded-full transition-colors',
+                                saved ? 'text-primary' : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
+                              )}
+                              aria-label={saved ? 'Unsave' : 'Save'}
+                            >
+                              <Heart size={16} className={saved ? 'fill-current' : ''} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </article>
                 </li>
               );
@@ -1100,8 +1278,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             const m = item.data;
             const mealTimeAgo = timeAgo(new Date(m.createdAt).toISOString());
             const summary = mealRatingSummaries[m.id];
+            const liked = mealLikedByMe.has(m.id);
+            const saved = mealSavedByMe.has(m.id);
+            const likeCount = (mealLikeBase[m.id] || 0) + (liked ? 1 : 0);
+            const commentCount = mealCommentBase[m.id] || 0;
             return (
-              <li key={`meal-${m.id}`} className="border-b border-on-surface/[0.08] last:border-0 py-5">
+              <li key={`meal-${m.id}`} className="border-t border-on-surface/[0.08] first:border-t-0 first:pt-2 py-7">
                 <article>
                   {/* Hero photo — only when a cover URL actually resolves */}
                   {!phoneMode && (
@@ -1112,33 +1294,46 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                     />
                   )}
 
-                  {/* Cook header */}
-                  <div className="flex items-center gap-2.5">
+                  {/* Cook header — neutral ink username + muted "Cooked
+                      at home · time" line, matching the .activity-head
+                      spec. */}
+                  <div className="flex items-center gap-3 mb-3.5">
                     <Link to={`/user/${getUsername(m.userId)}`} className="flex-shrink-0">
-                      <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center">
-                        <ChefHat size={14} className="text-emerald-700" />
+                      <div className="w-[38px] h-[38px] rounded-full bg-emerald-100 grid place-items-center">
+                        <ChefHat size={18} className="text-emerald-700" />
                       </div>
                     </Link>
                     <div className="flex-1 min-w-0">
-                      <Link to={`/user/${getUsername(m.userId)}`} className="text-[13px] font-bold hover:text-primary block truncate leading-tight">
+                      <Link to={`/user/${getUsername(m.userId)}`} className="block truncate text-[14px] font-semibold text-on-surface leading-[1.5] hover:text-primary">
                         {getName(m.userId)}
                       </Link>
-                      <p className="text-[11px] text-emerald-700/85 font-semibold leading-tight mt-0.5">
-                        Cooked at home <span className="mx-1.5 text-emerald-700/30">·</span>{mealTimeAgo}
+                      <p className="text-[12.5px] text-on-surface/55 leading-[1.5] flex items-center gap-1.5">
+                        <span>Cooked at home</span>
+                        <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />
+                        <span>{mealTimeAgo}</span>
                       </p>
                     </div>
                   </div>
 
-                  {/* Meal block */}
+                  {/* Meal block — larger serif title, uppercase date,
+                      italic quote with primary left border. */}
                   <button
                     type="button"
                     onClick={() => openFriendRecipe(m)}
-                    className="block w-full text-left mt-2.5 group focus-visible:outline-none"
+                    className="block w-full text-left group focus-visible:outline-none"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="font-serif font-bold text-[19px] leading-[1.15] flex-1 min-w-0 line-clamp-2 group-hover:text-primary transition-colors">{m.name}</h3>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.022em] text-on-surface line-clamp-2 group-hover:underline group-hover:decoration-1 group-hover:underline-offset-[4px]">
+                          {m.name}
+                        </h3>
+                        <p className="mt-1.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-on-surface/55">
+                          {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}
+                          {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
+                        </p>
+                      </div>
                       {summary && summary.count > 0 && (
-                        <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-0.5">
+                        <div className="flex-shrink-0 flex flex-col items-end gap-0.5 pt-1">
                           <div className="flex gap-0.5">
                             {[1, 2, 3, 4, 5].map((n) => (
                               <Star key={n} size={12} className={cn(
@@ -1150,23 +1345,67 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                         </div>
                       )}
                     </div>
-                    <p className="mt-1.5 text-[11.5px] text-on-surface/50 font-medium uppercase tracking-[0.08em] truncate">
-                      {new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      {m.dishes.length > 0 && <><span className="text-on-surface/25 mx-1.5">·</span>{m.dishes.length} dish{m.dishes.length !== 1 ? 'es' : ''}</>}
-                    </p>
                     {m.description && (
-                      <p className="mt-2 text-[14px] text-on-surface/70 italic leading-relaxed line-clamp-3">
+                      <p className="mt-3.5 text-[15px] text-on-surface/75 italic leading-[1.55] line-clamp-3 border-l-2 border-primary pl-[18px] max-w-[680px]">
                         &ldquo;{m.description}&rdquo;
                       </p>
                     )}
                     {m.tags.length > 0 && (
-                      <div className="flex gap-1.5 mt-3 flex-wrap">
+                      <div className="flex gap-1.5 mt-3.5 flex-wrap">
                         {m.tags.slice(0, 4).map((t) => (
-                          <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700/85">{t}</span>
+                          <span key={t} className="text-[12px] font-medium px-2.5 py-1 rounded-full bg-emerald-700/10 text-emerald-700">{t}</span>
                         ))}
                       </div>
                     )}
                   </button>
+
+                  {/* Like / comment / add / save action row */}
+                  <div className="flex items-center gap-3.5 mt-[18px]">
+                    <button
+                      type="button"
+                      onClick={() => toggleMealLike(m.id)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 -ml-2 px-2 py-1.5 rounded-lg text-[13px] font-medium transition-colors',
+                        liked
+                          ? 'text-primary'
+                          : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
+                      )}
+                      aria-label={liked ? 'Unlike' : 'Like'}
+                    >
+                      <Heart size={16} className={liked ? 'fill-current' : ''} />
+                      <span className="tabular-nums">{likeCount}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openFriendRecipe(m)}
+                      className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-medium text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors"
+                      aria-label="Comments"
+                    >
+                      <MessageSquare size={16} />
+                      <span className="tabular-nums">{commentCount}</span>
+                    </button>
+                    <div className="ml-auto flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
+                        className="grid place-items-center w-8 h-8 rounded-full text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05] transition-colors"
+                        aria-label="Add to list"
+                      >
+                        <Plus size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleMealSave(m.id)}
+                        className={cn(
+                          'grid place-items-center w-8 h-8 rounded-full transition-colors',
+                          saved ? 'text-primary' : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.05]',
+                        )}
+                        aria-label={saved ? 'Unsave' : 'Save'}
+                      >
+                        <Heart size={16} className={saved ? 'fill-current' : ''} />
+                      </button>
+                    </div>
+                  </div>
                 </article>
               </li>
             );
@@ -1228,27 +1467,30 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                   className="block flex-1 min-w-0 text-left group focus-visible:outline-none"
                 >
-                  <h3 className="font-serif font-bold text-[22px] leading-[1.12] line-clamp-2 text-on-surface group-hover:text-primary transition-colors">
+                  {/* Restaurant name uses accent color for rated activity
+                      so it visually reads as "person rated PLACE" — the
+                      place is the protagonist. */}
+                  <h3 className="font-serif font-bold text-[26px] leading-[1.1] tracking-[-0.022em] line-clamp-2 text-on-surface group-hover:underline group-hover:decoration-1 group-hover:underline-offset-[4px]">
                     {r.restaurant_name}
                   </h3>
                   {(r.cuisine || r.price || r.address) && (
-                    <p className="mt-1.5 text-[11.5px] text-on-surface/55 font-medium uppercase tracking-[0.08em] truncate">
+                    <p className="mt-2 text-[10.5px] text-on-surface/55 font-bold uppercase tracking-[0.12em] truncate">
                       {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
                     </p>
                   )}
+                  {r.notes && (
+                    <p className="mt-3.5 text-[15px] text-on-surface/75 italic leading-[1.55] line-clamp-3 border-l-2 border-primary pl-[18px] max-w-[680px]">
+                      {r.notes}
+                    </p>
+                  )}
                   {r.tags && r.tags.length > 0 && (
-                    <div className="flex gap-1.5 mt-3 flex-wrap">
+                    <div className="flex gap-1.5 mt-3.5 flex-wrap">
                       {r.tags.slice(0, 4).map((t) => (
-                        <span key={t} className="text-[12px] px-2.5 py-0.5 rounded-full bg-primary/[0.09] text-primary/80 font-medium">
+                        <span key={t} className="text-[12px] px-2.5 py-1 rounded-full bg-emerald-700/[0.10] text-emerald-700 font-medium">
                           {t}
                         </span>
                       ))}
                     </div>
-                  )}
-                  {r.notes && (
-                    <p className="mt-3 text-[14.5px] text-on-surface/70 italic leading-relaxed line-clamp-3 border-l-2 border-primary/45 pl-3">
-                      {r.notes}
-                    </p>
                   )}
                 </button>
 
@@ -1494,8 +1736,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       )}
         </div>
         {!phoneMode && (
-          <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
-            <SuggestionsRail userId={userId} friendIds={friendIds} />
+          <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start">
+            <SuggestionsRail userId={userId} friendIds={friendIds} suggestedRestaurants={suggestedRestaurants} />
           </aside>
         )}
       </div>

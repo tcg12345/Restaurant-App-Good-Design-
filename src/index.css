@@ -10,11 +10,10 @@
   --font-display: "Fraunces", "Noto Serif", serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Surface palette — neutral warm-gray instead of the previous
-     pink-leaning #fff8f6. Just enough warmth to keep editorial
-     typography readable, without the rosy cast that bled across the
-     whole app. */
-  --color-surface: #f6f5f2;
+  /* Surface palette — warmer Gourmet Canvas cream. Single source of
+     truth for the app background; `cream` aliases it for the editorial
+     tokens below. */
+  --color-surface: #ede7d9;
   --color-on-surface: #1e1b1a;
   --color-primary: #9f3012;
   --color-secondary: #5c6144;
@@ -24,10 +23,10 @@
   /* Editorial tokens used by the restaurant detail redesign.
      `cream` is the page bg, `paper` is the card fill, `ink-*`
      are text tones, and `olive`/`clay`/`persimmon` map the
-     score-coded accents. Same neutral shift applied here. */
-  --color-cream: #f4f2ec;
-  --color-cream-2: #e6e3d9;
-  --color-paper: #fbfaf6;
+     score-coded accents. */
+  --color-cream: #ede7d9;
+  --color-cream-2: #e6dfce;
+  --color-paper: #fdfaf0;
   --color-line: #e2dfd5;
   --color-line-2: #d2cec0;
   --color-ink: #1e1b1a;
@@ -63,8 +62,20 @@
 .dark {
   color-scheme: dark;
 }
-/* Hardcoded white card surfaces from the editorial card layouts get
-   re-tinted in dark mode so they don't punch through the dark page. */
+/* Pure-white card surfaces (bg-white and its alphas) read too harsh
+   against the warmer cream page background. Remap to the soft paper
+   token so every card / pill / dropdown across the app sits in the
+   same warm family. Dark mode override below still wins. */
+.bg-white,
+.bg-white\/95,
+.bg-white\/90,
+.bg-white\/85,
+.bg-white\/80,
+.bg-white\/70,
+.bg-white\/60 {
+  background-color: var(--color-paper) !important;
+}
+/* In dark mode the same selectors fall back to the dark paper tone. */
 .dark .bg-white,
 .dark .bg-white\/95,
 .dark .bg-white\/90,

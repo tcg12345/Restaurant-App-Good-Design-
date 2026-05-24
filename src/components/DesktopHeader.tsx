@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, Plus, Heart, MessageCircle, Users, Clock, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -12,6 +12,8 @@ import { useCirclePanel } from '../contexts/CirclePanelContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
+import { HomeLocationBar, getCurrentHomeLocation, type HomeLocation } from './HomeLocationBar';
+import { useHomeLocation } from '../contexts/HomeLocationContext';
 
 /**
  * Sticky page header used across every signed-in main page on desktop
@@ -268,15 +270,72 @@ export const DesktopHeader: React.FC = () => {
   };
 
   const isHomeRoute = location.pathname === '/' || location.pathname === '/index.html';
+  const isLocationRoute = location.pathname === '/location';
+  const showLocationChip = isHomeRoute || isLocationRoute;
+  const homeLocationCtx = useHomeLocation();
+  const [chipSearchParams] = useSearchParams();
+
+  // On /location, the chip reflects the city encoded in the URL (label /
+  // lat / lng search params) rather than the home-location context, so
+  // the chip always agrees with the page hero. Picking a new city on this
+  // route navigates the URL — and updates the home context so other
+  // routes pick up the change too.
+  const locationFromUrl: HomeLocation | null = useMemo(() => {
+    if (!isLocationRoute) return null;
+    const label = chipSearchParams.get('label');
+    const latNum = Number(chipSearchParams.get('lat'));
+    const lngNum = Number(chipSearchParams.get('lng'));
+    if (!label || !Number.isFinite(latNum) || !Number.isFinite(lngNum)) return null;
+    return { label, lat: latNum, lng: lngNum };
+  }, [isLocationRoute, chipSearchParams]);
+
+  const chipLocation = isLocationRoute
+    ? locationFromUrl ?? homeLocationCtx?.location ?? null
+    : homeLocationCtx?.location ?? null;
+
+  const handleChipChange = (loc: HomeLocation) => {
+    homeLocationCtx?.setLocation(loc);
+    if (isLocationRoute) {
+      navigate(
+        `/location?label=${encodeURIComponent(loc.label)}&lat=${loc.lat}&lng=${loc.lng}`,
+        { replace: true },
+      );
+    }
+  };
+
+  const handleChipUseCurrent = async (): Promise<void> => {
+    if (isLocationRoute) {
+      // Geolocate + reverse-geocode, then route through the same handler
+      // so the URL updates and the home context stays in sync.
+      const loc = await getCurrentHomeLocation();
+      handleChipChange(loc);
+      return;
+    }
+    if (homeLocationCtx) await homeLocationCtx.useCurrent();
+  };
 
   return (
     <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]">
-      <div className="px-6 py-3 flex items-center gap-3">
+      <div className="px-6 py-2.5 flex items-center gap-3">
+        {/* ── Location chip — on Discover home and on the /location route.
+              Reuses HomeLocationBar's bottom-sheet picker so cities /
+              recents / use-current all work as before. On /location the
+              chip mirrors the URL params (so it always agrees with the
+              page) and picking a new city replaces the URL. */}
+        {showLocationChip && homeLocationCtx && (
+          <HomeLocationBar
+            location={chipLocation}
+            onChange={handleChipChange}
+            onUseCurrent={handleChipUseCurrent}
+            variant="chip"
+          />
+        )}
+
         {/* ── Search input + dropdown ─────────────────────────────── */}
         <div ref={wrapperRef} className="relative flex-1 max-w-2xl">
           <Search size={16} className={cn(
             'absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none',
-            isScoped ? 'text-primary' : 'text-on-surface/40',
+            isScoped ? 'text-primary' : 'text-on-surface/50',
           )} />
           <input
             ref={inputRef}
@@ -304,14 +363,14 @@ export const DesktopHeader: React.FC = () => {
               ? (scopedSearch.placeholder || `Search ${scopedSearch.scopeName.toLowerCase()}...`)
               : 'Search by name, cuisine, location...'}
             className={cn(
-              'w-full hover:bg-on-surface/[0.06]',
+              'w-full',
               'rounded-full py-2.5 pl-11 pr-10 text-[14px] font-medium text-on-surface',
-              'placeholder:text-on-surface/40',
-              'focus:outline-none focus:ring-2 focus:ring-primary/20',
-              'transition-colors',
+              'placeholder:text-on-surface/45',
+              'focus:outline-none',
+              'transition-all',
               isScoped
-                ? 'bg-primary/[0.06] focus:bg-primary/[0.09] placeholder:text-primary/60'
-                : 'bg-on-surface/[0.04] focus:bg-on-surface/[0.06]',
+                ? 'bg-primary/[0.06] border border-primary/20 focus:border-primary/40 placeholder:text-primary/60'
+                : 'bg-paper border border-on-surface/[0.08] hover:border-on-surface/15 focus:border-on-surface/25 focus:bg-white shadow-[0_1px_2px_rgba(30,27,26,0.04)]',
             )}
             aria-label={isScoped && scopedSearch ? `Search ${scopedSearch.scopeName}` : 'Search restaurants'}
             aria-haspopup={isScoped ? undefined : 'listbox'}
@@ -446,8 +505,12 @@ export const DesktopHeader: React.FC = () => {
           )}
         </div>
 
-        {/* ── Right side actions ─────────────────────────────────── */}
-        <div className="ml-auto flex items-center gap-2">
+        {/* ── Right side actions ───────────────────────────────────
+            Add CTA (when shown) stays as its own pill on the left.
+            Circle + Messages are wrapped into a single rounded
+            container so they read as one user-actions cluster
+            instead of three loose icons. */}
+        <div className="ml-auto flex items-center gap-3">
           {/* Add CTA — hidden on Discover (the home grid already has +
               buttons on every card and the search dropdown now exposes
               one per result). Pages can override the label + click via
@@ -473,38 +536,40 @@ export const DesktopHeader: React.FC = () => {
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={toggleCircle}
-            aria-label="Your circle"
-            className={cn(
-              'relative w-10 h-10 rounded-full flex items-center justify-center transition-colors',
-              circleOpen
-                ? 'bg-on-surface/[0.08] text-on-surface'
-                : 'text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.05]',
-            )}
-          >
-            <Users size={18} />
-            {pendingRequestCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
-                {pendingRequestCount}
-              </span>
-            )}
-          </button>
+          <div className="flex items-center gap-0.5 px-1 py-1 rounded-full bg-paper border border-on-surface/[0.08]">
+            <button
+              type="button"
+              onClick={toggleCircle}
+              aria-label="Your circle"
+              className={cn(
+                'relative w-9 h-9 rounded-full flex items-center justify-center transition-colors',
+                circleOpen
+                  ? 'bg-on-surface/[0.08] text-on-surface'
+                  : 'text-on-surface/65 hover:text-on-surface hover:bg-on-surface/[0.05]',
+              )}
+            >
+              <Users size={17} />
+              {pendingRequestCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-paper">
+                  {pendingRequestCount}
+                </span>
+              )}
+            </button>
 
-          <button
-            type="button"
-            onClick={() => navigate('/messages')}
-            aria-label="Messages"
-            className="relative w-10 h-10 rounded-full text-on-surface/60 hover:text-on-surface hover:bg-on-surface/[0.05] flex items-center justify-center transition-colors"
-          >
-            <MessageCircle size={18} />
-            {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={() => navigate('/messages')}
+              aria-label="Messages"
+              className="relative w-9 h-9 rounded-full text-on-surface/65 hover:text-on-surface hover:bg-on-surface/[0.05] flex items-center justify-center transition-colors"
+            >
+              <MessageCircle size={17} />
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-paper">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </header>

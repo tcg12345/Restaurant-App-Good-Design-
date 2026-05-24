@@ -9,10 +9,11 @@ import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useSettings } from '../contexts/SettingsContext';
+import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useRecipes, type Recipe } from '../contexts/RecipesContext';
-import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
+import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, getCommunityPricesForPlaces, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuideCard } from '../components/GuideCard';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
@@ -258,6 +259,35 @@ interface DiscoverProps {
   mode?: 'home' | 'map';
 }
 
+/** Time-of-day → greeting word. Drives "Good morning, Tyler" etc. */
+function getGreetingPart(now = new Date()): string {
+  const h = now.getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
+}
+
+/** Day-of-week label for the hero eyebrow. */
+const HERO_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** Stable hash → 0-360 hue. Used to derive a consistent gradient color
+ *  per restaurant/recipe id so the placeholder image area has visual
+ *  variety without needing real photos. */
+function hashToHue(str: string): number {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = ((h * 31) + str.charCodeAt(i)) | 0;
+  return ((h % 360) + 360) % 360;
+}
+
+/** Editorial gradient placeholder. Mirrors the styles.css mock spec
+ *  (135deg, three stops, lightness drop) so it reads as a warm
+ *  cinematic backdrop, not a flat color block. */
+function placeholderGradient(seed: string, sat = 50, light = 52): string {
+  const h1 = hashToHue(seed);
+  const h2 = (h1 + 25) % 360;
+  return `linear-gradient(135deg, hsl(${h1} ${sat}% ${light + 8}%) 0%, hsl(${h1} ${sat}% ${light}%) 40%, hsl(${h2} ${Math.max(sat - 10, 0)}% ${light - 18}%) 100%)`;
+}
+
 export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -366,7 +396,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     publicRecipes: publicPublishedRecipes,
     fetchFriendRecipes, fetchExpertRecipes, fetchPublicRecipes,
   } = useRecipes();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const userId = user?.id ?? null;
   const { openGuideCreator } = useGuideCreator();
 
@@ -535,6 +565,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [discoverRadius, setDiscoverRadius] = useState(5); // km
 
+  // Hero chip filter — narrows the Recommended rail to a single cuisine.
+  // `null` = "All". When set, an effect below keeps pulling more recs from
+  // the engine until at least RECS_FILTER_MIN match (or the engine is
+  // exhausted), so a niche cuisine doesn't render an empty rail.
+  const [heroChipCuisine, setHeroChipCuisine] = useState<string | null>(null);
+
+  // Refs for horizontal-scroll arrows on the Discover rails.
+  const recRailRef = useRef<HTMLDivElement | null>(null);
+  const recipeRailRef = useRef<HTMLDivElement | null>(null);
+  const scrollRail = (ref: React.RefObject<HTMLDivElement | null>, dir: 1 | -1) => {
+    if (!ref.current) return;
+    ref.current.scrollBy({ left: dir * 560, behavior: 'smooth' });
+  };
+
   // Filter state — ratings modes (myratings / friends / experts)
   const [ratingSortBy, setRatingSortBy] = useState<'recent' | 'highest' | 'lowest' | 'visited'>('recent');
   const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
@@ -652,9 +696,34 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // current location on every app open (the user's last selection is only a
   // fallback for when geolocation is denied). The in-session choice persists
   // across navigation because it lives in component state.
-  const [homeLocation, setHomeLocation] = useState<HomeLocation | null>(null);
+  // Home location now lives in HomeLocationContext so the sticky
+  // DesktopHeader chip can mutate it without prop-drilling through every
+  // route. We keep the local `homeLocation` / `setHomeLocation` names so
+  // the rest of this huge component reads unchanged.
+  const homeLocationCtx = useHomeLocation();
+  const homeLocation = homeLocationCtx?.location ?? null;
+  const setHomeLocation = useCallback((loc: HomeLocation | null) => {
+    if (loc && homeLocationCtx) homeLocationCtx.setLocation(loc);
+  }, [homeLocationCtx]);
   // Brief fade overlay applied while the feed refetches after a location swap.
   const [homeLocationRefreshing, setHomeLocationRefreshing] = useState(false);
+  // Watch location changes (from this page OR the sticky DesktopHeader chip)
+  // and flash the refresh fade so the Recommended rail doesn't pop without
+  // any visual cue.
+  const lastLocKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!homeLocation) {
+      lastLocKeyRef.current = null;
+      return;
+    }
+    const key = `${homeLocation.lat.toFixed(4)},${homeLocation.lng.toFixed(4)}`;
+    if (lastLocKeyRef.current && lastLocKeyRef.current !== key) {
+      setHomeLocationRefreshing(true);
+      const t = window.setTimeout(() => setHomeLocationRefreshing(false), 450);
+      return () => window.clearTimeout(t);
+    }
+    lastLocKeyRef.current = key;
+  }, [homeLocation]);
 
   // Recent views from localStorage
   const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
@@ -736,6 +805,35 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const recsSeenIdsRef = useRef<Set<string>>(new Set());
 
   const recommendations = apiRecommendations;
+
+  // Community-supplied price fallback: when Google has no priceLevel for
+  // a place (parsePriceLevel returns -1, priceLevelToString returns '')
+  // we look up the mode of users' rated prices in community_ratings.
+  // Batched fetch so the whole rail resolves in one round trip; cache
+  // keyed by place id so we never re-fetch a known answer.
+  const [communityPrices, setCommunityPrices] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (mode !== 'home' || recommendations.length === 0) return;
+    const needLookup = recommendations
+      .filter((p) => ((p as any).priceLevel ?? -1) < 1)
+      .map((p) => p.id)
+      .filter((id) => id && !(id in communityPrices));
+    if (needLookup.length === 0) return;
+    let cancelled = false;
+    getCommunityPricesForPlaces(needLookup).then((map) => {
+      if (cancelled) return;
+      // Mark every id we asked about so we don't refetch ones that
+      // came back empty; an empty string entry is a "tried, none found"
+      // sentinel that priceLevelToString(...) || communityPrice falsy-
+      // checks past naturally.
+      setCommunityPrices((prev) => {
+        const next = { ...prev };
+        for (const id of needLookup) next[id] = map[id] || '';
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [recommendations, mode, communityPrices]);
 
   // User's top rated restaurants
   const topRated = useMemo(() => {
@@ -1360,6 +1458,22 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     setRecsLoadingMore(false);
   }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
+
+  // Try to keep the chip-filtered Recommended rail full enough to show
+  // at least RECS_FILTER_MIN matching restaurants. When the user picks
+  // a cuisine chip and we have fewer than 10 matches, we pull the next
+  // batch from the recommendation engine — and repeat until we either
+  // hit the target or the engine reports it's out of queries.
+  useEffect(() => {
+    if (mode !== 'home' || !heroChipCuisine) return;
+    if (recsLoadingMore || recsExhaustedRef.current) return;
+    const matches = recommendations.filter(
+      (p) => getCuisineLabel((p as any).types || []) === heroChipCuisine,
+    ).length;
+    const RECS_FILTER_MIN = 10;
+    if (matches >= RECS_FILTER_MIN) return;
+    loadMoreRecommendations();
+  }, [heroChipCuisine, recommendations, recsLoadingMore, mode, loadMoreRecommendations]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);
@@ -4386,12 +4500,208 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 </div>
               )}
 
-              {/* Feed content — hidden when searching */}
-              {!discoverSearchActive && mode === 'home' && (
-                <div className={cn(
-                  'flex items-end justify-between gap-4',
-                  usingDesktopHeader ? 'mt-2 pb-1.5 mb-0 border-b border-on-surface/[0.06]' : 'mt-2',
-                )}>
+              {/* Feed content — hidden when searching.
+                  Desktop renders a personalized greeting hero with a
+                  featured restaurant card alongside; phone shows the
+                  compact stacked "DINING IN" block. */}
+              {!discoverSearchActive && mode === 'home' && usingDesktopHeader && (() => {
+                const greetingPart = getGreetingPart();
+                const dayName = HERO_DAY_NAMES[new Date().getDay()];
+                const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
+                const firstName = (profile?.display_name || profile?.username || (user?.email || '').split('@')[0] || 'there')
+                  .split(' ')[0]
+                  .split('@')[0];
+                const savedCount = wishlist.length;
+                const visitedCount = myLocalRatings.length;
+                const listsCount = myLists.length;
+                // Pick the strongest recommendation as the featured spot.
+                const featured = recommendations[0];
+                const featuredCuisine = featured ? getCuisineLabel((featured as any).types || []) : '';
+                const featuredPhoto = featured ? ((featured as any).photoUrl as string | undefined) : undefined;
+                const featuredRating = featured ? ((featured as any).rating as number | undefined) : undefined;
+                const featuredPrice = featured
+                  ? (priceLevelToString((featured as any).priceLevel ?? -1)
+                      || communityPrices[featured.id]
+                      || '')
+                  : '';
+                const featuredAddress = featured ? (((featured as any).address as string) || '').split(',')[0]?.trim() : '';
+                const featuredId = featured?.id || '';
+                const featuredSaved = featured ? isWishlisted(featured.id) : false;
+                const featuredMeta = featured ? {
+                  id: featured.id,
+                  name: featured.name,
+                  image: featuredPhoto || '',
+                  cuisine: featuredCuisine,
+                  price: featuredPrice,
+                  address: (featured as any).address || '',
+                } : null;
+                return (
+                  <section className="pt-7 pb-2 grid grid-cols-1 xl:grid-cols-[1.05fr_1fr] gap-7 xl:gap-9 items-stretch">
+                    {/* Greeting column */}
+                    <div className="flex flex-col justify-between min-w-0 gap-6">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">
+                          {dayName}{neighborhood && (
+                            <>
+                              <span className="text-on-surface/30 font-bold"> · </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  navigate(
+                                    `/location?label=${encodeURIComponent(homeLocation!.label)}&lat=${homeLocation!.lat}&lng=${homeLocation!.lng}`,
+                                  )
+                                }
+                                className="hover:underline underline-offset-4"
+                              >
+                                {neighborhood}
+                              </button>
+                            </>
+                          )}
+                        </p>
+                        <h1 className="mt-3 font-serif font-semibold text-on-surface text-[48px] xl:text-[52px] leading-[1.02] tracking-[-0.03em]">
+                          Good {greetingPart},{' '}
+                          <span className="font-serif italic font-medium text-primary">{firstName}</span>
+                        </h1>
+                        <p className="mt-3 text-[15px] text-on-surface/65 leading-[1.5] max-w-[480px]">
+                          {recommendations.length > 0
+                            ? `${recommendations.length} fresh picks near you${userPreferences.topCuisines?.[0] ? ` — including the ${userPreferences.topCuisines[0]} spots you like` : ''}.`
+                            : 'Pick a location to start surfacing spots you\'ll love.'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-7">
+                        <button
+                          type="button"
+                          onClick={() => navigate('/profile?tab=wishlist')}
+                          className="text-left hover:opacity-70 transition-opacity"
+                        >
+                          <div className="font-serif font-semibold text-on-surface text-[26px] leading-none tracking-[-0.02em] tabular-nums">
+                            {savedCount}
+                          </div>
+                          <div className="mt-1 text-[11px] font-semibold text-on-surface/55 uppercase tracking-[0.1em]">
+                            Saved
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate('/profile?tab=rated')}
+                          className="text-left hover:opacity-70 transition-opacity"
+                        >
+                          <div className="font-serif font-semibold text-on-surface text-[26px] leading-none tracking-[-0.02em] tabular-nums">
+                            {visitedCount}
+                          </div>
+                          <div className="mt-1 text-[11px] font-semibold text-on-surface/55 uppercase tracking-[0.1em]">
+                            Visited
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate('/profile?tab=lists')}
+                          className="text-left hover:opacity-70 transition-opacity"
+                        >
+                          <div className="font-serif font-semibold text-on-surface text-[26px] leading-none tracking-[-0.02em] tabular-nums">
+                            {listsCount}
+                          </div>
+                          <div className="mt-1 text-[11px] font-semibold text-on-surface/55 uppercase tracking-[0.1em]">
+                            Lists
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Featured restaurant card (desktop only, when we have a pick) */}
+                    {featured && featuredMeta && (
+                      <article
+                        className="hidden xl:grid grid-cols-[1.1fr_1fr] rounded-3xl overflow-hidden border border-on-surface/[0.08] bg-white shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] min-h-[280px]"
+                      >
+                        {/* Cover: real photo when available, gradient placeholder otherwise. */}
+                        <div className="relative overflow-hidden">
+                          {featuredPhoto ? (
+                            <img
+                              src={featuredPhoto}
+                              alt=""
+                              className="absolute inset-0 w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div
+                              className="absolute inset-0"
+                              style={{ background: placeholderGradient(featuredId || featured.name, 50, 48) }}
+                            />
+                          )}
+                          {/* Subtle radial overlays for depth */}
+                          <div
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                              backgroundImage:
+                                'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.18), transparent 40%), radial-gradient(circle at 80% 70%, rgba(0,0,0,0.25), transparent 50%)',
+                            }}
+                          />
+                          <div className="absolute top-4 left-4 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/92 backdrop-blur text-[11px] font-bold uppercase tracking-[0.04em] text-on-surface">
+                            <Sparkles size={11} className="text-primary" />
+                            Editor's pick · this week
+                          </div>
+                        </div>
+                        {/* Body */}
+                        <div className="p-6 flex flex-col justify-between gap-4 min-w-0">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/55">
+                              {featuredCuisine || 'Featured'}
+                            </p>
+                            <h2 className="mt-2 font-serif font-semibold text-on-surface text-[28px] leading-[1.05] tracking-[-0.02em] line-clamp-2">
+                              {featured.name}
+                            </h2>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-3 text-[13px] text-on-surface/70 font-medium flex-wrap mb-4">
+                              {featuredRating && featuredRating > 0 && (
+                                <span className="inline-flex items-center gap-1 font-semibold text-on-surface">
+                                  <Star size={13} className="fill-amber-500 text-amber-500" />
+                                  {featuredRating.toFixed(1)}
+                                </span>
+                              )}
+                              {featuredRating && featuredRating > 0 && featuredPrice && (
+                                <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />
+                              )}
+                              {featuredPrice && <span>{featuredPrice}</span>}
+                              {featuredAddress && (
+                                <>
+                                  <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />
+                                  <span className="truncate min-w-0">{featuredAddress}</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/restaurant/${featured.id}`)}
+                                className="inline-flex items-center gap-1.5 h-10 px-4 rounded-full bg-on-surface text-surface text-[13px] font-semibold hover:bg-primary transition-colors"
+                              >
+                                See details
+                                <ChevronRight size={14} strokeWidth={2.5} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleWishlist(featuredMeta)}
+                                className={cn(
+                                  'inline-flex items-center gap-1.5 h-10 px-4 rounded-full text-[13px] font-semibold border transition-colors',
+                                  featuredSaved
+                                    ? 'bg-primary/10 border-primary/30 text-primary'
+                                    : 'bg-transparent border-on-surface/15 text-on-surface hover:bg-on-surface/[0.04]',
+                                )}
+                              >
+                                <Heart size={14} className={featuredSaved ? 'fill-current' : ''} />
+                                {featuredSaved ? 'Saved' : 'Save'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    )}
+                  </section>
+                );
+              })()}
+              {!discoverSearchActive && mode === 'home' && !usingDesktopHeader && (
+                <div className="flex items-end justify-between gap-4 mt-2">
                   {/* On phone the location bar is capped to ~60% of the row so
                       long addresses wrap onto a second line instead of
                       pushing the "View all" link off-screen. */}
@@ -4410,10 +4720,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
                         )
                       }
-                      className={cn(
-                        'flex-shrink-0 inline-flex items-center gap-1 font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors',
-                        usingDesktopHeader ? 'text-[12px] pb-1.5' : 'text-[11px] pb-1',
-                      )}
+                      className="flex-shrink-0 inline-flex items-center gap-1 font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors text-[11px] pb-1"
                     >
                       View all
                       <ChevronRight size={12} strokeWidth={2.5} />
@@ -4430,12 +4737,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               >
               {/* Recommendations */}
               {recsLoading ? (
-                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                <section className={cn(usingDesktopHeader ? 'mt-3' : 'mt-4')}>
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
-                        'font-serif font-bold text-on-surface leading-[1.05]',
-                        usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                        'font-serif font-bold text-on-surface leading-[1.05] tracking-[-0.02em]',
+                        usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                       )}>
                         Recommended
                       </h2>
@@ -4450,34 +4757,136 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
-                      <h2 className={cn(
-                        'font-serif font-bold text-on-surface leading-[1.05]',
-                        usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
-                      )}>
-                        Recommended
-                      </h2>
+                      {(() => {
+                        const filteredCount = heroChipCuisine
+                          ? recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine).length
+                          : recommendations.length;
+                        return (
+                          <>
+                            <h2 className={cn(
+                              'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2.5',
+                              usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
+                            )}>
+                              Recommended
+                              {usingDesktopHeader && filteredCount > 0 && (
+                                <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
+                                  {filteredCount}
+                                </span>
+                              )}
+                            </h2>
+                            {usingDesktopHeader && (
+                              <p className="mt-1 text-[13px] text-on-surface/55">
+                                {heroChipCuisine
+                                  ? `${heroChipCuisine} spots${homeLocation ? ` near ${homeLocation.label.split(',')[0].trim()}` : ' near you'}`
+                                  : `Based on your saves${homeLocation ? ` and what's hot in ${homeLocation.label.split(',')[0].trim()}` : ''}`}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {usingDesktopHeader && (
+                        <div className="hidden md:flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => scrollRail(recRailRef, -1)}
+                            className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
+                            aria-label="Scroll left"
+                          >
+                            <ChevronLeft size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => scrollRail(recRailRef, 1)}
+                            className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
+                            aria-label="Scroll right"
+                          >
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      )}
+                      {homeLocation && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate(
+                              `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
+                            )
+                          }
+                          className="inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
+                        >
+                          View all
+                          <ChevronRight size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
+                  {/* Cuisine chip filter — sits directly above the rail
+                      so it reads as a row filter, not a page filter. */}
+                  {usingDesktopHeader && (() => {
+                    const cuisineOptions = userPreferences.topCuisines && userPreferences.topCuisines.length >= 3
+                      ? userPreferences.topCuisines.slice(0, 6)
+                      : ['Japanese', 'Mediterranean', 'Italian', 'American', 'Korean', 'Mexican'];
+                    return (
+                      <div className="mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+                        <button
+                          type="button"
+                          onClick={() => setHeroChipCuisine(null)}
+                          className={cn(
+                            'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
+                            heroChipCuisine === null
+                              ? 'bg-on-surface text-surface border-on-surface'
+                              : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
+                          )}
+                        >
+                          All
+                        </button>
+                        {cuisineOptions.map((c) => {
+                          const isActive = heroChipCuisine === c;
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => setHeroChipCuisine(isActive ? null : c)}
+                              className={cn(
+                                'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
+                                isActive
+                                  ? 'bg-on-surface text-surface border-on-surface'
+                                  : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
+                              )}
+                            >
+                              {c}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   <div
-                    className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
+                    ref={recRailRef}
+                    className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
                     onScroll={(e) => {
-                      // Stop fetching once we have enough to fill the rail
-                      // — the user hits the View-all card before this cap.
                       if (recommendations.length >= 30) return;
                       const el = e.currentTarget;
                       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
                     }}
                   >
-                    {recommendations.slice(0, 30).map((place) => {
+                    {(heroChipCuisine
+                      ? recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine)
+                      : recommendations
+                    ).slice(0, 30).map((place) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
                       const photoUrl = (place as any).photoUrl as string | undefined;
                       const rating = (place as any).rating as number | undefined;
-                      const price = priceLevelToString((place as any).priceLevel || 0);
+                      // Google price first; if it's unknown, fall back to
+                      // the mode of community-supplied prices for this
+                      // place id, then blank.
+                      const price = priceLevelToString((place as any).priceLevel ?? -1)
+                        || communityPrices[place.id]
+                        || '';
                       const fullAddress = (place as any).address as string || '';
-                      // First chunk of the address is usually street + number
-                      // (e.g. "120 Wythe Ave") — most useful neighborhood-level
-                      // signal in a short card.
                       const street = fullAddress.split(',')[0]?.trim() || '';
                       const recMeta = {
                         id: place.id,
@@ -4487,90 +4896,214 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         price,
                         address: fullAddress,
                       };
+                      // Convert Google /5 to a /10 score so the circle matches
+                      // the rest of the app (which scores out of 10).
+                      const score10 = rating && rating > 0 ? rating * 2 : null;
+                      const scoreStr = score10 != null ? score10.toFixed(1) : '';
+                      const scoreCls = score10 == null
+                        ? 'border-on-surface/15 bg-on-surface/[0.04] text-on-surface/45'
+                        : score10 >= 8
+                          ? 'border-emerald-700 bg-emerald-700/[0.08] text-emerald-700'
+                          : score10 >= 6
+                            ? 'border-amber-600 bg-amber-600/[0.10] text-amber-700'
+                            : 'border-on-surface/15 bg-on-surface/[0.04] text-on-surface/65';
                       return (
                         <button
                           key={place.id}
                           type="button"
                           onClick={() => navigate(`/restaurant/${place.id}`)}
-                          className="flex-shrink-0 w-[178px] snap-start text-left group"
+                          className={cn(
+                            'flex-shrink-0 snap-start text-left group',
+                            usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
+                          )}
                         >
-                          <div className="relative h-[172px] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-3.5 flex flex-col overflow-hidden">
-                            {/* Subtle photo backdrop only when one exists — fades into the card */}
-                            {photoUrl && (
-                              <div className="absolute inset-0 pointer-events-none">
-                                <img
-                                  src={photoUrl}
-                                  alt=""
-                                  className="absolute inset-0 w-full h-full object-cover opacity-25 group-hover:opacity-30 transition-opacity"
-                                  referrerPolicy="no-referrer"
-                                />
-                                <div className="absolute inset-0 bg-gradient-to-b from-white/40 via-white/85 to-white" />
-                              </div>
-                            )}
-
-                            <div className="relative flex flex-col h-full">
-                              {/* Top: cuisine eyebrow + action buttons */}
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="text-[9.5px] font-bold uppercase tracking-[0.16em] text-primary/65 truncate flex-1 leading-tight pt-1">
+                          {usingDesktopHeader ? (
+                            /* ── Desktop card: gradient/photo cover at top,
+                                  cuisine pill + heart/plus chips overlaid;
+                                  bottom strip holds name + pin/address + a
+                                  $$ · distance footer, with a prominent
+                                  outlined score circle anchored on the right. */
+                            (() => {
+                              const distanceLabel = distanceFromAnchor(
+                                (place as any).lat,
+                                (place as any).lng,
+                              );
+                              return (
+                                <article className="relative bg-paper border border-on-surface/[0.08] rounded-[20px] overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_8px_24px_-10px_rgba(31,26,23,0.18),0_1px_2px_rgba(31,26,23,0.05)] group-hover:border-on-surface/15">
+                                  {/* Cover */}
+                                  <div className="relative aspect-[16/11] overflow-hidden">
+                                    {photoUrl ? (
+                                      <img
+                                        src={photoUrl}
+                                        alt=""
+                                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    ) : (
+                                      <div
+                                        className="absolute inset-0"
+                                        style={{ background: placeholderGradient(place.id || place.name) }}
+                                      />
+                                    )}
+                                    {/* Depth — radial highlight + soft shadow */}
+                                    <div
+                                      className="absolute inset-0 pointer-events-none"
+                                      style={{
+                                        backgroundImage:
+                                          'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                                      }}
+                                    />
+                                    <span className="absolute top-3 left-3 inline-flex items-center px-3 py-1.5 rounded-full bg-paper text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface max-w-[170px] truncate">
+                                      {cuisine || 'Restaurant'}
+                                    </span>
+                                    <div className="absolute top-3 right-3 flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
+                                        className={cn(
+                                          'w-10 h-10 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]',
+                                          wishlisted && 'text-primary',
+                                        )}
+                                        aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
+                                      >
+                                        <Heart size={16} className={wishlisted ? 'fill-current' : ''} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
+                                        className="w-10 h-10 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]"
+                                        aria-label="Add to list"
+                                      >
+                                        <Plus size={16} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  {/* Bottom strip: name + address + meta on the left,
+                                      bold score disc on the right. */}
+                                  <div className="px-4 py-4 flex items-center gap-3">
+                                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                                      <h3 className="font-serif font-semibold text-on-surface text-[22px] leading-[1.1] tracking-[-0.018em] line-clamp-1">
+                                        {place.name}
+                                      </h3>
+                                      {street && (
+                                        <div className="flex items-center gap-1.5 text-[12.5px] text-on-surface/55">
+                                          <MapPin size={12} className="text-on-surface/35 flex-shrink-0" />
+                                          <span className="truncate">{street}</span>
+                                        </div>
+                                      )}
+                                      <div className="flex items-center gap-2 text-[13px] text-on-surface/70 font-medium">
+                                        {price && <span>{price}</span>}
+                                        {price && distanceLabel && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />}
+                                        {distanceLabel && <span className="tabular-nums">{distanceLabel}</span>}
+                                      </div>
+                                    </div>
+                                    {scoreStr && (
+                                      <div
+                                        className={cn(
+                                          'flex-shrink-0 w-[60px] h-[60px] rounded-full border-2 grid place-items-center font-serif font-bold text-[18px] leading-none tabular-nums',
+                                          scoreCls,
+                                        )}
+                                        title={`Score ${scoreStr} / 10`}
+                                      >
+                                        {scoreStr}
+                                      </div>
+                                    )}
+                                  </div>
+                                </article>
+                              );
+                            })()
+                          ) : (
+                            /* ── Mobile card: NO image, accent bar on top.
+                                  Cuisine eyebrow + score inline, then name,
+                                  address, $$/distance footer. */
+                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden p-3.5 pb-3 min-h-[170px] flex flex-col transition-colors group-hover:border-on-surface/20">
+                              <span
+                                className="absolute inset-x-0 top-0 h-[3px]"
+                                style={{ background: `hsl(${hashToHue(place.id || place.name)} 50% 52%)` }}
+                              />
+                              <div className="flex items-start justify-between gap-2 -mt-0.5">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.12em] truncate flex-1 pt-1"
+                                   style={{ color: `hsl(${hashToHue(place.id || place.name)} 50% 38%)` }}
+                                >
                                   {cuisine || 'Restaurant'}
-                                </span>
-                                <div className="flex items-center gap-0.5 -mt-1.5 -mr-1.5 flex-shrink-0">
+                                </p>
+                                {scoreStr && (
+                                  <div
+                                    className={cn(
+                                      'flex-shrink-0 w-[42px] h-[42px] rounded-full border-2 grid place-items-center font-serif font-bold text-[13px] tabular-nums leading-none',
+                                      scoreCls,
+                                    )}
+                                    title={`Score ${scoreStr} / 10`}
+                                  >
+                                    {scoreStr}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-0.5 -mt-0.5 -mr-1">
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
                                     className={cn(
                                       'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
-                                      wishlisted ? 'text-primary' : 'text-on-surface/45 hover:text-primary hover:bg-on-surface/[0.05]',
+                                      wishlisted ? 'text-primary' : 'text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.05]',
                                     )}
-                                    aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
                                   >
-                                    <Heart size={14} className={wishlisted ? 'fill-primary' : ''} />
+                                    <Heart size={13} className={wishlisted ? 'fill-current' : ''} />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
                                     className="w-7 h-7 rounded-full flex items-center justify-center text-primary hover:bg-primary/10 transition-colors"
-                                    aria-label="Add to list"
                                   >
-                                    <Plus size={14} />
+                                    <Plus size={13} />
                                   </button>
                                 </div>
                               </div>
-
-                              {/* Body: name + location + rating row pinned to the bottom */}
-                              <div className="flex-1 flex flex-col justify-end mt-2">
-                                <h3 className="font-serif text-[15px] font-bold text-on-surface leading-[1.18] line-clamp-2">
+                              <div className="mt-2 flex-1 min-h-0">
+                                <h3 className="font-serif font-semibold text-on-surface text-[16px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
                                   {place.name}
                                 </h3>
                                 {street && (
-                                  <p className="mt-1 text-[11px] text-on-surface/45 font-medium truncate">
-                                    {street}
-                                  </p>
-                                )}
-                                {((rating && rating > 0) || price) && (
-                                  <div className="flex items-center gap-1.5 text-[11.5px] mt-1.5">
-                                    {rating && rating > 0 && (
-                                      <span className="inline-flex items-center gap-0.5 font-bold text-amber-600">
-                                        <Star size={11} className="fill-amber-500 text-amber-500" />
-                                        {rating.toFixed(1)}
-                                      </span>
-                                    )}
-                                    {rating && rating > 0 && price && <span className="text-on-surface/25">·</span>}
-                                    {price && <span className="text-on-surface/60 font-semibold">{price}</span>}
+                                  <div className="mt-1 flex items-center gap-1 text-[11.5px] text-on-surface/55 truncate">
+                                    <MapPin size={10} className="text-on-surface/35 flex-shrink-0" />
+                                    <span className="truncate">{street}</span>
                                   </div>
                                 )}
                               </div>
-                            </div>
-                          </div>
+                              <div className="mt-2 pt-2.5 border-t border-on-surface/[0.06] flex items-center gap-2 text-[12px] text-on-surface/65 font-medium">
+                                {price && <span>{price}</span>}
+                              </div>
+                            </article>
+                          )}
                         </button>
                       );
                     })}
+                    {/* When the chip filter narrows the rail to zero
+                        matches AND we've already pulled everything we
+                        can from the engine, show a quiet placeholder
+                        so the rail isn't blank. */}
+                    {heroChipCuisine &&
+                      recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine).length === 0 &&
+                      !recsLoadingMore && (
+                        <div className={cn(
+                          'flex-shrink-0 snap-start',
+                          usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
+                        )}>
+                          <div className="aspect-[16/11] rounded-[20px] border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex items-center justify-center px-4 text-center">
+                            <p className="text-[12px] text-on-surface/55">
+                              No {heroChipCuisine} spots found near you yet.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     {recsLoadingMore && (
-                      <div className="flex-shrink-0 w-[178px] flex items-center justify-center">
+                      <div className={cn(
+                        'flex-shrink-0 flex items-center justify-center',
+                        usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
+                      )}>
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
                     )}
-                    {/* View-all end-card — takes the user to the full
+                    {/* View-all end card — takes the user to the full
                         location page so they can browse beyond the
                         first 30 recommendations. */}
                     {homeLocation && (
@@ -4581,14 +5114,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
                           )
                         }
-                        className="flex-shrink-0 w-[178px] snap-start text-left group"
+                        className={cn(
+                          'flex-shrink-0 snap-start text-left group',
+                          usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
+                        )}
                       >
-                        <div className="relative h-[172px] rounded-2xl border border-dashed border-primary/30 bg-primary/[0.03] group-hover:bg-primary/[0.07] group-hover:border-primary/45 transition-colors p-4 flex flex-col items-center justify-center text-center">
+                        <div className="relative h-full min-h-[280px] rounded-[20px] bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
                           <div className="w-10 h-10 rounded-full bg-primary/12 group-hover:bg-primary/20 transition-colors flex items-center justify-center mb-2">
                             <ChevronRight size={18} className="text-primary" strokeWidth={2.2} />
                           </div>
-                          <p className="font-serif text-[14px] font-bold text-primary leading-tight">View all</p>
-                          <p className="text-[10.5px] text-on-surface/55 mt-1 line-clamp-2 leading-tight max-w-full">
+                          <p className="font-serif text-[14px] font-bold text-primary leading-tight">
+                            View all
+                          </p>
+                          <p className="text-[10.5px] text-on-surface/55 mt-1 line-clamp-2 leading-tight">
                             in {homeLocation.label.split(',')[0]}
                           </p>
                         </div>
@@ -4606,8 +5144,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
-                        'font-serif font-bold text-on-surface leading-[1.05]',
-                        usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                        'font-serif font-bold text-on-surface leading-[1.05] tracking-[-0.02em]',
+                        usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                       )}>
                         Recommended
                       </h2>
@@ -4620,93 +5158,195 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 </section>
               ) : null}
 
-              {/* Guides — curated lists published by experts and members */}
-              <section className={cn(usingDesktopHeader ? 'mt-6' : 'mt-4')}>
+              {/* Guides — curated lists from friends and tastemakers.
+                  Matches the editorial card vocabulary: square gradient
+                  cover cards (or real cover photos when present) +
+                  serif title + author chip. */}
+              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-5')}>
                 <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
-                      'font-serif font-bold text-on-surface leading-[1.05]',
-                      usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em]',
+                      usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                     )}>
                       Guides
                     </h2>
+                    {usingDesktopHeader && (
+                      <p className="mt-1 text-[13px] text-on-surface/55">
+                        Curated lists from friends and tastemakers
+                      </p>
+                    )}
                   </div>
-                </div>
-                <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
-                  {feedGuides.map((g) => {
-                    const author = feedGuideAuthors[g.userId];
-                    return (
-                      <GuideCard
-                        key={g.id}
-                        guide={{
-                          id: g.id,
-                          title: g.title,
-                          authorName: author?.display_name || author?.username,
-                          coverPhoto: g.coverPhoto,
-                          entryCount: g.entries.length,
-                          type: g.type,
-                          avgScore: g.avgScore,
-                        }}
-                      />
-                    );
-                  })}
                   <button
                     type="button"
                     onClick={() => openGuideCreator()}
-                    className="flex-shrink-0 snap-start group text-left"
+                    className="flex-shrink-0 inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
                   >
-                    <div className="relative w-[148px] aspect-[4/5] rounded-2xl overflow-hidden border-2 border-dashed border-on-surface/15 bg-on-surface/[0.02] flex flex-col items-center justify-center text-on-surface/55 hover:border-primary/40 hover:bg-primary/[0.04] transition-colors">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-2">
+                    Browse all
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                  {/* Create-a-guide tile — soft accent surface so it doesn't
+                      compete with real guides, but is still inviting. */}
+                  <button
+                    type="button"
+                    onClick={() => openGuideCreator()}
+                    className={cn(
+                      'flex-shrink-0 snap-start text-left group',
+                      usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
+                    )}
+                  >
+                    <div className="aspect-square rounded-2xl border-[1.5px] border-dashed border-primary/30 bg-primary/[0.05] p-4 flex flex-col justify-between transition-colors group-hover:border-primary group-hover:bg-primary/[0.08]">
+                      <div className="w-10 h-10 rounded-2xl bg-white shadow-sm grid place-items-center text-primary">
                         <Plus size={18} />
                       </div>
-                      <p className="font-serif font-bold text-[13px] text-on-surface">Create a guide</p>
-                      <p className="text-[10px] text-on-surface/45 mt-0.5">Restaurants or recipes</p>
+                      <div>
+                        <h3 className="font-serif font-semibold text-[17px] text-on-surface tracking-[-0.015em] leading-tight">
+                          Create a guide
+                        </h3>
+                        <p className="mt-1 text-[12px] text-on-surface/65 leading-[1.4]">
+                          Bundle restaurants or recipes into a shareable list.
+                        </p>
+                      </div>
                     </div>
                   </button>
-                  {feedGuides.length === 0 && (
-                    <div className="flex-shrink-0 w-[148px] aspect-[4/5] rounded-2xl bg-on-surface/[0.03] border border-on-surface/[0.06] flex items-center justify-center px-3 text-center">
-                      <p className="text-[11px] text-on-surface/45">No published guides yet — be the first.</p>
-                    </div>
-                  )}
+                  {feedGuides.map((g) => {
+                    const author = feedGuideAuthors[g.userId];
+                    const authorName = author?.display_name || author?.username || 'someone';
+                    const authorInitial = authorName.charAt(0).toUpperCase();
+                    const authorHue = hashToHue(g.userId || authorName);
+                    return (
+                      <Link
+                        key={g.id}
+                        to={`/guides/${g.id}`}
+                        className={cn(
+                          'flex-shrink-0 snap-start group',
+                          usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
+                        )}
+                      >
+                        <article className="bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden flex flex-col transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15">
+                          <div className="relative aspect-[1/0.85] overflow-hidden">
+                            {g.coverPhoto ? (
+                              <img
+                                src={g.coverPhoto}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div
+                                className="absolute inset-0"
+                                style={{ background: placeholderGradient(g.id || g.title) }}
+                              />
+                            )}
+                            <div
+                              className="absolute inset-0 pointer-events-none"
+                              style={{
+                                backgroundImage:
+                                  'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                              }}
+                            />
+                            <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[10px] font-bold uppercase tracking-[0.08em] text-on-surface">
+                              <BookOpen size={11} className="text-primary" />
+                              Guide · {g.entries.length} {g.type === 'recipes' ? 'recipes' : 'spots'}
+                            </span>
+                          </div>
+                          <div className="px-3.5 pt-3 pb-3.5">
+                            <h3 className="font-serif font-semibold text-on-surface text-[15px] tracking-[-0.01em] leading-[1.25] line-clamp-2">
+                              {g.title}
+                            </h3>
+                            <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-on-surface/55">
+                              <span
+                                className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold"
+                                style={{ background: `hsl(${authorHue} 50% 45%)` }}
+                              >
+                                {authorInitial}
+                              </span>
+                              <span>by {authorName}</span>
+                            </div>
+                          </div>
+                        </article>
+                      </Link>
+                    );
+                  })}
                 </div>
               </section>
 
               {/* Recipes For You — friend / expert / public recipes ranked by
-                   source + cuisine/tag overlap with the user's logged Home
-                   Cooking meals. Always renders the section so the View all
-                   affordance is reachable even before the pools load. */}
-              <section className={cn(usingDesktopHeader ? 'mt-6' : 'mt-4')}>
+                  source + cuisine/tag overlap with the user's logged Home
+                  Cooking meals. Same card vocabulary as Recommended/Guides
+                  for visual continuity. */}
+              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
                 <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
-                      'font-serif font-bold text-on-surface leading-[1.05]',
-                      usingDesktopHeader ? 'text-[30px]' : 'text-[22px]',
+                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2.5',
+                      usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                     )}>
                       Recipes for you
+                      {usingDesktopHeader && recommendedRecipes.length > 0 && (
+                        <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
+                          {recommendedRecipes.length}
+                        </span>
+                      )}
                     </h2>
+                    {usingDesktopHeader && (
+                      <p className="mt-1 text-[13px] text-on-surface/55">
+                        From friends and chefs you follow
+                      </p>
+                    )}
                   </div>
-                  <Link
-                    to="/recipes-for-you"
-                    className="flex-shrink-0 text-[11px] font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors pb-1.5"
-                  >
-                    View all
-                  </Link>
-                </div>
-                {recommendedRecipes.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.02] p-5 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-on-surface/65">No recipes from your circle yet</p>
-                      <p className="text-[12px] text-on-surface/40 mt-0.5">Browse the community for ideas to cook next.</p>
-                    </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {usingDesktopHeader && recommendedRecipes.length > 0 && (
+                      <div className="hidden md:flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => scrollRail(recipeRailRef, -1)}
+                          className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
+                          aria-label="Scroll left"
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => scrollRail(recipeRailRef, 1)}
+                          className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
+                          aria-label="Scroll right"
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    )}
                     <Link
                       to="/recipes-for-you"
-                      className="flex-shrink-0 px-3.5 py-2 rounded-full bg-emerald-600 text-white text-[12px] font-semibold hover:bg-emerald-700 transition-colors"
+                      className="inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
                     >
-                      Explore
+                      View all
+                      <ChevronRight size={14} />
                     </Link>
                   </div>
+                </div>
+                {recommendedRecipes.length === 0 ? (
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    <div className="min-w-0">
+                      <p className="font-serif italic text-[15px] text-on-surface/65">
+                        No recipes from your circle yet.
+                      </p>
+                      <Link
+                        to="/recipes-for-you"
+                        className="mt-1 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:opacity-70 transition-opacity"
+                      >
+                        Explore the community
+                        <ChevronRight size={12} strokeWidth={2.5} />
+                      </Link>
+                    </div>
+                  </div>
                 ) : (
-                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                  <div
+                    ref={recipeRailRef}
+                    className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
+                  >
                     {recommendedRecipes.map((r) => {
                       const cover = r.photos?.[0];
                       const authorProfile =
@@ -4716,111 +5356,115 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             ? (expertProfiles[r.userId] || recipeAuthorProfiles[r.userId])
                             : undefined;
                       const authorName = authorProfile?.display_name
-                        || (authorProfile?.username ? `@${authorProfile.username}` : '');
-                      const sourceLabel =
-                        r._source === 'public' ? 'Community'
-                        : authorName
-                          ? (r._source === 'expert' ? `By ${authorName}` : `From ${authorName}`)
-                          : (r._source === 'expert' ? 'Chef' : 'Friend');
-                      const sourceCls =
-                        r._source === 'friend' ? 'bg-blue-500/95 text-white'
-                        : r._source === 'expert' ? 'bg-amber-500/95 text-white'
-                        : 'bg-white/90 text-on-surface/70';
-                      // Stats row: time + ingredient count + step count
+                        || (authorProfile?.username ? authorProfile.username : '')
+                        || (r._source === 'expert' ? 'Chef' : r._source === 'public' ? 'Community' : 'Friend');
+                      const authorInitial = authorName.replace('@', '').trim().charAt(0).toUpperCase() || 'F';
                       const totalMin = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
                       const timeLabel = totalMin > 0
                         ? totalMin >= 60
                           ? `${Math.floor(totalMin / 60)}h${totalMin % 60 ? ` ${totalMin % 60}m` : ''}`
                           : `${totalMin}m`
                         : '';
-                      const ingCount = r.ingredients?.length || 0;
-                      const stepCount = r.steps?.length || 0;
+                      const authorHue = hashToHue(r.userId || authorName);
                       return (
                         <Link
                           key={r.id}
                           to={`/recipe/${r.id}`}
-                          className="flex-shrink-0 w-[178px] snap-start group"
+                          className={cn(
+                            'flex-shrink-0 snap-start group',
+                            usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
+                          )}
                         >
-                          {cover ? (
-                            /* Photo card — text overlaid on bottom gradient */
-                            <div className="relative w-[178px] h-[172px] rounded-2xl overflow-hidden bg-on-surface/[0.05] border border-on-surface/[0.06] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.18)] transition-all">
-                              <img
-                                src={cover}
-                                alt=""
-                                className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
-                                referrerPolicy="no-referrer"
-                              />
-                              <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
-                              <span className={cn('absolute top-2.5 left-2.5 inline-flex items-center gap-1 rounded-full backdrop-blur px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] max-w-[148px] truncate', sourceCls)}>
-                                {sourceLabel}
-                              </span>
-                              <div className="absolute inset-x-0 bottom-0 p-3 space-y-1.5">
-                                <p className="text-white text-[13px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{r.title}</p>
-                                {r.cuisine && (
-                                  <p className="text-white/80 text-[10px] font-medium truncate">{r.cuisine}</p>
+                          {usingDesktopHeader ? (
+                            /* ── Desktop: gradient/photo image area on top
+                                  with an author pill; meta below. Top accent
+                                  bar identifies recipes vs restaurants. */
+                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15">
+                              <div className="relative aspect-[4/3] overflow-hidden">
+                                {cover ? (
+                                  <img
+                                    src={cover}
+                                    alt=""
+                                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div
+                                    className="absolute inset-0"
+                                    style={{ background: placeholderGradient(r.id || r.title, 50, 56) }}
+                                  />
                                 )}
-                                {(timeLabel || ingCount > 0 || stepCount > 0) && (
-                                  <div className="flex items-center gap-2 text-white/85 text-[10px] font-semibold pt-0.5">
-                                    {timeLabel && (
-                                      <span className="inline-flex items-center gap-0.5"><Clock size={10} />{timeLabel}</span>
-                                    )}
-                                    {ingCount > 0 && (
-                                      <span className="inline-flex items-center gap-0.5"><UtensilsCrossed size={10} />{ingCount}</span>
-                                    )}
-                                    {stepCount > 0 && (
-                                      <span className="inline-flex items-center gap-0.5"><BookOpen size={10} />{stepCount}</span>
-                                    )}
+                                <div
+                                  className="absolute inset-0 pointer-events-none"
+                                  style={{
+                                    backgroundImage:
+                                      'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                                  }}
+                                />
+                                <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[11px] font-semibold text-on-surface max-w-[140px] truncate">
+                                  <span
+                                    className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold flex-shrink-0"
+                                    style={{ background: `hsl(${authorHue} 50% 45%)` }}
+                                  >
+                                    {authorInitial}
+                                  </span>
+                                  <span className="truncate">{authorName}</span>
+                                </span>
+                                {timeLabel && (
+                                  <div className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-black/45 text-white backdrop-blur text-[11px] font-semibold tabular-nums">
+                                    <Clock size={10} />
+                                    {timeLabel}
                                   </div>
                                 )}
                               </div>
-                            </div>
-                          ) : (
-                            /* Text-rich card — no broken placeholder. Sized to
-                               match the Recommended rail (h-[172px]) so the
-                               two rails read consistently and the card has no
-                               empty middle band. */
-                            <div className="relative w-[178px] h-[172px] rounded-2xl bg-white border border-on-surface/[0.07] group-hover:border-on-surface/[0.16] group-hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-3.5 flex flex-col overflow-hidden">
-                              <div className="absolute inset-x-0 top-0 h-1 bg-emerald-500/80" />
-
-                              {/* Source chip + chef icon */}
-                              <div className="flex items-center justify-between gap-1.5">
-                                <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] truncate min-w-0', sourceCls)}>
-                                  {sourceLabel}
-                                </span>
-                                <ChefHat size={13} className="text-emerald-500/70 flex-shrink-0" />
-                              </div>
-
-                              {/* Title + cuisine — fills the middle band */}
-                              <div className="flex-1 flex flex-col justify-center mt-2 min-h-0">
-                                <p className="font-serif text-[15px] font-bold text-on-surface leading-[1.18] line-clamp-2">
+                              <div className="px-4 pt-3.5 pb-3.5">
+                                <h3 className="font-serif font-semibold text-on-surface text-[17px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
                                   {r.title}
-                                </p>
+                                </h3>
                                 {r.cuisine && (
-                                  <p className="text-[11px] text-on-surface/55 font-medium mt-1 truncate">
+                                  <p className="mt-1 text-[12px] text-on-surface/55 font-medium truncate">
                                     {r.cuisine}
                                   </p>
                                 )}
                               </div>
-
-                              {/* Stats footer pinned to the bottom */}
-                              {(timeLabel || ingCount > 0 || stepCount > 0) && (
-                                <div className="pt-2 border-t border-on-surface/[0.06] flex items-center justify-between text-[10.5px] text-on-surface/65 font-semibold tabular-nums">
-                                  {timeLabel ? (
-                                    <span className="inline-flex items-center gap-1"><Clock size={11} />{timeLabel}</span>
-                                  ) : <span />}
-                                  {ingCount > 0 ? (
-                                    <span className="inline-flex items-center gap-1" title={`${ingCount} ingredient${ingCount === 1 ? '' : 's'}`}>
-                                      <UtensilsCrossed size={11} />{ingCount}
-                                    </span>
-                                  ) : <span />}
-                                  {stepCount > 0 ? (
-                                    <span className="inline-flex items-center gap-1" title={`${stepCount} step${stepCount === 1 ? '' : 's'}`}>
-                                      <BookOpen size={11} />{stepCount}
-                                    </span>
-                                  ) : <span />}
-                                </div>
-                              )}
-                            </div>
+                            </article>
+                          ) : (
+                            /* ── Mobile: NO image, top accent bar, author
+                                  chip + title + cuisine + time meta. */
+                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden p-3.5 min-h-[160px] flex flex-col transition-colors group-hover:border-on-surface/20">
+                              <span
+                                className="absolute inset-x-0 top-0 h-[3px] bg-emerald-700"
+                              />
+                              <div className="flex items-start justify-between gap-2 -mt-0.5">
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-700/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-emerald-700">
+                                  <span
+                                    className="w-[16px] h-[16px] rounded-full grid place-items-center text-white text-[9px] font-bold"
+                                    style={{ background: `hsl(${authorHue} 50% 45%)` }}
+                                  >
+                                    {authorInitial}
+                                  </span>
+                                  <span className="truncate max-w-[80px]">{authorName}</span>
+                                </span>
+                              </div>
+                              <div className="mt-2.5 flex-1 min-h-0">
+                                <h3 className="font-serif font-semibold text-on-surface text-[16px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
+                                  {r.title}
+                                </h3>
+                                {r.cuisine && (
+                                  <p className="mt-1 text-[11.5px] text-on-surface/55 font-medium truncate">
+                                    {r.cuisine}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="mt-2 pt-2.5 border-t border-on-surface/[0.06] flex items-center gap-3 text-[12px] text-on-surface/65 font-medium">
+                                {timeLabel && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <Clock size={11} />
+                                    {timeLabel}
+                                  </span>
+                                )}
+                              </div>
+                            </article>
                           )}
                         </Link>
                       );
@@ -4829,11 +5473,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 )}
               </section>
 
-              {/* Social Feed */}
-              <div className="mt-5">
+              {/* Social Feed — Friend Activity + Suggested for You + Featured Guides */}
+              <div className={cn(usingDesktopHeader ? 'mt-7' : 'mt-5')}>
                 <SocialFeed
                   centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
                   centerLng={mode === 'home' ? homeLocation?.lng ?? null : null}
+                  suggestedRestaurants={mode === 'home' ? recommendations.slice(0, 6).map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    cuisine: getCuisineLabel((p as any).types || []),
+                    rating: (p as any).rating ?? null,
+                    address: (p as any).address || '',
+                    price: priceLevelToString((p as any).priceLevel ?? -1) || communityPrices[p.id] || '',
+                    photoUrl: (p as any).photoUrl,
+                  })) : []}
                 />
               </div>
               </div>

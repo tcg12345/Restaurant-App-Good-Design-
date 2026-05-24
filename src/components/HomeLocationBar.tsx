@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Search, MapPin, X, Navigation, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../pages/useRestaurantDetail';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { cn } from '../lib/utils';
 
 export type HomeLocation = { label: string; lat: number; lng: number };
 
@@ -223,11 +225,32 @@ interface Props {
   // Returns a Promise so the picker can show a spinner and surface an error
   // if the browser denies or can't resolve a fix.
   onUseCurrent: () => Promise<void>;
+  // Visual treatment of the trigger button. 'block' keeps the original
+  // stacked "DINING IN / Serif label / chevron" used on phone home; 'chip'
+  // renders a compact inline pill the new Discover hero composes alongside
+  // a "View all" link. 'headless' renders no trigger at all — used when a
+  // parent (like the redesigned LocationPage hero) supplies its own button
+  // and drives the sheet via the controlled `open` / `onOpenChange` props.
+  variant?: 'block' | 'chip' | 'headless';
+  // Optional controlled open state. When supplied, the parent owns the
+  // sheet's open/closed state; the internal `open` useState falls back to
+  // these. Used by LocationPage's "Change" pill to open the picker without
+  // rendering the default trigger button.
+  open?: boolean;
+  onOpenChange?: (next: boolean) => void;
 }
 
-export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent }) => {
-  const { setHideBottomNav } = useSettings();
-  const [open, setOpen] = useState(false);
+export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent, variant = 'block', open: openProp, onOpenChange }) => {
+  const { setHideBottomNav, phoneMode } = useSettings();
+  const [openInternal, setOpenInternal] = useState(false);
+  const open = openProp !== undefined ? openProp : openInternal;
+  const setOpen = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
+    setOpenInternal((prev) => {
+      const value = typeof next === 'function' ? (next as (p: boolean) => boolean)(prev) : next;
+      if (onOpenChange) onOpenChange(value);
+      return value;
+    });
+  }, [onOpenChange]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<HomeLocation[]>([]);
   const [searching, setSearching] = useState(false);
@@ -347,28 +370,49 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex items-start gap-1.5 group text-left max-w-full min-w-0"
-        aria-label="Change location"
-      >
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 leading-none">
-            Dining in
-          </p>
-          {/* Long addresses (e.g. "21 High Point Road, Staples, CT") used to
-              truncate off the edge on narrow phones. We now let them wrap
-              across 2–3 lines; `break-words` handles the rare extra-long
-              single token, and the parent's max-width cap on phone mode
-              (see Map.tsx) is what actually triggers the wrap point. */}
-          <p className="mt-1 font-serif font-bold text-lg sm:text-xl leading-tight text-on-surface group-hover:text-primary transition-colors break-words">
+      {variant === 'headless' ? null : variant === 'chip' ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/[0.09] border border-on-surface/[0.06] text-left group transition-colors max-w-full min-w-0"
+          aria-label="Change location"
+        >
+          <MapPin size={14} className="text-on-surface/55 flex-shrink-0" />
+          <span className="font-serif font-bold text-[15px] leading-none text-on-surface truncate">
             {shortLabel}
-          </p>
-        </div>
-        <ChevronDown size={16} className="text-on-surface/50 mt-4 flex-shrink-0" />
-      </button>
+          </span>
+          <ChevronDown size={14} className="text-on-surface/45 flex-shrink-0" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-start gap-1.5 group text-left max-w-full min-w-0"
+          aria-label="Change location"
+        >
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 leading-none">
+              Dining in
+            </p>
+            {/* Long addresses (e.g. "21 High Point Road, Staples, CT") used to
+                truncate off the edge on narrow phones. We now let them wrap
+                across 2–3 lines; `break-words` handles the rare extra-long
+                single token, and the parent's max-width cap on phone mode
+                (see Map.tsx) is what actually triggers the wrap point. */}
+            <p className="mt-1 font-serif font-bold text-lg sm:text-xl leading-tight text-on-surface group-hover:text-primary transition-colors break-words">
+              {shortLabel}
+            </p>
+          </div>
+          <ChevronDown size={16} className="text-on-surface/50 mt-4 flex-shrink-0" />
+        </button>
+      )}
 
+      {/* Picker sheet is rendered through a portal so its
+          `position: fixed` is relative to the viewport — when this
+          component is mounted inside the sticky DesktopHeader (which
+          uses backdrop-blur, creating a containing block), the sheet
+          would otherwise get trapped inside the topbar's height. */}
+      {createPortal(
       <AnimatePresence>
         {open && (
           <>
@@ -376,20 +420,46 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50"
+              className={cn(
+                'fixed inset-0 z-50',
+                phoneMode
+                  ? 'bg-black/30 backdrop-blur-sm'
+                  : 'bg-black/45 backdrop-blur-md flex items-start justify-center pt-[9vh] px-5',
+              )}
               onClick={() => setOpen(false)}
             />
             <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              {...dragProps}
-              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+              {...(phoneMode
+                ? {
+                    initial: { y: '100%' },
+                    animate: { y: 0 },
+                    exit: { y: '100%' },
+                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                    ...dragProps,
+                  }
+                : {
+                    initial: { opacity: 0, scale: 0.96, y: -8 },
+                    animate: { opacity: 1, scale: 1, y: 0 },
+                    exit: { opacity: 0, scale: 0.97, y: -4 },
+                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                  })}
+              onClick={(e: React.MouseEvent) => { if (!phoneMode) e.stopPropagation(); }}
+              className={cn(
+                'z-50 bg-surface flex flex-col overflow-hidden',
+                phoneMode
+                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[85vh] shadow-2xl'
+                  // Spotlight-style centered card. Position fixed with
+                  // explicit centering rather than wrapping in a flex
+                  // container so the backdrop above stays clickable to
+                  // dismiss.
+                  : 'fixed left-1/2 -translate-x-1/2 top-[9vh] w-full max-w-2xl max-h-[82vh] rounded-3xl shadow-[0_30px_80px_-16px_rgba(28,24,22,0.42)] ring-1 ring-on-surface/[0.06]',
+              )}
             >
-              <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
+              {phoneMode && (
+                <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
+                  <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+                </div>
+              )}
               <div className="flex items-center justify-between px-5 pt-1 pb-3 border-b border-on-surface/6 flex-shrink-0">
                 <h3 className="text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface/60">
                   Change location
@@ -504,7 +574,9 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
             </motion.div>
           </>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body,
+      )}
     </>
   );
 };
