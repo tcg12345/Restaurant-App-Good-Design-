@@ -1299,6 +1299,10 @@ export const LocationPage: React.FC = () => {
   // `visible[]` so the map mirrors the list's filters live; a "Search
   // this area" button runs a tight-radius fetch at the current map
   // centre and appends the new places into the shared pool.
+  // `mapWrapperRef` is the outer .minimap; `mapContainerRef` is the
+  // inner Mapbox canvas host. The wrapper is what we observe with
+  // IntersectionObserver for the auto-collapse-on-scroll-past behavior.
+  const mapWrapperRef = useRef<HTMLDivElement | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
@@ -1415,6 +1419,26 @@ export const LocationPage: React.FC = () => {
     ro.observe(container);
     return () => ro.disconnect();
   }, [mapReady]);
+
+  // Auto-collapse the expanded map once the user scrolls past it.
+  // Observer is only attached while expanded — when the wrapper stops
+  // intersecting the viewport (fully scrolled past in either direction)
+  // we flip mapExpanded back to false, so when the user scrolls back
+  // up the strip is in its compact state again.
+  useEffect(() => {
+    if (!mapExpanded) return;
+    const node = mapWrapperRef.current;
+    if (!node) return;
+    const io = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) {
+          setMapExpanded(false);
+        }
+      }
+    }, { threshold: 0 });
+    io.observe(node);
+    return () => io.disconnect();
+  }, [mapExpanded]);
 
   // ── Mini-map: sync restaurant markers with `visible` ───────────────
   // Tear-down + rebuild on every change. Diffing would let us skip some
@@ -1648,7 +1672,7 @@ export const LocationPage: React.FC = () => {
 
         {/* ── Mini-map ────────────────────────────────────────────────── */}
         {hasCoords && (
-          <div className={cn('minimap', mapExpanded && 'is-expanded')}>
+          <div ref={mapWrapperRef} className={cn('minimap', mapExpanded && 'is-expanded')}>
             <div ref={mapContainerRef} className="minimap-canvas" />
             <div className="minimap-info">
               <span className="pulse" />

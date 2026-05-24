@@ -239,6 +239,9 @@
 .location-page-root .minimap {
   position: relative;
   border-radius: var(--radius-lg);
+  /* Clip the always-expanded canvas inside so the collapsed strip
+     shows only the centre slice — Mapbox keeps the full 590px-tall
+     canvas mounted and tile-loaded, the outer just unveils it. */
   overflow: hidden;
   height: 240px;
   margin-bottom: 24px;
@@ -250,12 +253,27 @@
 .location-page-root .minimap:hover { box-shadow: var(--shadow-md); }
 .location-page-root .minimap-canvas {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  /* Always render at the expanded height. When the outer is collapsed
+     to 240px the canvas overflows above + below and is clipped by the
+     outer's overflow:hidden; the centre-slice is what's visible. This
+     means Mapbox already has every tile loaded for the larger view,
+     so expanding is purely a CSS reveal — no new tile fetches, no
+     'loading' flash mid-transition. */
+  height: 590px;
+  /* (240 - 590) / 2 = -175. Slides the 590px canvas up so its centre
+     aligns with the centre of the collapsed strip. */
+  top: -175px;
   /* The Mapbox canvas paints below the overlay controls (info pill,
      expand button, Search this area, Open map). We pin a z-index of 1
      here so the controls' higher z-indexes win cleanly even though all
      children are positioned. */
   z-index: 1;
+  transition: top .5s cubic-bezier(.22,1,.36,1);
+}
+.location-page-root .minimap.is-expanded .minimap-canvas {
+  top: 0;
 }
 .location-page-root .minimap-canvas .mapboxgl-canvas { outline: none; }
 .location-page-root .minimap-canvas .mapboxgl-ctrl-bottom-left,
