@@ -1791,71 +1791,16 @@ export const LocationPage: React.FC = () => {
           ) : (
             <>
               <div className="r-list">
-                {visible.map((place, idx) => {
-                  const rank = idx + 1;
-                  const score = place.rating > 0 ? place.rating * 2 : 0;
-                  const cuisine = inferCuisineLabel(place.types);
-                  const priceLabel = priceLevelToString(place.priceLevel);
-                  const distMi = hasCoords
-                    ? haversineDistanceMi(lat, lng, place.lat, place.lng)
-                    : null;
-                  // Neighborhood: best-effort substring from address.
-                  const addressParts = (place.address || '').split(',').map((s) => s.trim());
-                  const neighborhoodLabel = addressParts.length > 1 ? addressParts[addressParts.length - 2] : '';
-                  const scoreClass = score >= 8.5 ? '' : score >= 7 ? 'is-mid' : 'is-low';
-                  const tags = place.types
-                    .map((t) => GOOGLE_TYPE_TO_CUISINE[t])
-                    .filter((v): v is string => !!v && v !== 'All' && v !== cuisine)
-                    .slice(0, 2);
-                  return (
-                    <Link
-                      key={place.id}
-                      to={`/restaurant/${place.id}`}
-                      className="r-list-item"
-                    >
-                      <div className="r-list-rank">
-                        #{rank}
-                        {rank <= 3 && <span className="trend">↑</span>}
-                      </div>
-                      <div className="r-list-info">
-                        <div className="r-list-top">
-                          <h3 className="r-list-name">{place.name}</h3>
-                          {/* OPEN status hidden until PlaceResult exposes it. */}
-                        </div>
-                        <div className="r-list-meta">
-                          {cuisine && <span className="cuisine">{cuisine}</span>}
-                          {cuisine && priceLabel && <span className="sep" />}
-                          {priceLabel && <span className="price">{priceLabel}</span>}
-                          {neighborhoodLabel && (priceLabel || cuisine) && <span className="sep" />}
-                          {neighborhoodLabel && (
-                            <span className="pin-row">
-                              <MapPin /> {neighborhoodLabel}
-                            </span>
-                          )}
-                        </div>
-                        {tags.length > 0 && (
-                          <div className="r-list-tags">
-                            {tags.map((t) => (
-                              <span key={t} className="r-list-tag">{t}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {distMi !== null && (
-                        <div className="r-list-distance">
-                          <span className="item">
-                            <MapPin /> <span className="val">{formatDistance(distMi)}</span>
-                          </span>
-                        </div>
-                      )}
-                      {score > 0 ? (
-                        <div className={cn('r-list-score', scoreClass)}>{score.toFixed(1)}</div>
-                      ) : (
-                        <div className="r-list-score is-low">—</div>
-                      )}
-                    </Link>
-                  );
-                })}
+                {visible.map((place, idx) => (
+                  <LocationListItem
+                    key={place.id}
+                    place={place}
+                    rank={idx + 1}
+                    origin={origin}
+                    walkMinCap={selectedWalkMin > 0 ? selectedWalkMin : null}
+                    driveMinCap={selectedDriveMin > 0 ? selectedDriveMin : null}
+                  />
+                ))}
               </div>
 
               <div ref={sentinelRef} style={{ height: 1 }} />
@@ -2613,5 +2558,116 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
         </motion.div>
       )}
     </AnimatePresence>
+  );
+};
+
+/* ── List item (redesigned) ─────────────────────────────────────────────
+   Rendered row for the All-restaurants list. Each row owns its own
+   `useTravelTimes` call so drive + walk labels resolve in parallel
+   across the list — same pattern the legacy RestaurantRow used.
+   When walk/drive filter caps are active and the row doesn't fit
+   (or times are still resolving), the row returns null so the list
+   can't optimistically show a row that'll disappear once the times
+   land. */
+interface LocationListItemProps {
+  place: ScoredPlace;
+  rank: number;
+  origin: { lat: number; lng: number } | null;
+  walkMinCap: number | null;
+  driveMinCap: number | null;
+}
+
+const LocationListItem: React.FC<LocationListItemProps> = ({
+  place,
+  rank,
+  origin,
+  walkMinCap,
+  driveMinCap,
+}) => {
+  const { driveMin, walkMin } = useTravelTimes(
+    origin,
+    Number.isFinite(place.lat) && Number.isFinite(place.lng)
+      ? { lat: place.lat, lng: place.lng }
+      : null,
+  );
+  const driveLabel = formatTravelTime(driveMin);
+  const walkLabel = formatTravelTime(walkMin);
+
+  if (walkMinCap != null) {
+    if (walkMin == null) return null;
+    if (walkMin > walkMinCap) return null;
+  }
+  if (driveMinCap != null) {
+    if (driveMin == null) return null;
+    if (driveMin > driveMinCap) return null;
+  }
+
+  const score = place.rating > 0 ? place.rating * 2 : 0;
+  const cuisine = inferCuisineLabel(place.types);
+  const priceLabel = priceLevelToString(place.priceLevel);
+  const distMi = origin
+    ? haversineDistanceMi(origin.lat, origin.lng, place.lat, place.lng)
+    : null;
+  const distLabel = distMi != null ? formatDistance(distMi) : '';
+  const addressParts = (place.address || '').split(',').map((s) => s.trim());
+  const neighborhoodLabel = addressParts.length > 1 ? addressParts[addressParts.length - 2] : '';
+  const scoreClass = score >= 8.5 ? '' : score >= 7 ? 'is-mid' : 'is-low';
+  const tags = place.types
+    .map((t) => GOOGLE_TYPE_TO_CUISINE[t])
+    .filter((v): v is string => !!v && v !== 'All' && v !== cuisine)
+    .slice(0, 2);
+
+  return (
+    <Link to={`/restaurant/${place.id}`} className="r-list-item">
+      <div className="r-list-rank">
+        #{rank}
+        {rank <= 3 && <span className="trend">↑</span>}
+      </div>
+      <div className="r-list-info">
+        <div className="r-list-top">
+          <h3 className="r-list-name">{place.name}</h3>
+        </div>
+        <div className="r-list-meta">
+          {cuisine && <span className="cuisine">{cuisine}</span>}
+          {cuisine && priceLabel && <span className="sep" />}
+          {priceLabel && <span className="price">{priceLabel}</span>}
+          {neighborhoodLabel && (priceLabel || cuisine) && <span className="sep" />}
+          {neighborhoodLabel && (
+            <span className="pin-row">
+              <MapPin /> {neighborhoodLabel}
+            </span>
+          )}
+        </div>
+        {tags.length > 0 && (
+          <div className="r-list-tags">
+            {tags.map((t) => (
+              <span key={t} className="r-list-tag">{t}</span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="r-list-distance">
+        {distLabel && (
+          <span className="item">
+            <MapPin /> <span className="val">{distLabel}</span>
+          </span>
+        )}
+        {driveLabel && (
+          <span className="item drive">
+            <Car /> <span className="val">{driveLabel}</span>
+          </span>
+        )}
+        {walkLabel && (
+          <span className="item walk">
+            <Footprints /> <span className="val">{walkLabel}</span>
+          </span>
+        )}
+      </div>
+      {score > 0 ? (
+        <div className={cn('r-list-score', scoreClass)}>{score.toFixed(1)}</div>
+      ) : (
+        <div className="r-list-score is-low">—</div>
+      )}
+    </Link>
   );
 };

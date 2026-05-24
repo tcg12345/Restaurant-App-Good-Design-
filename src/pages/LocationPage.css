@@ -44,9 +44,9 @@
 
 /* ============ PAGE CONTAINER ============ */
 .location-page-root .lp-page {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 8px 32px 96px;
+  max-width: none;
+  margin: 0;
+  padding: 8px 24px 96px;
 }
 
 /* ============ LOCATION HERO ============ */
@@ -101,8 +101,8 @@
   background: rgba(237, 231, 217, 0.92);
   backdrop-filter: saturate(150%) blur(14px);
   -webkit-backdrop-filter: saturate(150%) blur(14px);
-  margin: 0 -32px 20px;
-  padding: 10px 32px;
+  margin: 0 -24px 20px;
+  padding: 10px 24px;
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 10px;
   flex-wrap: nowrap;
@@ -916,6 +916,7 @@
     grid-template-columns: 32px minmax(0, 1fr) auto;
     gap: 14px;
   }
-  .location-page-root .r-list-distance { display: none; }
+  .location-page-root .r-list-distance .item.drive,
+  .location-page-root .r-list-distance .item.walk { display: none; }
   .location-page-root .r-list-name { font-size: 18px; }
 }
