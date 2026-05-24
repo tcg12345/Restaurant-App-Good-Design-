@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../pages/useRestaurantDetail';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { cn } from '../lib/utils';
 
 export type HomeLocation = { label: string; lat: number; lng: number };
 
@@ -240,7 +241,7 @@ interface Props {
 }
 
 export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent, variant = 'block', open: openProp, onOpenChange }) => {
-  const { setHideBottomNav } = useSettings();
+  const { setHideBottomNav, phoneMode } = useSettings();
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
   const setOpen = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
@@ -419,20 +420,46 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50"
+              className={cn(
+                'fixed inset-0 z-50',
+                phoneMode
+                  ? 'bg-black/30 backdrop-blur-sm'
+                  : 'bg-black/45 backdrop-blur-md flex items-start justify-center pt-[9vh] px-5',
+              )}
               onClick={() => setOpen(false)}
             />
             <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              {...dragProps}
-              className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+              {...(phoneMode
+                ? {
+                    initial: { y: '100%' },
+                    animate: { y: 0 },
+                    exit: { y: '100%' },
+                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                    ...dragProps,
+                  }
+                : {
+                    initial: { opacity: 0, scale: 0.96, y: -8 },
+                    animate: { opacity: 1, scale: 1, y: 0 },
+                    exit: { opacity: 0, scale: 0.97, y: -4 },
+                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
+                  })}
+              onClick={(e: React.MouseEvent) => { if (!phoneMode) e.stopPropagation(); }}
+              className={cn(
+                'z-50 bg-surface flex flex-col overflow-hidden',
+                phoneMode
+                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[85vh] shadow-2xl'
+                  // Spotlight-style centered card. Position fixed with
+                  // explicit centering rather than wrapping in a flex
+                  // container so the backdrop above stays clickable to
+                  // dismiss.
+                  : 'fixed left-1/2 -translate-x-1/2 top-[9vh] w-full max-w-2xl max-h-[82vh] rounded-3xl shadow-[0_30px_80px_-16px_rgba(28,24,22,0.42)] ring-1 ring-on-surface/[0.06]',
+              )}
             >
-              <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
+              {phoneMode && (
+                <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
+                  <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+                </div>
+              )}
               <div className="flex items-center justify-between px-5 pt-1 pb-3 border-b border-on-surface/6 flex-shrink-0">
                 <h3 className="text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface/60">
                   Change location
