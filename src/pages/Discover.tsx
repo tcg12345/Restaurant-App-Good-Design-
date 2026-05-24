@@ -564,10 +564,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [discoverRadius, setDiscoverRadius] = useState(5); // km
 
-  // Hero chip filter — quick cuisine narrow on the Recommended row.
-  // `null` = no narrow.
-  const [heroChipCuisine, setHeroChipCuisine] = useState<string | null>(null);
-
   // Refs for horizontal-scroll arrows on the Discover rails.
   const recRailRef = useRef<HTMLDivElement | null>(null);
   const recipeRailRef = useRef<HTMLDivElement | null>(null);
@@ -4658,49 +4654,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   homeLocationRefreshing ? 'opacity-40' : 'opacity-100',
                 )}
               >
-              {/* Chip row — quick cuisine narrow on the Recommended row.
-                  Desktop-only; phone has its own discovery filters. */}
-              {usingDesktopHeader && (() => {
-                const cuisineOptions = (userPreferences.topCuisines && userPreferences.topCuisines.length > 0
-                  ? userPreferences.topCuisines.slice(0, 5)
-                  : ['Japanese', 'Mediterranean', 'Italian', 'American', 'Korean']);
-                const allActive = heroChipCuisine === null;
-                return (
-                  <div className="mt-4 mb-2 flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
-                    <button
-                      type="button"
-                      onClick={() => setHeroChipCuisine(null)}
-                      className={cn(
-                        'flex-shrink-0 inline-flex items-center gap-1.5 h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
-                        allActive
-                          ? 'bg-on-surface text-surface border-on-surface'
-                          : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
-                      )}
-                    >
-                      All
-                    </button>
-                    {cuisineOptions.map((c) => {
-                      const isActive = heroChipCuisine === c;
-                      return (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() => setHeroChipCuisine(isActive ? null : c)}
-                          className={cn(
-                            'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
-                            isActive
-                              ? 'bg-on-surface text-surface border-on-surface'
-                              : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
-                          )}
-                        >
-                          {c}
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-
               {/* Recommendations */}
               {recsLoading ? (
                 <section className={cn(usingDesktopHeader ? 'mt-3' : 'mt-4')}>
@@ -4719,14 +4672,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     <span className="ml-2 text-xs text-on-surface/40">Finding picks near you…</span>
                   </div>
                 </section>
-              ) : recommendations.length > 0 ? (() => {
-                const filtered = heroChipCuisine
-                  ? recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine)
-                  : recommendations;
-                const visible = filtered.slice(0, 30);
-                const headerCount = filtered.length;
-                return (
-                <section className={cn(usingDesktopHeader ? 'mt-3' : 'mt-4')}>
+              ) : recommendations.length > 0 ? (
+                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
@@ -4734,17 +4681,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                       )}>
                         Recommended for you
-                        {usingDesktopHeader && headerCount > 0 && (
+                        {usingDesktopHeader && recommendations.length > 0 && (
                           <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
-                            {headerCount}
+                            {recommendations.length}
                           </span>
                         )}
                       </h2>
                       {usingDesktopHeader && (
                         <p className="mt-1 text-[13px] text-on-surface/55">
-                          {heroChipCuisine
-                            ? `${heroChipCuisine} spots near you`
-                            : `Based on your saves${homeLocation ? ` and what's hot in ${homeLocation.label.split(',')[0].trim()}` : ''}`}
+                          {`Based on your saves${homeLocation ? ` and what's hot in ${homeLocation.label.split(',')[0].trim()}` : ''}`}
                         </p>
                       )}
                     </div>
@@ -4794,7 +4739,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
                     }}
                   >
-                    {visible.map((place) => {
+                    {recommendations.slice(0, 30).map((place) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
                       const photoUrl = (place as any).photoUrl as string | undefined;
@@ -4983,10 +4928,38 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
                     )}
+                    {/* View-all end card — takes the user to the full
+                        location page so they can browse beyond the
+                        first 30 recommendations. */}
+                    {homeLocation && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
+                          )
+                        }
+                        className={cn(
+                          'flex-shrink-0 snap-start text-left group',
+                          usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
+                        )}
+                      >
+                        <div className="relative h-full min-h-[260px] rounded-2xl bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
+                          <div className="w-10 h-10 rounded-full bg-primary/12 group-hover:bg-primary/20 transition-colors flex items-center justify-center mb-2">
+                            <ChevronRight size={18} className="text-primary" strokeWidth={2.2} />
+                          </div>
+                          <p className="font-serif text-[14px] font-bold text-primary leading-tight">
+                            View all
+                          </p>
+                          <p className="text-[10.5px] text-on-surface/55 mt-1 line-clamp-2 leading-tight">
+                            in {homeLocation.label.split(',')[0]}
+                          </p>
+                        </div>
+                      </button>
+                    )}
                   </div>
                 </section>
-                );
-              })() : mode === 'home' && homeLocation ? (
+              ) : mode === 'home' && homeLocation ? (
                 // Empty state. Most common cause: the user switched to a
                 // city for the first time and the personalised queries
                 // came back narrower than the radius allows. We keep the
