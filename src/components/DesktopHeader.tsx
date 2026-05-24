@@ -12,6 +12,8 @@ import { useCirclePanel } from '../contexts/CirclePanelContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
+import { HomeLocationBar } from './HomeLocationBar';
+import { useHomeLocation } from '../contexts/HomeLocationContext';
 
 /**
  * Sticky page header used across every signed-in main page on desktop
@@ -268,14 +270,27 @@ export const DesktopHeader: React.FC = () => {
   };
 
   const isHomeRoute = location.pathname === '/' || location.pathname === '/index.html';
+  const homeLocationCtx = useHomeLocation();
 
   return (
     <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]">
-      <div className="px-6 py-3.5 flex items-center gap-4">
+      <div className="px-6 py-2.5 flex items-center gap-3">
+        {/* ── Location chip — only when on Discover home and a location
+              context is available. Reuses HomeLocationBar's bottom-sheet
+              picker so cities/recents/use-current all work as before. */}
+        {isHomeRoute && homeLocationCtx && (
+          <HomeLocationBar
+            location={homeLocationCtx.location}
+            onChange={homeLocationCtx.setLocation}
+            onUseCurrent={homeLocationCtx.useCurrent}
+            variant="chip"
+          />
+        )}
+
         {/* ── Search input + dropdown ─────────────────────────────── */}
         <div ref={wrapperRef} className="relative flex-1 max-w-2xl">
-          <Search size={17} className={cn(
-            'absolute left-5 top-1/2 -translate-y-1/2 pointer-events-none',
+          <Search size={16} className={cn(
+            'absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none',
             isScoped ? 'text-primary' : 'text-on-surface/50',
           )} />
           <input
@@ -305,7 +320,7 @@ export const DesktopHeader: React.FC = () => {
               : 'Search by name, cuisine, location...'}
             className={cn(
               'w-full',
-              'rounded-full py-3.5 pl-12 pr-11 text-[15px] font-medium text-on-surface',
+              'rounded-full py-2.5 pl-11 pr-10 text-[14px] font-medium text-on-surface',
               'placeholder:text-on-surface/45',
               'focus:outline-none',
               'transition-all',

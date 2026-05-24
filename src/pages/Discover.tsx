@@ -9,6 +9,7 @@ import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useSettings } from '../contexts/SettingsContext';
+import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useRecipes, type Recipe } from '../contexts/RecipesContext';
@@ -564,6 +565,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [discoverRadius, setDiscoverRadius] = useState(5); // km
 
+  // Hero chip filter — narrows the Recommended rail to a single cuisine.
+  // `null` = "All". When set, an effect below keeps pulling more recs from
+  // the engine until at least RECS_FILTER_MIN match (or the engine is
+  // exhausted), so a niche cuisine doesn't render an empty rail.
+  const [heroChipCuisine, setHeroChipCuisine] = useState<string | null>(null);
+
   // Refs for horizontal-scroll arrows on the Discover rails.
   const recRailRef = useRef<HTMLDivElement | null>(null);
   const recipeRailRef = useRef<HTMLDivElement | null>(null);
@@ -689,9 +696,34 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   // current location on every app open (the user's last selection is only a
   // fallback for when geolocation is denied). The in-session choice persists
   // across navigation because it lives in component state.
-  const [homeLocation, setHomeLocation] = useState<HomeLocation | null>(null);
+  // Home location now lives in HomeLocationContext so the sticky
+  // DesktopHeader chip can mutate it without prop-drilling through every
+  // route. We keep the local `homeLocation` / `setHomeLocation` names so
+  // the rest of this huge component reads unchanged.
+  const homeLocationCtx = useHomeLocation();
+  const homeLocation = homeLocationCtx?.location ?? null;
+  const setHomeLocation = useCallback((loc: HomeLocation | null) => {
+    if (loc && homeLocationCtx) homeLocationCtx.setLocation(loc);
+  }, [homeLocationCtx]);
   // Brief fade overlay applied while the feed refetches after a location swap.
   const [homeLocationRefreshing, setHomeLocationRefreshing] = useState(false);
+  // Watch location changes (from this page OR the sticky DesktopHeader chip)
+  // and flash the refresh fade so the Recommended rail doesn't pop without
+  // any visual cue.
+  const lastLocKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!homeLocation) {
+      lastLocKeyRef.current = null;
+      return;
+    }
+    const key = `${homeLocation.lat.toFixed(4)},${homeLocation.lng.toFixed(4)}`;
+    if (lastLocKeyRef.current && lastLocKeyRef.current !== key) {
+      setHomeLocationRefreshing(true);
+      const t = window.setTimeout(() => setHomeLocationRefreshing(false), 450);
+      return () => window.clearTimeout(t);
+    }
+    lastLocKeyRef.current = key;
+  }, [homeLocation]);
 
   // Recent views from localStorage
   const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
@@ -1397,6 +1429,22 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     }
     setRecsLoadingMore(false);
   }, [recsLoadingMore, buildRecQueries, fetchRecBatch, mode, homeLocation, userId, userPreferences.topCuisines, userPreferences.topPrices, recRadiusMiles]);
+
+  // Try to keep the chip-filtered Recommended rail full enough to show
+  // at least RECS_FILTER_MIN matching restaurants. When the user picks
+  // a cuisine chip and we have fewer than 10 matches, we pull the next
+  // batch from the recommendation engine — and repeat until we either
+  // hit the target or the engine reports it's out of queries.
+  useEffect(() => {
+    if (mode !== 'home' || !heroChipCuisine) return;
+    if (recsLoadingMore || recsExhaustedRef.current) return;
+    const matches = recommendations.filter(
+      (p) => getCuisineLabel((p as any).types || []) === heroChipCuisine,
+    ).length;
+    const RECS_FILTER_MIN = 10;
+    if (matches >= RECS_FILTER_MIN) return;
+    loadMoreRecommendations();
+  }, [heroChipCuisine, recommendations, recsLoadingMore, mode, loadMoreRecommendations]);
 
   // Refs for callbacks needed before their definition
   const fetchNearbyRef = useRef<(() => void) | null>(null);
@@ -4654,6 +4702,49 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   homeLocationRefreshing ? 'opacity-40' : 'opacity-100',
                 )}
               >
+              {/* Cuisine chip filter — narrows the Recommended rail.
+                  Desktop-only; the rail itself reads the same
+                  heroChipCuisine state below. */}
+              {usingDesktopHeader && mode === 'home' && (() => {
+                const cuisineOptions = userPreferences.topCuisines && userPreferences.topCuisines.length >= 3
+                  ? userPreferences.topCuisines.slice(0, 6)
+                  : ['Japanese', 'Mediterranean', 'Italian', 'American', 'Korean', 'Mexican'];
+                return (
+                  <div className="mt-4 mb-1 flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+                    <button
+                      type="button"
+                      onClick={() => setHeroChipCuisine(null)}
+                      className={cn(
+                        'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
+                        heroChipCuisine === null
+                          ? 'bg-on-surface text-surface border-on-surface'
+                          : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
+                      )}
+                    >
+                      All
+                    </button>
+                    {cuisineOptions.map((c) => {
+                      const isActive = heroChipCuisine === c;
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setHeroChipCuisine(isActive ? null : c)}
+                          className={cn(
+                            'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
+                            isActive
+                              ? 'bg-on-surface text-surface border-on-surface'
+                              : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
+                          )}
+                        >
+                          {c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
               {/* Recommendations */}
               {recsLoading ? (
                 <section className={cn(usingDesktopHeader ? 'mt-3' : 'mt-4')}>
@@ -4676,22 +4767,33 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
-                      <h2 className={cn(
-                        'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2.5',
-                        usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
-                      )}>
-                        Recommended for you
-                        {usingDesktopHeader && recommendations.length > 0 && (
-                          <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
-                            {recommendations.length}
-                          </span>
-                        )}
-                      </h2>
-                      {usingDesktopHeader && (
-                        <p className="mt-1 text-[13px] text-on-surface/55">
-                          {`Based on your saves${homeLocation ? ` and what's hot in ${homeLocation.label.split(',')[0].trim()}` : ''}`}
-                        </p>
-                      )}
+                      {(() => {
+                        const filteredCount = heroChipCuisine
+                          ? recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine).length
+                          : recommendations.length;
+                        return (
+                          <>
+                            <h2 className={cn(
+                              'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2.5',
+                              usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
+                            )}>
+                              Recommended for you
+                              {usingDesktopHeader && filteredCount > 0 && (
+                                <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
+                                  {filteredCount}
+                                </span>
+                              )}
+                            </h2>
+                            {usingDesktopHeader && (
+                              <p className="mt-1 text-[13px] text-on-surface/55">
+                                {heroChipCuisine
+                                  ? `${heroChipCuisine} spots${homeLocation ? ` near ${homeLocation.label.split(',')[0].trim()}` : ' near you'}`
+                                  : `Based on your saves${homeLocation ? ` and what's hot in ${homeLocation.label.split(',')[0].trim()}` : ''}`}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {usingDesktopHeader && (
@@ -4739,7 +4841,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
                     }}
                   >
-                    {recommendations.slice(0, 30).map((place) => {
+                    {(heroChipCuisine
+                      ? recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine)
+                      : recommendations
+                    ).slice(0, 30).map((place) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
                       const photoUrl = (place as any).photoUrl as string | undefined;
@@ -4920,6 +5025,24 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         </button>
                       );
                     })}
+                    {/* When the chip filter narrows the rail to zero
+                        matches AND we've already pulled everything we
+                        can from the engine, show a quiet placeholder
+                        so the rail isn't blank. */}
+                    {heroChipCuisine &&
+                      recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine).length === 0 &&
+                      !recsLoadingMore && (
+                        <div className={cn(
+                          'flex-shrink-0 snap-start',
+                          usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
+                        )}>
+                          <div className="aspect-[4/3] rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex items-center justify-center px-4 text-center">
+                            <p className="text-[12px] text-on-surface/55">
+                              No {heroChipCuisine} spots found near you yet.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     {recsLoadingMore && (
                       <div className={cn(
                         'flex-shrink-0 flex items-center justify-center',

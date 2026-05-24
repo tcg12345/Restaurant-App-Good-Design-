@@ -57,6 +57,7 @@ import { PageSearchProvider } from './contexts/PageSearchContext';
 import { PageAddActionProvider } from './contexts/PageAddActionContext';
 import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelContext';
 import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
+import { HomeLocationProvider } from './contexts/HomeLocationContext';
 import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { CirclePanel } from './components/CirclePanel';
 
@@ -342,7 +343,9 @@ export default function App() {
                         <PageAddActionProvider>
                           <CirclePanelProvider>
                             <GuideCreatorProvider>
-                              <AppContent />
+                              <HomeLocationProvider>
+                                <AppContent />
+                              </HomeLocationProvider>
                             </GuideCreatorProvider>
                           </CirclePanelProvider>
                         </PageAddActionProvider>
