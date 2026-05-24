@@ -180,42 +180,56 @@ const SuggestionsRail: React.FC<{
   }, [userId, friendIds]);
 
   return (
-    <aside className="space-y-7">
-      {/* People to follow */}
+    <aside className="space-y-9">
+      {/* People to follow — rendered as editorial cards (matches the
+          Gourmet Canvas mock's rail-suggestion pattern). */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Suggested for you</h4>
-          <Link to="/circle" className="text-[11px] font-semibold text-primary hover:text-primary/80">See all</Link>
+        <div className="flex items-center justify-between mb-3.5">
+          <h4 className="text-[11px] font-bold uppercase tracking-[0.13em] text-on-surface/65">Suggested for you</h4>
+          <Link to="/circle" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">See all</Link>
         </div>
         {suggested.length === 0 ? (
           <p className="text-[12.5px] text-on-surface/40">No suggestions right now.</p>
         ) : (
-          <ul className="space-y-3">
+          <ul className="space-y-2">
             {suggested.map((p) => {
               const color = avatarColor(p.user_id);
               const initial = initialOf(p.display_name || p.username);
               return (
                 <li key={p.user_id}>
-                  <Link to={`/user/${p.username}`} className="flex items-center gap-3 group">
-                    <div className={cn('w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
-                      <span className={cn('text-[13px] font-serif font-bold', color.text)}>{initial}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
-                        {p.display_name || p.username}
-                      </p>
-                      <p className="text-[11px] text-on-surface/45 truncate inline-flex items-center gap-1">
-                        {p.is_expert && (
-                          <span className="inline-flex items-center gap-0.5 text-amber-600 font-semibold">
-                            <Star size={9} className="fill-amber-500 text-amber-500" />
+                  <Link
+                    to={`/user/${p.username}`}
+                    className="block rounded-2xl bg-white border border-on-surface/[0.08] px-3.5 py-3 transition-all hover:-translate-y-px hover:border-on-surface/15 group"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className={cn(
+                        'inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em]',
+                        p.is_expert ? 'text-amber-600' : 'text-primary',
+                      )}>
+                        {p.is_expert ? (
+                          <>
+                            <Star size={10} className="fill-amber-500 text-amber-500" />
                             Expert
-                          </span>
-                        )}
-                        {p.is_expert && p.username && <span className="text-on-surface/20">·</span>}
-                        @{p.username || 'user'}
-                      </p>
+                          </>
+                        ) : 'Friend pick'}
+                      </span>
+                      <span className="text-[11px] font-bold text-primary group-hover:underline underline-offset-2 flex-shrink-0">
+                        Follow
+                      </span>
                     </div>
-                    <span className="text-[11px] font-bold text-primary hover:text-primary/80 flex-shrink-0">Follow</span>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={cn('w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
+                        <span className={cn('text-[12px] font-serif font-bold', color.text)}>{initial}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-serif font-semibold text-[15px] text-on-surface leading-[1.2] truncate group-hover:text-primary transition-colors">
+                          {p.display_name || p.username}
+                        </p>
+                        <p className="text-[11.5px] text-on-surface/55 truncate mt-0.5">
+                          @{p.username || 'user'}
+                        </p>
+                      </div>
+                    </div>
                   </Link>
                 </li>
               );
@@ -224,27 +238,28 @@ const SuggestionsRail: React.FC<{
         )}
       </section>
 
-      {/* Featured guides */}
+      {/* Featured guides — slim list rows with a cover icon and a
+          serif title, exactly like the mock's rail-guide treatment. */}
       <section>
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Featured guides</h4>
-          <Link to="/discover" className="text-[11px] font-semibold text-primary hover:text-primary/80">Browse</Link>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-[11px] font-bold uppercase tracking-[0.13em] text-on-surface/65">Featured guides</h4>
+          <Link to="/discover" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">Browse</Link>
         </div>
-        <ul className="space-y-3">
+        <ul>
           {SUGGESTION_GUIDES.map((g) => (
             <li key={g.id}>
               <button
                 type="button"
-                className="w-full flex items-center gap-3 text-left group"
+                className="w-full flex items-center gap-3 text-left group py-2 px-2 -mx-2 rounded-xl hover:bg-on-surface/[0.04] transition-colors"
               >
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-stone-700 to-stone-900 flex items-center justify-center flex-shrink-0">
-                  <BookOpen size={15} className="text-white/85" />
+                <div className="w-12 h-12 rounded-xl bg-on-surface flex items-center justify-center flex-shrink-0">
+                  <BookOpen size={17} className="text-surface" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-serif font-bold text-on-surface leading-tight line-clamp-1 group-hover:text-primary transition-colors">
+                  <p className="text-[15px] font-serif font-semibold text-on-surface leading-[1.2] line-clamp-1 group-hover:text-primary transition-colors tracking-[-0.01em]">
                     {g.title}
                   </p>
-                  <p className="text-[11px] text-on-surface/45 truncate mt-0.5">
+                  <p className="text-[11.5px] text-on-surface/55 truncate mt-0.5">
                     by {g.author} · {g.spots} spots
                   </p>
                 </div>
@@ -254,7 +269,7 @@ const SuggestionsRail: React.FC<{
         </ul>
       </section>
 
-      <p className="text-[10px] text-on-surface/30 leading-relaxed">
+      <p className="text-[11.5px] text-on-surface/45 leading-[1.5] pt-4 border-t border-on-surface/[0.06]">
         Suggestions update based on the people you follow and the cuisines you cook.
       </p>
     </aside>
@@ -779,9 +794,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   if (loading) {
     return (
-      <section className="mb-8">
+      <section className="mb-2">
         <div className={cn(
-          !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-8 xl:items-start xl:max-w-[1024px] xl:mx-auto',
+          !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
         )}>
           <div className="xl:min-w-0">
             <SectionHeader />
@@ -818,9 +833,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
 
   return (
-    <section className="mb-8">
+    <section className="mb-2">
       <div className={cn(
-        !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:gap-8 xl:items-start xl:max-w-[1024px] xl:mx-auto',
+        !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
       )}>
         <div className="xl:min-w-0">
       <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
@@ -1228,27 +1243,30 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
                   className="block flex-1 min-w-0 text-left group focus-visible:outline-none"
                 >
-                  <h3 className="font-serif font-bold text-[22px] leading-[1.12] line-clamp-2 text-on-surface group-hover:text-primary transition-colors">
+                  {/* Restaurant name uses accent color for rated activity
+                      so it visually reads as "person rated PLACE" — the
+                      place is the protagonist. */}
+                  <h3 className="font-serif font-bold text-[26px] leading-[1.1] tracking-[-0.022em] line-clamp-2 text-primary group-hover:underline group-hover:decoration-1 group-hover:underline-offset-[4px]">
                     {r.restaurant_name}
                   </h3>
                   {(r.cuisine || r.price || r.address) && (
-                    <p className="mt-1.5 text-[11.5px] text-on-surface/55 font-medium uppercase tracking-[0.08em] truncate">
+                    <p className="mt-2 text-[10.5px] text-on-surface/55 font-bold uppercase tracking-[0.12em] truncate">
                       {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
                     </p>
                   )}
+                  {r.notes && (
+                    <p className="mt-3.5 text-[15px] text-on-surface/75 italic leading-[1.55] line-clamp-3 border-l-2 border-primary pl-[18px] max-w-[680px]">
+                      {r.notes}
+                    </p>
+                  )}
                   {r.tags && r.tags.length > 0 && (
-                    <div className="flex gap-1.5 mt-3 flex-wrap">
+                    <div className="flex gap-1.5 mt-3.5 flex-wrap">
                       {r.tags.slice(0, 4).map((t) => (
-                        <span key={t} className="text-[12px] px-2.5 py-0.5 rounded-full bg-primary/[0.09] text-primary/80 font-medium">
+                        <span key={t} className="text-[12px] px-2.5 py-1 rounded-full bg-emerald-700/[0.10] text-emerald-700 font-medium">
                           {t}
                         </span>
                       ))}
                     </div>
-                  )}
-                  {r.notes && (
-                    <p className="mt-3 text-[14.5px] text-on-surface/70 italic leading-relaxed line-clamp-3 border-l-2 border-primary/45 pl-3">
-                      {r.notes}
-                    </p>
                   )}
                 </button>
 
