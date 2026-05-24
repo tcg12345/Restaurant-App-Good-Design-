@@ -28,7 +28,8 @@ import {
   CUISINE_TYPES,
 } from '../lib/places';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
-import type { Recipe, RestaurantMeta } from '../contexts/ListsContext';
+import type { RestaurantMeta } from '../contexts/ListsContext';
+import type { Recipe } from '../contexts/RecipesContext';
 import type { ScoredPlace } from '../lib/recommendations';
 import {
   streamLocationChat,
@@ -340,15 +341,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // regardless of visible[]. Keys are place ids.
   const [chatPlaces, setChatPlaces] = useState<Record<string, ScoredPlace>>({});
 
-  // Desktop drag + resize. Initial size matches the CSS default;
-  // position is computed once when the chat first opens so it lands
-  // in its anchored bottom-right spot, then is fully user-controlled
-  // from there. Phone mode skips all of this — the bottom sheet
-  // animation handles itself.
-  const [size, setSize] = useState({ w: 400, h: 560 });
+  // Desktop drag — repositions the island. Resize is handled by
+  // the browser's native CSS `resize: both` on the island element
+  // (more reliable than wiring our own mousedown listener through
+  // the foot / send-button stack). Position is computed once when
+  // the chat first opens so it lands in its anchored bottom-right
+  // spot, then is fully user-controlled from there. Phone mode
+  // skips drag entirely — the bottom sheet animation handles itself.
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
-  const resizeRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -382,14 +383,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   }, []);
 
   // Compute the initial desktop position when the chat first opens —
-  // bottom-right, with a 24px gutter. After this, drag is in charge.
+  // bottom-right with a 24px gutter, sized to match the CSS defaults
+  // (400 × 560). Once positioned, drag is in charge.
   useEffect(() => {
     if (!open || phoneMode || pos) return;
     setPos({
-      left: Math.max(16, window.innerWidth - size.w - 24),
-      top: Math.max(16, window.innerHeight - size.h - 24),
+      left: Math.max(16, window.innerWidth - 400 - 24),
+      top: Math.max(16, window.innerHeight - 560 - 24),
     });
-  }, [open, phoneMode, pos, size.w, size.h]);
+  }, [open, phoneMode, pos]);
 
   // Drag the header to reposition. Mouse events on the document let
   // the drag continue when the cursor leaves the island bounds.
@@ -422,35 +424,6 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }, [phoneMode, pos]);
-
-  // Bottom-right corner resize handle.
-  const onResizeMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
-    if (phoneMode) return;
-    e.preventDefault();
-    e.stopPropagation();
-    resizeRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startW: size.w,
-      startH: size.h,
-    };
-    const onMove = (ev: MouseEvent) => {
-      if (!resizeRef.current) return;
-      const dx = ev.clientX - resizeRef.current.startX;
-      const dy = ev.clientY - resizeRef.current.startY;
-      setSize({
-        w: Math.max(320, Math.min(900, resizeRef.current.startW + dx)),
-        h: Math.max(360, Math.min(window.innerHeight - 40, resizeRef.current.startH + dy)),
-      });
-    };
-    const onUp = () => {
-      resizeRef.current = null;
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }, [phoneMode, size.w, size.h]);
 
   const suggestions = useMemo(
     () => buildSuggestions(shortCityName, filters),
@@ -847,10 +820,6 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   top: pos.top,
                   right: 'auto',
                   bottom: 'auto',
-                  width: size.w,
-                  height: size.h,
-                  maxWidth: 'none',
-                  maxHeight: 'none',
                 }
               : undefined}
             role="dialog"
@@ -954,7 +923,14 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                                 </div>
                               );
                             }
-                            const totalMin = (r.prepTime || 0) + (r.cookTime || 0);
+                            const totalMin = (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0);
+                            const cover = r.photos?.[0] || '';
+                            // Difficulty in the new Supabase store is
+                            // lowercase ('easy' / 'medium' / 'hard') —
+                            // capitalize the first letter for display.
+                            const difficulty = r.difficulty
+                              ? r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)
+                              : '';
                             return (
                               <button
                                 key={id}
@@ -964,19 +940,19 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                               >
                                 <div
                                   className="lp-chat-card-recipe-cover"
-                                  style={r.coverPhoto ? { backgroundImage: `url("${r.coverPhoto}")` } : undefined}
+                                  style={cover ? { backgroundImage: `url("${cover}")` } : undefined}
                                   aria-hidden="true"
                                 >
-                                  {!r.coverPhoto && <ChefHat size={18} />}
+                                  {!cover && <ChefHat size={18} />}
                                 </div>
                                 <div className="lp-chat-card-info">
                                   <h4>{r.title}</h4>
                                   <p>
                                     {r.cuisine && <span className="accent">{r.cuisine}</span>}
-                                    {r.cuisine && (totalMin > 0 || r.difficulty) && <span className="dot">·</span>}
+                                    {r.cuisine && (totalMin > 0 || difficulty) && <span className="dot">·</span>}
                                     {totalMin > 0 && <span className="price">{totalMin} min</span>}
-                                    {totalMin > 0 && r.difficulty && <span className="dot">·</span>}
-                                    {r.difficulty && <span>{r.difficulty}</span>}
+                                    {totalMin > 0 && difficulty && <span className="dot">·</span>}
+                                    {difficulty && <span>{difficulty}</span>}
                                   </p>
                                 </div>
                                 <ChevronRight />
@@ -1107,18 +1083,6 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             <div className="lp-chat-foot-note">
               AI can make mistakes — verify the basics.
             </div>
-            {!phoneMode && (
-              <div
-                className="lp-chat-resize-handle"
-                onMouseDown={onResizeMouseDown}
-                aria-hidden="true"
-                title="Drag to resize"
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14">
-                  <path d="M13 6 L6 13 M13 10 L10 13" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-                </svg>
-              </div>
-            )}
           </motion.div>
         )}
       </AnimatePresence>

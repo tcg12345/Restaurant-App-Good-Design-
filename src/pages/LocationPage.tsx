@@ -34,6 +34,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useRecipes } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import {
   searchPlacesByTextPaged,
@@ -505,6 +506,12 @@ export const LocationPage: React.FC = () => {
   const { user, profile: myProfile } = useAuth();
   const userId = user?.id ?? null;
   const { ratings, wishlist, lists, restaurantMeta } = useLists();
+  // The canonical source of the user's saved recipes — same store
+  // the Pantry's home-cooking section reads from. Prior version was
+  // pulling from `lists[].recipes` (a legacy attach point that's
+  // empty in practice) so the chat saw zero recipes and refused to
+  // answer recipe questions.
+  const { myRecipes } = useRecipes();
 
   const cityKey = useMemo(() => cityKeyFromLabel(label), [label]);
   const cityDisplay = useMemo(() => {
@@ -1700,20 +1707,27 @@ export const LocationPage: React.FC = () => {
       });
     }
     // Recipes are nested under lists.
-    const recipesFlat = lists.flatMap((l) => l.recipes || []);
-    if (recipesFlat.length > 0) {
+    // Pull from useRecipes().myRecipes — the canonical Supabase-backed
+    // store the Pantry uses. (Previous version walked lists[].recipes,
+    // a legacy attach point that never gets populated for normal
+    // recipes, so the chat saw zero and refused to answer.)
+    if (myRecipes.length > 0) {
       const seen = new Set<string>();
       const recipes: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string }> = [];
-      for (const r of recipesFlat) {
+      for (const r of myRecipes) {
         if (!r?.id || seen.has(r.id)) continue;
         seen.add(r.id);
         recipes.push({
           id: r.id,
           title: r.title || 'Untitled recipe',
           cuisine: r.cuisine || undefined,
-          prepTime: r.prepTime || undefined,
-          cookTime: r.cookTime || undefined,
-          difficulty: r.difficulty || undefined,
+          prepTime: r.prepTimeMinutes ?? undefined,
+          cookTime: r.cookTimeMinutes ?? undefined,
+          // Capitalise so the system-prompt line reads naturally
+          // ("Easy" / "Medium" / "Hard").
+          difficulty: r.difficulty
+            ? r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)
+            : undefined,
         });
         if (recipes.length >= 30) break;
       }
@@ -1792,22 +1806,22 @@ export const LocationPage: React.FC = () => {
     return out;
   }, [ratings, wishlist]);
 
-  // Flat de-duped list of every Recipe the user owns — passed to
+  // De-duped list of every Recipe the user owns — passed to
   // LocationChat as a lookup table so recommend_recipes cards can
   // render with full details (cover photo, prep+cook time, etc.)
   // rather than just the trimmed fields we send in the system prompt.
+  // Sourced from useRecipes (canonical Supabase store), not the
+  // legacy lists[].recipes path.
   const chatRecipesAll = useMemo(() => {
     const seen = new Set<string>();
-    const out = [];
-    for (const l of lists) {
-      for (const r of l.recipes || []) {
-        if (!r?.id || seen.has(r.id)) continue;
-        seen.add(r.id);
-        out.push(r);
-      }
+    const out: typeof myRecipes = [];
+    for (const r of myRecipes) {
+      if (!r?.id || seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r);
     }
     return out;
-  }, [lists]);
+  }, [myRecipes]);
 
   // ── Chat-tool: lookup other users by name / handle ───────────────
   // Wired to Claude's lookup_user tool. Returns up to 5 public

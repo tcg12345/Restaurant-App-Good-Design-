@@ -1748,20 +1748,29 @@
   right: 24px;
   bottom: 24px;
   width: 400px;
-  max-width: calc(100vw - 48px);
   height: 560px;
-  max-height: calc(100vh - 120px);
+  /* Native browser resize handle in the bottom-right corner — more
+     reliable than wiring our own listener through the foot + send-
+     button stack. `resize: both` requires overflow ≠ visible. */
+  resize: both;
+  overflow: hidden;
+  min-width: 320px;
+  min-height: 360px;
+  max-width: min(900px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
   z-index: 50;
   background: var(--surface-2);
   color: var(--ink);
   border-radius: 20px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   box-shadow:
     0 30px 80px -16px rgba(28, 24, 22, 0.42),
     0 12px 24px -10px rgba(28, 24, 22, 0.18),
     0 0 0 1px rgba(28, 24, 22, 0.07);
+}
+.location-page-root .lp-chat-island.is-phone {
+  resize: none;
 }
 .location-page-root .lp-chat-island.is-phone {
   right: 0;
@@ -2197,27 +2206,10 @@
   padding: 4px 12px 10px;
 }
 
-/* Resize-handle for the desktop chat island (bottom-right corner).
-   Phone mode skips the JSX altogether. */
-.location-page-root .lp-chat-resize-handle {
-  position: absolute;
-  bottom: 4px;
-  right: 4px;
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  color: var(--muted-2);
-  cursor: nwse-resize;
-  opacity: 0.7;
-  transition: opacity .15s, color .15s;
-  z-index: 20;
-}
-.location-page-root .lp-chat-resize-handle:hover {
-  opacity: 1;
-  color: var(--ink-2);
-}
-.location-page-root .lp-chat-resize-handle svg { display: block; }
+/* Resize uses the browser's native CSS `resize: both` on
+   .lp-chat-island — no custom handle needed. The native glyph is
+   the small diagonal-stripe marker in the bottom-right corner of
+   the island. */
 
 /* When the chat island has no assistant bubble, the inline-rendered
    typing-indicator bubble inherits transparency too — which works
