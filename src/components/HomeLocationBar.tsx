@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Search, MapPin, X, Navigation, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../pages/useRestaurantDetail';
@@ -389,6 +390,12 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
         </button>
       )}
 
+      {/* Picker sheet is rendered through a portal so its
+          `position: fixed` is relative to the viewport — when this
+          component is mounted inside the sticky DesktopHeader (which
+          uses backdrop-blur, creating a containing block), the sheet
+          would otherwise get trapped inside the topbar's height. */}
+      {createPortal(
       <AnimatePresence>
         {open && (
           <>
@@ -524,7 +531,9 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
             </motion.div>
           </>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body,
+      )}
     </>
   );
 };
