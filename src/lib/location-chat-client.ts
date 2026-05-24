@@ -1,11 +1,9 @@
 // Frontend streaming client for the LocationPage AI chatbot.
 //
-// Calls the `location-chat` Supabase Edge Function via direct fetch
-// (supabase.functions.invoke buffers the response, which would
-// defeat token-by-token streaming) and parses Anthropic's standard
-// Server-Sent Events into a more ergonomic local event union.
-
-import { supabase } from './supabase';
+// Calls the Vercel Edge Function at /api/location-chat via direct
+// fetch (same-origin in production; `vercel dev` proxies it locally)
+// and parses Anthropic's standard Server-Sent Events into a more
+// ergonomic local event union.
 
 /* ── Wire types (sent to the Edge Function) ───────────────────── */
 
@@ -54,10 +52,9 @@ export type StreamEvent =
 
 /* ── Streaming consumer ───────────────────────────────────────── */
 
-const SUPABASE_URL = (import.meta as ImportMeta & { env: Record<string, string> })
-  .env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = (import.meta as ImportMeta & { env: Record<string, string> })
-  .env.VITE_SUPABASE_ANON_KEY || '';
+// Same-origin URL — Vercel serves both the SPA and the function from
+// the same domain in production, and `vercel dev` does locally.
+const FUNCTION_URL = '/api/location-chat';
 
 /**
  * Stream a chat turn from Claude (via the Edge Function). Yields
@@ -70,32 +67,11 @@ export async function* streamLocationChat(
   request: ChatRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent, void, unknown> {
-  if (!SUPABASE_URL) {
-    yield { type: 'error', message: 'Supabase URL not configured (VITE_SUPABASE_URL).' };
-    return;
-  }
-
-  const url = `${SUPABASE_URL}/functions/v1/location-chat`;
-
-  // Prefer the user's session token (so RLS / auth-gated edge functions
-  // can identify them), fall back to the anon key.
-  let authToken = SUPABASE_ANON_KEY;
-  try {
-    const { data } = await supabase.auth.getSession();
-    if (data?.session?.access_token) authToken = data.session.access_token;
-  } catch {
-    // best-effort; fall through with anon key
-  }
-
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetch(FUNCTION_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${authToken}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
       signal,
     });

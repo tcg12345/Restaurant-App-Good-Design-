@@ -24,6 +24,6 @@
     "noEmit": true
   },
   "exclude": [
-    "supabase/functions"
+    "api"
   ]
 }

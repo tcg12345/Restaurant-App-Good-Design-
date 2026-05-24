@@ -1,44 +1,39 @@
-// LocationPage AI chatbot — Supabase Edge Function (Deno).
+// LocationPage AI chatbot — Vercel Edge Function.
 //
 // Proxies the browser's chat requests to Anthropic's Messages API and
 // streams the response back as Server-Sent Events. The Anthropic API
-// key lives here as a Supabase secret (`ANTHROPIC_API_KEY`) and never
-// reaches the browser bundle.
+// key lives here as a Vercel environment variable (`ANTHROPIC_API_KEY`)
+// and never reaches the browser bundle.
 //
-// Deploy:
-//   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-//   supabase functions deploy location-chat
+// Deploy: set ANTHROPIC_API_KEY in Vercel Dashboard → Settings → Environment
+// Variables, then push to your linked repo (or run `vercel deploy`).
 //
-// Local test:
-//   supabase functions serve location-chat
+// Local dev: `npx vercel dev` runs Vite + this function together at
+// http://localhost:3000 so the frontend's relative POST to
+// /api/location-chat resolves correctly.
 //
-// Request body:
-//   {
-//     messages:  [ ...Anthropic-formatted user/assistant turns ],
-//     restaurants: [ { id, name, cuisine, price, score, neighborhood, distance } ],
-//     filters:   { cuisines?, price?, neighborhoods?, radius?, sort? },
-//     city:      "New York, NY",
-//     model?:    "claude-sonnet-4-6"   // optional override
-//   }
-//
-// Response: text/event-stream forwarded byte-for-byte from Anthropic.
-// The frontend client parses Anthropic's standard streaming event
-// types (content_block_delta, tool_use, message_stop, etc.).
+// Request body shape and the streaming-response wire format are
+// identical to the previous Supabase variant — the frontend client
+// is unchanged apart from the URL.
 
-// deno-lint-ignore-file no-explicit-any
+// Vercel Edge runtime: standard Web APIs (fetch / Request / Response /
+// ReadableStream). Edge is the right choice for chat: faster cold
+// starts than Node serverless and native support for streaming bodies.
+export const config = { runtime: 'edge' };
 
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+// @ts-expect-error — process.env is available in Vercel Edge at runtime
+// even though @types/node isn't installed in this project's tsconfig.
+const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
+  // @ts-expect-error see above
+  ? process.env?.ANTHROPIC_API_KEY
+  : undefined;
+
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const MAX_RESTAURANTS_IN_PROMPT = 50;
 
-const corsHeaders: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-// The single tool the model gets. We don't expose a free-form
+// The single tool Claude gets. We don't expose a free-form
 // "search Google" tool — Claude works off the Available list the
 // frontend curated and filtered for the user.
 const TOOL_RECOMMEND = {
@@ -98,7 +93,6 @@ function buildSystemPrompt(body: ChatRequest): string {
   );
   lines.push('');
 
-  // Active filters
   const filterParts: string[] = [];
   if (filters.cuisines && filters.cuisines.length > 0) {
     filterParts.push(`Cuisine: ${filters.cuisines.join(', ')}`);
@@ -124,7 +118,6 @@ function buildSystemPrompt(body: ChatRequest): string {
     lines.push('');
   }
 
-  // Restaurants — compact one-line-per-place listing.
   lines.push(
     'Available restaurants (filtered for the user; recommend ONLY from this list):',
   );
@@ -141,7 +134,6 @@ function buildSystemPrompt(body: ChatRequest): string {
   }
   lines.push('');
 
-  // Guidelines
   lines.push('Guidelines:');
   lines.push('- Keep replies short (1-3 paragraphs unless asked for more).');
   lines.push(
@@ -158,13 +150,22 @@ function buildSystemPrompt(body: ChatRequest): string {
 function jsonError(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
   });
 }
 
-Deno.serve(async (req: Request) => {
+export default async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    // Same-origin in production (Vercel serves both the SPA and the
+    // API from the same domain) but allowing OPTIONS keeps `vercel dev`
+    // and any future cross-origin testing painless.
+    return new Response(null, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'content-type, authorization',
+      },
+    });
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -233,10 +234,9 @@ Deno.serve(async (req: Request) => {
   // parses Anthropic's standard streaming event format.
   return new Response(anthropicRes.body, {
     headers: {
-      ...corsHeaders,
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
     },
   });
-});
+}
