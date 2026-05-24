@@ -1675,6 +1675,7 @@ export const LocationPage: React.FC = () => {
           : '';
         const location = richLocation || cityFromAddress(r.address);
         return {
+          id: r.restaurantId,
           name: r.name || meta?.name || 'Unnamed',
           score: typeof r.score === 'number' ? r.score : undefined,
           cuisine: r.cuisine || meta?.cuisine || undefined,
@@ -1691,6 +1692,7 @@ export const LocationPage: React.FC = () => {
           : '';
         const location = richLocation || cityFromAddress(w.address);
         return {
+          id: w.restaurantId,
           name: w.name || meta?.name || 'Unnamed',
           cuisine: w.cuisine || meta?.cuisine || undefined,
           neighborhood: location || undefined,
@@ -1749,6 +1751,46 @@ export const LocationPage: React.FC = () => {
     }
     return ctx;
   }, [myProfile, profile.topCuisines, ratings, wishlist, lists, restaurantMeta, areaFriendCandidates, areaExperts, friendCounts, expertCounts, visible]);
+
+  // Synthesize minimal ScoredPlace objects for every restaurant the
+  // user has rated or wishlisted. Passed to LocationChat so its card
+  // lookup can render cards for places outside the visible[] / pool
+  // (e.g. Plénitude in Paris when the user is browsing New York).
+  // We don't have lat/lng or Google types on rating rows — they're
+  // only needed for the in-pool recommendation scoring, not for
+  // chat-card rendering, so neutral values are fine.
+  const chatKnownPlaces = useMemo<ScoredPlace[]>(() => {
+    const seen = new Set<string>();
+    const out: ScoredPlace[] = [];
+    const push = (id: string, name: string, score: number, cuisine: string, address: string, image: string) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      out.push({
+        id,
+        name: name || 'Unnamed',
+        rating: score > 0 ? score / 2 : 0, // app's 0-10 -> Google's 0-5
+        types: [],
+        priceLevel: 0,
+        address: address || '',
+        fullAddress: address || '',
+        photoUrl: image || null,
+        userRatingCount: 0,
+        lat: 0,
+        lng: 0,
+        recScore: score,
+        sources: ['google'],
+        // Keep the canonical cuisine string from the rating row so
+        // the chat card can show it even though `types` is empty.
+        // (LocationChat falls back to this when inferCuisineLabel
+        // returns nothing.)
+        // @ts-expect-error - extra field for chat use only
+        cuisineHint: cuisine || '',
+      });
+    };
+    for (const r of ratings) push(r.restaurantId, r.name, r.score, r.cuisine, r.address, r.image);
+    for (const w of wishlist) push(w.restaurantId, w.name, 0, w.cuisine, w.address, w.image);
+    return out;
+  }, [ratings, wishlist]);
 
   // Flat de-duped list of every Recipe the user owns — passed to
   // LocationChat as a lookup table so recommend_recipes cards can
@@ -2569,6 +2611,7 @@ export const LocationPage: React.FC = () => {
         onLookupUser={handleLookupUser}
         userContext={chatUserContext}
         recipes={chatRecipesAll}
+        knownPlaces={chatKnownPlaces}
       />
     </div>
   );

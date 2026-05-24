@@ -84,6 +84,11 @@ interface LocationChatProps {
    *  the lookup table when Claude calls recommend_recipes — same
    *  pattern as placeById for restaurants. */
   recipes: Recipe[];
+  /** Restaurants the user has rated or wishlisted that may not be in
+   *  the visible pool (e.g. a Paris restaurant when the page is
+   *  browsing New York). Augments placeById so the chat can render
+   *  cards + auto-link any of those names mentioned in prose. */
+  knownPlaces: ScoredPlace[];
   /** Personalization context — user's taste, lists, friends, etc.
    *  Shipped in the request body and inlined into the system prompt
    *  so Claude can tailor recommendations. Optional; omit and the
@@ -151,6 +156,98 @@ function buildCompactRestaurants(
       distance: distMi != null ? formatDistance(distMi) : undefined,
     };
   });
+}
+
+/** Find a place in the lookup map by case-insensitive exact name match. */
+function findPlaceByName(name: string, places: Map<string, ScoredPlace>): ScoredPlace | null {
+  const norm = name.trim().toLowerCase();
+  for (const p of places.values()) {
+    if ((p.name || '').toLowerCase() === norm) return p;
+  }
+  return null;
+}
+
+const MARKDOWN_BOLD_RE = /(\*\*[^*\n]+\*\*)/g;
+const REGEX_ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
+
+/** Render an assistant text block:
+ *   - **bold** markdown becomes <strong> (or an inline link when the
+ *     bolded text is a known restaurant name).
+ *   - Plain-text restaurant names from `places` become inline links
+ *     too — so even when Claude forgets the markdown, mentions are
+ *     still clickable.
+ *  Links are styled as accent-tinted pills and tap-through to the
+ *  detail page via `onNavigate`. */
+function renderAssistantText(
+  text: string,
+  places: Map<string, ScoredPlace>,
+  onNavigate: (id: string) => void,
+  placeNameRegex: RegExp | null,
+): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let key = 0;
+  const linkifyPlain = (segment: string): void => {
+    if (!segment) return;
+    if (!placeNameRegex) {
+      out.push(<React.Fragment key={key++}>{segment}</React.Fragment>);
+      return;
+    }
+    placeNameRegex.lastIndex = 0;
+    let lastEnd = 0;
+    let m: RegExpExecArray | null;
+    while ((m = placeNameRegex.exec(segment)) !== null) {
+      if (m.index > lastEnd) {
+        out.push(<React.Fragment key={key++}>{segment.slice(lastEnd, m.index)}</React.Fragment>);
+      }
+      const matched = m[0];
+      const place = findPlaceByName(matched, places);
+      if (place) {
+        out.push(
+          <button
+            key={key++}
+            type="button"
+            className="lp-chat-inline-link"
+            onClick={() => onNavigate(place.id)}
+          >
+            {matched}
+          </button>,
+        );
+      } else {
+        out.push(<React.Fragment key={key++}>{matched}</React.Fragment>);
+      }
+      lastEnd = m.index + matched.length;
+      // Defensive: a zero-width match would loop forever
+      if (m.index === placeNameRegex.lastIndex) placeNameRegex.lastIndex++;
+    }
+    if (lastEnd < segment.length) {
+      out.push(<React.Fragment key={key++}>{segment.slice(lastEnd)}</React.Fragment>);
+    }
+  };
+
+  for (const part of text.split(MARKDOWN_BOLD_RE)) {
+    if (!part) continue;
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      const inner = part.slice(2, -2);
+      const exact = findPlaceByName(inner, places);
+      if (exact) {
+        out.push(
+          <button
+            key={key++}
+            type="button"
+            className="lp-chat-inline-link"
+            onClick={() => onNavigate(exact.id)}
+          >
+            {inner}
+          </button>,
+        );
+      } else {
+        out.push(<strong key={key++}>{inner}</strong>);
+      }
+    } else {
+      linkifyPlain(part);
+    }
+  }
+  return out;
 }
 
 /** Strip the UI blocks back into the Anthropic content array we
@@ -226,6 +323,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   userContext,
   onLookupUser,
   recipes,
+  knownPlaces,
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -241,6 +339,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // point of the tool) so we need somewhere to render cards from
   // regardless of visible[]. Keys are place ids.
   const [chatPlaces, setChatPlaces] = useState<Record<string, ScoredPlace>>({});
+
+  // Desktop drag + resize. Initial size matches the CSS default;
+  // position is computed once when the chat first opens so it lands
+  // in its anchored bottom-right spot, then is fully user-controlled
+  // from there. Phone mode skips all of this — the bottom sheet
+  // animation handles itself.
+  const [size, setSize] = useState({ w: 400, h: 560 });
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
+  const resizeRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -273,6 +381,77 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     abortRef.current?.abort();
   }, []);
 
+  // Compute the initial desktop position when the chat first opens —
+  // bottom-right, with a 24px gutter. After this, drag is in charge.
+  useEffect(() => {
+    if (!open || phoneMode || pos) return;
+    setPos({
+      left: Math.max(16, window.innerWidth - size.w - 24),
+      top: Math.max(16, window.innerHeight - size.h - 24),
+    });
+  }, [open, phoneMode, pos, size.w, size.h]);
+
+  // Drag the header to reposition. Mouse events on the document let
+  // the drag continue when the cursor leaves the island bounds.
+  const onHeaderMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    if (phoneMode || !pos) return;
+    // Ignore clicks that originated on a button (the close X, etc.)
+    // so those keep working as normal click targets.
+    if ((e.target as HTMLElement).closest('button')) return;
+    e.preventDefault();
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeft: pos.left,
+      startTop: pos.top,
+    };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      setPos({
+        left: Math.max(0, Math.min(window.innerWidth - 80, dragRef.current.startLeft + dx)),
+        top: Math.max(0, Math.min(window.innerHeight - 60, dragRef.current.startTop + dy)),
+      });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [phoneMode, pos]);
+
+  // Bottom-right corner resize handle.
+  const onResizeMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    if (phoneMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: size.w,
+      startH: size.h,
+    };
+    const onMove = (ev: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const dx = ev.clientX - resizeRef.current.startX;
+      const dy = ev.clientY - resizeRef.current.startY;
+      setSize({
+        w: Math.max(320, Math.min(900, resizeRef.current.startW + dx)),
+        h: Math.max(360, Math.min(window.innerHeight - 40, resizeRef.current.startH + dy)),
+      });
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [phoneMode, size.w, size.h]);
+
   const suggestions = useMemo(
     () => buildSuggestions(shortCityName, filters),
     [shortCityName, filters],
@@ -282,20 +461,39 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     const m = new Map<string, ScoredPlace>();
     // visible first (canonical / filtered list)…
     for (const p of visible) m.set(p.id, p);
-    // …then chatPlaces (search_restaurants results — may fall outside
-    // the user's filters, but they're explicit Claude recommendations
-    // so we still want their cards to render).
+    // …then chatPlaces (search_restaurants results)…
     for (const id in chatPlaces) {
       if (!m.has(id)) m.set(id, chatPlaces[id]);
     }
+    // …then knownPlaces (synthesized from the user's rated +
+    // wishlisted restaurants so cards / inline links resolve for any
+    // place they've personally logged, even cross-city).
+    for (const p of knownPlaces) {
+      if (!m.has(p.id)) m.set(p.id, p);
+    }
     return m;
-  }, [visible, chatPlaces]);
+  }, [visible, chatPlaces, knownPlaces]);
 
   const recipeById = useMemo(() => {
     const m = new Map<string, Recipe>();
     for (const r of recipes) if (r?.id) m.set(r.id, r);
     return m;
   }, [recipes]);
+
+  // Pre-built regex over every known restaurant name so the assistant
+  // text renderer can linkify mentions in O(text length) per render
+  // instead of N (places) × text length. Longest-first so 'Joe's Pizza
+  // & Wings' wins over 'Joe's'. Word-boundary-anchored so substrings
+  // inside other words don't get linkified.
+  const placeNameRegex = useMemo<RegExp | null>(() => {
+    const names = [...placeById.values()]
+      .map((p) => p.name)
+      .filter((n): n is string => !!n && n.length >= 3)
+      .sort((a, b) => b.length - a.length);
+    if (names.length === 0) return null;
+    const escaped = names.map((n) => n.replace(REGEX_ESCAPE_RE, '\\$&'));
+    return new RegExp(`\\b(${escaped.join('|')})\\b`, 'gi');
+  }, [placeById]);
 
   const handleNavigateRestaurant = useCallback((id: string) => {
     setOpen(false);
@@ -643,6 +841,18 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               ? { type: 'spring', damping: 28, stiffness: 300 }
               : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             {...(phoneMode ? dragProps : {})}
+            style={!phoneMode && pos
+              ? {
+                  left: pos.left,
+                  top: pos.top,
+                  right: 'auto',
+                  bottom: 'auto',
+                  width: size.w,
+                  height: size.h,
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                }
+              : undefined}
             role="dialog"
             aria-label="Restaurant assistant"
           >
@@ -652,7 +862,11 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               </div>
             )}
 
-            <header className="lp-chat-head">
+            <header
+              className="lp-chat-head"
+              onMouseDown={onHeaderMouseDown}
+              style={!phoneMode ? { cursor: pos ? 'grab' : 'default', userSelect: 'none' } : undefined}
+            >
               <div className="lp-chat-head-icon" aria-hidden="true">
                 <Sparkles />
               </div>
@@ -716,7 +930,9 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       if (!b.text) return null;
                       return (
                         <div key={bi} className="lp-chat-bubble">
-                          {b.text}
+                          {m.role === 'assistant'
+                            ? renderAssistantText(b.text, placeById, handleNavigateRestaurant, placeNameRegex)
+                            : b.text}
                         </div>
                       );
                     }
@@ -891,6 +1107,18 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             <div className="lp-chat-foot-note">
               AI can make mistakes — verify the basics.
             </div>
+            {!phoneMode && (
+              <div
+                className="lp-chat-resize-handle"
+                onMouseDown={onResizeMouseDown}
+                aria-hidden="true"
+                title="Drag to resize"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14">
+                  <path d="M13 6 L6 13 M13 10 L10 13" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                </svg>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

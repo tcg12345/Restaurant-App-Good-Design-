@@ -168,10 +168,12 @@ interface UserContext {
   /** Lowercased cuisine words the user gravitates toward, derived
    *  from their ratings / wishlist / lists via buildTasteProfile. */
   topCuisines?: string[];
-  /** User's own most-recent / top-rated restaurants. */
-  topRated?: Array<{ name: string; score?: number; cuisine?: string; neighborhood?: string }>;
+  /** User's own most-recent / top-rated restaurants. `id` is the
+   *  Google place id (= restaurantId on the rating row) so Claude
+   *  can pass it to recommend_restaurants to render a card. */
+  topRated?: Array<{ id?: string; name: string; score?: number; cuisine?: string; neighborhood?: string }>;
   /** Restaurants in the user's wishlist. */
-  wishlist?: Array<{ name: string; cuisine?: string; neighborhood?: string }>;
+  wishlist?: Array<{ id?: string; name: string; cuisine?: string; neighborhood?: string }>;
   /** Recipes the user has saved / cooked. */
   recipes?: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string }>;
   /** Friends the user has connected with — display names only. */
@@ -252,10 +254,11 @@ function buildSystemPrompt(body: ChatRequest): string {
       // rated?". This list is exhaustive (up to 50 from the frontend) —
       // if the user mentions a city that doesn't appear in any of these
       // lines, they truly have no rating for it.
-      lines.push(`- RATED restaurants (places the user has visited and scored, ${u.topRated.length} total):`);
+      lines.push(`- RATED restaurants (places the user has visited and scored, ${u.topRated.length} total). Each row carries the place id you'd pass to recommend_restaurants if you want to show a card:`);
       for (const r of u.topRated) {
         const bits = [
           r.name,
+          r.id ? `(id: ${r.id})` : null,
           r.score != null ? `RATED ${r.score}/10` : null,
           r.cuisine,
           r.neighborhood,
@@ -267,9 +270,9 @@ function buildSystemPrompt(body: ChatRequest): string {
       // WISHLIST = haven't been yet, want to try. Crucial that this
       // is never conflated with rated places — they're entirely
       // different signals. Listed one-per-line for the same reason.
-      lines.push(`- WISHLIST (places the user wants to try but has NOT visited or rated, ${u.wishlist.length} total):`);
+      lines.push(`- WISHLIST (places the user wants to try but has NOT visited or rated, ${u.wishlist.length} total). Each row has the place id for recommend_restaurants:`);
       for (const r of u.wishlist) {
-        const bits = [r.name, r.cuisine, r.neighborhood].filter(Boolean);
+        const bits = [r.name, r.id ? `(id: ${r.id})` : null, r.cuisine, r.neighborhood].filter(Boolean);
         lines.push(`    • ${bits.join(' · ')}`);
       }
     }
@@ -351,7 +354,7 @@ function buildSystemPrompt(body: ChatRequest): string {
     "4a. After web_search returns specific restaurant NAMES, do not just list them in prose — for each one you want to recommend, call search_restaurants({ query: '<the name>', city: '<the city the user asked about>' }) to convert it into a Google place id, then pass those ids to recommend_restaurants. That's the only way the user gets clickable cards from web results.",
   );
   lines.push(
-    "5. ALWAYS surface places via the recommend_restaurants tool — never type their names in prose. Cards are how the user actually clicks through. Likewise, when surfacing one of the user's own RECIPES (from the RECIPES section), use the recommend_recipes tool with the recipe ids — don't just type recipe titles in prose.",
+    "5. ALWAYS surface places via the recommend_restaurants tool. EVERY restaurant you mention by name — including ones from the user's RATED list, their WISHLIST, or anywhere else — needs to be passed to recommend_restaurants with the place id from that row. The card render is what makes the name clickable for the user. Likewise, when surfacing one of the user's own RECIPES, use the recommend_recipes tool — never just type names in prose.",
   );
   lines.push(
     "6. Only say 'I couldn't find anything' AFTER trying search_restaurants and / or web_search and they genuinely returned nothing useful.",

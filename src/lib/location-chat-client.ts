@@ -39,8 +39,8 @@ export interface UserContext {
   username?: string;
   homeCity?: string;
   topCuisines?: string[];
-  topRated?: Array<{ name: string; score?: number; cuisine?: string; neighborhood?: string }>;
-  wishlist?: Array<{ name: string; cuisine?: string; neighborhood?: string }>;
+  topRated?: Array<{ id?: string; name: string; score?: number; cuisine?: string; neighborhood?: string }>;
+  wishlist?: Array<{ id?: string; name: string; cuisine?: string; neighborhood?: string }>;
   recipes?: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string }>;
   friends?: Array<{ displayName: string; username?: string }>;
   followedExperts?: Array<{ displayName: string; username?: string; bio?: string }>;
