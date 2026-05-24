@@ -642,28 +642,22 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               {messages.map((m, mi) => {
                 // Hide messages that have only invisible blocks (a
                 // user turn full of tool_results, an assistant turn
-                // that only called search_restaurants, etc.) — the
-                // user shouldn't see protocol noise.
+                // that only called search_restaurants, an empty
+                // pre-stream assistant slot, etc.). The persistent
+                // typing indicator at the bottom of the list (below)
+                // handles all the "Claude is thinking" UX, so empty
+                // assistant slots don't need their own bubble.
                 const hasVisibleContent = m.blocks.some(
                   (b) =>
                     (b.type === 'text' && b.text)
                     || (b.type === 'cards' && b.placeIds.length > 0),
                 );
-                const isOpenAssistantSlot =
-                  m.role === 'assistant' && m.blocks.length === 0 && streaming;
-                if (!hasVisibleContent && !isOpenAssistantSlot) return null;
+                if (!hasVisibleContent) return null;
                 return (
                 <div
                   key={mi}
                   className={cn('lp-chat-msg', m.role === 'user' ? 'is-user' : 'is-assistant')}
                 >
-                  {isOpenAssistantSlot && (
-                    <div className="lp-chat-bubble">
-                      <span className="lp-chat-typing" aria-label="Assistant is typing">
-                        <span /><span /><span />
-                      </span>
-                    </div>
-                  )}
                   {m.blocks.map((b, bi) => {
                     if (b.type === 'text') {
                       if (!b.text) return null;
@@ -738,6 +732,24 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 </div>
                 );
               })}
+
+              {/* Persistent typing indicator — visible the whole time
+                  `streaming` is true (between user-send and final
+                  message_stop), so the dots stay on screen during
+                  tool calls and gaps between text deltas, not just
+                  the brief pre-first-token moment. Looks like an
+                  assistant bubble so it slots into the conversation
+                  naturally; auto-scroll keeps it in view because
+                  the existing scroll effect re-fires on `streaming`. */}
+              {streaming && (
+                <div className="lp-chat-msg is-assistant lp-chat-streaming-indicator">
+                  <div className="lp-chat-bubble">
+                    <span className="lp-chat-typing" aria-label="Assistant is responding">
+                      <span /><span /><span />
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {error && (
                 <div className="lp-chat-error">
