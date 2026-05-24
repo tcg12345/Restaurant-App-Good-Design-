@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, Plus, Heart, MessageCircle, Users, Clock, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -12,7 +12,7 @@ import { useCirclePanel } from '../contexts/CirclePanelContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { searchPlacesByText, priceLevelToString, formatLocationLabel, type PlaceResult } from '../lib/places';
 import { getCuisineLabel } from '../pages/useRestaurantDetail';
-import { HomeLocationBar } from './HomeLocationBar';
+import { HomeLocationBar, getCurrentHomeLocation, type HomeLocation } from './HomeLocationBar';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 
 /**
@@ -270,19 +270,63 @@ export const DesktopHeader: React.FC = () => {
   };
 
   const isHomeRoute = location.pathname === '/' || location.pathname === '/index.html';
+  const isLocationRoute = location.pathname === '/location';
+  const showLocationChip = isHomeRoute || isLocationRoute;
   const homeLocationCtx = useHomeLocation();
+  const [chipSearchParams] = useSearchParams();
+
+  // On /location, the chip reflects the city encoded in the URL (label /
+  // lat / lng search params) rather than the home-location context, so
+  // the chip always agrees with the page hero. Picking a new city on this
+  // route navigates the URL — and updates the home context so other
+  // routes pick up the change too.
+  const locationFromUrl: HomeLocation | null = useMemo(() => {
+    if (!isLocationRoute) return null;
+    const label = chipSearchParams.get('label');
+    const latNum = Number(chipSearchParams.get('lat'));
+    const lngNum = Number(chipSearchParams.get('lng'));
+    if (!label || !Number.isFinite(latNum) || !Number.isFinite(lngNum)) return null;
+    return { label, lat: latNum, lng: lngNum };
+  }, [isLocationRoute, chipSearchParams]);
+
+  const chipLocation = isLocationRoute
+    ? locationFromUrl ?? homeLocationCtx?.location ?? null
+    : homeLocationCtx?.location ?? null;
+
+  const handleChipChange = (loc: HomeLocation) => {
+    homeLocationCtx?.setLocation(loc);
+    if (isLocationRoute) {
+      navigate(
+        `/location?label=${encodeURIComponent(loc.label)}&lat=${loc.lat}&lng=${loc.lng}`,
+        { replace: true },
+      );
+    }
+  };
+
+  const handleChipUseCurrent = async (): Promise<void> => {
+    if (isLocationRoute) {
+      // Geolocate + reverse-geocode, then route through the same handler
+      // so the URL updates and the home context stays in sync.
+      const loc = await getCurrentHomeLocation();
+      handleChipChange(loc);
+      return;
+    }
+    if (homeLocationCtx) await homeLocationCtx.useCurrent();
+  };
 
   return (
     <header className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md border-b border-on-surface/[0.06]">
       <div className="px-6 py-2.5 flex items-center gap-3">
-        {/* ── Location chip — only when on Discover home and a location
-              context is available. Reuses HomeLocationBar's bottom-sheet
-              picker so cities/recents/use-current all work as before. */}
-        {isHomeRoute && homeLocationCtx && (
+        {/* ── Location chip — on Discover home and on the /location route.
+              Reuses HomeLocationBar's bottom-sheet picker so cities /
+              recents / use-current all work as before. On /location the
+              chip mirrors the URL params (so it always agrees with the
+              page) and picking a new city replaces the URL. */}
+        {showLocationChip && homeLocationCtx && (
           <HomeLocationBar
-            location={homeLocationCtx.location}
-            onChange={homeLocationCtx.setLocation}
-            onUseCurrent={homeLocationCtx.useCurrent}
+            location={chipLocation}
+            onChange={handleChipChange}
+            onUseCurrent={handleChipUseCurrent}
             variant="chip"
           />
         )}

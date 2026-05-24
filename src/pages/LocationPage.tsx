@@ -1213,11 +1213,8 @@ export const LocationPage: React.FC = () => {
   }, [handleLocationChange]);
 
   /* ── Redesign-only local state ───────────────────────────────────────────── */
-  // Controlled open for HomeLocationBar — the "Change" pill in LocationHero
-  // drives it via this state so the bar can render headless (no own button).
-  const [pickerOpen, setPickerOpen] = useState(false);
-  // Map view jump — same target as the top-right map icon. Disabled when
-  // we don't have coords to anchor it.
+  // Map view jump — used by the mini-map CTA and the List/Map view
+  // toggle. Disabled when we don't have coords to anchor it.
   const handleOpenMap = useCallback(() => {
     if (!hasCoords) return;
     navigate(
@@ -1271,13 +1268,6 @@ export const LocationPage: React.FC = () => {
     [],
   );
 
-  // Region segment for the hero italic — "New York, NY" → ", NY".
-  const heroRegion = useMemo(() => {
-    const parts = cityDisplay.split(',').map((s) => s.trim()).filter(Boolean);
-    if (parts.length <= 1) return '';
-    return `, ${parts.slice(1).join(', ')}`;
-  }, [cityDisplay]);
-
   // Placeholder pin coordinates for the mini-map — purely decorative until
   // we wire a real projection from visible[]'s lat/lng.
   const MINIMAP_PINS = useMemo(
@@ -1307,23 +1297,10 @@ export const LocationPage: React.FC = () => {
 
   return (
     <div className="location-page-root min-h-screen pb-24">
-      {/* Headless HomeLocationBar — renders no trigger itself; the
-          LocationHero "Change" pill drives its open/close state, so we
-          keep all the real city-picker behaviour (Mapbox search, recents,
-          "Use current location") without the default button chrome. */}
-      <HomeLocationBar
-        variant="headless"
-        location={currentLocation}
-        onChange={handleLocationChange}
-        onUseCurrent={handleUseCurrent}
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-      />
-
-      {/* Top action bar (preserved per redesign scope — sidebar / header
-          chrome stays the same as the rest of the app). */}
+      {/* Back-arrow row — map icon + location hero have moved to the
+          global top bar (DesktopHeader). Keeps the route navigable. */}
       <div className="sticky top-0 z-20 px-4 pt-safe-4 pb-2" style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center">
           <button
             type="button"
             onClick={() => navigate(-1)}
@@ -1333,38 +1310,10 @@ export const LocationPage: React.FC = () => {
           >
             <ArrowLeft size={22} />
           </button>
-          <button
-            type="button"
-            onClick={handleOpenMap}
-            disabled={!hasCoords}
-            className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors disabled:opacity-40"
-            style={{ color: 'var(--ink-2)' }}
-            aria-label="Open map view"
-          >
-            <MapIcon size={20} />
-          </button>
         </div>
       </div>
 
       <div className="lp-page">
-        {/* ── Hero ─────────────────────────────────────────────────────── */}
-        <section className="loc-hero">
-          <div className="loc-title-row">
-            <h1 className="loc-title">
-              {shortCityName}
-              {heroRegion && <span className="loc-region">{heroRegion}</span>}
-            </h1>
-            <button
-              type="button"
-              className="loc-switch"
-              onClick={() => setPickerOpen(true)}
-              aria-label="Change location"
-            >
-              Change <ChevronDown />
-            </button>
-          </div>
-        </section>
-
         {/* ── Sticky filter bar ────────────────────────────────────────── */}
         <div className="loc-filterbar">
           {/* Neighborhoods — placeholder popover. TODO: real per-city list. */}
