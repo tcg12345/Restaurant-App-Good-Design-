@@ -446,13 +446,29 @@ function miniMapMarkerColor(googleRating: number): string {
 
 // Generic seeds used by "Search this area" to fetch a small batch
 // centred on the panned map position. Three is enough to surface the
-// area's standouts without burning the API budget on every click.
+// area's standouts. Each query is paged through Google's full
+// nextPageToken chain (up to 3 pages each = ~60 places per query)
+// so a single 'Search this area' press genuinely tries to exhaust
+// what's available in the visible viewport, not just skim the top 20.
 const SEARCH_HERE_QUERIES = [
   'best restaurants',
   'popular restaurants',
   'top rated restaurants',
+  'highly rated restaurants',
+  'hidden gem restaurants',
+  'fine dining',
+  'casual dining',
+  'cheap eats',
 ];
-const SEARCH_HERE_RADIUS_METERS = 2414; // ≈ 1.5 mi
+// Per-query page cap. Google's text search returns at most 3 pages of
+// 20 results each before the nextPageToken stops appearing — this just
+// makes the cap explicit and keeps the worst-case request count bounded.
+const SEARCH_HERE_MAX_PAGES = 3;
+// Hard floor / ceiling on the bbox-derived radius. Keeps very-deep
+// zooms from asking Google for 100m blocks (it ignores < ~50m anyway)
+// and prevents very-wide zooms from out-running the city bbox.
+const SEARCH_HERE_MIN_MI = 0.3;
+const SEARCH_HERE_MAX_MI = 3;
 
 // Map a Google cuisine type ('japanese_restaurant') to a word that
 // reads naturally inside a text query ('japanese'). Falls back to
@@ -1602,22 +1618,42 @@ export const LocationPage: React.FC = () => {
     }
   }, [selectedMarkerPlace, visible]);
 
-  // ── "Search this area" — one-shot fetch at current map centre ──────
-  // Runs three generic queries inside a 1.5 mi radius of the panned
-  // position, dedupes against the page's seenIds, and appends what's
-  // new to placesPool. maxBounds keeps the centre inside the city's
-  // 8 mi bbox so this can never escape "the area you're set to".
+  // ── "Search this area" — exhaustive viewport-anchored fetch ────────
+  // Derives the radius from the map's actual visible bounds (zoom in =
+  // tight radius, zoom out = wider) and runs a broad query mix at the
+  // current map centre. Each query is paged through Google's full
+  // nextPageToken chain so we genuinely exhaust the visible area's
+  // ranking instead of skimming the top 20 per query. Cuisine-aware
+  // when filters are active. Results dedupe against seenIdsRef and
+  // append to placesPool — which is then captured by the existing
+  // 15-min TTL cache, so re-clicking inside the window is free.
   const handleSearchHere = useCallback(async () => {
     const map = mapRef.current;
     if (!map || searchingHere) return;
-    const c = map.getCenter();
     setSearchingHere(true);
     try {
+      const c = map.getCenter();
+      const bounds = map.getBounds();
+      // Compute the radius from the actual visible viewport so the
+      // search follows the zoom: zoom in tight → only spots inside the
+      // viewport; zoom out → broader. Clamped so very-deep zooms still
+      // ask Google for a usable footprint (it ignores sub-50m radii)
+      // and very-wide zooms don't out-run the city bbox.
+      let radiusMi = SEARCH_HERE_MAX_MI;
+      if (bounds) {
+        const ne = bounds.getNorthEast();
+        const cornerMi = haversineDistanceMi(c.lat, c.lng, ne.lat, ne.lng);
+        radiusMi = Math.max(
+          SEARCH_HERE_MIN_MI,
+          Math.min(cornerMi * 0.9, SEARCH_HERE_MAX_MI),
+        );
+      }
+      const radiusMeters = Math.round(radiusMi * 1609.34);
+
       const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
-      // When a cuisine filter is active, search for THOSE cuisines
-      // specifically — otherwise we'd run generic queries whose results
-      // (mostly generic American / mixed) all get filtered out by the
-      // cuisine filter on the client side and the user sees 0 new spots.
+      // Cuisine-aware query mix. With filters active we issue
+      // cuisine-specific queries so the results actually survive the
+      // client-side cuisine filter; otherwise the broad generic pool.
       const queries: string[] = selectedCuisines.length > 0
         ? selectedCuisines.flatMap((type) => {
             const word = typeToCuisineQueryWord(type);
@@ -1625,21 +1661,40 @@ export const LocationPage: React.FC = () => {
               `best ${word} restaurants`,
               `popular ${word} restaurants`,
               `top rated ${word} restaurants`,
+              `${word} restaurants`,
             ];
           })
         : [...SEARCH_HERE_QUERIES];
-      const results = await Promise.all(
-        queries.map(async (q) => {
-          const res = await searchPlacesByTextPaged(q, {
-            lat: c.lat,
-            lng: c.lng,
-            radiusMeters: SEARCH_HERE_RADIUS_METERS,
-            useRestriction: true,
-            priceLevels,
-          });
-          return res.places;
-        }),
-      );
+
+      // Page each query exhaustively. Returns every PlaceResult the
+      // query surfaces across its full nextPageToken chain (capped at
+      // SEARCH_HERE_MAX_PAGES — Google stops paginating at 3 anyway).
+      // Queries run in parallel; pages within a query run serially
+      // because each page's call needs the previous response's token.
+      const exhaustQuery = async (q: string): Promise<PlaceResult[]> => {
+        const out: PlaceResult[] = [];
+        let pageToken: string | undefined = undefined;
+        for (let page = 0; page < SEARCH_HERE_MAX_PAGES; page++) {
+          try {
+            const res = await searchPlacesByTextPaged(q, {
+              lat: c.lat,
+              lng: c.lng,
+              radiusMeters,
+              useRestriction: true,
+              priceLevels,
+              pageToken,
+            });
+            out.push(...res.places);
+            pageToken = res.nextPageToken || undefined;
+            if (!pageToken) break;
+          } catch {
+            break;
+          }
+        }
+        return out;
+      };
+      const results = await Promise.all(queries.map(exhaustQuery));
+
       const fresh: PlaceResult[] = [];
       for (const list of results) {
         for (const p of list) {
