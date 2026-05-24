@@ -26,7 +26,7 @@
      score-coded accents. */
   --color-cream: #ede7d9;
   --color-cream-2: #e6dfce;
-  --color-paper: #fbfaf6;
+  --color-paper: #faf5e9;
   --color-line: #e2dfd5;
   --color-line-2: #d2cec0;
   --color-ink: #1e1b1a;
@@ -62,8 +62,20 @@
 .dark {
   color-scheme: dark;
 }
-/* Hardcoded white card surfaces from the editorial card layouts get
-   re-tinted in dark mode so they don't punch through the dark page. */
+/* Pure-white card surfaces (bg-white and its alphas) read too harsh
+   against the warmer cream page background. Remap to the soft paper
+   token so every card / pill / dropdown across the app sits in the
+   same warm family. Dark mode override below still wins. */
+.bg-white,
+.bg-white\/95,
+.bg-white\/90,
+.bg-white\/85,
+.bg-white\/80,
+.bg-white\/70,
+.bg-white\/60 {
+  background-color: var(--color-paper) !important;
+}
+/* In dark mode the same selectors fall back to the dark paper tone. */
 .dark .bg-white,
 .dark .bg-white\/95,
 .dark .bg-white\/90,
