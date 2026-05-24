@@ -1472,7 +1472,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   {/* Restaurant name uses accent color for rated activity
                       so it visually reads as "person rated PLACE" — the
                       place is the protagonist. */}
-                  <h3 className="font-serif font-bold text-[26px] leading-[1.1] tracking-[-0.022em] line-clamp-2 text-primary group-hover:underline group-hover:decoration-1 group-hover:underline-offset-[4px]">
+                  <h3 className="font-serif font-bold text-[26px] leading-[1.1] tracking-[-0.022em] line-clamp-2 text-on-surface group-hover:underline group-hover:decoration-1 group-hover:underline-offset-[4px]">
                     {r.restaurant_name}
                   </h3>
                   {(r.cuisine || r.price || r.address) && (
