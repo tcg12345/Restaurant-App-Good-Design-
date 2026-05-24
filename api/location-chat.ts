@@ -83,6 +83,36 @@ const TOOL_SEARCH = {
   },
 };
 
+const TOOL_LOOKUP_USER = {
+  name: 'lookup_user',
+  description:
+    "Look up other users in the app by username or display name. Use when the user mentions another person (\"what does Camille think?\", \"find users named Jamie\") or when knowing a friend's / expert's taste would sharpen the recommendation. Returns up to 5 public profiles with handle, display name, bio, expert flag, home city, and a count of their public ratings. You may then refer to them by name in your reply.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Username, display name, or partial name to match (case-insensitive substring).',
+      },
+    },
+    required: ['query'],
+  },
+};
+
+// Anthropic's built-in server-side web_search tool. Anthropic runs
+// the searches inside the API call; results come back as content
+// blocks the model integrates into its reply. Bills separately
+// (~$10 / 1,000 searches as of mid-2025) but is the cleanest path
+// to letting Claude verify facts or pull recent info (closures,
+// new openings, recent press) without standing up our own proxy.
+const TOOL_WEB_SEARCH = {
+  type: 'web_search_20250305',
+  name: 'web_search',
+  // Bound per-turn cost. Five is plenty for "is this place still
+  // open?" / "any recent reviews?" verifications.
+  max_uses: 5,
+};
+
 interface CompactRestaurant {
   id: string;
   name: string;
@@ -101,11 +131,38 @@ interface ChatFilters {
   sort?: string;
 }
 
+// Personalization context the frontend assembles from useLists() /
+// useAuth() / signals + areaExperts. Optional everywhere so the
+// chat keeps working for unauthenticated browsing.
+interface UserContext {
+  displayName?: string;
+  username?: string;
+  homeCity?: string;
+  /** Lowercased cuisine words the user gravitates toward, derived
+   *  from their ratings / wishlist / lists via buildTasteProfile. */
+  topCuisines?: string[];
+  /** User's own most-recent / top-rated restaurants. */
+  topRated?: Array<{ name: string; score?: number; cuisine?: string; neighborhood?: string }>;
+  /** Restaurants in the user's wishlist. */
+  wishlist?: Array<{ name: string; cuisine?: string; neighborhood?: string }>;
+  /** Recipes the user has saved / cooked. */
+  recipes?: Array<{ title: string; cuisine?: string }>;
+  /** Friends the user has connected with — display names only. */
+  friends?: Array<{ displayName: string; username?: string }>;
+  /** Experts the user follows. */
+  followedExperts?: Array<{ displayName: string; username?: string; bio?: string }>;
+  /** Visible-restaurant ids the user's circle has rated, with how
+   *  many friends and experts respectively touched each one. Lets
+   *  Claude weight 'Mira has rated this 9.4' kinds of signals. */
+  circleSignals?: Array<{ restaurantId: string; friendCount?: number; expertCount?: number }>;
+}
+
 interface ChatRequest {
   messages: Array<{ role: 'user' | 'assistant'; content: any }>;
   restaurants?: CompactRestaurant[];
   filters?: ChatFilters;
   city?: string;
+  userContext?: UserContext;
   model?: string;
 }
 
@@ -143,6 +200,61 @@ function buildSystemPrompt(body: ChatRequest): string {
     lines.push('');
   }
 
+  // ── About this user ─────────────────────────────────────────────
+  // Personalization block. Helps Claude tailor recommendations to
+  // someone's taste history instead of cold-recommending from the
+  // city's top-N. Empty fields are skipped so the prompt stays tight.
+  const u = body.userContext;
+  if (u && (u.displayName || u.topCuisines?.length || u.topRated?.length || u.wishlist?.length || u.recipes?.length || u.friends?.length || u.followedExperts?.length)) {
+    lines.push('About this user:');
+    if (u.displayName || u.username) {
+      const parts = [u.displayName, u.username ? `@${u.username}` : null].filter(Boolean);
+      lines.push(`- Name: ${parts.join(' ')}`);
+    }
+    if (u.homeCity) lines.push(`- Home city: ${u.homeCity}`);
+    if (u.topCuisines && u.topCuisines.length > 0) {
+      lines.push(`- Taste leans toward: ${u.topCuisines.slice(0, 6).join(', ')}`);
+    }
+    if (u.topRated && u.topRated.length > 0) {
+      lines.push(`- Their top-rated places: ${u.topRated.slice(0, 8).map((r) => {
+        const bits = [r.name, r.score != null ? `${r.score}/10` : null, r.cuisine, r.neighborhood].filter(Boolean);
+        return bits.join(' · ');
+      }).join('; ')}`);
+    }
+    if (u.wishlist && u.wishlist.length > 0) {
+      lines.push(`- Wishlist (wants to try): ${u.wishlist.slice(0, 8).map((r) => {
+        const bits = [r.name, r.cuisine, r.neighborhood].filter(Boolean);
+        return bits.join(' · ');
+      }).join('; ')}`);
+    }
+    if (u.recipes && u.recipes.length > 0) {
+      lines.push(`- Cooks at home: ${u.recipes.slice(0, 6).map((r) => r.cuisine ? `${r.title} (${r.cuisine})` : r.title).join('; ')}`);
+    }
+    if (u.friends && u.friends.length > 0) {
+      lines.push(`- Friends: ${u.friends.slice(0, 10).map((f) => f.username ? `${f.displayName} (@${f.username})` : f.displayName).join(', ')}`);
+    }
+    if (u.followedExperts && u.followedExperts.length > 0) {
+      lines.push(`- Follows experts: ${u.followedExperts.slice(0, 8).map((e) => {
+        const handle = e.username ? `@${e.username}` : '';
+        const bio = e.bio ? ` — ${e.bio}` : '';
+        return `${e.displayName}${handle ? ` (${handle})` : ''}${bio}`;
+      }).join('; ')}`);
+    }
+    if (u.circleSignals && u.circleSignals.length > 0) {
+      // Tell Claude which (visible) restaurants have circle ratings.
+      // The full counts let it preferentially recommend places
+      // backed by people the user trusts.
+      const sig = u.circleSignals.slice(0, 20).map((s) => {
+        const bits: string[] = [s.restaurantId];
+        if (s.friendCount) bits.push(`${s.friendCount} friend${s.friendCount === 1 ? '' : 's'}`);
+        if (s.expertCount) bits.push(`${s.expertCount} expert${s.expertCount === 1 ? '' : 's'}`);
+        return `[${bits.join(' / ')}]`;
+      }).join(' ');
+      lines.push(`- Circle ratings on visible places: ${sig}`);
+    }
+    lines.push('');
+  }
+
   lines.push(
     "Available restaurants (the user's currently-filtered pool — this is a starting set, NOT the only places you can recommend):",
   );
@@ -163,21 +275,30 @@ function buildSystemPrompt(body: ChatRequest): string {
   lines.push('- Keep replies short (1-3 paragraphs unless asked for more).');
   lines.push('- Be conversational, not robotic. Speak like a friendly local.');
   lines.push('');
-  lines.push('How to find the right places:');
+  lines.push('How to find the right places (tool playbook):');
   lines.push(
-    "1. First check the Available list above for matches to what the user asked for.",
+    '1. Check the Available list first. If it covers the ask, recommend from there.',
   );
   lines.push(
-    "2. If the Available list doesn't obviously cover the user's ask (a specific dish like \"chicken wings\", a vibe like \"late-night\", a cuisine not in the list, etc.), CALL search_restaurants with a focused query BEFORE saying you can't help. The tool fetches fresh Google Places hits in the user's city and returns them with ids you can recommend.",
+    "2. If Available doesn't have what the user asked for (specific dish, vibe, cuisine missing), call search_restaurants with a focused query.",
   );
   lines.push(
-    "3. ALWAYS surface places via the recommend_restaurants tool — never type names in prose.",
+    "3. If the user mentions another person by name, or it'd help to weight a friend's / expert's taste, call lookup_user — you get back public profile info you can reference.",
   );
   lines.push(
-    "4. Only say 'I couldn't find anything' AFTER you've tried search_restaurants and it genuinely returned nothing useful.",
+    "4. If the user asks something that needs current real-world info (is X still open, recent press, new restaurant openings, who won a James Beard, etc.) use web_search. Don't use it for trivia covered in the Available list.",
   );
   lines.push(
-    "5. If active filters are limiting what Available shows, you can mention them (\"your Japanese filter is hiding wing spots — I searched broader and found these\") but don't ask the user to clear filters before helping; just help.",
+    "5. ALWAYS surface places via the recommend_restaurants tool — never type their names in prose. Cards are how the user actually clicks through.",
+  );
+  lines.push(
+    "6. Only say 'I couldn't find anything' AFTER trying search_restaurants and / or web_search and they genuinely returned nothing useful.",
+  );
+  lines.push(
+    "7. Personalize. If the About-this-user section is present, weight recommendations toward their taste leanings, what their friends and experts have rated, etc. Mention the connection (\"this fits your Italian-leaning taste\", \"Mira has this at 9.4\") when it strengthens the case — but don't be sycophantic.",
+  );
+  lines.push(
+    "8. Active filters may be hiding good answers; you can call it out (\"your Japanese filter is hiding wing spots — I searched broader\") but don't ask the user to clear filters first, just help.",
   );
 
   return lines.join('\n');
@@ -236,7 +357,7 @@ export default async function handler(req: Request): Promise<Response> {
         cache_control: { type: 'ephemeral' },
       },
     ],
-    tools: [TOOL_RECOMMEND, TOOL_SEARCH],
+    tools: [TOOL_RECOMMEND, TOOL_SEARCH, TOOL_LOOKUP_USER, TOOL_WEB_SEARCH],
     messages: body.messages,
   };
 

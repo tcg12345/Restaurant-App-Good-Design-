@@ -35,6 +35,7 @@ import {
   type ContentBlock,
   type ChatFilters,
   type CompactRestaurant,
+  type UserContext,
 } from '../lib/location-chat-client';
 
 const GOOGLE_TYPE_TO_CUISINE_LABEL: Record<string, string> = (() => {
@@ -81,6 +82,21 @@ interface LocationChatProps {
    *  uses; it also appends results to placesPool so any matches that
    *  pass the user's filters show up in the list/map automatically. */
   onSearchRestaurants: (query: string) => Promise<ScoredPlace[]>;
+  /** Personalization context — user's taste, lists, friends, etc.
+   *  Shipped in the request body and inlined into the system prompt
+   *  so Claude can tailor recommendations. Optional; omit and the
+   *  chat works in 'cold' mode. */
+  userContext?: UserContext;
+  /** Looks up app users by username / display name (case-insensitive
+   *  substring). Returns up to 5 public profiles. Wired to Claude's
+   *  lookup_user tool. */
+  onLookupUser: (query: string) => Promise<Array<{
+    username: string;
+    displayName?: string;
+    bio?: string;
+    isExpert?: boolean;
+    homeCity?: string;
+  }>>;
 }
 
 interface UiMessage {
@@ -197,6 +213,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   filters,
   origin,
   onSearchRestaurants,
+  userContext,
+  onLookupUser,
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -324,6 +342,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             restaurants: restaurantsForModel,
             filters,
             city: cityDisplay,
+            userContext,
           },
           controller.signal,
         );
@@ -414,6 +433,30 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             content = ids.length > 0
               ? `Rendered ${ids.length} restaurant card(s) for the user.`
               : 'No restaurant ids provided.';
+          } else if (tu.name === 'lookup_user') {
+            const input = (tu.input || {}) as { query?: string };
+            const query = (input.query || '').trim();
+            if (!query) {
+              content = 'No query provided to lookup_user.';
+            } else {
+              try {
+                const hits = await onLookupUser(query);
+                if (!hits || hits.length === 0) {
+                  content = `No users matched "${query}". Tell the user honestly that you couldn't find that person.`;
+                } else {
+                  const lines = hits.slice(0, 5).map((h, i) => {
+                    const flag = h.isExpert ? ' [expert]' : '';
+                    const bits = [h.displayName || h.username, h.username ? `@${h.username}` : null, h.homeCity, h.bio]
+                      .filter(Boolean)
+                      .join(' · ');
+                    return `${i + 1}. ${bits}${flag}`;
+                  }).join('\n');
+                  content = `Found ${hits.length} user(s) matching "${query}":\n${lines}`;
+                }
+              } catch (err) {
+                content = `User lookup for "${query}" failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
           } else if (tu.name === 'search_restaurants') {
             const input = (tu.input || {}) as { query?: string };
             const query = (input.query || '').trim();

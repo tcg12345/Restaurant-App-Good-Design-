@@ -58,6 +58,7 @@ import {
   getFollowedExpertIds,
   getProfilesInArea,
   getRatingsByUserIds,
+  searchUsersByUsername,
   sendFriendRequest,
   type CommunityRating,
   type UserProfile,
@@ -500,7 +501,7 @@ export const LocationPage: React.FC = () => {
   const lng = Number(params.get('lng'));
   const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
 
-  const { user } = useAuth();
+  const { user, profile: myProfile } = useAuth();
   const userId = user?.id ?? null;
   const { ratings, wishlist, lists, restaurantMeta } = useLists();
 
@@ -1619,6 +1620,126 @@ export const LocationPage: React.FC = () => {
     }
   }, [selectedMarkerPlace, visible]);
 
+  // ── AI chatbot context: personalize from the user's data ─────────
+  // Inlined into the system prompt every turn so Claude can weight
+  // recommendations toward the user's taste history, friends, and
+  // followed experts. Strictly read-only — same data already shown
+  // throughout the app, just packaged for the model.
+  const chatUserContext = useMemo(() => {
+    const ctx: {
+      displayName?: string;
+      username?: string;
+      homeCity?: string;
+      topCuisines?: string[];
+      topRated?: Array<{ name: string; score?: number; cuisine?: string; neighborhood?: string }>;
+      wishlist?: Array<{ name: string; cuisine?: string; neighborhood?: string }>;
+      recipes?: Array<{ title: string; cuisine?: string }>;
+      friends?: Array<{ displayName: string; username?: string }>;
+      followedExperts?: Array<{ displayName: string; username?: string; bio?: string }>;
+      circleSignals?: Array<{ restaurantId: string; friendCount?: number; expertCount?: number }>;
+    } = {};
+    if (myProfile?.display_name) ctx.displayName = myProfile.display_name;
+    if (myProfile?.username) ctx.username = myProfile.username;
+    if (myProfile?.home_city) ctx.homeCity = myProfile.home_city;
+    if (profile.topCuisines.length > 0) ctx.topCuisines = profile.topCuisines.slice(0, 6);
+    // Top-rated places — pull from `ratings`, sort by score desc,
+    // and enrich with cached cuisine / neighborhood when available.
+    if (ratings.length > 0) {
+      const sorted = [...ratings].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 8);
+      ctx.topRated = sorted.map((r) => {
+        const meta = restaurantMeta[r.restaurantId];
+        const neighborhood = meta
+          ? formatLocationLabel(meta.addressComponents, meta.address || '', meta.neighborhood)
+          : '';
+        return {
+          name: r.name || meta?.name || 'Unnamed',
+          score: typeof r.score === 'number' ? r.score : undefined,
+          cuisine: meta?.cuisine || undefined,
+          neighborhood: neighborhood || undefined,
+        };
+      });
+    }
+    // Wishlist
+    if (wishlist.length > 0) {
+      ctx.wishlist = wishlist.slice(0, 8).map((w) => {
+        const meta = restaurantMeta[w.restaurantId];
+        const neighborhood = meta
+          ? formatLocationLabel(meta.addressComponents, meta.address || '', meta.neighborhood)
+          : '';
+        return {
+          name: w.name || meta?.name || 'Unnamed',
+          cuisine: meta?.cuisine || undefined,
+          neighborhood: neighborhood || undefined,
+        };
+      });
+    }
+    // Recipes are nested under lists.
+    const recipesFlat = lists.flatMap((l) => l.recipes || []);
+    if (recipesFlat.length > 0) {
+      const seen = new Set<string>();
+      const recipes: Array<{ title: string; cuisine?: string }> = [];
+      for (const r of recipesFlat) {
+        if (!r?.id || seen.has(r.id)) continue;
+        seen.add(r.id);
+        recipes.push({ title: r.title || 'Untitled recipe', cuisine: r.cuisine || undefined });
+        if (recipes.length >= 8) break;
+      }
+      if (recipes.length > 0) ctx.recipes = recipes;
+    }
+    // Friends + followed experts come from areaFriendCandidates +
+    // areaExperts, both already loaded for the "Around <city>" rail.
+    if (areaFriendCandidates.length > 0) {
+      ctx.friends = areaFriendCandidates.slice(0, 10).map((f) => ({
+        displayName: f.display_name || f.username,
+        username: f.username,
+      }));
+    }
+    if (areaExperts.length > 0) {
+      ctx.followedExperts = areaExperts.slice(0, 8).map((e) => ({
+        displayName: e.display_name || e.username,
+        username: e.username,
+        bio: e.bio || undefined,
+      }));
+    }
+    // Circle ratings on the visible pool. Only include places that
+    // have at least one friend or expert hit so the array stays tight.
+    if (visible.length > 0 && (friendCounts.size > 0 || expertCounts.size > 0)) {
+      const sig: Array<{ restaurantId: string; friendCount?: number; expertCount?: number }> = [];
+      for (const p of visible.slice(0, 30)) {
+        const fc = friendCounts.get(p.id) || 0;
+        const ec = expertCounts.get(p.id) || 0;
+        if (fc > 0 || ec > 0) sig.push({
+          restaurantId: p.id,
+          friendCount: fc || undefined,
+          expertCount: ec || undefined,
+        });
+      }
+      if (sig.length > 0) ctx.circleSignals = sig;
+    }
+    return ctx;
+  }, [myProfile, profile.topCuisines, ratings, wishlist, lists, restaurantMeta, areaFriendCandidates, areaExperts, friendCounts, expertCounts, visible]);
+
+  // ── Chat-tool: lookup other users by name / handle ───────────────
+  // Wired to Claude's lookup_user tool. Returns up to 5 public
+  // profiles via the existing searchUsersByUsername helper.
+  const handleLookupUser = useCallback(async (query: string) => {
+    const q = query.trim();
+    if (!q) return [];
+    try {
+      const profiles = await searchUsersByUsername(q, userId || '');
+      return profiles.slice(0, 5).map((p) => ({
+        username: p.username,
+        displayName: p.display_name || p.username,
+        bio: p.bio || undefined,
+        isExpert: !!p.is_expert,
+        homeCity: p.home_city || undefined,
+      }));
+    } catch (err) {
+      console.error('[LocationPage] handleLookupUser error:', err);
+      return [];
+    }
+  }, [userId]);
+
   // ── Chat-tool: free-text search for the AI assistant ─────────────
   // Bound to the LocationChat's onSearchRestaurants prop. When the
   // model can't find what the user asked for in its system-prompt
@@ -2365,6 +2486,8 @@ export const LocationPage: React.FC = () => {
         }}
         origin={origin}
         onSearchRestaurants={handleChatSearch}
+        onLookupUser={handleLookupUser}
+        userContext={chatUserContext}
       />
     </div>
   );
