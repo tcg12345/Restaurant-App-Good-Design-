@@ -1619,6 +1619,52 @@ export const LocationPage: React.FC = () => {
     }
   }, [selectedMarkerPlace, visible]);
 
+  // ── Chat-tool: free-text search for the AI assistant ─────────────
+  // Bound to the LocationChat's onSearchRestaurants prop. When the
+  // model can't find what the user asked for in its system-prompt
+  // pool, it calls search_restaurants and this fires a Google Places
+  // text search anchored to the city. Single page (≤20 hits) for
+  // chat responsiveness — Claude only needs enough to pick 3-5
+  // recommendations from. Deduped against seenIdsRef and appended
+  // to placesPool so anything that passes the user's current filters
+  // also surfaces in the list / map; anything outside the filters
+  // lives only in the chat's local map.
+  const handleChatSearch = useCallback(async (query: string): Promise<ScoredPlace[]> => {
+    if (!hasCoords) return [];
+    const q = query.trim();
+    if (!q) return [];
+    try {
+      const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
+      const res = await searchPlacesByTextPaged(q, {
+        lat,
+        lng,
+        radiusMeters,
+        useRestriction: true,
+        priceLevels,
+      });
+      const fresh: PlaceResult[] = [];
+      for (const p of res.places) {
+        if (seenIdsRef.current.has(p.id)) continue;
+        seenIdsRef.current.add(p.id);
+        fresh.push(p);
+      }
+      if (fresh.length > 0) {
+        setPlacesPool((prev) => [...prev, ...fresh]);
+      }
+      // ScoredPlace = PlaceResult + recScore + sources. We don't run
+      // the real recommendation scorer for chat hits (the chat just
+      // needs renderable card data), so synthesize neutral values.
+      return res.places.map<ScoredPlace>((p) => ({
+        ...p,
+        recScore: p.rating > 0 ? p.rating * 2 : 0,
+        sources: ['google'],
+      }));
+    } catch (err) {
+      console.error('[LocationPage] handleChatSearch error:', err);
+      return [];
+    }
+  }, [hasCoords, lat, lng, selectedPrice, radiusMeters]);
+
   // ── "Search this area" — exhaustive viewport-anchored fetch ────────
   // Derives the radius from the map's actual visible bounds (zoom in =
   // tight radius, zoom out = wider) and runs a broad query mix at the
@@ -2318,6 +2364,7 @@ export const LocationPage: React.FC = () => {
           sort: sortBy !== 'recommended' ? SORT_LABELS[sortBy] : undefined,
         }}
         origin={origin}
+        onSearchRestaurants={handleChatSearch}
       />
     </div>
   );

@@ -33,13 +33,21 @@ const ANTHROPIC_API_KEY: string | undefined = typeof process !== 'undefined'
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const MAX_RESTAURANTS_IN_PROMPT = 50;
 
-// The single tool Claude gets. We don't expose a free-form
-// "search Google" tool — Claude works off the Available list the
-// frontend curated and filtered for the user.
+// Tools Claude can use.
+//
+// `recommend_restaurants` is the ONLY way the model surfaces a place
+// to the user — typing names in prose doesn't render cards.
+//
+// `search_restaurants` lets Claude fetch fresh Google Places results
+// when the Available list doesn't contain what the user asked for
+// (e.g. user asks for "chicken wings" but the filtered pool is full
+// of fine-dining French). The frontend executes the search, appends
+// the hits to a chat-local pool, and returns a compact id-keyed
+// listing in the tool_result. Claude can then recommend those ids.
 const TOOL_RECOMMEND = {
   name: 'recommend_restaurants',
   description:
-    "Recommend specific restaurants from the Available list. Always use this tool when you want to suggest places — never type their names in prose. IDs MUST be the (id: ...) Google place ids from the Available restaurants section of the system prompt.",
+    "Recommend specific restaurants to the user. Always use this tool when you want to surface places — never type their names in prose. IDs MUST be the (id: ...) Google place ids from either the Available restaurants section of the system prompt OR a previous search_restaurants tool result in this conversation.",
   input_schema: {
     type: 'object',
     properties: {
@@ -55,6 +63,23 @@ const TOOL_RECOMMEND = {
       },
     },
     required: ['restaurant_ids'],
+  },
+};
+
+const TOOL_SEARCH = {
+  name: 'search_restaurants',
+  description:
+    "Search Google Places for restaurants in the current city when the Available list doesn't have what the user is asking for. Use this when the user asks for a specific dish, cuisine, or vibe (chicken wings, ramen, late-night, vegan, dive bar, etc.) and a quick scan of the Available list shows no obvious matches. The tool result returns a fresh batch of restaurants with their ids that you can then pass to recommend_restaurants. Call this BEFORE telling the user you can't help.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description:
+          "Free-text search query (e.g. 'chicken wings', 'late-night ramen', 'best dive bar with food'). Do NOT include the city name — the frontend anchors the search to the user's current city automatically.",
+      },
+    },
+    required: ['query'],
   },
 };
 
@@ -119,11 +144,11 @@ function buildSystemPrompt(body: ChatRequest): string {
   }
 
   lines.push(
-    'Available restaurants (filtered for the user; recommend ONLY from this list):',
+    "Available restaurants (the user's currently-filtered pool — this is a starting set, NOT the only places you can recommend):",
   );
   const restaurants = (body.restaurants || []).slice(0, MAX_RESTAURANTS_IN_PROMPT);
   if (restaurants.length === 0) {
-    lines.push('(no restaurants loaded yet — ask the user to wait or widen the filters)');
+    lines.push('(no restaurants loaded yet for the current filters — use search_restaurants for anything the user asks for)');
   } else {
     restaurants.forEach((r, i) => {
       const meta = [r.cuisine, r.price, r.neighborhood, r.score, r.distance]
@@ -136,13 +161,24 @@ function buildSystemPrompt(body: ChatRequest): string {
 
   lines.push('Guidelines:');
   lines.push('- Keep replies short (1-3 paragraphs unless asked for more).');
-  lines.push(
-    '- When suggesting specific places, ALWAYS call the recommend_restaurants tool — never type the names in prose.',
-  );
-  lines.push(
-    '- Only recommend from the Available list above. If none of them fit what the user asked for, say so plainly and suggest the user widen the filters (clear the cuisine, raise the price tier, etc.).',
-  );
   lines.push('- Be conversational, not robotic. Speak like a friendly local.');
+  lines.push('');
+  lines.push('How to find the right places:');
+  lines.push(
+    "1. First check the Available list above for matches to what the user asked for.",
+  );
+  lines.push(
+    "2. If the Available list doesn't obviously cover the user's ask (a specific dish like \"chicken wings\", a vibe like \"late-night\", a cuisine not in the list, etc.), CALL search_restaurants with a focused query BEFORE saying you can't help. The tool fetches fresh Google Places hits in the user's city and returns them with ids you can recommend.",
+  );
+  lines.push(
+    "3. ALWAYS surface places via the recommend_restaurants tool — never type names in prose.",
+  );
+  lines.push(
+    "4. Only say 'I couldn't find anything' AFTER you've tried search_restaurants and it genuinely returned nothing useful.",
+  );
+  lines.push(
+    "5. If active filters are limiting what Available shows, you can mention them (\"your Japanese filter is hiding wing spots — I searched broader and found these\") but don't ask the user to clear filters before helping; just help.",
+  );
 
   return lines.join('\n');
 }
@@ -200,7 +236,7 @@ export default async function handler(req: Request): Promise<Response> {
         cache_control: { type: 'ephemeral' },
       },
     ],
-    tools: [TOOL_RECOMMEND],
+    tools: [TOOL_RECOMMEND, TOOL_SEARCH],
     messages: body.messages,
   };
 

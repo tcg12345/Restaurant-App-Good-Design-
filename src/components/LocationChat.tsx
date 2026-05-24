@@ -72,6 +72,15 @@ interface LocationChatProps {
   /** City coords for the distance line on cards (falls back to first
    *  visible place when absent). */
   origin: { lat: number; lng: number } | null;
+  /** Fetches fresh Google Places hits for a free-text query, anchored
+   *  to the user's current city. Used when Claude calls the
+   *  search_restaurants tool because the visible pool doesn't have
+   *  what the user is asking for (e.g. "chicken wings" inside a pool
+   *  that's all fine-dining French). LocationPage implements this
+   *  via the same searchPlacesByTextPaged helper handleSearchHere
+   *  uses; it also appends results to placesPool so any matches that
+   *  pass the user's filters show up in the list/map automatically. */
+  onSearchRestaurants: (query: string) => Promise<ScoredPlace[]>;
 }
 
 interface UiMessage {
@@ -83,7 +92,16 @@ interface UiMessage {
 
 type UiBlock =
   | { type: 'text'; text: string }
-  | { type: 'cards'; toolUseId: string; placeIds: string[]; reason?: string };
+  | { type: 'cards'; toolUseId: string; placeIds: string[]; reason?: string }
+  // Invisible: assistant's tool_use blocks we don't surface as cards
+  // (currently search_restaurants). Kept in messages state so the
+  // conversation can be reconstructed on the next API call without
+  // breaking Anthropic's "every tool_use needs a matching tool_result
+  // immediately after" rule.
+  | { type: 'tool_use'; toolUseId: string; toolName: string; input: unknown }
+  // Invisible: user-role tool_result blocks emitted between agentic
+  // turns. Stored on the user turn so the history round-trips cleanly.
+  | { type: 'tool_result'; toolUseId: string; content: string };
 
 /** Build the compact restaurant payload sent to the model. */
 function buildCompactRestaurants(
@@ -117,9 +135,12 @@ function buildCompactRestaurants(
 }
 
 /** Strip the UI blocks back into the Anthropic content array we
- *  need to round-trip on the next request (we have to resend the
- *  assistant's full content including tool_use blocks so Claude
- *  can match up tool_result blocks we send in the follow-up). */
+ *  need to round-trip on the next request. We MUST resend the
+ *  assistant's full content (including tool_use blocks) AND the
+ *  user-role tool_result blocks that followed them, otherwise
+ *  Anthropic rejects the conversation with
+ *  "tool_use ids were found without tool_result blocks immediately
+ *  after".  */
 function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
   const out: ContentBlock[] = [];
   for (const b of blocks) {
@@ -131,6 +152,19 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
         id: b.toolUseId,
         name: 'recommend_restaurants',
         input: { restaurant_ids: b.placeIds, reason: b.reason || '' },
+      });
+    } else if (b.type === 'tool_use') {
+      out.push({
+        type: 'tool_use',
+        id: b.toolUseId,
+        name: b.toolName,
+        input: b.input,
+      });
+    } else if (b.type === 'tool_result') {
+      out.push({
+        type: 'tool_result',
+        tool_use_id: b.toolUseId,
+        content: b.content,
       });
     }
   }
@@ -162,6 +196,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   shortCityName,
   filters,
   origin,
+  onSearchRestaurants,
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -171,6 +206,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Chat-local cache for places returned by the search_restaurants
+  // tool — they may fall outside the user's current filters (whole
+  // point of the tool) so we need somewhere to render cards from
+  // regardless of visible[]. Keys are place ids.
+  const [chatPlaces, setChatPlaces] = useState<Record<string, ScoredPlace>>({});
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -210,9 +251,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   const placeById = useMemo(() => {
     const m = new Map<string, ScoredPlace>();
+    // visible first (canonical / filtered list)…
     for (const p of visible) m.set(p.id, p);
+    // …then chatPlaces (search_restaurants results — may fall outside
+    // the user's filters, but they're explicit Claude recommendations
+    // so we still want their cards to render).
+    for (const id in chatPlaces) {
+      if (!m.has(id)) m.set(id, chatPlaces[id]);
+    }
     return m;
-  }, [visible]);
+  }, [visible, chatPlaces]);
 
   const handleNavigateRestaurant = useCallback((id: string) => {
     setOpen(false);
@@ -260,20 +308,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     // The agentic loop: keep round-tripping with tool_results until
     // Claude stops calling tools or we hit the safety cap.
     let convo: AnthropicMessage[] = [...baseHistory, userTurn];
-    let pendingToolResults: ContentBlock[] = [];
 
     try {
       for (let turn = 0; turn < MAX_AGENTIC_TURNS; turn++) {
-        // If we have tool_results from the previous turn, add a user
-        // turn carrying them BEFORE the next stream.
-        if (pendingToolResults.length > 0) {
-          convo = [...convo, { role: 'user', content: pendingToolResults }];
-          pendingToolResults = [];
-        }
-
         const assistantBlocks: UiBlock[] = [];
         let textBlockOpen = false;
-        const toolUsesInThisTurn: Array<{ id: string; placeIds: string[]; reason: string }> = [];
+        // Every tool_use Claude emits in this streamed message —
+        // recommend_restaurants AND search_restaurants. We process
+        // them all after 'done' so we can await the search ones.
+        const toolUsesInThisTurn: Array<{ id: string; name: string; input: unknown }> = [];
 
         const stream = streamLocationChat(
           {
@@ -285,18 +328,18 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           controller.signal,
         );
 
+        let streamReachedDone = false;
+        let modelCalledTools = false;
+
         for await (const ev of stream) {
           if (controller.signal.aborted) break;
           if (ev.type === 'text_delta') {
-            // Append to (or open) the trailing text block of the
-            // current assistant turn.
             if (!textBlockOpen) {
               assistantBlocks.push({ type: 'text', text: '' });
               textBlockOpen = true;
             }
             const last = assistantBlocks[assistantBlocks.length - 1];
             if (last.type === 'text') last.text += ev.delta;
-            // Mirror to UI by replacing the trailing assistant turn.
             setMessages((prev) => {
               const next = [...prev];
               next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
@@ -304,56 +347,37 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             });
           } else if (ev.type === 'tool_use') {
             textBlockOpen = false;
+            toolUsesInThisTurn.push({ id: ev.id, name: ev.name, input: ev.input });
             if (ev.name === 'recommend_restaurants') {
+              // Render cards immediately — no need to wait for 'done'.
               const input = (ev.input || {}) as { restaurant_ids?: string[]; reason?: string };
               const placeIds = Array.isArray(input.restaurant_ids)
                 ? input.restaurant_ids.filter((id): id is string => typeof id === 'string')
                 : [];
               const reason = typeof input.reason === 'string' ? input.reason : '';
-              assistantBlocks.push({
-                type: 'cards',
-                toolUseId: ev.id,
-                placeIds,
-                reason,
-              });
-              toolUsesInThisTurn.push({ id: ev.id, placeIds, reason });
+              assistantBlocks.push({ type: 'cards', toolUseId: ev.id, placeIds, reason });
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
                 return next;
               });
+            } else {
+              // search_restaurants (or any future invisible tool) —
+              // record the tool_use so the assistant turn round-trips
+              // correctly. Card-less / no UI surface.
+              assistantBlocks.push({
+                type: 'tool_use',
+                toolUseId: ev.id,
+                toolName: ev.name,
+                input: ev.input,
+              });
             }
           } else if (ev.type === 'done') {
-            // End of one streamed message. If the model called any
-            // tools we need to round-trip with tool_results.
-            if (toolUsesInThisTurn.length > 0) {
-              // Add the assistant turn (with its tool_use blocks) to convo.
-              convo = [
-                ...convo,
-                { role: 'assistant', content: uiBlocksToAnthropicContent(assistantBlocks) },
-              ];
-              for (const tu of toolUsesInThisTurn) {
-                // Cards have already been rendered client-side; the
-                // tool_result just confirms.
-                pendingToolResults.push({
-                  type: 'tool_result',
-                  tool_use_id: tu.id,
-                  content: tu.placeIds.length > 0
-                    ? `Rendered ${tu.placeIds.length} restaurant card(s) to the user.`
-                    : 'No matching restaurant ids — please try different ones.',
-                });
-              }
-              // Open a fresh assistant turn for the next stream's text.
-              setMessages((prev) => [...prev, { role: 'assistant', blocks: [] }]);
-            } else {
-              // Final answer — exit the agentic loop.
-              return;
-            }
-            break; // exit for-await, top-of-loop processes pendingToolResults.
+            streamReachedDone = true;
+            modelCalledTools = toolUsesInThisTurn.length > 0;
+            break;
           } else if (ev.type === 'error') {
             setError(ev.message);
-            // Drop the trailing empty assistant turn if there's
-            // nothing in it; otherwise keep the partial.
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               if (last?.role === 'assistant' && last.blocks.length === 0) {
@@ -364,6 +388,96 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             return;
           }
         }
+
+        if (!streamReachedDone) {
+          // Stream cut off without a 'done' event (likely an abort).
+          return;
+        }
+        if (!modelCalledTools) {
+          // Final answer — exit the agentic loop.
+          return;
+        }
+
+        // Process every tool use Claude emitted this turn, generating
+        // a tool_result content string for each. recommend_restaurants
+        // is a no-op confirm. search_restaurants actually does work:
+        // hits Google Places via the parent's callback, dedupes into
+        // chatPlaces (so the cards Claude renders next still resolve),
+        // and returns a compact id-keyed listing back to Claude.
+        const toolResultsForApi: ContentBlock[] = [];
+        const toolResultsForUi: UiBlock[] = [];
+        for (const tu of toolUsesInThisTurn) {
+          let content = '';
+          if (tu.name === 'recommend_restaurants') {
+            const input = (tu.input || {}) as { restaurant_ids?: string[] };
+            const ids = Array.isArray(input.restaurant_ids) ? input.restaurant_ids : [];
+            content = ids.length > 0
+              ? `Rendered ${ids.length} restaurant card(s) for the user.`
+              : 'No restaurant ids provided.';
+          } else if (tu.name === 'search_restaurants') {
+            const input = (tu.input || {}) as { query?: string };
+            const query = (input.query || '').trim();
+            if (!query) {
+              content = 'No query provided to search_restaurants.';
+            } else {
+              try {
+                const found = await onSearchRestaurants(query);
+                if (!found || found.length === 0) {
+                  content = `Search for "${query}" returned no results. Tell the user honestly that you couldn't find anything matching that ask in their city.`;
+                } else {
+                  // Stash for the card-lookup map so any IDs Claude
+                  // recommends from this batch still render.
+                  setChatPlaces((prev) => {
+                    const next = { ...prev };
+                    for (const p of found) next[p.id] = p;
+                    return next;
+                  });
+                  const lines = found.slice(0, 10).map((p, i) => {
+                    const cuisine = inferCuisineLabel(p.types);
+                    const price = priceLevelToString(p.priceLevel);
+                    const score = p.rating > 0 ? `${(p.rating * 2).toFixed(1)}/10` : '';
+                    const meta = [cuisine, price, score].filter(Boolean).join(' · ');
+                    return `${i + 1}. ${p.name}  (id: ${p.id})  ${meta}`;
+                  }).join('\n');
+                  content = `Search for "${query}" returned ${Math.min(found.length, 10)} matches:\n${lines}\n\nRecommend any of these via recommend_restaurants — their cards will render even though they're outside the user's current filters.`;
+                }
+              } catch (err) {
+                content = `Search for "${query}" failed: ${err instanceof Error ? err.message : 'unknown error'}. Don't retry the same query.`;
+              }
+            }
+          } else {
+            content = `Unknown tool "${tu.name}".`;
+          }
+          toolResultsForApi.push({
+            type: 'tool_result',
+            tool_use_id: tu.id,
+            content,
+          });
+          toolResultsForUi.push({
+            type: 'tool_result',
+            toolUseId: tu.id,
+            content,
+          });
+        }
+
+        // CRITICAL: persist tool_results in the React `messages` state
+        // (as an invisible user turn). Without this, sending a fresh
+        // user message later rebuilds the history from messages and
+        // Anthropic rejects it with "tool_use ids were found without
+        // tool_result blocks immediately after".
+        setMessages((prev) => [
+          ...prev,
+          { role: 'user', blocks: toolResultsForUi },
+          { role: 'assistant', blocks: [] },
+        ]);
+
+        // Add assistant turn + user(tool_results) turn to convo for
+        // the next streamed iteration.
+        convo = [
+          ...convo,
+          { role: 'assistant', content: uiBlocksToAnthropicContent(assistantBlocks) },
+          { role: 'user', content: toolResultsForApi },
+        ];
       }
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
@@ -372,7 +486,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay]);
+  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay, onSearchRestaurants]);
 
   const handleSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
@@ -482,12 +596,25 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 </div>
               )}
 
-              {messages.map((m, mi) => (
+              {messages.map((m, mi) => {
+                // Hide messages that have only invisible blocks (a
+                // user turn full of tool_results, an assistant turn
+                // that only called search_restaurants, etc.) — the
+                // user shouldn't see protocol noise.
+                const hasVisibleContent = m.blocks.some(
+                  (b) =>
+                    (b.type === 'text' && b.text)
+                    || (b.type === 'cards' && b.placeIds.length > 0),
+                );
+                const isOpenAssistantSlot =
+                  m.role === 'assistant' && m.blocks.length === 0 && streaming;
+                if (!hasVisibleContent && !isOpenAssistantSlot) return null;
+                return (
                 <div
                   key={mi}
                   className={cn('lp-chat-msg', m.role === 'user' ? 'is-user' : 'is-assistant')}
                 >
-                  {m.blocks.length === 0 && m.role === 'assistant' && streaming && (
+                  {isOpenAssistantSlot && (
                     <div className="lp-chat-bubble">
                       <span className="lp-chat-typing" aria-label="Assistant is typing">
                         <span /><span /><span />
@@ -502,6 +629,11 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                           {b.text}
                         </div>
                       );
+                    }
+                    if (b.type === 'tool_use' || b.type === 'tool_result') {
+                      // Invisible protocol blocks — stored in state for
+                      // round-tripping the conversation; never rendered.
+                      return null;
                     }
                     // cards
                     if (b.placeIds.length === 0) return null;
@@ -561,7 +693,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                     );
                   })}
                 </div>
-              ))}
+                );
+              })}
 
               {error && (
                 <div className="lp-chat-error">
