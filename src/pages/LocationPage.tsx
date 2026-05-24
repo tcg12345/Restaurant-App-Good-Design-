@@ -21,7 +21,6 @@ import {
   MapPin,
   Maximize2,
   Minimize2,
-  Plus,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -1745,6 +1744,21 @@ export const LocationPage: React.FC = () => {
             )}
           </div>
 
+          {/* Open the full Filters sheet — same target as the button
+              that sits above the All-restaurants list. The chip shows
+              a small accent badge when any filters are active. */}
+          <button
+            type="button"
+            className="fb-chip"
+            onClick={() => setFilterSheetOpen(true)}
+            aria-label="Open filters"
+          >
+            <SlidersHorizontal /> Filters
+            {activeFilterCount > 0 && (
+              <span className="fb-count">{activeFilterCount}</span>
+            )}
+          </button>
+
           {/* List/Map view */}
           <div className="fb-view-group">
             <button type="button" className="fb-view-btn active">
@@ -2121,17 +2135,6 @@ export const LocationPage: React.FC = () => {
           )}
         </section>
       </div>
-
-      {/* FAB — placeholder for a "log a rating" / quick-add affordance.
-          TODO: wire to the same flow Discover uses for its + button. */}
-      <button
-        type="button"
-        className="lp-fab"
-        onClick={() => { /* TODO: open rating creation flow */ }}
-        aria-label="Add rating"
-      >
-        <Plus />
-      </button>
 
       <FilterSheet
         open={filterSheetOpen}

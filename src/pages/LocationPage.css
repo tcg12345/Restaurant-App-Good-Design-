@@ -135,6 +135,21 @@
   margin-left: 2px;
 }
 .location-page-root .fb-chip.active .count { color: rgba(255,255,255,0.6); }
+/* Active-filter count pip shown inside the sticky-bar Filters chip. */
+.location-page-root .fb-chip .fb-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin-left: 4px;
+}
 .location-page-root .fb-divider { width: 1px; height: 22px; background: var(--border-strong); margin: 0 6px; flex-shrink: 0; }
 .location-page-root .fb-toggle {
   display: inline-flex; align-items: center; gap: 8px;
@@ -1508,21 +1523,6 @@
     grid-template-columns: 1fr;
   }
 }
-
-/* ============ FAB ============ */
-.location-page-root .lp-fab {
-  position: fixed; bottom: 96px; right: 24px;
-  width: 52px; height: 52px;
-  border-radius: 50%;
-  background: var(--ink);
-  color: var(--bg);
-  display: grid; place-items: center;
-  box-shadow: var(--shadow-lg);
-  z-index: 30;
-  transition: transform .15s, background .15s;
-}
-.location-page-root .lp-fab:hover { transform: scale(1.06); background: var(--accent); }
-.location-page-root .lp-fab svg { width: 22px; height: 22px; }
 
 /* ============ EMPTY / LOADING ============ */
 .location-page-root .lp-empty {
