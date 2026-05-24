@@ -258,19 +258,34 @@ interface DiscoverProps {
   mode?: 'home' | 'map';
 }
 
-/** Time-of-day labels for the Discover hero headline. Tied to the local
- *  clock; rolls over at the boundaries so "Tonight" reads naturally in
- *  the evening, "Tomorrow morning" doesn't appear here. */
-function getTimeOfDayLabel(now = new Date()): { eyebrow: string; meal: string } {
+/** Time-of-day → greeting word. Drives "Good morning, Tyler" etc. */
+function getGreetingPart(now = new Date()): string {
   const h = now.getHours();
-  if (h >= 5 && h < 11) return { eyebrow: 'Morning', meal: 'Breakfast' };
-  if (h >= 11 && h < 14) return { eyebrow: 'Midday', meal: 'Lunch' };
-  if (h >= 14 && h < 17) return { eyebrow: 'Afternoon', meal: 'A bite' };
-  if (h >= 17 && h < 22) return { eyebrow: 'Evening', meal: 'Tonight' };
-  return { eyebrow: 'Late night', meal: 'Late night' };
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
 }
 
+/** Day-of-week label for the hero eyebrow. */
 const HERO_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** Stable hash → 0-360 hue. Used to derive a consistent gradient color
+ *  per restaurant/recipe id so the placeholder image area has visual
+ *  variety without needing real photos. */
+function hashToHue(str: string): number {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = ((h * 31) + str.charCodeAt(i)) | 0;
+  return ((h % 360) + 360) % 360;
+}
+
+/** Editorial gradient placeholder. Mirrors the styles.css mock spec
+ *  (135deg, three stops, lightness drop) so it reads as a warm
+ *  cinematic backdrop, not a flat color block. */
+function placeholderGradient(seed: string, sat = 50, light = 52): string {
+  const h1 = hashToHue(seed);
+  const h2 = (h1 + 25) % 360;
+  return `linear-gradient(135deg, hsl(${h1} ${sat}% ${light + 8}%) 0%, hsl(${h1} ${sat}% ${light}%) 40%, hsl(${h2} ${Math.max(sat - 10, 0)}% ${light - 18}%) 100%)`;
+}
 
 export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const navigate = useNavigate();
@@ -380,7 +395,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     publicRecipes: publicPublishedRecipes,
     fetchFriendRecipes, fetchExpertRecipes, fetchPublicRecipes,
   } = useRecipes();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const userId = user?.id ?? null;
   const { openGuideCreator } = useGuideCreator();
 
@@ -548,6 +563,18 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [selectedPrice, setSelectedPrice] = useState(0);
   const [discoverRadius, setDiscoverRadius] = useState(5); // km
+
+  // Hero chip filter — quick cuisine narrow on the Recommended row.
+  // `null` = no narrow.
+  const [heroChipCuisine, setHeroChipCuisine] = useState<string | null>(null);
+
+  // Refs for horizontal-scroll arrows on the Discover rails.
+  const recRailRef = useRef<HTMLDivElement | null>(null);
+  const recipeRailRef = useRef<HTMLDivElement | null>(null);
+  const scrollRail = (ref: React.RefObject<HTMLDivElement | null>, dir: 1 | -1) => {
+    if (!ref.current) return;
+    ref.current.scrollBy({ left: dir * 560, behavior: 'smooth' });
+  };
 
   // Filter state — ratings modes (myratings / friends / experts)
   const [ratingSortBy, setRatingSortBy] = useState<'recent' | 'highest' | 'lowest' | 'visited'>('recent');
@@ -4401,61 +4428,198 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               )}
 
               {/* Feed content — hidden when searching.
-                  Desktop renders the editorial hero (eyebrow + serif
-                  headline + chip-style location + view-all + a quiet
-                  taste-line); phone keeps the compact stacked
-                  "DINING IN" block beside the View-all link. */}
+                  Desktop renders a personalized greeting hero with a
+                  featured restaurant card alongside; phone shows the
+                  compact stacked "DINING IN" block. */}
               {!discoverSearchActive && mode === 'home' && usingDesktopHeader && (() => {
-                const tod = getTimeOfDayLabel();
+                const greetingPart = getGreetingPart();
                 const dayName = HERO_DAY_NAMES[new Date().getDay()];
-                const city = homeLocation?.label?.split(',')[0]?.trim() || '';
-                const headline = homeLocation
-                  ? `${tod.meal} in ${city}`
-                  : 'Find your next great meal';
-                const pickCount = recommendations.length;
-                const topCuisine = userPreferences.topCuisines?.[0];
-                const taste = pickCount > 0
-                  ? topCuisine
-                    ? `${pickCount} picks near you · You love ${topCuisine}`
-                    : `${pickCount} picks near you`
-                  : null;
+                const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
+                const firstName = (profile?.display_name || profile?.username || (user?.email || '').split('@')[0] || 'there')
+                  .split(' ')[0]
+                  .split('@')[0];
+                const savedCount = wishlist.length;
+                const visitedCount = myLocalRatings.length;
+                const listsCount = myLists.length;
+                // Pick the strongest recommendation as the featured spot.
+                const featured = recommendations[0];
+                const featuredCuisine = featured ? getCuisineLabel((featured as any).types || []) : '';
+                const featuredPhoto = featured ? ((featured as any).photoUrl as string | undefined) : undefined;
+                const featuredRating = featured ? ((featured as any).rating as number | undefined) : undefined;
+                const featuredPrice = featured ? priceLevelToString((featured as any).priceLevel || 0) : '';
+                const featuredAddress = featured ? (((featured as any).address as string) || '').split(',')[0]?.trim() : '';
+                const featuredId = featured?.id || '';
+                const featuredSaved = featured ? isWishlisted(featured.id) : false;
+                const featuredMeta = featured ? {
+                  id: featured.id,
+                  name: featured.name,
+                  image: featuredPhoto || '',
+                  cuisine: featuredCuisine,
+                  price: featuredPrice,
+                  address: (featured as any).address || '',
+                } : null;
                 return (
-                  <section className="pt-7 pb-7">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-on-surface/55">
-                      Discover · {dayName} {tod.eyebrow.toLowerCase()}
-                    </p>
-                    <div className="mt-2 flex items-baseline justify-between gap-6 flex-wrap">
-                      <h1 className="font-serif font-bold text-on-surface text-[44px] leading-[1.02] tracking-[-0.035em] min-w-0">
-                        {headline}
-                      </h1>
-                      {homeLocation && (
+                  <section className="pt-7 pb-2 grid grid-cols-1 xl:grid-cols-[1.05fr_1fr] gap-7 xl:gap-9 items-stretch">
+                    {/* Greeting column */}
+                    <div className="flex flex-col justify-between min-w-0 gap-6">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">
+                          {dayName}{neighborhood && (
+                            <>
+                              <span className="text-on-surface/30 font-bold"> · </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  navigate(
+                                    `/location?label=${encodeURIComponent(homeLocation!.label)}&lat=${homeLocation!.lat}&lng=${homeLocation!.lng}`,
+                                  )
+                                }
+                                className="hover:underline underline-offset-4"
+                              >
+                                {neighborhood}
+                              </button>
+                            </>
+                          )}
+                        </p>
+                        <h1 className="mt-3 font-serif font-semibold text-on-surface text-[48px] xl:text-[52px] leading-[1.02] tracking-[-0.03em]">
+                          Good {greetingPart},{' '}
+                          <span className="font-serif italic font-medium text-primary">{firstName}</span>
+                        </h1>
+                        <p className="mt-3 text-[15px] text-on-surface/65 leading-[1.5] max-w-[480px]">
+                          {recommendations.length > 0
+                            ? `${recommendations.length} fresh picks near you${userPreferences.topCuisines?.[0] ? ` — including the ${userPreferences.topCuisines[0]} spots you like` : ''}.`
+                            : 'Pick a location to start surfacing spots you\'ll love.'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-7">
                         <button
                           type="button"
-                          onClick={() =>
-                            navigate(
-                              `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
-                            )
-                          }
-                          className="flex-shrink-0 inline-flex items-center gap-1 text-[12px] font-bold uppercase tracking-[0.12em] text-primary hover:opacity-75 transition-opacity"
+                          onClick={() => navigate('/profile?tab=wishlist')}
+                          className="text-left hover:opacity-70 transition-opacity"
                         >
-                          View all
-                          <ChevronRight size={12} strokeWidth={2.5} />
+                          <div className="font-serif font-semibold text-on-surface text-[26px] leading-none tracking-[-0.02em] tabular-nums">
+                            {savedCount}
+                          </div>
+                          <div className="mt-1 text-[11px] font-semibold text-on-surface/55 uppercase tracking-[0.1em]">
+                            Saved
+                          </div>
                         </button>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => navigate('/profile?tab=rated')}
+                          className="text-left hover:opacity-70 transition-opacity"
+                        >
+                          <div className="font-serif font-semibold text-on-surface text-[26px] leading-none tracking-[-0.02em] tabular-nums">
+                            {visitedCount}
+                          </div>
+                          <div className="mt-1 text-[11px] font-semibold text-on-surface/55 uppercase tracking-[0.1em]">
+                            Visited
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate('/profile?tab=lists')}
+                          className="text-left hover:opacity-70 transition-opacity"
+                        >
+                          <div className="font-serif font-semibold text-on-surface text-[26px] leading-none tracking-[-0.02em] tabular-nums">
+                            {listsCount}
+                          </div>
+                          <div className="mt-1 text-[11px] font-semibold text-on-surface/55 uppercase tracking-[0.1em]">
+                            Lists
+                          </div>
+                        </button>
+                      </div>
                     </div>
-                    <div className="mt-5 flex items-center gap-4 flex-wrap">
-                      <HomeLocationBar
-                        location={homeLocation}
-                        onChange={handleHomeLocationChange}
-                        onUseCurrent={handleHomeUseCurrent}
-                        variant="chip"
-                      />
-                      {taste && (
-                        <p className="text-[13px] font-medium text-on-surface/55">
-                          {taste}
-                        </p>
-                      )}
-                    </div>
+
+                    {/* Featured restaurant card (desktop only, when we have a pick) */}
+                    {featured && featuredMeta && (
+                      <article
+                        className="hidden xl:grid grid-cols-[1.1fr_1fr] rounded-3xl overflow-hidden border border-on-surface/[0.08] bg-white shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] min-h-[280px]"
+                      >
+                        {/* Cover: real photo when available, gradient placeholder otherwise. */}
+                        <div className="relative overflow-hidden">
+                          {featuredPhoto ? (
+                            <img
+                              src={featuredPhoto}
+                              alt=""
+                              className="absolute inset-0 w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div
+                              className="absolute inset-0"
+                              style={{ background: placeholderGradient(featuredId || featured.name, 50, 48) }}
+                            />
+                          )}
+                          {/* Subtle radial overlays for depth */}
+                          <div
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                              backgroundImage:
+                                'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.18), transparent 40%), radial-gradient(circle at 80% 70%, rgba(0,0,0,0.25), transparent 50%)',
+                            }}
+                          />
+                          <div className="absolute top-4 left-4 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/92 backdrop-blur text-[11px] font-bold uppercase tracking-[0.04em] text-on-surface">
+                            <Sparkles size={11} className="text-primary" />
+                            Editor's pick · this week
+                          </div>
+                        </div>
+                        {/* Body */}
+                        <div className="p-6 flex flex-col justify-between gap-4 min-w-0">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/55">
+                              {featuredCuisine || 'Featured'}
+                            </p>
+                            <h2 className="mt-2 font-serif font-semibold text-on-surface text-[28px] leading-[1.05] tracking-[-0.02em] line-clamp-2">
+                              {featured.name}
+                            </h2>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-3 text-[13px] text-on-surface/70 font-medium flex-wrap mb-4">
+                              {featuredRating && featuredRating > 0 && (
+                                <span className="inline-flex items-center gap-1 font-semibold text-on-surface">
+                                  <Star size={13} className="fill-amber-500 text-amber-500" />
+                                  {featuredRating.toFixed(1)}
+                                </span>
+                              )}
+                              {featuredRating && featuredRating > 0 && featuredPrice && (
+                                <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />
+                              )}
+                              {featuredPrice && <span>{featuredPrice}</span>}
+                              {featuredAddress && (
+                                <>
+                                  <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />
+                                  <span className="truncate min-w-0">{featuredAddress}</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/restaurant/${featured.id}`)}
+                                className="inline-flex items-center gap-1.5 h-10 px-4 rounded-full bg-on-surface text-surface text-[13px] font-semibold hover:bg-primary transition-colors"
+                              >
+                                See details
+                                <ChevronRight size={14} strokeWidth={2.5} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleWishlist(featuredMeta)}
+                                className={cn(
+                                  'inline-flex items-center gap-1.5 h-10 px-4 rounded-full text-[13px] font-semibold border transition-colors',
+                                  featuredSaved
+                                    ? 'bg-primary/10 border-primary/30 text-primary'
+                                    : 'bg-transparent border-on-surface/15 text-on-surface hover:bg-on-surface/[0.04]',
+                                )}
+                              >
+                                <Heart size={14} className={featuredSaved ? 'fill-current' : ''} />
+                                {featuredSaved ? 'Saved' : 'Save'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    )}
                   </section>
                 );
               })()}
@@ -4494,9 +4658,52 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   homeLocationRefreshing ? 'opacity-40' : 'opacity-100',
                 )}
               >
+              {/* Chip row — quick cuisine narrow on the Recommended row.
+                  Desktop-only; phone has its own discovery filters. */}
+              {usingDesktopHeader && (() => {
+                const cuisineOptions = (userPreferences.topCuisines && userPreferences.topCuisines.length > 0
+                  ? userPreferences.topCuisines.slice(0, 5)
+                  : ['Japanese', 'Mediterranean', 'Italian', 'American', 'Korean']);
+                const allActive = heroChipCuisine === null;
+                return (
+                  <div className="mt-4 mb-2 flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+                    <button
+                      type="button"
+                      onClick={() => setHeroChipCuisine(null)}
+                      className={cn(
+                        'flex-shrink-0 inline-flex items-center gap-1.5 h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
+                        allActive
+                          ? 'bg-on-surface text-surface border-on-surface'
+                          : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
+                      )}
+                    >
+                      All
+                    </button>
+                    {cuisineOptions.map((c) => {
+                      const isActive = heroChipCuisine === c;
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setHeroChipCuisine(isActive ? null : c)}
+                          className={cn(
+                            'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
+                            isActive
+                              ? 'bg-on-surface text-surface border-on-surface'
+                              : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
+                          )}
+                        >
+                          {c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
               {/* Recommendations */}
               {recsLoading ? (
-                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                <section className={cn(usingDesktopHeader ? 'mt-3' : 'mt-4')}>
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
@@ -4512,38 +4719,88 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     <span className="ml-2 text-xs text-on-surface/40">Finding picks near you…</span>
                   </div>
                 </section>
-              ) : recommendations.length > 0 ? (
-                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+              ) : recommendations.length > 0 ? (() => {
+                const filtered = heroChipCuisine
+                  ? recommendations.filter((p) => getCuisineLabel((p as any).types || []) === heroChipCuisine)
+                  : recommendations;
+                const visible = filtered.slice(0, 30);
+                const headerCount = filtered.length;
+                return (
+                <section className={cn(usingDesktopHeader ? 'mt-3' : 'mt-4')}>
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       <h2 className={cn(
-                        'font-serif font-bold text-on-surface leading-[1.05] tracking-[-0.02em]',
+                        'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2.5',
                         usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                       )}>
-                        Recommended
+                        Recommended for you
+                        {usingDesktopHeader && headerCount > 0 && (
+                          <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
+                            {headerCount}
+                          </span>
+                        )}
                       </h2>
+                      {usingDesktopHeader && (
+                        <p className="mt-1 text-[13px] text-on-surface/55">
+                          {heroChipCuisine
+                            ? `${heroChipCuisine} spots near you`
+                            : `Based on your saves${homeLocation ? ` and what's hot in ${homeLocation.label.split(',')[0].trim()}` : ''}`}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {usingDesktopHeader && (
+                        <div className="hidden md:flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => scrollRail(recRailRef, -1)}
+                            className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
+                            aria-label="Scroll left"
+                          >
+                            <ChevronLeft size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => scrollRail(recRailRef, 1)}
+                            className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
+                            aria-label="Scroll right"
+                          >
+                            <ChevronRight size={14} />
+                          </button>
+                        </div>
+                      )}
+                      {homeLocation && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate(
+                              `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
+                            )
+                          }
+                          className="inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
+                        >
+                          View all
+                          <ChevronRight size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                   <div
-                    className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
+                    ref={recRailRef}
+                    className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
                     onScroll={(e) => {
-                      // Stop fetching once we have enough to fill the rail
-                      // — the user hits the View-all card before this cap.
                       if (recommendations.length >= 30) return;
                       const el = e.currentTarget;
                       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 300) loadMoreRecommendations();
                     }}
                   >
-                    {recommendations.slice(0, 30).map((place) => {
+                    {visible.map((place) => {
                       const cuisine = getCuisineLabel((place as any).types || []);
                       const wishlisted = isWishlisted(place.id);
                       const photoUrl = (place as any).photoUrl as string | undefined;
                       const rating = (place as any).rating as number | undefined;
                       const price = priceLevelToString((place as any).priceLevel || 0);
                       const fullAddress = (place as any).address as string || '';
-                      // First chunk of the address is usually street + number
-                      // (e.g. "120 Wythe Ave") — most useful neighborhood-level
-                      // signal in a short card.
                       const street = fullAddress.split(',')[0]?.trim() || '';
                       const recMeta = {
                         id: place.id,
@@ -4553,6 +4810,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         price,
                         address: fullAddress,
                       };
+                      // Convert Google /5 to a /10 score so the circle matches
+                      // the rest of the app (which scores out of 10).
+                      const score10 = rating && rating > 0 ? rating * 2 : null;
+                      const scoreStr = score10 != null ? score10.toFixed(1) : '';
+                      const scoreCls = score10 == null
+                        ? 'border-on-surface/15 bg-on-surface/[0.04] text-on-surface/45'
+                        : score10 >= 8
+                          ? 'border-emerald-700 bg-emerald-700/[0.08] text-emerald-700'
+                          : score10 >= 6
+                            ? 'border-amber-600 bg-amber-600/[0.10] text-amber-700'
+                            : 'border-on-surface/15 bg-on-surface/[0.04] text-on-surface/65';
                       return (
                         <button
                           key={place.id}
@@ -4560,112 +4828,165 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           onClick={() => navigate(`/restaurant/${place.id}`)}
                           className={cn(
                             'flex-shrink-0 snap-start text-left group',
-                            usingDesktopHeader ? 'w-[210px]' : 'w-[168px]',
+                            usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
                           )}
                         >
-                          {/* Photo on top with action overlay; meta below. */}
-                          <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.06]">
-                            {photoUrl ? (
-                              <img
-                                src={photoUrl}
-                                alt=""
-                                className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <div className="absolute inset-0 flex items-center justify-center text-on-surface/25">
-                                <span className="font-serif italic text-2xl">{place.name?.charAt(0) || '·'}</span>
-                              </div>
-                            )}
-                            {/* Glass action cluster — heart + plus */}
-                            <div className="absolute top-2 right-2 flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
-                                className={cn(
-                                  'w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md transition-colors',
-                                  wishlisted
-                                    ? 'bg-primary text-white'
-                                    : 'bg-black/30 text-white hover:bg-black/50',
+                          {usingDesktopHeader ? (
+                            /* ── Desktop card: gradient/photo image area on top,
+                                  floating score circle, name + address + meta. */
+                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15">
+                              <div className="relative aspect-[4/3] overflow-hidden">
+                                {photoUrl ? (
+                                  <img
+                                    src={photoUrl}
+                                    alt=""
+                                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div
+                                    className="absolute inset-0"
+                                    style={{ background: placeholderGradient(place.id || place.name) }}
+                                  />
                                 )}
-                                aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
-                              >
-                                <Heart size={14} className={wishlisted ? 'fill-current' : ''} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
-                                className="w-8 h-8 rounded-full flex items-center justify-center bg-black/30 text-white backdrop-blur-md hover:bg-black/50 transition-colors"
-                                aria-label="Add to list"
-                              >
-                                <Plus size={14} />
-                              </button>
-                            </div>
-                            {/* Rating badge bottom-left when known */}
-                            {rating && rating > 0 && (
-                              <div className="absolute bottom-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-black/45 text-white backdrop-blur-md text-[11px] font-bold tabular-nums">
-                                <Star size={10} className="fill-current" />
-                                {rating.toFixed(1)}
+                                {/* Radial highlight + shadow for depth */}
+                                <div
+                                  className="absolute inset-0 pointer-events-none"
+                                  style={{
+                                    backgroundImage:
+                                      'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                                  }}
+                                />
+                                <span className="absolute top-2.5 left-2.5 inline-flex items-center px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[10.5px] font-bold uppercase tracking-[0.08em] text-on-surface max-w-[140px] truncate">
+                                  {cuisine || 'Restaurant'}
+                                </span>
+                                <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
+                                    className={cn(
+                                      'w-8 h-8 rounded-full flex items-center justify-center bg-white/92 backdrop-blur text-on-surface transition-transform hover:scale-[1.06] hover:bg-white',
+                                      wishlisted && 'text-primary',
+                                    )}
+                                    aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
+                                  >
+                                    <Heart size={14} className={wishlisted ? 'fill-current' : ''} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
+                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-white/92 backdrop-blur text-on-surface transition-transform hover:scale-[1.06] hover:bg-white"
+                                    aria-label="Add to list"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
                               </div>
-                            )}
-                          </div>
-                          {/* Meta block below the photo */}
-                          <div className="mt-3 px-0.5">
-                            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/55 truncate">
-                              {cuisine || 'Restaurant'}
-                              {price && <span className="text-on-surface/35 font-bold"> · {price}</span>}
-                            </p>
-                            <h3 className="mt-1 font-serif text-[16px] font-bold text-on-surface leading-[1.18] line-clamp-2 group-hover:text-primary transition-colors">
-                              {place.name}
-                            </h3>
-                            {street && (
-                              <p className="mt-1 text-[12px] text-on-surface/50 font-medium truncate">
-                                {street}
-                              </p>
-                            )}
-                          </div>
+                              {/* Floating score circle — overlaps image bottom */}
+                              {scoreStr && (
+                                <div
+                                  className={cn(
+                                    'absolute right-3.5 z-10 w-[52px] h-[52px] rounded-full border-2 grid place-items-center font-serif font-bold text-[16px] leading-none tabular-nums shadow-[0_2px_8px_-2px_rgba(31,26,23,0.10),0_0_0_4px_white]',
+                                    scoreCls,
+                                  )}
+                                  style={{ top: 'calc(75% - 4px)' }}
+                                  title={`Score ${scoreStr} / 10`}
+                                >
+                                  {scoreStr}
+                                </div>
+                              )}
+                              <div className="px-4 pt-3.5 pb-3 pr-[72px]">
+                                <h3 className="font-serif font-semibold text-on-surface text-[17px] leading-[1.18] tracking-[-0.018em] line-clamp-2">
+                                  {place.name}
+                                </h3>
+                                {street && (
+                                  <div className="mt-1.5 flex items-center gap-1 text-[12px] text-on-surface/55 truncate">
+                                    <MapPin size={11} className="text-on-surface/35 flex-shrink-0" />
+                                    <span className="truncate">{street}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="mx-4 mb-3 pt-3 border-t border-on-surface/[0.08] flex items-center gap-2 text-[12px] text-on-surface/65 font-medium">
+                                {price && <span>{price}</span>}
+                              </div>
+                            </article>
+                          ) : (
+                            /* ── Mobile card: NO image, accent bar on top.
+                                  Cuisine eyebrow + score inline, then name,
+                                  address, $$/distance footer. */
+                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden p-3.5 pb-3 min-h-[170px] flex flex-col transition-colors group-hover:border-on-surface/20">
+                              <span
+                                className="absolute inset-x-0 top-0 h-[3px]"
+                                style={{ background: `hsl(${hashToHue(place.id || place.name)} 50% 52%)` }}
+                              />
+                              <div className="flex items-start justify-between gap-2 -mt-0.5">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.12em] truncate flex-1 pt-1"
+                                   style={{ color: `hsl(${hashToHue(place.id || place.name)} 50% 38%)` }}
+                                >
+                                  {cuisine || 'Restaurant'}
+                                </p>
+                                {scoreStr && (
+                                  <div
+                                    className={cn(
+                                      'flex-shrink-0 w-[42px] h-[42px] rounded-full border-2 grid place-items-center font-serif font-bold text-[13px] tabular-nums leading-none',
+                                      scoreCls,
+                                    )}
+                                    title={`Score ${scoreStr} / 10`}
+                                  >
+                                    {scoreStr}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-0.5 -mt-0.5 -mr-1">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
+                                    className={cn(
+                                      'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
+                                      wishlisted ? 'text-primary' : 'text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.05]',
+                                    )}
+                                  >
+                                    <Heart size={13} className={wishlisted ? 'fill-current' : ''} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
+                                    className="w-7 h-7 rounded-full flex items-center justify-center text-primary hover:bg-primary/10 transition-colors"
+                                  >
+                                    <Plus size={13} />
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="mt-2 flex-1 min-h-0">
+                                <h3 className="font-serif font-semibold text-on-surface text-[16px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
+                                  {place.name}
+                                </h3>
+                                {street && (
+                                  <div className="mt-1 flex items-center gap-1 text-[11.5px] text-on-surface/55 truncate">
+                                    <MapPin size={10} className="text-on-surface/35 flex-shrink-0" />
+                                    <span className="truncate">{street}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="mt-2 pt-2.5 border-t border-on-surface/[0.06] flex items-center gap-2 text-[12px] text-on-surface/65 font-medium">
+                                {price && <span>{price}</span>}
+                              </div>
+                            </article>
+                          )}
                         </button>
                       );
                     })}
                     {recsLoadingMore && (
                       <div className={cn(
                         'flex-shrink-0 flex items-center justify-center',
-                        usingDesktopHeader ? 'w-[210px]' : 'w-[168px]',
+                        usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
                       )}>
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
                     )}
-                    {/* View-all end card — quieter than before, matches the
-                        photo aspect so it doesn't break the rail rhythm. */}
-                    {homeLocation && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate(
-                            `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
-                          )
-                        }
-                        className={cn(
-                          'flex-shrink-0 snap-start text-left group',
-                          usingDesktopHeader ? 'w-[210px]' : 'w-[168px]',
-                        )}
-                      >
-                        <div className="relative aspect-[4/5] rounded-2xl bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
-                          <div className="w-10 h-10 rounded-full bg-primary/12 group-hover:bg-primary/20 transition-colors flex items-center justify-center mb-2">
-                            <ChevronRight size={18} className="text-primary" strokeWidth={2.2} />
-                          </div>
-                          <p className="font-serif text-[14px] font-bold text-primary leading-tight">
-                            View all
-                          </p>
-                          <p className="text-[10.5px] text-on-surface/55 mt-1 line-clamp-2 leading-tight">
-                            in {homeLocation.label.split(',')[0]}
-                          </p>
-                        </div>
-                      </button>
-                    )}
                   </div>
                 </section>
-              ) : mode === 'home' && homeLocation ? (
+                );
+              })() : mode === 'home' && homeLocation ? (
                 // Empty state. Most common cause: the user switched to a
                 // city for the first time and the personalised queries
                 // came back narrower than the radius allows. We keep the
@@ -4689,28 +5010,174 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 </section>
               ) : null}
 
-              {/* Recipes For You — friend / expert / public recipes ranked by
-                   source + cuisine/tag overlap with the user's logged Home
-                   Cooking meals. Cards mirror the Recommended rail: photo on
-                   top, editorial meta below; the heavy "FROM JEN" green chips
-                   are replaced with a small avatar + name eyebrow. */}
-              <section className={cn(usingDesktopHeader ? 'mt-8' : 'mt-4')}>
-                <div className="flex items-end justify-between gap-4 mb-4">
+              {/* Guides — curated lists from friends and tastemakers.
+                  Matches the editorial card vocabulary: square gradient
+                  cover cards (or real cover photos when present) +
+                  serif title + author chip. */}
+              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-5')}>
+                <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
-                      'font-serif font-bold text-on-surface leading-[1.05] tracking-[-0.02em]',
+                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em]',
+                      usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
+                    )}>
+                      Guides
+                    </h2>
+                    {usingDesktopHeader && (
+                      <p className="mt-1 text-[13px] text-on-surface/55">
+                        Curated lists from friends and tastemakers
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openGuideCreator()}
+                    className="flex-shrink-0 inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
+                  >
+                    Browse all
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                  {/* Create-a-guide tile — soft accent surface so it doesn't
+                      compete with real guides, but is still inviting. */}
+                  <button
+                    type="button"
+                    onClick={() => openGuideCreator()}
+                    className={cn(
+                      'flex-shrink-0 snap-start text-left group',
+                      usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
+                    )}
+                  >
+                    <div className="aspect-square rounded-2xl border-[1.5px] border-dashed border-primary/30 bg-primary/[0.05] p-4 flex flex-col justify-between transition-colors group-hover:border-primary group-hover:bg-primary/[0.08]">
+                      <div className="w-10 h-10 rounded-2xl bg-white shadow-sm grid place-items-center text-primary">
+                        <Plus size={18} />
+                      </div>
+                      <div>
+                        <h3 className="font-serif font-semibold text-[17px] text-on-surface tracking-[-0.015em] leading-tight">
+                          Create a guide
+                        </h3>
+                        <p className="mt-1 text-[12px] text-on-surface/65 leading-[1.4]">
+                          Bundle restaurants or recipes into a shareable list.
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                  {feedGuides.map((g) => {
+                    const author = feedGuideAuthors[g.userId];
+                    const authorName = author?.display_name || author?.username || 'someone';
+                    const authorInitial = authorName.charAt(0).toUpperCase();
+                    const authorHue = hashToHue(g.userId || authorName);
+                    return (
+                      <Link
+                        key={g.id}
+                        to={`/guides/${g.id}`}
+                        className={cn(
+                          'flex-shrink-0 snap-start group',
+                          usingDesktopHeader ? 'w-[200px]' : 'w-[160px]',
+                        )}
+                      >
+                        <article className="bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden flex flex-col transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15">
+                          <div className="relative aspect-[1/0.85] overflow-hidden">
+                            {g.coverPhoto ? (
+                              <img
+                                src={g.coverPhoto}
+                                alt=""
+                                className="absolute inset-0 w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div
+                                className="absolute inset-0"
+                                style={{ background: placeholderGradient(g.id || g.title) }}
+                              />
+                            )}
+                            <div
+                              className="absolute inset-0 pointer-events-none"
+                              style={{
+                                backgroundImage:
+                                  'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                              }}
+                            />
+                            <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[10px] font-bold uppercase tracking-[0.08em] text-on-surface">
+                              <BookOpen size={11} className="text-primary" />
+                              Guide · {g.entries.length} {g.type === 'recipes' ? 'recipes' : 'spots'}
+                            </span>
+                          </div>
+                          <div className="px-3.5 pt-3 pb-3.5">
+                            <h3 className="font-serif font-semibold text-on-surface text-[15px] tracking-[-0.01em] leading-[1.25] line-clamp-2">
+                              {g.title}
+                            </h3>
+                            <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-on-surface/55">
+                              <span
+                                className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold"
+                                style={{ background: `hsl(${authorHue} 50% 45%)` }}
+                              >
+                                {authorInitial}
+                              </span>
+                              <span>by {authorName}</span>
+                            </div>
+                          </div>
+                        </article>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* Recipes For You — friend / expert / public recipes ranked by
+                  source + cuisine/tag overlap with the user's logged Home
+                  Cooking meals. Same card vocabulary as Recommended/Guides
+                  for visual continuity. */}
+              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                <div className="flex items-end justify-between gap-4 mb-3">
+                  <div className="min-w-0">
+                    <h2 className={cn(
+                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2.5',
                       usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                     )}>
                       Recipes for you
+                      {usingDesktopHeader && recommendedRecipes.length > 0 && (
+                        <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
+                          {recommendedRecipes.length}
+                        </span>
+                      )}
                     </h2>
+                    {usingDesktopHeader && (
+                      <p className="mt-1 text-[13px] text-on-surface/55">
+                        From friends and chefs you follow
+                      </p>
+                    )}
                   </div>
-                  <Link
-                    to="/recipes-for-you"
-                    className="flex-shrink-0 inline-flex items-center gap-1 text-[12px] font-bold uppercase tracking-[0.12em] text-primary hover:opacity-75 transition-opacity pb-1"
-                  >
-                    View all
-                    <ChevronRight size={12} strokeWidth={2.5} />
-                  </Link>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {usingDesktopHeader && recommendedRecipes.length > 0 && (
+                      <div className="hidden md:flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => scrollRail(recipeRailRef, -1)}
+                          className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
+                          aria-label="Scroll left"
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => scrollRail(recipeRailRef, 1)}
+                          className="w-8 h-8 rounded-full bg-white border border-on-surface/[0.08] text-on-surface/65 hover:text-on-surface hover:border-on-surface/30 transition-colors flex items-center justify-center"
+                          aria-label="Scroll right"
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    )}
+                    <Link
+                      to="/recipes-for-you"
+                      className="inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
+                    >
+                      View all
+                      <ChevronRight size={14} />
+                    </Link>
+                  </div>
                 </div>
                 {recommendedRecipes.length === 0 ? (
                   <div className="flex items-center justify-between gap-3 py-2">
@@ -4720,7 +5187,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       </p>
                       <Link
                         to="/recipes-for-you"
-                        className="mt-1 inline-flex items-center gap-1 text-[13px] font-bold text-primary hover:opacity-70 transition-opacity"
+                        className="mt-1 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:opacity-70 transition-opacity"
                       >
                         Explore the community
                         <ChevronRight size={12} strokeWidth={2.5} />
@@ -4728,7 +5195,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                  <div
+                    ref={recipeRailRef}
+                    className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
+                  >
                     {recommendedRecipes.map((r) => {
                       const cover = r.photos?.[0];
                       const authorProfile =
@@ -4738,80 +5208,116 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                             ? (expertProfiles[r.userId] || recipeAuthorProfiles[r.userId])
                             : undefined;
                       const authorName = authorProfile?.display_name
-                        || (authorProfile?.username ? `@${authorProfile.username}` : '');
-                      const authorInitial = (authorName || (r._source === 'expert' ? 'C' : 'F'))
-                        .replace('@', '')
-                        .trim()
-                        .charAt(0)
-                        .toUpperCase();
-                      const sourceLabel =
-                        r._source === 'public' ? 'Community'
-                        : authorName
-                          ? authorName
-                          : (r._source === 'expert' ? 'Chef' : 'Friend');
-                      // Avatar tint reads the source — Friend (olive), Expert
-                      // (clay/primary), Community (neutral ink).
-                      const avatarCls =
-                        r._source === 'friend' ? 'bg-secondary text-white'
-                        : r._source === 'expert' ? 'bg-primary text-white'
-                        : 'bg-on-surface/15 text-on-surface/70';
+                        || (authorProfile?.username ? authorProfile.username : '')
+                        || (r._source === 'expert' ? 'Chef' : r._source === 'public' ? 'Community' : 'Friend');
+                      const authorInitial = authorName.replace('@', '').trim().charAt(0).toUpperCase() || 'F';
                       const totalMin = (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
                       const timeLabel = totalMin > 0
                         ? totalMin >= 60
                           ? `${Math.floor(totalMin / 60)}h${totalMin % 60 ? ` ${totalMin % 60}m` : ''}`
                           : `${totalMin}m`
                         : '';
-                      const ingCount = r.ingredients?.length || 0;
-                      const stepCount = r.steps?.length || 0;
+                      const authorHue = hashToHue(r.userId || authorName);
                       return (
                         <Link
                           key={r.id}
                           to={`/recipe/${r.id}`}
                           className={cn(
                             'flex-shrink-0 snap-start group',
-                            usingDesktopHeader ? 'w-[210px]' : 'w-[168px]',
+                            usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
                           )}
                         >
-                          <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-on-surface/[0.06]">
-                            {cover ? (
-                              <img
-                                src={cover}
-                                alt=""
-                                className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                                referrerPolicy="no-referrer"
+                          {usingDesktopHeader ? (
+                            /* ── Desktop: gradient/photo image area on top
+                                  with an author pill; meta below. Top accent
+                                  bar identifies recipes vs restaurants. */
+                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15">
+                              <div className="relative aspect-[4/3] overflow-hidden">
+                                {cover ? (
+                                  <img
+                                    src={cover}
+                                    alt=""
+                                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div
+                                    className="absolute inset-0"
+                                    style={{ background: placeholderGradient(r.id || r.title, 50, 56) }}
+                                  />
+                                )}
+                                <div
+                                  className="absolute inset-0 pointer-events-none"
+                                  style={{
+                                    backgroundImage:
+                                      'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                                  }}
+                                />
+                                <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[11px] font-semibold text-on-surface max-w-[140px] truncate">
+                                  <span
+                                    className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold flex-shrink-0"
+                                    style={{ background: `hsl(${authorHue} 50% 45%)` }}
+                                  >
+                                    {authorInitial}
+                                  </span>
+                                  <span className="truncate">{authorName}</span>
+                                </span>
+                                {timeLabel && (
+                                  <div className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-black/45 text-white backdrop-blur text-[11px] font-semibold tabular-nums">
+                                    <Clock size={10} />
+                                    {timeLabel}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="px-4 pt-3.5 pb-3.5">
+                                <h3 className="font-serif font-semibold text-on-surface text-[17px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
+                                  {r.title}
+                                </h3>
+                                {r.cuisine && (
+                                  <p className="mt-1 text-[12px] text-on-surface/55 font-medium truncate">
+                                    {r.cuisine}
+                                  </p>
+                                )}
+                              </div>
+                            </article>
+                          ) : (
+                            /* ── Mobile: NO image, top accent bar, author
+                                  chip + title + cuisine + time meta. */
+                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden p-3.5 min-h-[160px] flex flex-col transition-colors group-hover:border-on-surface/20">
+                              <span
+                                className="absolute inset-x-0 top-0 h-[3px] bg-emerald-700"
                               />
-                            ) : (
-                              <div className="absolute inset-0 flex items-center justify-center text-on-surface/30">
-                                <ChefHat size={32} className="opacity-50" />
+                              <div className="flex items-start justify-between gap-2 -mt-0.5">
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-700/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-emerald-700">
+                                  <span
+                                    className="w-[16px] h-[16px] rounded-full grid place-items-center text-white text-[9px] font-bold"
+                                    style={{ background: `hsl(${authorHue} 50% 45%)` }}
+                                  >
+                                    {authorInitial}
+                                  </span>
+                                  <span className="truncate max-w-[80px]">{authorName}</span>
+                                </span>
                               </div>
-                            )}
-                            {/* Time badge bottom-left when known */}
-                            {timeLabel && (
-                              <div className="absolute bottom-2 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-black/45 text-white backdrop-blur-md text-[11px] font-bold tabular-nums">
-                                <Clock size={10} />
-                                {timeLabel}
+                              <div className="mt-2.5 flex-1 min-h-0">
+                                <h3 className="font-serif font-semibold text-on-surface text-[16px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
+                                  {r.title}
+                                </h3>
+                                {r.cuisine && (
+                                  <p className="mt-1 text-[11.5px] text-on-surface/55 font-medium truncate">
+                                    {r.cuisine}
+                                  </p>
+                                )}
                               </div>
-                            )}
-                          </div>
-                          <div className="mt-3 px-0.5">
-                            {/* Source eyebrow: small avatar + name */}
-                            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/55 truncate">
-                              <span className={cn('w-4 h-4 rounded-full grid place-items-center text-[8px] font-bold flex-shrink-0', avatarCls)}>
-                                {authorInitial}
-                              </span>
-                              <span className="truncate">{sourceLabel}</span>
-                            </div>
-                            <h3 className="mt-1 font-serif text-[16px] font-bold text-on-surface leading-[1.18] line-clamp-2 group-hover:text-primary transition-colors">
-                              {r.title}
-                            </h3>
-                            {(r.cuisine || ingCount > 0 || stepCount > 0) && (
-                              <p className="mt-1 text-[12px] text-on-surface/50 font-medium truncate">
-                                {[r.cuisine, ingCount > 0 ? `${ingCount} ingredients` : '', stepCount > 0 ? `${stepCount} steps` : '']
-                                  .filter(Boolean)
-                                  .join(' · ')}
-                              </p>
-                            )}
-                          </div>
+                              <div className="mt-2 pt-2.5 border-t border-on-surface/[0.06] flex items-center gap-3 text-[12px] text-on-surface/65 font-medium">
+                                {timeLabel && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <Clock size={11} />
+                                    {timeLabel}
+                                  </span>
+                                )}
+                              </div>
+                            </article>
+                          )}
                         </Link>
                       );
                     })}
@@ -4819,70 +5325,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 )}
               </section>
 
-              {/* Guides — compressed inline strip. The Discover home was the
-                  only place showing the old big "Guides" rail; demoting it
-                  here keeps the existing wiring (publishing, GuideCard,
-                  guideCreator modal) intact while letting Recipes lead. */}
-              <section className={cn(usingDesktopHeader ? 'mt-8' : 'mt-5')}>
-                <div className="flex items-end justify-between gap-4 mb-3">
-                  <div className="min-w-0">
-                    <h2 className={cn(
-                      'font-serif font-bold text-on-surface leading-[1.05] tracking-[-0.02em]',
-                      usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
-                    )}>
-                      Guides
-                    </h2>
-                  </div>
-                  {feedGuides.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => openGuideCreator()}
-                      className="flex-shrink-0 inline-flex items-center gap-1 text-[12px] font-bold uppercase tracking-[0.12em] text-primary hover:opacity-75 transition-opacity pb-1"
-                    >
-                      Create
-                      <Plus size={12} strokeWidth={2.5} />
-                    </button>
-                  )}
-                </div>
-                {feedGuides.length === 0 ? (
-                  <div className="flex items-center justify-between gap-3 py-2">
-                    <p className="font-serif italic text-[15px] text-on-surface/65 min-w-0">
-                      No guides from your circle yet.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => openGuideCreator()}
-                      className="flex-shrink-0 inline-flex items-center gap-1 text-[13px] font-bold text-primary hover:opacity-70 transition-opacity"
-                    >
-                      Create your first guide
-                      <ChevronRight size={12} strokeWidth={2.5} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
-                    {feedGuides.map((g) => {
-                      const author = feedGuideAuthors[g.userId];
-                      return (
-                        <GuideCard
-                          key={g.id}
-                          guide={{
-                            id: g.id,
-                            title: g.title,
-                            authorName: author?.display_name || author?.username,
-                            coverPhoto: g.coverPhoto,
-                            entryCount: g.entries.length,
-                            type: g.type,
-                            avgScore: g.avgScore,
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-
               {/* Social Feed — Friend Activity + Suggested for You + Featured Guides */}
-              <div className={cn(usingDesktopHeader ? 'mt-10' : 'mt-5')}>
+              <div className={cn(usingDesktopHeader ? 'mt-7' : 'mt-5')}>
                 <SocialFeed
                   centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
                   centerLng={mode === 'home' ? homeLocation?.lng ?? null : null}
