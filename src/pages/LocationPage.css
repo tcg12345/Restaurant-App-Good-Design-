@@ -251,6 +251,11 @@
 .location-page-root .minimap-canvas {
   position: absolute;
   inset: 0;
+  /* The Mapbox canvas paints below the overlay controls (info pill,
+     expand button, Search this area, Open map). We pin a z-index of 1
+     here so the controls' higher z-indexes win cleanly even though all
+     children are positioned. */
+  z-index: 1;
 }
 .location-page-root .minimap-canvas .mapboxgl-canvas { outline: none; }
 .location-page-root .minimap-canvas .mapboxgl-ctrl-bottom-left,
@@ -317,7 +322,7 @@
   top: 14px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 3;
+  z-index: 10;
   display: inline-flex; align-items: center; gap: 6px;
   height: 34px;
   padding: 0 14px;
@@ -343,7 +348,7 @@
 
 .location-page-root .minimap-cta {
   position: absolute; bottom: 14px; right: 14px;
-  z-index: 3;
+  z-index: 10;
   display: inline-flex; align-items: center; gap: 6px;
   height: 36px; padding: 0 16px;
   background: var(--ink);
@@ -361,7 +366,7 @@
 .location-page-root .minimap-cta svg { width: 14px; height: 14px; }
 .location-page-root .minimap-info {
   position: absolute; top: 14px; left: 14px;
-  z-index: 3;
+  z-index: 10;
   display: inline-flex; align-items: center; gap: 8px;
   padding: 6px 12px;
   background: rgba(255,255,255,0.94);
@@ -381,7 +386,7 @@
   position: absolute;
   top: 14px;
   right: 14px;
-  z-index: 3;
+  z-index: 10;
   width: 34px;
   height: 34px;
   display: grid;

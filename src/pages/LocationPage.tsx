@@ -1654,7 +1654,7 @@ export const LocationPage: React.FC = () => {
             <button
               type="button"
               className="minimap-expand"
-              onClick={() => setMapExpanded((v) => !v)}
+              onClick={(e) => { e.stopPropagation(); setMapExpanded((v) => !v); }}
               aria-label={mapExpanded ? 'Collapse map' : 'Expand map'}
             >
               {mapExpanded ? <Minimize2 /> : <Maximize2 />}
@@ -1662,7 +1662,7 @@ export const LocationPage: React.FC = () => {
             <button
               type="button"
               className="minimap-search-here"
-              onClick={handleSearchHere}
+              onClick={(e) => { e.stopPropagation(); void handleSearchHere(); }}
               disabled={searchingHere || !mapReady}
             >
               {searchingHere ? (
@@ -1680,7 +1680,7 @@ export const LocationPage: React.FC = () => {
             <button
               type="button"
               className="minimap-cta"
-              onClick={handleOpenMap}
+              onClick={(e) => { e.stopPropagation(); handleOpenMap(); }}
             >
               Open map <ChevronRight />
             </button>
