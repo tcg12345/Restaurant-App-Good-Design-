@@ -266,12 +266,26 @@ const CITY_SEEDS: string[] = [
   'must try restaurants in {city}',
   'best dinner in {city}',
   'best lunch in {city}',
+  'best breakfast in {city}',
+  'best brunch in {city}',
   'hidden gem restaurants in {city}',
   'neighborhood restaurants in {city}',
   'local favorites restaurants in {city}',
   'fine dining {city}',
   'casual dining {city}',
   'date night restaurants in {city}',
+  'romantic restaurants in {city}',
+  'cheap eats {city}',
+  'michelin restaurants {city}',
+  'rooftop restaurants {city}',
+  'cozy restaurants {city}',
+  'wine bar {city}',
+  'cocktail bar {city}',
+  'gastropub {city}',
+  'bistro {city}',
+  'new restaurants in {city}',
+  'iconic restaurants in {city}',
+  'classic restaurants in {city}',
 ];
 
 const AREA_SEEDS: string[] = [
@@ -285,6 +299,18 @@ const AREA_SEEDS: string[] = [
   'takeout restaurants',
   'family restaurants',
   'upscale restaurants',
+  'cheap eats',
+  'rooftop restaurants',
+  'wine bar',
+  'cocktail bar',
+  'gastropub',
+  'bistro',
+  'tavern',
+  'cafe',
+  'sandwich shop',
+  'pizza restaurants',
+  'sushi restaurants',
+  'noodle restaurants',
 ];
 
 // Strip accents, lowercase, and squash punctuation so "Aux Délices" and
@@ -380,8 +406,14 @@ const SORT_LABELS: Record<SortOption, string> = {
   distance: 'Closest First',
 };
 
-const INITIAL_BATCH_SIZE = 4;  // queries pulled in parallel on first load
-const LOAD_MORE_BATCH_SIZE = 3; // queries pulled per infinite-scroll page
+const INITIAL_BATCH_SIZE = 4;  // queries pulled in parallel on first load (≈40 unique places after dedup)
+const LOAD_MORE_BATCH_SIZE = 4; // queries pulled per "Load more" click
+// Target ≈ 30 fresh uniques per Load-more press. fetchBatch dedupes
+// against everything previously seen, so as the pool grows each batch
+// returns fewer net-new results — we keep paging within a single click
+// until we hit the target or every cursor is drained.
+const LOAD_MORE_TARGET = 30;
+const LOAD_MORE_MAX_ATTEMPTS = 6;
 
 /* ── Page ────────────────────────────────────────────────────────────────── */
 export const LocationPage: React.FC = () => {
@@ -873,21 +905,23 @@ export const LocationPage: React.FC = () => {
     // appending nothing. Skip the fetch and let the list end naturally.
     if (friendsOnly || expertsOnly) return;
     setLoadingMore(true);
-    // Keep paging up to a few times per scroll event until we actually
-    // add new unique places. Without this, a batch that happens to
-    // return only duplicates (very common once a few queries overlap)
-    // leaves the user at the bottom with nothing new to look at — and
-    // the IntersectionObserver won't re-fire unless they scroll more.
-    // Bounded at 3 attempts so a genuinely-exhausted pool doesn't
-    // burn API calls in a tight loop.
-    let collected: PlaceResult[] = [];
-    for (let attempts = 0; attempts < 3 && collected.length === 0; attempts++) {
+    // Keep paging until we've gathered roughly LOAD_MORE_TARGET fresh
+    // uniques or every cursor is drained. fetchBatch already dedupes
+    // against `seenIdsRef`, so as the pool grows each batch returns
+    // fewer net-new places — a single 3-cursor pass often only nets a
+    // handful once the obvious queries have been exhausted. Without
+    // looping, the user would click Load More and see 5 new rows; with
+    // it they see ~30 per click until the underlying pool truly runs
+    // out, which is the contract they expect.
+    const collected: PlaceResult[] = [];
+    for (let attempts = 0; attempts < LOAD_MORE_MAX_ATTEMPTS; attempts++) {
       const fresh = await fetchBatch(LOAD_MORE_BATCH_SIZE);
-      if (fresh.length > 0) {
-        collected = fresh;
-        break;
-      }
+      for (const p of fresh) collected.push(p);
+      if (collected.length >= LOAD_MORE_TARGET) break;
       if (cursorsRef.current.every((c) => c.drained)) break;
+      // Don't infinite-loop on a string of empty batches — give it one
+      // more retry past the first zero return, then bail.
+      if (fresh.length === 0 && attempts >= 2) break;
     }
     if (collected.length > 0) {
       setPlacesPool((prev) => {
@@ -1150,28 +1184,7 @@ export const LocationPage: React.FC = () => {
     friendRestaurantIds, expertRestaurantIds, debouncedSearch,
   ]);
 
-  // IntersectionObserver sentinel powers the infinite-scroll load-more. We
-  // attach it ONCE on mount; listing `loadMore` in the deps would tear
-  // down and rebuild the observer every time loadingMore flips, and
-  // reattaching to an element that's still inside the rootMargin fires
-  // the callback immediately — causing back-to-back fetches, the
-  // spinner-without-results bug, and the sentinel glitch at the bottom
-  // of the page. Calling through a ref keeps the latest loadMore without
-  // disturbing the observer.
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const loadMoreRef = useRef(loadMore);
-  useEffect(() => { loadMoreRef.current = loadMore; }, [loadMore]);
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) void loadMoreRef.current();
-      }
-    }, { rootMargin: '600px 0px' });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
+
 
   // Origin the row cards use for distance + drive/walk times. When the
   // user has a precise saved home address we measure from there — that's
@@ -1752,15 +1765,31 @@ export const LocationPage: React.FC = () => {
                 ))}
               </div>
 
-              <div ref={sentinelRef} style={{ height: 1 }} />
-              {loadingMore && (
-                <div className="lp-empty" style={{ padding: '24px 0' }}>
-                  <Loader2 size={16} className="animate-spin" style={{ display: 'inline-block', verticalAlign: '-2px', marginRight: 8 }} />
-                  Loading more…
+              {/* Manual Load more — auto-scroll was hiding how many
+                  cursors were still available. The button keeps firing
+                  fetchBatch (with the looping loadMore() helper) until
+                  the underlying Google cursors are truly drained. */}
+              {!exhausted && !friendsOnly && !expertsOnly && (
+                <div className="lp-load-more-wrap">
+                  <button
+                    type="button"
+                    className="lp-load-more"
+                    onClick={() => { void loadMore(); }}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Loading…
+                      </>
+                    ) : (
+                      <>Load more restaurants</>
+                    )}
+                  </button>
                 </div>
               )}
               {(exhausted || friendsOnly || expertsOnly) && !loadingMore && (
-                <div style={{ textAlign: 'center', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--muted)', padding: '24px 0' }}>
+                <div className="lp-end-of-list">
                   You've reached the end
                 </div>
               )}
