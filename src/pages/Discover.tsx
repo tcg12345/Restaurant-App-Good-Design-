@@ -4702,49 +4702,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   homeLocationRefreshing ? 'opacity-40' : 'opacity-100',
                 )}
               >
-              {/* Cuisine chip filter — narrows the Recommended rail.
-                  Desktop-only; the rail itself reads the same
-                  heroChipCuisine state below. */}
-              {usingDesktopHeader && mode === 'home' && (() => {
-                const cuisineOptions = userPreferences.topCuisines && userPreferences.topCuisines.length >= 3
-                  ? userPreferences.topCuisines.slice(0, 6)
-                  : ['Japanese', 'Mediterranean', 'Italian', 'American', 'Korean', 'Mexican'];
-                return (
-                  <div className="mt-4 mb-1 flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
-                    <button
-                      type="button"
-                      onClick={() => setHeroChipCuisine(null)}
-                      className={cn(
-                        'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
-                        heroChipCuisine === null
-                          ? 'bg-on-surface text-surface border-on-surface'
-                          : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
-                      )}
-                    >
-                      All
-                    </button>
-                    {cuisineOptions.map((c) => {
-                      const isActive = heroChipCuisine === c;
-                      return (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() => setHeroChipCuisine(isActive ? null : c)}
-                          className={cn(
-                            'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
-                            isActive
-                              ? 'bg-on-surface text-surface border-on-surface'
-                              : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
-                          )}
-                        >
-                          {c}
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-
               {/* Recommendations */}
               {recsLoading ? (
                 <section className={cn(usingDesktopHeader ? 'mt-3' : 'mt-4')}>
@@ -4777,7 +4734,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                               'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2.5',
                               usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                             )}>
-                              Recommended for you
+                              Recommended
                               {usingDesktopHeader && filteredCount > 0 && (
                                 <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
                                   {filteredCount}
@@ -4832,6 +4789,47 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       )}
                     </div>
                   </div>
+                  {/* Cuisine chip filter — sits directly above the rail
+                      so it reads as a row filter, not a page filter. */}
+                  {usingDesktopHeader && (() => {
+                    const cuisineOptions = userPreferences.topCuisines && userPreferences.topCuisines.length >= 3
+                      ? userPreferences.topCuisines.slice(0, 6)
+                      : ['Japanese', 'Mediterranean', 'Italian', 'American', 'Korean', 'Mexican'];
+                    return (
+                      <div className="mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
+                        <button
+                          type="button"
+                          onClick={() => setHeroChipCuisine(null)}
+                          className={cn(
+                            'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
+                            heroChipCuisine === null
+                              ? 'bg-on-surface text-surface border-on-surface'
+                              : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
+                          )}
+                        >
+                          All
+                        </button>
+                        {cuisineOptions.map((c) => {
+                          const isActive = heroChipCuisine === c;
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => setHeroChipCuisine(isActive ? null : c)}
+                              className={cn(
+                                'flex-shrink-0 inline-flex items-center h-[34px] px-3.5 rounded-full text-[13px] font-medium border transition-colors',
+                                isActive
+                                  ? 'bg-on-surface text-surface border-on-surface'
+                                  : 'bg-white text-on-surface/70 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
+                              )}
+                            >
+                              {c}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   <div
                     ref={recRailRef}
                     className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
