@@ -1399,25 +1399,20 @@ export const LocationPage: React.FC = () => {
     map.resize();
   }, [hasCoords, lat, lng]);
 
-  // Resize the canvas when the user expands / collapses the mini-map.
-  // Mapbox doesn't auto-resize on container height changes. Wait for
-  // the CSS height transition to finish first or the canvas measures
-  // the old dimensions.
+  // Keep the Mapbox canvas in lock-step with its container at all
+  // times. ResizeObserver fires after the browser commits each layout
+  // tick during the CSS height transition (and on window resize, sidebar
+  // toggles, etc.), so the canvas redraws continuously instead of
+  // snapping into place once the transition finishes — which was the
+  // 'expanded container with no map below' choppiness on toggle.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    const t = setTimeout(() => map.resize(), 540);
-    return () => clearTimeout(t);
-  }, [mapExpanded]);
-
-  // Window-resize listener for the same reason.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const onResize = () => map.resize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+    const container = mapContainerRef.current;
+    if (!map || !container || !mapReady) return;
+    const ro = new ResizeObserver(() => map.resize());
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [mapReady]);
 
   // ── Mini-map: sync restaurant markers with `visible` ───────────────
   // Tear-down + rebuild on every change. Diffing would let us skip some
