@@ -109,6 +109,52 @@ export async function getCommunityStats(restaurantId: string): Promise<Community
 }
 
 /**
+ * Return the most common community-supplied price (mode of `price`)
+ * for each restaurant id passed in. Batches the lookup into a single
+ * query so the Discover rail can resolve up to ~30 fallbacks in one
+ * round trip. Restaurants with no community ratings are omitted from
+ * the returned map.
+ */
+export async function getCommunityPricesForPlaces(
+  restaurantIds: string[],
+): Promise<Record<string, string>> {
+  if (!supabaseConfigured) return {};
+  const ids = Array.from(new Set(restaurantIds.filter(Boolean)));
+  if (ids.length === 0) return {};
+  try {
+    const { data, error } = await supabase
+      .from('community_ratings')
+      .select('restaurant_id, price')
+      .in('restaurant_id', ids)
+      .not('price', 'is', null);
+    if (error) { console.error('[Community] getCommunityPricesForPlaces error:', error); return {}; }
+    // Group by restaurant_id → tally each price string. The "$$$" /
+    // "$$$$" form is what we'll display so we use it verbatim — no
+    // need to normalise into a numeric tier first.
+    const tally: Record<string, Record<string, number>> = {};
+    for (const row of (data || []) as Array<{ restaurant_id: string; price: string | null }>) {
+      const p = (row.price || '').trim();
+      if (!p) continue;
+      const bucket = tally[row.restaurant_id] || (tally[row.restaurant_id] = {});
+      bucket[p] = (bucket[p] || 0) + 1;
+    }
+    const out: Record<string, string> = {};
+    for (const [rid, counts] of Object.entries(tally)) {
+      let best = '';
+      let bestN = 0;
+      for (const [price, n] of Object.entries(counts)) {
+        if (n > bestN) { best = price; bestN = n; }
+      }
+      if (best) out[rid] = best;
+    }
+    return out;
+  } catch (err) {
+    console.error('[Community] getCommunityPricesForPlaces exception:', err);
+    return {};
+  }
+}
+
+/**
  * Get friends' ratings for a restaurant.
  */
 export async function getFriendsStats(userId: string, restaurantId: string): Promise<FriendsStats> {

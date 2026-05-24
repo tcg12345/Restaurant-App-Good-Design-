@@ -47,7 +47,11 @@ export interface PlaceDetails extends PlaceResult {
 }
 
 function priceLevelToString(level: number): string {
-  if (level <= 0) return '$';
+  // < 1 covers both explicit PRICE_LEVEL_FREE (0) and "no data" (-1
+  // returned by parsePriceLevel). Restaurants almost never report
+  // FREE, so collapsing both to empty is the right call — every caller
+  // guards with `{price && ...}` so the chip drops out naturally.
+  if (!Number.isFinite(level) || level < 1) return '';
   return '$'.repeat(Math.min(level, 4));
 }
 
@@ -55,6 +59,7 @@ export { priceLevelToString };
 
 function parsePriceLevel(pl: string | number | undefined): number {
   if (typeof pl === 'number') return pl;
+  if (!pl) return -1;                       // missing → unknown
   const map: Record<string, number> = {
     PRICE_LEVEL_FREE: 0,
     PRICE_LEVEL_INEXPENSIVE: 1,
@@ -62,7 +67,7 @@ function parsePriceLevel(pl: string | number | undefined): number {
     PRICE_LEVEL_EXPENSIVE: 3,
     PRICE_LEVEL_VERY_EXPENSIVE: 4,
   };
-  return map[pl || ''] ?? 0;
+  return map[pl] ?? -1;                     // unknown enum → unknown
 }
 
 const PRICE_LEVEL_STRINGS: Record<number, string> = {

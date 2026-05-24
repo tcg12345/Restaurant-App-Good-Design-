@@ -261,7 +261,28 @@ export function useRestaurantDetail() {
     if (isHotel) getHotelDining(place.id).then(setHotelDiningOptions);
   }, [place?.id, user?.id, ratingFingerprint]);
 
-  const priceStr = place ? priceLevelToString(place.priceLevel) : '';
+  // Community-supplied price fallback: when Google has no priceLevel
+  // for this place, take the mode of users' rated prices from the
+  // already-loaded communityStats.ratings array so the hero still
+  // shows a meaningful price tier instead of nothing.
+  const communityPrice = useMemo<string>(() => {
+    if (!communityStats.ratings || communityStats.ratings.length === 0) return '';
+    const tally: Record<string, number> = {};
+    for (const r of communityStats.ratings) {
+      const p = (r.price || '').trim();
+      if (!p) continue;
+      tally[p] = (tally[p] || 0) + 1;
+    }
+    let best = '';
+    let bestN = 0;
+    for (const [p, n] of Object.entries(tally)) {
+      if (n > bestN) { best = p; bestN = n; }
+    }
+    return best;
+  }, [communityStats.ratings]);
+  const priceStr = place
+    ? (priceLevelToString(place.priceLevel) || communityPrice || '')
+    : '';
   const cuisine = place ? getCuisineLabel(place.types) : '';
 
   // Merge Google Places photos with community user-uploaded photos

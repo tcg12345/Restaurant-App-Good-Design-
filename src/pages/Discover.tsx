@@ -13,7 +13,7 @@ import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useRecipes, type Recipe } from '../contexts/RecipesContext';
-import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
+import { getUserRatings, getAllFriendRatings, getExpertRatings, getProfilesByIds, publishCommunityRating, getFriendsPublicHomeMeals, getFriends, getCoverPhotosBatch, getTagSimilarRestaurants, getFollowedExpertIds, getExpertProfiles, getCommunityPricesForPlaces, type CommunityRating, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { getGuidesForFeed, type Guide as GuideRow } from '../lib/supabase-guides';
 import { GuideCard } from '../components/GuideCard';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
@@ -805,6 +805,35 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   const recsSeenIdsRef = useRef<Set<string>>(new Set());
 
   const recommendations = apiRecommendations;
+
+  // Community-supplied price fallback: when Google has no priceLevel for
+  // a place (parsePriceLevel returns -1, priceLevelToString returns '')
+  // we look up the mode of users' rated prices in community_ratings.
+  // Batched fetch so the whole rail resolves in one round trip; cache
+  // keyed by place id so we never re-fetch a known answer.
+  const [communityPrices, setCommunityPrices] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (mode !== 'home' || recommendations.length === 0) return;
+    const needLookup = recommendations
+      .filter((p) => ((p as any).priceLevel ?? -1) < 1)
+      .map((p) => p.id)
+      .filter((id) => id && !(id in communityPrices));
+    if (needLookup.length === 0) return;
+    let cancelled = false;
+    getCommunityPricesForPlaces(needLookup).then((map) => {
+      if (cancelled) return;
+      // Mark every id we asked about so we don't refetch ones that
+      // came back empty; an empty string entry is a "tried, none found"
+      // sentinel that priceLevelToString(...) || communityPrice falsy-
+      // checks past naturally.
+      setCommunityPrices((prev) => {
+        const next = { ...prev };
+        for (const id of needLookup) next[id] = map[id] || '';
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [recommendations, mode, communityPrices]);
 
   // User's top rated restaurants
   const topRated = useMemo(() => {
@@ -4490,7 +4519,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 const featuredCuisine = featured ? getCuisineLabel((featured as any).types || []) : '';
                 const featuredPhoto = featured ? ((featured as any).photoUrl as string | undefined) : undefined;
                 const featuredRating = featured ? ((featured as any).rating as number | undefined) : undefined;
-                const featuredPrice = featured ? priceLevelToString((featured as any).priceLevel || 0) : '';
+                const featuredPrice = featured
+                  ? (priceLevelToString((featured as any).priceLevel ?? -1)
+                      || communityPrices[featured.id]
+                      || '')
+                  : '';
                 const featuredAddress = featured ? (((featured as any).address as string) || '').split(',')[0]?.trim() : '';
                 const featuredId = featured?.id || '';
                 const featuredSaved = featured ? isWishlisted(featured.id) : false;
@@ -4847,7 +4880,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       const wishlisted = isWishlisted(place.id);
                       const photoUrl = (place as any).photoUrl as string | undefined;
                       const rating = (place as any).rating as number | undefined;
-                      const price = priceLevelToString((place as any).priceLevel || 0);
+                      // Google price first; if it's unknown, fall back to
+                      // the mode of community-supplied prices for this
+                      // place id, then blank.
+                      const price = priceLevelToString((place as any).priceLevel ?? -1)
+                        || communityPrices[place.id]
+                        || '';
                       const fullAddress = (place as any).address as string || '';
                       const street = fullAddress.split(',')[0]?.trim() || '';
                       const recMeta = {
@@ -5446,7 +5484,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     cuisine: getCuisineLabel((p as any).types || []),
                     rating: (p as any).rating ?? null,
                     address: (p as any).address || '',
-                    price: priceLevelToString((p as any).priceLevel || 0),
+                    price: priceLevelToString((p as any).priceLevel ?? -1) || communityPrices[p.id] || '',
                     photoUrl: (p as any).photoUrl,
                   })) : []}
                 />
