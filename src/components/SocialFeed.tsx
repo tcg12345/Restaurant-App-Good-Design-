@@ -185,7 +185,9 @@ const SuggestionsRail: React.FC<{
   // Build the "why" line for each restaurant card — derived from the
   // viewer's wishlist + the restaurant's metadata so the line feels
   // personal (vs a generic "Trending near you").
-  const restaurantCards = suggestedRestaurants.slice(0, 5).map((r) => {
+  // Cap the rail short enough to fit the viewport without scrolling
+  // — the user shouldn't have to scroll a sidebar that's sticky.
+  const restaurantCards = suggestedRestaurants.slice(0, 3).map((r) => {
     const reasons: string[] = [];
     if (isWishlisted(r.id)) reasons.push('Saved to your list');
     else if (r.rating && r.rating >= 4.6) reasons.push('Highly rated near you');
@@ -295,7 +297,7 @@ const SuggestionsRail: React.FC<{
           <Link to="/discover" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">Browse</Link>
         </div>
         <ul>
-          {SUGGESTION_GUIDES.map((g) => (
+          {SUGGESTION_GUIDES.slice(0, 2).map((g) => (
             <li key={g.id}>
               <button
                 type="button"
@@ -317,10 +319,6 @@ const SuggestionsRail: React.FC<{
           ))}
         </ul>
       </section>
-
-      <p className="text-[11.5px] text-on-surface/45 leading-[1.5] pt-4 border-t border-on-surface/[0.06]">
-        Suggestions update based on the people you follow and the cuisines you cook.
-      </p>
     </aside>
   );
 };
@@ -923,7 +921,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </ul>
           </div>
           {!phoneMode && (
-            <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
+            <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start">
               <SuggestionsRail userId={userId} friendIds={friendIds} suggestedRestaurants={suggestedRestaurants} />
             </aside>
           )}
@@ -1738,7 +1736,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       )}
         </div>
         {!phoneMode && (
-          <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
+          <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start">
             <SuggestionsRail userId={userId} friendIds={friendIds} suggestedRestaurants={suggestedRestaurants} />
           </aside>
         )}
