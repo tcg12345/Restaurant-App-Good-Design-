@@ -485,7 +485,7 @@ export const LocationPage: React.FC = () => {
 
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const { ratings, wishlist, lists } = useLists();
+  const { ratings, wishlist, lists, restaurantMeta } = useLists();
 
   const cityKey = useMemo(() => cityKeyFromLabel(label), [label]);
   const cityDisplay = useMemo(() => {
@@ -1385,6 +1385,11 @@ export const LocationPage: React.FC = () => {
   const centerMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [searchingHere, setSearchingHere] = useState(false);
+  // Tapping a marker no longer navigates straight to the restaurant
+  // detail page; instead we open a small floating island over the map
+  // with key info and let the user tap THAT to navigate. Same pattern
+  // Google Maps uses for marker info cards.
+  const [selectedMarkerPlace, setSelectedMarkerPlace] = useState<ScoredPlace | null>(null);
   // Latest coords in a ref so the mount-only init effect can read the
   // current values without taking them as deps.
   const initialMapCoordsRef = useRef({ hasCoords, lat, lng });
@@ -1545,7 +1550,10 @@ export const LocationPage: React.FC = () => {
       el.appendChild(inner);
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        navigate(`/restaurant/${place.id}`);
+        // Open the floating island over the bottom of the map with
+        // this place's info. Tap-through to the detail page lives on
+        // the island itself so users can scan the card first.
+        setSelectedMarkerPlace(place);
       });
       const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
         .setLngLat([place.lng, place.lat])
@@ -1569,6 +1577,30 @@ export const LocationPage: React.FC = () => {
       .setLngLat([lng, lat])
       .addTo(map);
   }, [lat, lng, hasCoords, mapReady]);
+
+  // Clear the marker island when the selected place falls out of
+  // visible[] (filter change, search, neighborhood toggle, etc.) —
+  // otherwise the card lingers showing a place that's no longer on
+  // the map.
+  useEffect(() => {
+    if (!selectedMarkerPlace) return;
+    if (!visible.some((p) => p.id === selectedMarkerPlace.id)) {
+      setSelectedMarkerPlace(null);
+    }
+  }, [visible, selectedMarkerPlace]);
+
+  // Toggle the .is-selected class on the active marker so it visually
+  // pops. Runs whenever the selection changes; doesn't touch the
+  // markers themselves (no teardown), just flips a class on the
+  // existing DOM elements via marker.getElement().
+  useEffect(() => {
+    const id = selectedMarkerPlace?.id;
+    for (const [pid, m] of Object.entries(markersRef.current)) {
+      const el = (m as mapboxgl.Marker).getElement();
+      if (pid === id) el.classList.add('is-selected');
+      else el.classList.remove('is-selected');
+    }
+  }, [selectedMarkerPlace, visible]);
 
   // ── "Search this area" — one-shot fetch at current map centre ──────
   // Runs three generic queries inside a 1.5 mi radius of the panned
@@ -1811,13 +1843,67 @@ export const LocationPage: React.FC = () => {
                 </>
               )}
             </button>
-            <button
-              type="button"
-              className="minimap-cta"
-              onClick={(e) => { e.stopPropagation(); handleOpenMap(); }}
-            >
-              Open map <ChevronRight />
-            </button>
+            {/* Open-map CTA hides when the marker island is showing
+                — they share the bottom edge of the map and the island
+                is the primary affordance in that state. */}
+            {!selectedMarkerPlace && (
+              <button
+                type="button"
+                className="minimap-cta"
+                onClick={(e) => { e.stopPropagation(); handleOpenMap(); }}
+              >
+                Open map <ChevronRight />
+              </button>
+            )}
+            {selectedMarkerPlace && (() => {
+              const p = selectedMarkerPlace;
+              const score = p.rating > 0 ? p.rating * 2 : 0;
+              const scoreClass = score >= 8 ? 'is-good' : score >= 5 ? 'is-mid' : 'is-low';
+              const cuisine = inferCuisineLabel(p.types);
+              const priceLabel = priceLevelToString(p.priceLevel);
+              const meta = restaurantMeta[p.id];
+              const areaLabel = formatLocationLabel(
+                meta?.addressComponents,
+                p.address || '',
+                meta?.neighborhood,
+              );
+              return (
+                <div className="minimap-island" role="dialog" aria-label={p.name}>
+                  <button
+                    type="button"
+                    className="minimap-island-body"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedMarkerPlace(null);
+                      navigate(`/restaurant/${p.id}`);
+                    }}
+                  >
+                    <div className={cn('minimap-island-score', scoreClass)}>
+                      {score > 0 ? score.toFixed(1) : '—'}
+                    </div>
+                    <div className="minimap-island-info">
+                      <h4>{p.name}</h4>
+                      <p>
+                        {cuisine && <span className="accent">{cuisine}</span>}
+                        {cuisine && priceLabel && <span className="dot">·</span>}
+                        {priceLabel && <span className="price">{priceLabel}</span>}
+                        {(cuisine || priceLabel) && areaLabel && <span className="dot">·</span>}
+                        {areaLabel && <span>{areaLabel}</span>}
+                      </p>
+                    </div>
+                    <ChevronRight />
+                  </button>
+                  <button
+                    type="button"
+                    className="minimap-island-close"
+                    onClick={(e) => { e.stopPropagation(); setSelectedMarkerPlace(null); }}
+                    aria-label="Close"
+                  >
+                    <X />
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         )}
 

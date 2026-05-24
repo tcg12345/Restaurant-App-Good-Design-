@@ -330,6 +330,13 @@
   transform: scale(1.18);
   box-shadow: 0 4px 10px rgba(0,0,0,0.30);
 }
+/* Selected marker stays popped while its island is showing so the
+   user sees which dot the card refers to. */
+.location-page-root .minimap-marker.is-selected .minimap-marker-inner {
+  transform: scale(1.35);
+  box-shadow: 0 6px 14px rgba(28,24,22,0.45);
+  border-color: var(--ink);
+}
 
 /* The "you are here" pin for the city centre — distinct from the
    restaurant markers so the user knows where the search anchor sits. */
@@ -413,6 +420,138 @@
   transform: translateY(-1px);
 }
 .location-page-root .minimap-cta svg { width: 14px; height: 14px; }
+
+/* ─ Marker info island ─
+   Bottom-centred card that appears when the user taps a marker. Shows
+   the place's score, name, cuisine, price, and neighborhood. Tapping
+   the body navigates to the restaurant detail page; the X dismisses. */
+.location-page-root .minimap-island {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  right: 14px;
+  margin: 0 auto;
+  max-width: 380px;
+  z-index: 10;
+  display: flex;
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow:
+    0 12px 28px -8px rgba(28, 24, 22, 0.35),
+    0 0 0 1px rgba(28, 24, 22, 0.07);
+  overflow: hidden;
+  animation: lp-island-in .22s cubic-bezier(.22,1,.36,1);
+}
+.location-page-root .minimap-island-body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background .15s;
+}
+.location-page-root .minimap-island-body:hover { background: var(--bg-2); }
+.location-page-root .minimap-island-score {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 700 13px/1 var(--serif);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  border: 2px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--ink-2);
+  flex-shrink: 0;
+}
+.location-page-root .minimap-island-score.is-good {
+  border-color: var(--green);
+  background: rgba(46, 125, 92, 0.10);
+  color: var(--green);
+}
+.location-page-root .minimap-island-score.is-mid {
+  border-color: #C28F3A;
+  background: rgba(194, 143, 58, 0.12);
+  color: #A06F1F;
+}
+.location-page-root .minimap-island-score.is-low {
+  border-color: var(--accent);
+  background: rgba(168, 57, 42, 0.08);
+  color: var(--accent);
+}
+.location-page-root .minimap-island-info { min-width: 0; }
+.location-page-root .minimap-island-info h4 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.2;
+  letter-spacing: -0.018em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.location-page-root .minimap-island-info p {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.location-page-root .minimap-island-info p .accent {
+  color: var(--accent);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.location-page-root .minimap-island-info p .price {
+  color: var(--ink);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.location-page-root .minimap-island-info p .dot {
+  color: var(--muted-2);
+  flex-shrink: 0;
+}
+.location-page-root .minimap-island-body > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.location-page-root .minimap-island-close {
+  width: 38px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  border-left: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: color .15s, background .15s;
+}
+.location-page-root .minimap-island-close:hover {
+  color: var(--ink);
+  background: var(--bg-2);
+}
+.location-page-root .minimap-island-close svg { width: 14px; height: 14px; }
+@keyframes lp-island-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .location-page-root .minimap-info {
   position: absolute; top: 14px; left: 14px;
   z-index: 10;
