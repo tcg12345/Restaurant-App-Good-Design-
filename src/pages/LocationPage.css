@@ -105,11 +105,12 @@
   padding: 10px 24px;
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: 10px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
+  /* Never scroll the bar — at narrow widths chips wrap to a new row
+     instead. overflow:visible is critical so the .fb-menu dropdown
+     opening below a chip isn't clipped by the bar's bounds. */
+  flex-wrap: wrap;
+  overflow: visible;
 }
-.location-page-root .loc-filterbar::-webkit-scrollbar { display: none; }
 .location-page-root .fb-chip {
   display: inline-flex; align-items: center; gap: 6px;
   height: 36px; padding: 0 14px;
@@ -217,7 +218,9 @@
   box-shadow: var(--shadow-md);
   padding: 6px;
   min-width: 200px;
-  z-index: 20;
+  /* Sits above sibling chips, the mini-map below the bar, and the
+     filter bar's own backdrop blur. */
+  z-index: 50;
 }
 .location-page-root .fb-menu-item {
   display: flex; align-items: center; justify-content: space-between;
