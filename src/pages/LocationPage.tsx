@@ -5,18 +5,27 @@ import {
   BookOpen,
   Car,
   Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Crown,
   Footprints,
+  LayoutGrid,
   Loader2,
   Map as MapIcon,
   MapPin,
+  Maximize2,
+  Minimize2,
+  Plus,
   Search,
   SlidersHorizontal,
   Sparkles,
+  Soup,
   UserCheck,
   Users,
   X,
 } from 'lucide-react';
+import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -1203,31 +1212,133 @@ export const LocationPage: React.FC = () => {
     handleLocationChange(loc);
   }, [handleLocationChange]);
 
+  /* ── Redesign-only local state ───────────────────────────────────────────── */
+  // Controlled open for HomeLocationBar — the "Change" pill in LocationHero
+  // drives it via this state so the bar can render headless (no own button).
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // Map view jump — same target as the top-right map icon. Disabled when
+  // we don't have coords to anchor it.
+  const handleOpenMap = useCallback(() => {
+    if (!hasCoords) return;
+    navigate(
+      `/location/map?label=${encodeURIComponent(cityDisplay)}&lat=${lat}&lng=${lng}`,
+    );
+  }, [hasCoords, navigate, cityDisplay, lat, lng]);
+  // Visual-only Open-now toggle. TODO: filter when PlaceResult exposes
+  // openingHours.openNow.
+  const [openNow, setOpenNow] = useState(false);
+  // Visual-only neighborhood pill state. TODO: replace placeholder with a
+  // real neighborhood list per city + a real filter on visible[].
+  const [neighborhood, setNeighborhood] = useState<string>('all');
+  const [neighborhoodMenuOpen, setNeighborhoodMenuOpen] = useState(false);
+  // Sort dropdown opened from the sticky bar.
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  // Mini-map expand toggle.
+  const [mapExpanded, setMapExpanded] = useState(false);
+  // Collapsible sections (Guides + Local experts).
+  const [guidesOpen, setGuidesOpen] = useState(true);
+  const [expertsOpen, setExpertsOpen] = useState(true);
+  // Horizontal-rail scroll refs so the section header arrows can scroll
+  // their respective rails one screen at a time.
+  const guidesRowRef = useRef<HTMLDivElement | null>(null);
+  const expertsRowRef = useRef<HTMLDivElement | null>(null);
+  const scrollRow = useCallback(
+    (ref: React.MutableRefObject<HTMLDivElement | null>, dir: -1 | 1) => {
+      ref.current?.scrollBy({ left: dir * 600, behavior: 'smooth' });
+    },
+    [],
+  );
+
+  // Quick-cuisine chips for the sticky bar. The five most-asked-about
+  // cuisines, mapped to the same Google type strings the FilterSheet uses
+  // so toggling them flows through the existing selectedCuisines state.
+  const QUICK_CUISINES: Array<{ label: string; type: string }> = useMemo(
+    () => [
+      { label: 'Japanese', type: 'japanese_restaurant' },
+      { label: 'Italian', type: 'italian_restaurant' },
+      { label: 'French', type: 'french_restaurant' },
+      { label: 'Korean', type: 'korean_restaurant' },
+      { label: 'American', type: 'american_restaurant' },
+    ],
+    [],
+  );
+  const toggleCuisine = useCallback(
+    (type: string) => {
+      setSelectedCuisines((prev) =>
+        prev.includes(type) ? prev.filter((x) => x !== type) : [...prev, type],
+      );
+    },
+    [],
+  );
+
+  // Region segment for the hero italic — "New York, NY" → ", NY".
+  const heroRegion = useMemo(() => {
+    const parts = cityDisplay.split(',').map((s) => s.trim()).filter(Boolean);
+    if (parts.length <= 1) return '';
+    return `, ${parts.slice(1).join(', ')}`;
+  }, [cityDisplay]);
+
+  // Placeholder pin coordinates for the mini-map — purely decorative until
+  // we wire a real projection from visible[]'s lat/lng.
+  const MINIMAP_PINS = useMemo(
+    () => [
+      { x: 22, y: 35, kind: 'pick' as const },
+      { x: 48, y: 28, kind: 'pick' as const },
+      { x: 38, y: 62, kind: 'pin' as const },
+      { x: 70, y: 45, kind: 'pin' as const },
+      { x: 62, y: 70, kind: 'saved' as const },
+      { x: 18, y: 70, kind: 'pin' as const },
+      { x: 84, y: 30, kind: 'pin' as const },
+      { x: 30, y: 18, kind: 'pin' as const },
+      { x: 56, y: 50, kind: 'pick' as const },
+      { x: 78, y: 78, kind: 'pin' as const },
+      { x: 92, y: 55, kind: 'saved' as const },
+      { x: 12, y: 50, kind: 'pin' as const },
+    ],
+    [],
+  );
+
+  // Placeholder neighborhood list — wired in but only filters by substring
+  // match against `place.address` (best-effort until we have real data).
+  const NEIGHBORHOODS = useMemo(
+    () => ['All neighborhoods', 'SoHo', 'West Village', 'Midtown', 'Brooklyn', 'Upper West'],
+    [],
+  );
+
   return (
-    <div className="min-h-screen bg-surface pb-24">
-      {/* Sticky action bar — back + map stay pinned as the page scrolls so
-          the user can always navigate out. Background is opaque so the
-          scrolling content underneath isn't visible through the bar. */}
-      <div className="sticky top-0 z-20 bg-surface px-4 pt-safe-4 pb-2">
+    <div className="location-page-root min-h-screen pb-24">
+      {/* Headless HomeLocationBar — renders no trigger itself; the
+          LocationHero "Change" pill drives its open/close state, so we
+          keep all the real city-picker behaviour (Mapbox search, recents,
+          "Use current location") without the default button chrome. */}
+      <HomeLocationBar
+        variant="headless"
+        location={currentLocation}
+        onChange={handleLocationChange}
+        onUseCurrent={handleUseCurrent}
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+      />
+
+      {/* Top action bar (preserved per redesign scope — sidebar / header
+          chrome stays the same as the rest of the app). */}
+      <div className="sticky top-0 z-20 px-4 pt-safe-4 pb-2" style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
         <div className="flex items-center justify-between">
           <button
             type="button"
             onClick={() => navigate(-1)}
-            className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors"
+            className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
+            style={{ color: 'var(--ink-2)' }}
             aria-label="Back"
           >
             <ArrowLeft size={22} />
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (!hasCoords) return;
-              navigate(
-                `/location/map?label=${encodeURIComponent(cityDisplay)}&lat=${lat}&lng=${lng}`,
-              );
-            }}
+            onClick={handleOpenMap}
             disabled={!hasCoords}
-            className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+            className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors disabled:opacity-40"
+            style={{ color: 'var(--ink-2)' }}
             aria-label="Open map view"
           >
             <MapIcon size={20} />
@@ -1235,116 +1346,340 @@ export const LocationPage: React.FC = () => {
         </div>
       </div>
 
-      {/* City picker — scrolls with the page since it's part of the title
-          block, not the sticky navigation affordance. */}
-      <div className="px-4 mt-1">
-        <HomeLocationBar
-          location={currentLocation}
-          onChange={handleLocationChange}
-          onUseCurrent={handleUseCurrent}
-        />
-      </div>
-
-      {/* Guides — horizontal scroll, non-functional placeholder */}
-      <section className="mt-5">
-        <div className="px-4 flex items-center justify-between mb-2.5">
-          <div className="flex items-center gap-2">
-            <BookOpen size={14} className="text-primary/70" />
-            <h2 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">Guides</h2>
-          </div>
-        </div>
-        <div className="flex gap-2.5 overflow-x-auto pb-2 px-4 scrollbar-hide snap-x snap-mandatory">
-          {locationGuides.map((g) => (
+      <div className="lp-page">
+        {/* ── Hero ─────────────────────────────────────────────────────── */}
+        <section className="loc-hero">
+          <div className="loc-title-row">
+            <h1 className="loc-title">
+              {shortCityName}
+              {heroRegion && <span className="loc-region">{heroRegion}</span>}
+            </h1>
             <button
-              key={g.id}
               type="button"
-              className="flex-shrink-0 snap-start group text-left"
+              className="loc-switch"
+              onClick={() => setPickerOpen(true)}
+              aria-label="Change location"
             >
-              <div className="relative w-40 aspect-[4/5] rounded-xl overflow-hidden bg-muted">
-                <img
-                  src={g.image}
-                  alt={g.title}
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
-                <div className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/90 backdrop-blur-sm text-[9px] font-bold uppercase tracking-wider text-on-surface/70">
-                  <BookOpen size={9} />
-                  Guide
-                </div>
-                <div className="absolute inset-x-0 bottom-0 p-2.5">
-                  <p className="text-white text-[13px] font-serif font-bold leading-tight drop-shadow-sm line-clamp-2">{g.title}</p>
-                  <p className="text-white/80 text-[10px] font-medium mt-0.5 truncate">by {g.author} · {g.count} spots</p>
-                </div>
-              </div>
+              Change <ChevronDown />
             </button>
-          ))}
-        </div>
-      </section>
-
-      {/* Around {city} — mixed expert / friend / restaurant suggestions.
-          Sits between the Guides row and the main restaurant list so the
-          user gets a sense of "who and what's around here" before diving
-          into the long list. The row hides itself when there's nothing
-          to show (no profiles in the area + ranked still empty), so a
-          fresh / unindexed location doesn't render a dead section. */}
-      {suggestionCards.length > 0 && (
-        <section className="mt-6">
-          <div className="px-4 flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-2">
-              <Sparkles size={14} className="text-primary/70" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-on-surface/60">
-                Around {shortCityName}
-              </h2>
-            </div>
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-2 px-4 scrollbar-hide snap-x snap-mandatory">
-            {suggestionCards.map((card, idx) => (
-              <SuggestionCardView
-                key={
-                  card.kind === 'restaurant'
-                    ? `r-${card.place.id}`
-                    : `${card.kind}-${card.profile.user_id}-${idx}`
-                }
-                card={card}
-                followed={
-                  card.kind === 'expert'
-                  && (signals.followedExpertIds.has(card.profile.user_id)
-                    || followedSuggestions.has(card.profile.user_id))
-                }
-                requested={
-                  card.kind === 'friend' && requestedFriendIds.has(card.profile.user_id)
-                }
-                onFollow={handleFollowExpert}
-                onAddFriend={handleAddFriend}
-              />
-            ))}
           </div>
         </section>
-      )}
 
-      {/* Restaurant list */}
-      <section className="mt-8">
-        <div className="px-4 mx-auto max-w-3xl lg:max-w-4xl">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Sparkles size={15} className="text-primary/70" />
-              <h2 className="text-sm font-bold uppercase tracking-wider text-on-surface/60">
-                {debouncedSearch ? `Results for "${debouncedSearch}"` : 'Picked for you'}
-              </h2>
-            </div>
+        {/* ── Sticky filter bar ────────────────────────────────────────── */}
+        <div className="loc-filterbar">
+          {/* Neighborhoods — placeholder popover. TODO: real per-city list. */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              className={cn('fb-chip', neighborhood !== 'all' && 'active')}
+              onClick={() => setNeighborhoodMenuOpen((v) => !v)}
+            >
+              <MapIcon /> {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
+              <ChevronDown />
+            </button>
+            {neighborhoodMenuOpen && (
+              <div className="fb-menu" style={{ right: 'auto', left: 0 }}>
+                {NEIGHBORHOODS.map((n) => {
+                  const value = n === 'All neighborhoods' ? 'all' : n;
+                  const active = neighborhood === value;
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      className={cn('fb-menu-item', active && 'active')}
+                      onClick={() => { setNeighborhood(value); setNeighborhoodMenuOpen(false); }}
+                    >
+                      <span>{n}</span>
+                      {active && <Check size={14} className="check" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Search + filter row */}
-          <div className="flex items-center gap-2 mb-3">
-            <div className="relative flex-1 min-w-0">
-              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/40" />
+          {/* Clear-all-cuisines chip */}
+          <button
+            type="button"
+            className={cn('fb-chip', selectedCuisines.length > 0 && 'active')}
+            onClick={() => setSelectedCuisines([])}
+          >
+            <Soup /> {selectedCuisines.length === 0
+              ? 'All cuisines'
+              : `${selectedCuisines.length} selected`}
+            {selectedCuisines.length > 0 && <span style={{ marginLeft: 4 }}>×</span>}
+          </button>
+
+          <span className="fb-divider" />
+
+          {QUICK_CUISINES.map((c) => (
+            <button
+              key={c.type}
+              type="button"
+              className={cn('fb-chip', selectedCuisines.includes(c.type) && 'active')}
+              onClick={() => toggleCuisine(c.type)}
+            >
+              {c.label}
+            </button>
+          ))}
+
+          <span className="fb-divider" />
+
+          <button
+            type="button"
+            className={cn('fb-toggle', openNow && 'active')}
+            onClick={() => setOpenNow((v) => !v)}
+          >
+            <span className="sw" />
+            Open now
+          </button>
+
+          <span className="fb-spacer" />
+
+          {/* Sort */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              className="fb-sort"
+              onClick={() => setSortMenuOpen((v) => !v)}
+            >
+              <span className="label">Sort:</span>
+              <span>{SORT_LABELS[sortBy]}</span>
+              <ChevronDown />
+            </button>
+            {sortMenuOpen && (
+              <div className="fb-menu">
+                {SORT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={cn('fb-menu-item', sortBy === opt.value && 'active')}
+                    onClick={() => { setSortBy(opt.value); setSortMenuOpen(false); }}
+                  >
+                    <span>{opt.label}</span>
+                    {sortBy === opt.value && <Check size={14} className="check" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* List/Map view */}
+          <div className="fb-view-group">
+            <button type="button" className="fb-view-btn active">
+              <LayoutGrid /> List
+            </button>
+            <button
+              type="button"
+              className="fb-view-btn"
+              onClick={handleOpenMap}
+              disabled={!hasCoords}
+            >
+              <MapIcon /> Map
+            </button>
+          </div>
+        </div>
+
+        {/* ── Mini-map ────────────────────────────────────────────────── */}
+        <div className={cn('minimap', mapExpanded && 'is-expanded')} onClick={handleOpenMap} role="presentation">
+          <div className="minimap-info">
+            <span className="pulse" />
+            {visible.length > 0 ? `${visible.length} spots nearby` : 'Loading nearby spots…'}
+          </div>
+          <button
+            type="button"
+            className="minimap-expand"
+            onClick={(e) => { e.stopPropagation(); setMapExpanded((v) => !v); }}
+            aria-label={mapExpanded ? 'Collapse map' : 'Expand map'}
+          >
+            {mapExpanded ? <Minimize2 /> : <Maximize2 />}
+          </button>
+          <div className="minimap-pins">
+            {MINIMAP_PINS.map((p, i) => (
+              <button
+                key={i}
+                type="button"
+                className={cn(
+                  'minimap-pin',
+                  p.kind === 'pick' && 'is-pick',
+                  p.kind === 'saved' && 'is-saved',
+                )}
+                style={{ left: `${p.x}%`, top: `${p.y}%` }}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={p.kind}
+              >
+                {p.kind === 'pick' ? '★' : p.kind === 'saved' ? '♥' : ''}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="minimap-cta"
+            onClick={(e) => { e.stopPropagation(); handleOpenMap(); }}
+          >
+            Open map <ChevronRight />
+          </button>
+        </div>
+
+        {/* ── Guides ──────────────────────────────────────────────────── */}
+        <section className={cn('lp-section collapsible-section', guidesOpen ? 'is-open' : 'is-closed')}>
+          <div className="loc-section-head is-collapsible">
+            <button
+              type="button"
+              className="loc-section-head-main"
+              onClick={() => setGuidesOpen((v) => !v)}
+            >
+              <span className={cn('loc-section-chev', guidesOpen && 'is-open')}>
+                <ChevronDown />
+              </span>
+              <div className="loc-section-head-text">
+                <div className="left">
+                  <h2>Guides for {shortCityName}</h2>
+                  <span className="count">{locationGuides.length}</span>
+                </div>
+                <div className="sub">Curated lists from locals and tastemakers</div>
+              </div>
+            </button>
+            {guidesOpen && (
+              <div className="section-actions">
+                <div className="scroll-btns">
+                  <button type="button" className="scroll-btn" onClick={() => scrollRow(guidesRowRef, -1)} aria-label="Scroll left">
+                    <ChevronLeft />
+                  </button>
+                  <button type="button" className="scroll-btn" onClick={() => scrollRow(guidesRowRef, 1)} aria-label="Scroll right">
+                    <ChevronRight />
+                  </button>
+                </div>
+                <a className="section-link" href="#">Browse all <ChevronRight /></a>
+              </div>
+            )}
+          </div>
+          <div className="collapsible-body">
+            <div className="gd-row" ref={guidesRowRef}>
+              {locationGuides.map((g) => {
+                const initial = (g.author || '?').charAt(0).toUpperCase();
+                return (
+                  <article key={g.id} className="gd-card">
+                    <div className="gd-img" style={{ backgroundImage: `url(${g.image})` }} />
+                    <div className="gd-stamp">
+                      <BookOpen /> Guide · {g.count} spots
+                    </div>
+                    <div className="gd-meta">
+                      <h3 className="gd-title">{g.title}</h3>
+                      <div className="gd-by">
+                        <span className="av" style={{ background: 'var(--accent)' }}>{initial}</span>
+                        by {g.author}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Local experts ───────────────────────────────────────────── */}
+        {(() => {
+          const experts = areaExperts.length > 0 ? areaExperts : buildFillerExperts(shortCityName);
+          if (experts.length === 0) return null;
+          return (
+            <section className={cn('lp-section collapsible-section', expertsOpen ? 'is-open' : 'is-closed')}>
+              <div className="loc-section-head is-collapsible">
+                <button
+                  type="button"
+                  className="loc-section-head-main"
+                  onClick={() => setExpertsOpen((v) => !v)}
+                >
+                  <span className={cn('loc-section-chev', expertsOpen && 'is-open')}>
+                    <ChevronDown />
+                  </span>
+                  <div className="loc-section-head-text">
+                    <div className="left">
+                      <h2>Local experts</h2>
+                      <span className="count">{experts.length}</span>
+                    </div>
+                    <div className="sub">People who actually know what they're talking about</div>
+                  </div>
+                </button>
+                {expertsOpen && (
+                  <div className="section-actions">
+                    <div className="scroll-btns">
+                      <button type="button" className="scroll-btn" onClick={() => scrollRow(expertsRowRef, -1)} aria-label="Scroll left">
+                        <ChevronLeft />
+                      </button>
+                      <button type="button" className="scroll-btn" onClick={() => scrollRow(expertsRowRef, 1)} aria-label="Scroll right">
+                        <ChevronRight />
+                      </button>
+                    </div>
+                    <a className="section-link" href="#">See all <ChevronRight /></a>
+                  </div>
+                )}
+              </div>
+              <div className="collapsible-body">
+                <div className="exp-row" ref={expertsRowRef}>
+                  {experts.map((e) => {
+                    const filler = isFillerProfile(e);
+                    const isFollowing = signals.followedExpertIds.has(e.user_id) || followedSuggestions.has(e.user_id);
+                    const initial = (e.display_name || e.username || '?').charAt(0).toUpperCase();
+                    // Deterministic avatar color from username so reloads
+                    // don't reshuffle. Picked from the warm palette.
+                    const avatarPalette = ['#A8392A', '#2E7D5C', '#3B5A8F', '#B47419', '#5E3B7A'];
+                    const colorIdx = (e.username || e.user_id).split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % avatarPalette.length;
+                    const avatarColor = avatarPalette[colorIdx];
+                    return (
+                      <article key={e.user_id} className="exp-card">
+                        <div className="exp-head">
+                          <div className="exp-av" style={{ background: avatarColor }}>{initial}</div>
+                          <div style={{ minWidth: 0 }}>
+                            <h3 className="exp-name">{e.display_name || e.username}</h3>
+                            <div className="exp-handle">@{e.username}</div>
+                          </div>
+                        </div>
+                        <p className="exp-tag">
+                          {e.bio || `Expert in ${shortCityName} dining.`}
+                        </p>
+                        <div className="exp-stats">
+                          {/* TODO: backfill with real counts when we have them. */}
+                          <div className="exp-stat"><div className="n">—</div><div className="l">Rated</div></div>
+                          <div className="exp-stat"><div className="n">—</div><div className="l">Guides</div></div>
+                          <div className="exp-stat"><div className="n">—</div><div className="l">Followers</div></div>
+                        </div>
+                        <div className="exp-cta">
+                          <button
+                            type="button"
+                            className={cn('btn-follow', isFollowing && 'following')}
+                            onClick={() => handleFollowExpert(e.user_id)}
+                          >
+                            {isFollowing ? '✓ Following' : 'Follow'}
+                          </button>
+                          {filler ? (
+                            <span className="btn-view" aria-hidden="true"><ChevronRight /></span>
+                          ) : (
+                            <Link className="btn-view" to={`/user/${e.username}`} aria-label={`View ${e.display_name || e.username}`}>
+                              <ChevronRight />
+                            </Link>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+          );
+        })()}
+
+        {/* ── All restaurants ─────────────────────────────────────────── */}
+        <section className="lp-section">
+          {/* Search + Filters row */}
+          <div className="r-search-row">
+            <div className="r-search">
+              <Search className="lens" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={`Search in ${cityDisplay}`}
-                className="w-full bg-on-surface/[0.04] focus:bg-on-surface/[0.06] rounded-full py-2.5 pl-10 pr-10 text-sm font-medium focus:outline-none"
+                placeholder={`Search restaurants, cuisines, neighborhoods in ${shortCityName}…`}
                 autoCapitalize="off"
                 autoCorrect="off"
               />
@@ -1352,150 +1687,204 @@ export const LocationPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full text-on-surface/50 hover:text-on-surface/80 hover:bg-on-surface/[0.04]"
                   aria-label="Clear search"
+                  style={{ color: 'var(--muted)' }}
                 >
                   <X size={14} />
                 </button>
               )}
+              <span className="kbd">⌘K</span>
             </div>
             <button
               type="button"
+              className="r-filters-btn"
               onClick={() => setFilterSheetOpen(true)}
-              className={cn(
-                'relative flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-2.5 rounded-full text-sm font-semibold transition-colors',
-                activeFilterCount > 0
-                  ? 'bg-primary/10 text-primary'
-                  : 'bg-on-surface/[0.04] text-on-surface/70 hover:bg-on-surface/[0.06]',
-              )}
               aria-label="Filters"
             >
-              <SlidersHorizontal size={15} />
-              <span className="hidden sm:inline">Filters</span>
-              {activeFilterCount > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold">
-                  {activeFilterCount}
-                </span>
-              )}
+              <SlidersHorizontal />
+              Filters
+              {activeFilterCount > 0 && <span className="r-filters-count">{activeFilterCount}</span>}
             </button>
           </div>
 
-          {/* Active-filter chips — shown only when something is applied so
-              the user can see and dismiss individual filters without
-              reopening the sheet. */}
+          <div className="loc-section-head">
+            <div className="loc-section-head-text">
+              <div className="left">
+                <h2>{debouncedSearch ? `Results for "${debouncedSearch}"` : 'All restaurants'}</h2>
+              </div>
+              <div className="sub">
+                {initialLoading
+                  ? 'Loading…'
+                  : `${visible.length} of ${ranked.length} · sorted by ${SORT_LABELS[sortBy].toLowerCase()}`}
+              </div>
+            </div>
+          </div>
+
+          {/* Active-filter chips */}
           {activeFilterCount > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-3">
+            <div className="chip-row">
               {sortBy !== 'recommended' && (
-                <FilterChip
-                  label={SORT_LABELS[sortBy]}
-                  onClear={() => setSortBy('recommended')}
-                />
+                <button type="button" className="chip" onClick={() => setSortBy('recommended')}>
+                  {SORT_LABELS[sortBy]} <span className="x">×</span>
+                </button>
               )}
               {selectedPrice > 0 && (
-                <FilterChip
-                  label={'$'.repeat(selectedPrice)}
-                  onClear={() => setSelectedPrice(0)}
-                />
+                <button type="button" className="chip" onClick={() => setSelectedPrice(0)}>
+                  {'$'.repeat(selectedPrice)} <span className="x">×</span>
+                </button>
               )}
               {selectedRadius > 0 && (
-                <FilterChip
-                  label={`Within ${selectedRadius} mi`}
-                  onClear={() => setSelectedRadius(0)}
-                />
+                <button type="button" className="chip" onClick={() => setSelectedRadius(0)}>
+                  Within {selectedRadius} mi <span className="x">×</span>
+                </button>
               )}
               {selectedWalkMin > 0 && (
-                <FilterChip
-                  label={`Walk ≤ ${selectedWalkMin} min`}
-                  onClear={() => setSelectedWalkMin(0)}
-                />
+                <button type="button" className="chip" onClick={() => setSelectedWalkMin(0)}>
+                  Walk ≤ {selectedWalkMin} min <span className="x">×</span>
+                </button>
               )}
               {selectedDriveMin > 0 && (
-                <FilterChip
-                  label={`Drive ≤ ${selectedDriveMin} min`}
-                  onClear={() => setSelectedDriveMin(0)}
-                />
+                <button type="button" className="chip" onClick={() => setSelectedDriveMin(0)}>
+                  Drive ≤ {selectedDriveMin} min <span className="x">×</span>
+                </button>
               )}
               {friendsOnly && (
-                <FilterChip
-                  label="Friends only"
-                  onClear={() => setFriendsOnly(false)}
-                />
+                <button type="button" className="chip" onClick={() => setFriendsOnly(false)}>
+                  Friends only <span className="x">×</span>
+                </button>
               )}
               {expertsOnly && (
-                <FilterChip
-                  label="Experts only"
-                  onClear={() => setExpertsOnly(false)}
-                />
+                <button type="button" className="chip" onClick={() => setExpertsOnly(false)}>
+                  Experts only <span className="x">×</span>
+                </button>
               )}
               {selectedCuisines.map((t) => {
                 const entry = CUISINE_TYPES.find((c) => c.type === t);
                 return (
-                  <FilterChip
+                  <button
                     key={t}
-                    label={entry?.label || t}
-                    onClear={() =>
-                      setSelectedCuisines((prev) => prev.filter((x) => x !== t))
-                    }
-                  />
+                    type="button"
+                    className="chip"
+                    onClick={() => setSelectedCuisines((prev) => prev.filter((x) => x !== t))}
+                  >
+                    {entry?.label || t} <span className="x">×</span>
+                  </button>
                 );
               })}
             </div>
           )}
-        </div>
 
-        {initialLoading ? (
-          <div className="flex items-center justify-center py-16 text-on-surface/40">
-            <Loader2 size={18} className="animate-spin" />
-            <span className="ml-2 text-xs font-medium">
+          {initialLoading ? (
+            <div className="lp-empty">
+              <Loader2 size={18} className="animate-spin" style={{ display: 'inline-block', verticalAlign: '-3px', marginRight: 8 }} />
               {debouncedSearch ? `Searching "${debouncedSearch}"…` : `Finding restaurants in ${cityDisplay}…`}
-            </span>
-          </div>
-        ) : visible.length === 0 ? (
-          <div className="px-6 py-16 text-center text-on-surface/45 text-sm">
-            {ranked.length > 0
-              ? 'No restaurants match these filters. Try clearing them.'
-              : debouncedSearch
-                ? `No matches for "${debouncedSearch}" in ${cityDisplay}.`
-                : `No restaurants found in ${cityDisplay} yet.`}
-          </div>
-        ) : (
-          <>
-            <div className="px-4 mx-auto max-w-3xl lg:max-w-4xl">
-              <ul className="divide-y divide-on-surface/[0.06]">
-                {visible.map((place) => (
-                  <RestaurantRow
-                    key={place.id}
-                    place={place}
-                    origin={origin}
-                    friendCount={friendCounts.get(place.id) ?? (friendRestaurantIds.has(place.id) ? 1 : 0)}
-                    expertCount={expertCounts.get(place.id) ?? (expertRestaurantIds.has(place.id) ? 1 : 0)}
-                    walkMinCap={selectedWalkMin > 0 ? selectedWalkMin : null}
-                    driveMinCap={selectedDriveMin > 0 ? selectedDriveMin : null}
-                  />
-                ))}
-              </ul>
             </div>
+          ) : visible.length === 0 ? (
+            <div className="lp-empty">
+              <strong>Nothing here yet</strong>
+              {ranked.length > 0
+                ? 'No restaurants match these filters. Try clearing them.'
+                : debouncedSearch
+                  ? `No matches for "${debouncedSearch}" in ${cityDisplay}.`
+                  : `No restaurants found in ${cityDisplay} yet.`}
+            </div>
+          ) : (
+            <>
+              <div className="r-list">
+                {visible.map((place, idx) => {
+                  const rank = idx + 1;
+                  const score = place.rating > 0 ? place.rating * 2 : 0;
+                  const cuisine = inferCuisineLabel(place.types);
+                  const priceLabel = priceLevelToString(place.priceLevel);
+                  const distMi = hasCoords
+                    ? haversineDistanceMi(lat, lng, place.lat, place.lng)
+                    : null;
+                  // Neighborhood: best-effort substring from address.
+                  const addressParts = (place.address || '').split(',').map((s) => s.trim());
+                  const neighborhoodLabel = addressParts.length > 1 ? addressParts[addressParts.length - 2] : '';
+                  const scoreClass = score >= 8.5 ? '' : score >= 7 ? 'is-mid' : 'is-low';
+                  const tags = place.types
+                    .map((t) => GOOGLE_TYPE_TO_CUISINE[t])
+                    .filter((v): v is string => !!v && v !== 'All' && v !== cuisine)
+                    .slice(0, 2);
+                  return (
+                    <Link
+                      key={place.id}
+                      to={`/restaurant/${place.id}`}
+                      className="r-list-item"
+                    >
+                      <div className="r-list-rank">
+                        #{rank}
+                        {rank <= 3 && <span className="trend">↑</span>}
+                      </div>
+                      <div className="r-list-info">
+                        <div className="r-list-top">
+                          <h3 className="r-list-name">{place.name}</h3>
+                          {/* OPEN status hidden until PlaceResult exposes it. */}
+                        </div>
+                        <div className="r-list-meta">
+                          {cuisine && <span className="cuisine">{cuisine}</span>}
+                          {cuisine && priceLabel && <span className="sep" />}
+                          {priceLabel && <span className="price">{priceLabel}</span>}
+                          {neighborhoodLabel && (priceLabel || cuisine) && <span className="sep" />}
+                          {neighborhoodLabel && (
+                            <span className="pin-row">
+                              <MapPin /> {neighborhoodLabel}
+                            </span>
+                          )}
+                        </div>
+                        {tags.length > 0 && (
+                          <div className="r-list-tags">
+                            {tags.map((t) => (
+                              <span key={t} className="r-list-tag">{t}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {distMi !== null && (
+                        <div className="r-list-distance">
+                          <span className="item">
+                            <MapPin /> <span className="val">{formatDistance(distMi)}</span>
+                          </span>
+                        </div>
+                      )}
+                      {score > 0 ? (
+                        <div className={cn('r-list-score', scoreClass)}>{score.toFixed(1)}</div>
+                      ) : (
+                        <div className="r-list-score is-low">—</div>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
 
-            {/* Sentinel + load-more state */}
-            <div ref={sentinelRef} className="h-1" />
-            {loadingMore && (
-              <div className="flex items-center justify-center py-6 text-on-surface/40">
-                <Loader2 size={16} className="animate-spin" />
-                <span className="ml-2 text-xs font-medium">Loading more…</span>
-              </div>
-            )}
-            {/* "End of list" shows on real pagination exhaustion, and also
-                when a strict filter (Friends / Experts) is active — those
-                filters source entirely from community rows we've already
-                loaded, so there's no "more" to fetch. */}
-            {(exhausted || friendsOnly || expertsOnly) && !loadingMore && (
-              <div className="text-center text-[11px] uppercase tracking-wider text-on-surface/35 py-6">
-                You've reached the end
-              </div>
-            )}
-          </>
-        )}
-      </section>
+              <div ref={sentinelRef} style={{ height: 1 }} />
+              {loadingMore && (
+                <div className="lp-empty" style={{ padding: '24px 0' }}>
+                  <Loader2 size={16} className="animate-spin" style={{ display: 'inline-block', verticalAlign: '-2px', marginRight: 8 }} />
+                  Loading more…
+                </div>
+              )}
+              {(exhausted || friendsOnly || expertsOnly) && !loadingMore && (
+                <div style={{ textAlign: 'center', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--muted)', padding: '24px 0' }}>
+                  You've reached the end
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
+
+      {/* FAB — placeholder for a "log a rating" / quick-add affordance.
+          TODO: wire to the same flow Discover uses for its + button. */}
+      <button
+        type="button"
+        className="lp-fab"
+        onClick={() => { /* TODO: open rating creation flow */ }}
+        aria-label="Add rating"
+      >
+        <Plus />
+      </button>
 
       <FilterSheet
         open={filterSheetOpen}
@@ -1522,6 +1911,7 @@ export const LocationPage: React.FC = () => {
     </div>
   );
 };
+
 
 /* ── Row ─────────────────────────────────────────────────────────────────────
    A single restaurant line item. Photo-free by design: the name, the match

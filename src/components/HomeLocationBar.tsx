@@ -227,13 +227,29 @@ interface Props {
   // Visual treatment of the trigger button. 'block' keeps the original
   // stacked "DINING IN / Serif label / chevron" used on phone home; 'chip'
   // renders a compact inline pill the new Discover hero composes alongside
-  // a "View all" link.
-  variant?: 'block' | 'chip';
+  // a "View all" link. 'headless' renders no trigger at all — used when a
+  // parent (like the redesigned LocationPage hero) supplies its own button
+  // and drives the sheet via the controlled `open` / `onOpenChange` props.
+  variant?: 'block' | 'chip' | 'headless';
+  // Optional controlled open state. When supplied, the parent owns the
+  // sheet's open/closed state; the internal `open` useState falls back to
+  // these. Used by LocationPage's "Change" pill to open the picker without
+  // rendering the default trigger button.
+  open?: boolean;
+  onOpenChange?: (next: boolean) => void;
 }
 
-export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent, variant = 'block' }) => {
+export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent, variant = 'block', open: openProp, onOpenChange }) => {
   const { setHideBottomNav } = useSettings();
-  const [open, setOpen] = useState(false);
+  const [openInternal, setOpenInternal] = useState(false);
+  const open = openProp !== undefined ? openProp : openInternal;
+  const setOpen = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
+    setOpenInternal((prev) => {
+      const value = typeof next === 'function' ? (next as (p: boolean) => boolean)(prev) : next;
+      if (onOpenChange) onOpenChange(value);
+      return value;
+    });
+  }, [onOpenChange]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<HomeLocation[]>([]);
   const [searching, setSearching] = useState(false);
@@ -353,7 +369,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
 
   return (
     <>
-      {variant === 'chip' ? (
+      {variant === 'headless' ? null : variant === 'chip' ? (
         <button
           type="button"
           onClick={() => setOpen(true)}
