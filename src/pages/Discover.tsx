@@ -4878,88 +4878,104 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           onClick={() => navigate(`/restaurant/${place.id}`)}
                           className={cn(
                             'flex-shrink-0 snap-start text-left group',
-                            usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
+                            usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
                           )}
                         >
                           {usingDesktopHeader ? (
-                            /* ── Desktop card: gradient/photo image area on top,
-                                  floating score circle, name + address + meta. */
-                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15">
-                              <div className="relative aspect-[4/3] overflow-hidden">
-                                {photoUrl ? (
-                                  <img
-                                    src={photoUrl}
-                                    alt=""
-                                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                ) : (
-                                  <div
-                                    className="absolute inset-0"
-                                    style={{ background: placeholderGradient(place.id || place.name) }}
-                                  />
-                                )}
-                                {/* Radial highlight + shadow for depth */}
-                                <div
-                                  className="absolute inset-0 pointer-events-none"
-                                  style={{
-                                    backgroundImage:
-                                      'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
-                                  }}
-                                />
-                                <span className="absolute top-2.5 left-2.5 inline-flex items-center px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[10.5px] font-bold uppercase tracking-[0.08em] text-on-surface max-w-[140px] truncate">
-                                  {cuisine || 'Restaurant'}
-                                </span>
-                                <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
-                                    className={cn(
-                                      'w-8 h-8 rounded-full flex items-center justify-center bg-white/92 backdrop-blur text-on-surface transition-transform hover:scale-[1.06] hover:bg-white',
-                                      wishlisted && 'text-primary',
+                            /* ── Desktop card: gradient/photo cover at top,
+                                  cuisine pill + heart/plus chips overlaid;
+                                  bottom strip holds name + pin/address + a
+                                  $$ · distance footer, with a prominent
+                                  outlined score circle anchored on the right. */
+                            (() => {
+                              const distanceLabel = distanceFromAnchor(
+                                (place as any).lat,
+                                (place as any).lng,
+                              );
+                              return (
+                                <article className="relative bg-paper border border-on-surface/[0.08] rounded-[20px] overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_8px_24px_-10px_rgba(31,26,23,0.18),0_1px_2px_rgba(31,26,23,0.05)] group-hover:border-on-surface/15">
+                                  {/* Cover */}
+                                  <div className="relative aspect-[16/11] overflow-hidden">
+                                    {photoUrl ? (
+                                      <img
+                                        src={photoUrl}
+                                        alt=""
+                                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    ) : (
+                                      <div
+                                        className="absolute inset-0"
+                                        style={{ background: placeholderGradient(place.id || place.name) }}
+                                      />
                                     )}
-                                    aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
-                                  >
-                                    <Heart size={14} className={wishlisted ? 'fill-current' : ''} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
-                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-white/92 backdrop-blur text-on-surface transition-transform hover:scale-[1.06] hover:bg-white"
-                                    aria-label="Add to list"
-                                  >
-                                    <Plus size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                              {/* Floating score circle — overlaps image bottom */}
-                              {scoreStr && (
-                                <div
-                                  className={cn(
-                                    'absolute right-3.5 z-10 w-[52px] h-[52px] rounded-full border-2 grid place-items-center font-serif font-bold text-[16px] leading-none tabular-nums shadow-[0_2px_8px_-2px_rgba(31,26,23,0.10),0_0_0_4px_white]',
-                                    scoreCls,
-                                  )}
-                                  style={{ top: 'calc(75% - 4px)' }}
-                                  title={`Score ${scoreStr} / 10`}
-                                >
-                                  {scoreStr}
-                                </div>
-                              )}
-                              <div className="px-4 pt-3.5 pb-3 pr-[72px]">
-                                <h3 className="font-serif font-semibold text-on-surface text-[17px] leading-[1.18] tracking-[-0.018em] line-clamp-2">
-                                  {place.name}
-                                </h3>
-                                {street && (
-                                  <div className="mt-1.5 flex items-center gap-1 text-[12px] text-on-surface/55 truncate">
-                                    <MapPin size={11} className="text-on-surface/35 flex-shrink-0" />
-                                    <span className="truncate">{street}</span>
+                                    {/* Depth — radial highlight + soft shadow */}
+                                    <div
+                                      className="absolute inset-0 pointer-events-none"
+                                      style={{
+                                        backgroundImage:
+                                          'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                                      }}
+                                    />
+                                    <span className="absolute top-3 left-3 inline-flex items-center px-3 py-1.5 rounded-full bg-paper text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface max-w-[170px] truncate">
+                                      {cuisine || 'Restaurant'}
+                                    </span>
+                                    <div className="absolute top-3 right-3 flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
+                                        className={cn(
+                                          'w-10 h-10 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]',
+                                          wishlisted && 'text-primary',
+                                        )}
+                                        aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
+                                      >
+                                        <Heart size={16} className={wishlisted ? 'fill-current' : ''} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
+                                        className="w-10 h-10 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]"
+                                        aria-label="Add to list"
+                                      >
+                                        <Plus size={16} />
+                                      </button>
+                                    </div>
                                   </div>
-                                )}
-                              </div>
-                              <div className="mx-4 mb-3 pt-3 border-t border-on-surface/[0.08] flex items-center gap-2 text-[12px] text-on-surface/65 font-medium">
-                                {price && <span>{price}</span>}
-                              </div>
-                            </article>
+                                  {/* Bottom strip: name + address + meta on the left,
+                                      bold score disc on the right. */}
+                                  <div className="px-4 py-4 flex items-center gap-3">
+                                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                                      <h3 className="font-serif font-semibold text-on-surface text-[22px] leading-[1.1] tracking-[-0.018em] line-clamp-1">
+                                        {place.name}
+                                      </h3>
+                                      {street && (
+                                        <div className="flex items-center gap-1.5 text-[12.5px] text-on-surface/55">
+                                          <MapPin size={12} className="text-on-surface/35 flex-shrink-0" />
+                                          <span className="truncate">{street}</span>
+                                        </div>
+                                      )}
+                                      <div className="flex items-center gap-2 text-[13px] text-on-surface/70 font-medium">
+                                        {price && <span>{price}</span>}
+                                        {price && distanceLabel && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />}
+                                        {distanceLabel && <span className="tabular-nums">{distanceLabel}</span>}
+                                      </div>
+                                    </div>
+                                    {scoreStr && (
+                                      <div
+                                        className={cn(
+                                          'flex-shrink-0 w-[60px] h-[60px] rounded-full border-2 grid place-items-center font-serif font-bold text-[18px] leading-none tabular-nums',
+                                          scoreCls,
+                                        )}
+                                        title={`Score ${scoreStr} / 10`}
+                                      >
+                                        {scoreStr}
+                                      </div>
+                                    )}
+                                  </div>
+                                </article>
+                              );
+                            })()
                           ) : (
                             /* ── Mobile card: NO image, accent bar on top.
                                   Cuisine eyebrow + score inline, then name,
@@ -5034,9 +5050,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       !recsLoadingMore && (
                         <div className={cn(
                           'flex-shrink-0 snap-start',
-                          usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
+                          usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
                         )}>
-                          <div className="aspect-[4/3] rounded-2xl border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex items-center justify-center px-4 text-center">
+                          <div className="aspect-[16/11] rounded-[20px] border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex items-center justify-center px-4 text-center">
                             <p className="text-[12px] text-on-surface/55">
                               No {heroChipCuisine} spots found near you yet.
                             </p>
@@ -5046,7 +5062,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     {recsLoadingMore && (
                       <div className={cn(
                         'flex-shrink-0 flex items-center justify-center',
-                        usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
+                        usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
                       )}>
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
@@ -5064,10 +5080,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         }
                         className={cn(
                           'flex-shrink-0 snap-start text-left group',
-                          usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
+                          usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
                         )}
                       >
-                        <div className="relative h-full min-h-[260px] rounded-2xl bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
+                        <div className="relative h-full min-h-[280px] rounded-[20px] bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
                           <div className="w-10 h-10 rounded-full bg-primary/12 group-hover:bg-primary/20 transition-colors flex items-center justify-center mb-2">
                             <ChevronRight size={18} className="text-primary" strokeWidth={2.2} />
                           </div>
