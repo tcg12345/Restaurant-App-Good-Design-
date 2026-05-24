@@ -455,6 +455,17 @@ const SEARCH_HERE_QUERIES = [
 ];
 const SEARCH_HERE_RADIUS_METERS = 2414; // ≈ 1.5 mi
 
+// Map a Google cuisine type ('japanese_restaurant') to a word that
+// reads naturally inside a text query ('japanese'). Falls back to
+// stripping the _restaurant suffix when CUISINE_TYPES doesn't have
+// the entry (or to a space-separated form for multi-word types like
+// 'asian_fusion_restaurant' → 'asian fusion').
+function typeToCuisineQueryWord(type: string): string {
+  const entry = CUISINE_TYPES.find((c) => c.type === type);
+  if (entry) return entry.label.toLowerCase();
+  return type.replace(/_restaurant$/, '').replace(/_/g, ' ');
+}
+
 const INITIAL_BATCH_SIZE = 4;  // queries pulled in parallel on first load (≈40 unique places after dedup)
 const LOAD_MORE_BATCH_SIZE = 4; // queries pulled per "Load more" click
 // Target ≈ 30 fresh uniques per Load-more press. fetchBatch dedupes
@@ -982,6 +993,72 @@ export const LocationPage: React.FC = () => {
     setLoadingMore(false);
   }, [loadingMore, exhausted, initialLoading, fetchBatch, friendsOnly, expertsOnly]);
 
+  // Cuisine-filter backfill. The initial cursor pool is built from
+  // generic seeds + the user's taste-profile cuisines, so picking a
+  // cuisine that ISN'T in the user's profile (e.g. Japanese for an
+  // Italian-leaning profile) leaves us with a 141-place pool and zero
+  // Japanese-tagged results — the filter trims everything. When a new
+  // cuisine becomes selected, fire a one-shot batch of cuisine-
+  // specific Google queries and append the matches to the pool.
+  // Results are deduped via seenIdsRef; backfilled cuisines are
+  // tracked in a ref so toggling a cuisine off/on doesn't re-fetch.
+  const cuisineBackfilledRef = useRef<Set<string>>(new Set());
+  // Reset the backfill tracker on city change so jumping cities
+  // re-fires the cuisine queries for the new city.
+  useEffect(() => {
+    cuisineBackfilledRef.current = new Set();
+  }, [cityKey]);
+  useEffect(() => {
+    if (!hasCoords || selectedCuisines.length === 0) return;
+    const toBackfill = selectedCuisines.filter(
+      (t) => !cuisineBackfilledRef.current.has(t),
+    );
+    if (toBackfill.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const allFresh: PlaceResult[] = [];
+      const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
+      for (const type of toBackfill) {
+        const word = typeToCuisineQueryWord(type);
+        const queries = cityKey
+          ? [
+              `best ${word} restaurants in ${cityKey}`,
+              `top rated ${word} restaurants in ${cityKey}`,
+              `popular ${word} restaurants`,
+            ]
+          : [
+              `best ${word} restaurants`,
+              `top rated ${word} restaurants`,
+              `popular ${word} restaurants`,
+            ];
+        try {
+          const results = await Promise.all(
+            queries.map((q) => searchPlacesByTextPaged(q, {
+              lat, lng, radiusMeters,
+              useRestriction: true,
+              priceLevels,
+            }).then((r) => r.places).catch(() => [] as PlaceResult[])),
+          );
+          for (const list of results) {
+            for (const p of list) {
+              if (seenIdsRef.current.has(p.id)) continue;
+              seenIdsRef.current.add(p.id);
+              allFresh.push(p);
+            }
+          }
+          cuisineBackfilledRef.current.add(type);
+        } catch (err) {
+          console.error('[LocationPage] cuisine backfill error:', err);
+        }
+      }
+      if (cancelled) return;
+      if (allFresh.length > 0) {
+        setPlacesPool((prev) => [...prev, ...allFresh]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [hasCoords, lat, lng, cityKey, selectedCuisines, selectedPrice, radiusMeters]);
+
   // When the user turns on "Friends only" or "Experts only", we augment
   // the Google-fetched pool with restaurants the circle has rated. Google's
   // text search can miss places that are popular within a small trusted
@@ -1506,8 +1583,22 @@ export const LocationPage: React.FC = () => {
     setSearchingHere(true);
     try {
       const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
+      // When a cuisine filter is active, search for THOSE cuisines
+      // specifically — otherwise we'd run generic queries whose results
+      // (mostly generic American / mixed) all get filtered out by the
+      // cuisine filter on the client side and the user sees 0 new spots.
+      const queries: string[] = selectedCuisines.length > 0
+        ? selectedCuisines.flatMap((type) => {
+            const word = typeToCuisineQueryWord(type);
+            return [
+              `best ${word} restaurants`,
+              `popular ${word} restaurants`,
+              `top rated ${word} restaurants`,
+            ];
+          })
+        : [...SEARCH_HERE_QUERIES];
       const results = await Promise.all(
-        SEARCH_HERE_QUERIES.map(async (q) => {
+        queries.map(async (q) => {
           const res = await searchPlacesByTextPaged(q, {
             lat: c.lat,
             lng: c.lng,
@@ -1534,7 +1625,7 @@ export const LocationPage: React.FC = () => {
     } finally {
       setSearchingHere(false);
     }
-  }, [searchingHere, selectedPrice]);
+  }, [searchingHere, selectedPrice, selectedCuisines]);
 
   return (
     <div className="location-page-root min-h-screen pb-24">
