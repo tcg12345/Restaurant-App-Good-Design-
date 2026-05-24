@@ -171,7 +171,10 @@ function buildSystemPrompt(body: ChatRequest): string {
   const filters = body.filters || {};
   const lines: string[] = [];
   lines.push(
-    `You are a restaurant concierge for ${city}. The user is browsing the explore page for this location and you're helping them choose where to eat.`,
+    `You are a restaurant concierge. The user is currently browsing the explore page for ${city}, so that's your DEFAULT location: when they say "where should I eat?" or "what looks good?" without specifying a city, recommend things in ${city}.`,
+  );
+  lines.push(
+    `BUT the user can also ask about restaurants anywhere in the world — "best pizza in Naples", "where to eat in Tokyo", "is X still open in LA". Answer those normally; use web_search for current info (closures, recent openings, press) and answer from general knowledge for established places. The search_restaurants tool only works in ${city}, so don't call it for other cities.`,
   );
   lines.push('');
 
@@ -216,16 +219,32 @@ function buildSystemPrompt(body: ChatRequest): string {
       lines.push(`- Taste leans toward: ${u.topCuisines.slice(0, 6).join(', ')}`);
     }
     if (u.topRated && u.topRated.length > 0) {
-      lines.push(`- Their top-rated places: ${u.topRated.slice(0, 8).map((r) => {
-        const bits = [r.name, r.score != null ? `${r.score}/10` : null, r.cuisine, r.neighborhood].filter(Boolean);
-        return bits.join(' · ');
-      }).join('; ')}`);
+      // RATED = the user has actually been there and scored it.
+      // Listed one-per-line so individual entries are unambiguous
+      // when the user asks "which of my Boston spots is highest
+      // rated?". This list is exhaustive (up to 50 from the frontend) —
+      // if the user mentions a city that doesn't appear in any of these
+      // lines, they truly have no rating for it.
+      lines.push(`- RATED restaurants (places the user has visited and scored, ${u.topRated.length} total):`);
+      for (const r of u.topRated) {
+        const bits = [
+          r.name,
+          r.score != null ? `RATED ${r.score}/10` : null,
+          r.cuisine,
+          r.neighborhood,
+        ].filter(Boolean);
+        lines.push(`    • ${bits.join(' · ')}`);
+      }
     }
     if (u.wishlist && u.wishlist.length > 0) {
-      lines.push(`- Wishlist (wants to try): ${u.wishlist.slice(0, 8).map((r) => {
+      // WISHLIST = haven't been yet, want to try. Crucial that this
+      // is never conflated with rated places — they're entirely
+      // different signals. Listed one-per-line for the same reason.
+      lines.push(`- WISHLIST (places the user wants to try but has NOT visited or rated, ${u.wishlist.length} total):`);
+      for (const r of u.wishlist) {
         const bits = [r.name, r.cuisine, r.neighborhood].filter(Boolean);
-        return bits.join(' · ');
-      }).join('; ')}`);
+        lines.push(`    • ${bits.join(' · ')}`);
+      }
     }
     if (u.recipes && u.recipes.length > 0) {
       lines.push(`- Cooks at home: ${u.recipes.slice(0, 6).map((r) => r.cuisine ? `${r.title} (${r.cuisine})` : r.title).join('; ')}`);
@@ -296,6 +315,9 @@ function buildSystemPrompt(body: ChatRequest): string {
   );
   lines.push(
     "7. Personalize. If the About-this-user section is present, weight recommendations toward their taste leanings, what their friends and experts have rated, etc. Mention the connection (\"this fits your Italian-leaning taste\", \"Mira has this at 9.4\") when it strengthens the case — but don't be sycophantic.",
+  );
+  lines.push(
+    "7a. ACCURACY around user data: when the user asks about their own ratings or wishlist (\"what have I rated highest in Boston?\"), answer ONLY from the RATED restaurants or WISHLIST sections above. Treat them as SEPARATE — wishlist entries are places the user has NEVER rated. Read the city tag on each entry carefully when filtering by location; never claim the user has no ratings in a city without checking every RATED line for that city's name. If you genuinely don't see a match, say so plainly rather than guessing.",
   );
   lines.push(
     "8. Active filters may be hiding good answers; you can call it out (\"your Japanese filter is hiding wing spots — I searched broader\") but don't ask the user to clear filters first, just help.",

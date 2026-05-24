@@ -1621,6 +1621,22 @@ export const LocationPage: React.FC = () => {
   }, [selectedMarkerPlace, visible]);
 
   // ── AI chatbot context: personalize from the user's data ─────────
+  // Pull a city + region tag out of a Google-formatted address so the
+  // chat's user-context lines say "Boston, MA" instead of just an
+  // unparseable street. Falls through to the full address when the
+  // shape is unfamiliar. Used for ratings + wishlist entries whose
+  // restaurant_meta hasn't been backfilled yet (meta is lazy-loaded
+  // when the user views the detail page, so older entries are bare).
+  const cityFromAddress = (address: string | undefined | null): string => {
+    if (!address) return '';
+    const parts = address.split(',').map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0];
+    if (parts.length === 2) return parts.join(', ');
+    // 3+ parts: drop the street (first), keep city + state/region
+    // (next two). e.g. "200 Berkeley St, Boston, MA 02116" -> "Boston, MA 02116".
+    return parts.slice(1, 3).join(', ');
+  };
   // Inlined into the system prompt every turn so Claude can weight
   // recommendations toward the user's taste history, friends, and
   // followed experts. Strictly read-only — same data already shown
@@ -1642,34 +1658,41 @@ export const LocationPage: React.FC = () => {
     if (myProfile?.username) ctx.username = myProfile.username;
     if (myProfile?.home_city) ctx.homeCity = myProfile.home_city;
     if (profile.topCuisines.length > 0) ctx.topCuisines = profile.topCuisines.slice(0, 6);
-    // Top-rated places — pull from `ratings`, sort by score desc,
-    // and enrich with cached cuisine / neighborhood when available.
+    // Send ALL ratings (up to 50), sorted by score desc. Previous
+    // 8-item cap caused the chat to confidently say "you have no
+    // Boston ratings" when the user's Boston picks happened to
+    // score below their top 8. Address comes off the rating row
+    // itself (not the lazy-loaded restaurant_meta) so the city is
+    // always present — meta-backed neighborhood is preferred when
+    // it's there for the richer "Beacon Hill, Boston" form.
     if (ratings.length > 0) {
-      const sorted = [...ratings].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 8);
+      const sorted = [...ratings].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 50);
       ctx.topRated = sorted.map((r) => {
         const meta = restaurantMeta[r.restaurantId];
-        const neighborhood = meta
-          ? formatLocationLabel(meta.addressComponents, meta.address || '', meta.neighborhood)
+        const richLocation = meta
+          ? formatLocationLabel(meta.addressComponents, meta.address || r.address || '', meta.neighborhood)
           : '';
+        const location = richLocation || cityFromAddress(r.address);
         return {
           name: r.name || meta?.name || 'Unnamed',
           score: typeof r.score === 'number' ? r.score : undefined,
-          cuisine: meta?.cuisine || undefined,
-          neighborhood: neighborhood || undefined,
+          cuisine: r.cuisine || meta?.cuisine || undefined,
+          neighborhood: location || undefined,
         };
       });
     }
-    // Wishlist
+    // Wishlist — same treatment, capped at 30.
     if (wishlist.length > 0) {
-      ctx.wishlist = wishlist.slice(0, 8).map((w) => {
+      ctx.wishlist = wishlist.slice(0, 30).map((w) => {
         const meta = restaurantMeta[w.restaurantId];
-        const neighborhood = meta
-          ? formatLocationLabel(meta.addressComponents, meta.address || '', meta.neighborhood)
+        const richLocation = meta
+          ? formatLocationLabel(meta.addressComponents, meta.address || w.address || '', meta.neighborhood)
           : '';
+        const location = richLocation || cityFromAddress(w.address);
         return {
           name: w.name || meta?.name || 'Unnamed',
-          cuisine: meta?.cuisine || undefined,
-          neighborhood: neighborhood || undefined,
+          cuisine: w.cuisine || meta?.cuisine || undefined,
+          neighborhood: location || undefined,
         };
       });
     }
