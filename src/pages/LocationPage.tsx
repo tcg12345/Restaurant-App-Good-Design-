@@ -40,6 +40,8 @@ import {
   searchPlacesByTextPaged,
   priceLevelToString,
   CUISINE_TYPES,
+  formatLocationLabel,
+  fetchLocationDataForPlace,
   type PlaceResult,
 } from '../lib/places';
 import {
@@ -2801,8 +2803,44 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     ? haversineDistanceMi(origin.lat, origin.lng, place.lat, place.lng)
     : null;
   const distLabel = distMi != null ? formatDistance(distMi) : '';
-  const addressParts = (place.address || '').split(',').map((s) => s.trim());
-  const neighborhoodLabel = addressParts.length > 1 ? addressParts[addressParts.length - 2] : '';
+
+  // Pantry-style "Neighborhood, Borough" label. The same shared meta
+  // cache (ListsContext.restaurantMeta) plus Pantry's backfill pattern:
+  // if we don't yet have addressComponents + a Mapbox-sourced
+  // neighborhood for this place, fire the one-shot fetch and write
+  // back via cacheRestaurantMeta. fetchLocationDataForPlace dedupes
+  // in-flight calls per id and the cache is app-wide, so re-visiting a
+  // place across pages is free.
+  const { restaurantMeta, cacheRestaurantMeta } = useLists();
+  const meta = restaurantMeta[place.id];
+  const hasFullLocationData =
+    !!meta?.addressComponents && meta?.neighborhood !== undefined;
+  useEffect(() => {
+    if (!place.id || hasFullLocationData) return;
+    let cancelled = false;
+    fetchLocationDataForPlace(place.id).then(
+      ({ addressComponents, neighborhood, lat: ll, lng: lg, hours }) => {
+        if (cancelled) return;
+        if (!addressComponents?.length && !neighborhood && ll == null && lg == null && hours == null) return;
+        cacheRestaurantMeta({
+          id: place.id,
+          ...(addressComponents?.length ? { addressComponents } : {}),
+          ...(neighborhood ? { neighborhood } : {}),
+          ...(ll != null ? { lat: ll } : {}),
+          ...(lg != null ? { lng: lg } : {}),
+          ...(hours != null ? { hours } : {}),
+        });
+      },
+    );
+    return () => { cancelled = true; };
+  }, [place.id, hasFullLocationData, cacheRestaurantMeta]);
+
+  const locationLabel = formatLocationLabel(
+    meta?.addressComponents,
+    place.address || '',
+    meta?.neighborhood,
+  );
+
   const scoreClass = score >= 8.5 ? '' : score >= 7 ? 'is-mid' : 'is-low';
   const tags = place.types
     .map((t) => GOOGLE_TYPE_TO_CUISINE[t])
@@ -2823,10 +2861,10 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
           {cuisine && <span className="cuisine">{cuisine}</span>}
           {cuisine && priceLabel && <span className="sep" />}
           {priceLabel && <span className="price">{priceLabel}</span>}
-          {neighborhoodLabel && (priceLabel || cuisine) && <span className="sep" />}
-          {neighborhoodLabel && (
+          {locationLabel && (priceLabel || cuisine) && <span className="sep" />}
+          {locationLabel && (
             <span className="pin-row">
-              <MapPin /> {neighborhoodLabel}
+              <MapPin /> {locationLabel}
             </span>
           )}
         </div>
