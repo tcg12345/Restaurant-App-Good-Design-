@@ -83,6 +83,7 @@ import {
   getCurrentHomeLocation,
   type HomeLocation,
 } from '../components/HomeLocationBar';
+import { LocationChat } from '../components/LocationChat';
 
 /* ── Placeholder guides ──────────────────────────────────────────────────────
    Same visual language as the Home page's horizontal guide scroller. Titles
@@ -2298,6 +2299,25 @@ export const LocationPage: React.FC = () => {
         onWalkMinChange={setSelectedWalkMin}
         selectedDriveMin={selectedDriveMin}
         onDriveMinChange={setSelectedDriveMin}
+      />
+
+      <LocationChat
+        visible={visible}
+        restaurantMeta={restaurantMeta}
+        cityDisplay={cityDisplay}
+        shortCityName={shortCityName}
+        filters={{
+          cuisines: selectedCuisines
+            .map((t) => CUISINE_TYPES.find((c) => c.type === t)?.label || t)
+            .filter(Boolean),
+          price: selectedPrice > 0 ? selectedPrice : undefined,
+          // Neighborhood multi-select isn't wired up yet (feature reverted
+          // earlier); leave undefined so the model doesn't see a stale value.
+          neighborhoods: undefined,
+          radius: selectedRadius > 0 ? selectedRadius : undefined,
+          sort: sortBy !== 'recommended' ? SORT_LABELS[sortBy] : undefined,
+        }}
+        origin={origin}
       />
     </div>
   );
