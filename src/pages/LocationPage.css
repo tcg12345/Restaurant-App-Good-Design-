@@ -246,7 +246,7 @@
   border: 1px solid var(--border);
   transition: height .5s cubic-bezier(.22,1,.36,1), box-shadow .18s;
 }
-.location-page-root .minimap.is-expanded { height: 540px; }
+.location-page-root .minimap.is-expanded { height: 590px; }
 .location-page-root .minimap:hover { box-shadow: var(--shadow-md); }
 .location-page-root .minimap-canvas {
   position: absolute;
