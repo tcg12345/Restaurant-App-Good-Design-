@@ -5303,6 +5303,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 <SocialFeed
                   centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
                   centerLng={mode === 'home' ? homeLocation?.lng ?? null : null}
+                  suggestedRestaurants={mode === 'home' ? recommendations.slice(0, 6).map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    cuisine: getCuisineLabel((p as any).types || []),
+                    rating: (p as any).rating ?? null,
+                    address: (p as any).address || '',
+                    price: priceLevelToString((p as any).priceLevel || 0),
+                    photoUrl: (p as any).photoUrl,
+                  })) : []}
                 />
               </div>
               </div>

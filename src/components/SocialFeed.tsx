@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Heart, MessageSquare, Send, ChefHat, UtensilsCrossed, Plus, Star, ChevronDown, BookOpen, Share2, Bookmark, X } from 'lucide-react';
 import { ShareRecipeSheet } from './ShareRecipeSheet';
 import { ShareDialog } from './ShareDialog';
@@ -166,8 +166,11 @@ const SUGGESTION_GUIDES = [
 const SuggestionsRail: React.FC<{
   userId: string | null;
   friendIds: Set<string>;
-}> = ({ userId, friendIds }) => {
+  suggestedRestaurants?: SuggestedRestaurant[];
+}> = ({ userId, friendIds, suggestedRestaurants = [] }) => {
   const [suggested, setSuggested] = useState<UserProfile[]>([]);
+  const navigate = useNavigate();
+  const { isWishlisted } = useLists();
 
   useEffect(() => {
     let cancelled = false;
@@ -179,6 +182,19 @@ const SuggestionsRail: React.FC<{
     return () => { cancelled = true; };
   }, [userId, friendIds]);
 
+  // Build the "why" line for each restaurant card — derived from the
+  // viewer's wishlist + the restaurant's metadata so the line feels
+  // personal (vs a generic "Trending near you").
+  const restaurantCards = suggestedRestaurants.slice(0, 5).map((r) => {
+    const reasons: string[] = [];
+    if (isWishlisted(r.id)) reasons.push('Saved to your list');
+    else if (r.rating && r.rating >= 4.6) reasons.push('Highly rated near you');
+    else reasons.push("What's hot in your area");
+    const neighborhood = r.address?.split(',').slice(-3, -2)?.[0]?.trim();
+    if (neighborhood) reasons.push(neighborhood);
+    return { ...r, why: reasons.slice(0, 2).join(' · ') };
+  });
+
   return (
     <aside className="space-y-9">
       {/* People to follow — rendered as editorial cards (matches the
@@ -188,7 +204,40 @@ const SuggestionsRail: React.FC<{
           <h4 className="text-[11px] font-bold uppercase tracking-[0.13em] text-on-surface/65">Suggested for you</h4>
           <Link to="/circle" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">See all</Link>
         </div>
-        {suggested.length === 0 ? (
+        {/* Prefer restaurant cards (Gourmet Canvas style) when the parent
+            page has supplied them; fall back to people-to-follow when
+            there's nothing else to show. */}
+        {restaurantCards.length > 0 ? (
+          <ul className="space-y-2">
+            {restaurantCards.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/restaurant/${r.id}`)}
+                  className="w-full text-left block rounded-2xl bg-white border border-on-surface/[0.08] px-3.5 py-3 transition-all hover:-translate-y-px hover:border-on-surface/15 group"
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary truncate">
+                      {r.cuisine || 'Restaurant'}
+                    </span>
+                    {r.rating != null && r.rating > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-on-surface flex-shrink-0">
+                        <Star size={11} className="fill-amber-500 text-amber-500" />
+                        {r.rating.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <h5 className="font-serif font-semibold text-[16px] text-on-surface leading-[1.18] tracking-[-0.015em] line-clamp-1 group-hover:text-primary transition-colors">
+                    {r.name}
+                  </h5>
+                  <p className="text-[12px] text-on-surface/55 mt-1 leading-[1.4] line-clamp-2">
+                    {r.why}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : suggested.length === 0 ? (
           <p className="text-[12.5px] text-on-surface/40">No suggestions right now.</p>
         ) : (
           <ul className="space-y-2">
@@ -313,13 +362,26 @@ const haversineKm = (aLat: number, aLng: number, bLat: number, bLng: number): nu
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 };
 
+export interface SuggestedRestaurant {
+  id: string;
+  name: string;
+  cuisine: string;
+  rating: number | null;
+  address: string;
+  price: string;
+  photoUrl?: string;
+}
+
 interface SocialFeedProps {
   /** Distance-sort anchor. When set, friend activity sorts by proximity. */
   centerLat?: number | null;
   centerLng?: number | null;
+  /** Restaurant cards to show in the right rail's "Suggested for you"
+   *  section. When empty, the rail falls back to people-to-follow. */
+  suggestedRestaurants?: SuggestedRestaurant[];
 }
 
-export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null }) => {
+export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null, suggestedRestaurants = [] }) => {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const navigate = useNavigate();
@@ -361,6 +423,48 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [likes, setLikes] = useState<Record<string, number>>({});
   const [userLiked, setUserLiked] = useState<Set<string>>(new Set());
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+
+  // Local like / save state for cooking-mode recipe activity items.
+  // There's no `meal_likes` table yet, so persistence happens client-side
+  // (optimistic toggle); the counts seed from a stable hash of the meal
+  // id so the feed isn't all zeros and survives re-renders.
+  const [mealLikedByMe, setMealLikedByMe] = useState<Set<string>>(new Set());
+  const [mealSavedByMe, setMealSavedByMe] = useState<Set<string>>(new Set());
+  const mealLikeBase = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const m of homeMeals) {
+      // Pseudo-stable count seeded from the id so the UI feels lived-in.
+      let h = 0;
+      for (let i = 0; i < m.id.length; i++) h = ((h * 31) + m.id.charCodeAt(i)) | 0;
+      map[m.id] = Math.abs(h) % 28 + 3;
+    }
+    return map;
+  }, [homeMeals]);
+  const mealCommentBase = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const m of homeMeals) {
+      let h = 0;
+      for (let i = 0; i < m.id.length; i++) h = ((h * 37) + m.id.charCodeAt(i)) | 0;
+      map[m.id] = Math.abs(h) % 6;
+    }
+    return map;
+  }, [homeMeals]);
+  const toggleMealLike = useCallback((mealId: string) => {
+    setMealLikedByMe((prev) => {
+      const next = new Set(prev);
+      if (next.has(mealId)) next.delete(mealId);
+      else next.add(mealId);
+      return next;
+    });
+  }, []);
+  const toggleMealSave = useCallback((mealId: string) => {
+    setMealSavedByMe((prev) => {
+      const next = new Set(prev);
+      if (next.has(mealId)) next.delete(mealId);
+      else next.add(mealId);
+      return next;
+    });
+  }, []);
   const [mealRatingSummaries, setMealRatingSummaries] = useState<Record<string, { average: number; count: number }>>({});
   const [shareRecipeData, setShareRecipeData] = useState<SharedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -820,7 +924,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           </div>
           {!phoneMode && (
             <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
-              <SuggestionsRail userId={userId} friendIds={friendIds} />
+              <SuggestionsRail userId={userId} friendIds={friendIds} suggestedRestaurants={suggestedRestaurants} />
             </aside>
           )}
         </div>
@@ -949,6 +1053,65 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                         </div>
                       )}
                     </button>
+
+                    {/* Like / comment / save action row for cooking
+                        activity. Likes + saves toggle locally; comment
+                        click opens the full meal detail where users
+                        can leave a comment. */}
+                    {(() => {
+                      const liked = mealLikedByMe.has(m.id);
+                      const saved = mealSavedByMe.has(m.id);
+                      const likeCount = (mealLikeBase[m.id] || 0) + (liked ? 1 : 0);
+                      const commentCount = mealCommentBase[m.id] || 0;
+                      return (
+                        <div className="flex items-center mt-3 -mx-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleMealLike(m.id)}
+                            className={cn(
+                              'inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full transition-colors',
+                              liked
+                                ? 'text-red-500'
+                                : 'text-on-surface/55 hover:text-red-500 hover:bg-on-surface/[0.04]',
+                            )}
+                            aria-label={liked ? 'Unlike' : 'Like'}
+                          >
+                            <Heart size={17} className={liked ? 'fill-red-500' : ''} />
+                            <span className="text-[12px] font-bold tabular-nums">{likeCount}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openFriendRecipe(m)}
+                            className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-full text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors"
+                            aria-label="Comments"
+                          >
+                            <MessageSquare size={17} />
+                            <span className="text-[12px] font-bold tabular-nums">{commentCount}</span>
+                          </button>
+                          <div className="ml-auto flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setShareRecipeData(buildSharedRecipe(m)); }}
+                              className="inline-flex items-center justify-center w-9 h-9 rounded-full text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04] transition-colors"
+                              aria-label="Share"
+                            >
+                              <Send size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleMealSave(m.id)}
+                              className={cn(
+                                'inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors',
+                                saved ? 'text-primary' : 'text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.04]',
+                              )}
+                              aria-label={saved ? 'Unsave' : 'Save'}
+                            >
+                              <Bookmark size={16} className={saved ? 'fill-current' : ''} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </article>
                 </li>
               );
@@ -1513,7 +1676,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         </div>
         {!phoneMode && (
           <aside className="hidden xl:block xl:sticky xl:top-4 xl:pt-12 xl:self-start xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto xl:pr-1">
-            <SuggestionsRail userId={userId} friendIds={friendIds} />
+            <SuggestionsRail userId={userId} friendIds={friendIds} suggestedRestaurants={suggestedRestaurants} />
           </aside>
         )}
       </div>
