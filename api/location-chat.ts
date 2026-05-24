@@ -69,17 +69,44 @@ const TOOL_RECOMMEND = {
 const TOOL_SEARCH = {
   name: 'search_restaurants',
   description:
-    "Search Google Places for restaurants in the current city when the Available list doesn't have what the user is asking for. Use this when the user asks for a specific dish, cuisine, or vibe (chicken wings, ramen, late-night, vegan, dive bar, etc.) and a quick scan of the Available list shows no obvious matches. The tool result returns a fresh batch of restaurants with their ids that you can then pass to recommend_restaurants. Call this BEFORE telling the user you can't help.",
+    "Search Google Places for restaurants when the Available list doesn't have what the user is asking for, OR when you need to turn a restaurant name (e.g. from web_search results) into a real id you can render as a card. Use this whenever you want the user to see CLICKABLE CARDS — the only way cards appear is by passing a real Google place id to recommend_restaurants, and this tool is how you get those ids.",
   input_schema: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
         description:
-          "Free-text search query (e.g. 'chicken wings', 'late-night ramen', 'best dive bar with food'). Do NOT include the city name — the frontend anchors the search to the user's current city automatically.",
+          "Free-text search query. Can be a category ('chicken wings', 'late-night ramen') or a specific restaurant name returned by web_search ('Felice Westport', 'Carbone'). The frontend will combine this with the city.",
+      },
+      city: {
+        type: 'string',
+        description:
+          "Optional. City to anchor the search to, e.g. 'Westport, CT', 'Tokyo', 'Paris'. Omit (or leave empty) to search the user's CURRENT city. Set this when the user asked about a different city or when web_search results pointed you to a city other than the current one.",
       },
     },
     required: ['query'],
+  },
+};
+
+const TOOL_RECOMMEND_RECIPES = {
+  name: 'recommend_recipes',
+  description:
+    "Surface recipe cards for recipes the user has saved (from the RECIPES section of the system prompt). Use this — not prose — when you want to point the user at one of their own recipes (e.g. they ask 'what should I cook tonight?' or 'do I have any pasta recipes?'). IDs MUST be from the RECIPES section.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      recipe_ids: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
+        maxItems: 6,
+      },
+      reason: {
+        type: 'string',
+        description: 'One short sentence on why these match the user.',
+      },
+    },
+    required: ['recipe_ids'],
   },
 };
 
@@ -146,7 +173,7 @@ interface UserContext {
   /** Restaurants in the user's wishlist. */
   wishlist?: Array<{ name: string; cuisine?: string; neighborhood?: string }>;
   /** Recipes the user has saved / cooked. */
-  recipes?: Array<{ title: string; cuisine?: string }>;
+  recipes?: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string }>;
   /** Friends the user has connected with — display names only. */
   friends?: Array<{ displayName: string; username?: string }>;
   /** Experts the user follows. */
@@ -247,7 +274,20 @@ function buildSystemPrompt(body: ChatRequest): string {
       }
     }
     if (u.recipes && u.recipes.length > 0) {
-      lines.push(`- Cooks at home: ${u.recipes.slice(0, 6).map((r) => r.cuisine ? `${r.title} (${r.cuisine})` : r.title).join('; ')}`);
+      // RECIPES the user has saved/cooked. Listed with their ids so
+      // recommend_recipes can render cards.
+      lines.push(`- RECIPES (the user's own saved recipes, ${u.recipes.length} total):`);
+      for (const r of u.recipes) {
+        const time = (r.prepTime || 0) + (r.cookTime || 0);
+        const bits = [
+          r.title,
+          `(id: ${r.id})`,
+          r.cuisine,
+          time > 0 ? `${time} min total` : null,
+          r.difficulty,
+        ].filter(Boolean);
+        lines.push(`    • ${bits.join(' · ')}`);
+      }
     }
     if (u.friends && u.friends.length > 0) {
       lines.push(`- Friends: ${u.friends.slice(0, 10).map((f) => f.username ? `${f.displayName} (@${f.username})` : f.displayName).join(', ')}`);
@@ -308,7 +348,10 @@ function buildSystemPrompt(body: ChatRequest): string {
     "4. If the user asks something that needs current real-world info (is X still open, recent press, new restaurant openings, who won a James Beard, etc.) use web_search. Don't use it for trivia covered in the Available list.",
   );
   lines.push(
-    "5. ALWAYS surface places via the recommend_restaurants tool — never type their names in prose. Cards are how the user actually clicks through.",
+    "4a. After web_search returns specific restaurant NAMES, do not just list them in prose — for each one you want to recommend, call search_restaurants({ query: '<the name>', city: '<the city the user asked about>' }) to convert it into a Google place id, then pass those ids to recommend_restaurants. That's the only way the user gets clickable cards from web results.",
+  );
+  lines.push(
+    "5. ALWAYS surface places via the recommend_restaurants tool — never type their names in prose. Cards are how the user actually clicks through. Likewise, when surfacing one of the user's own RECIPES (from the RECIPES section), use the recommend_recipes tool with the recipe ids — don't just type recipe titles in prose.",
   );
   lines.push(
     "6. Only say 'I couldn't find anything' AFTER trying search_restaurants and / or web_search and they genuinely returned nothing useful.",
@@ -379,7 +422,7 @@ export default async function handler(req: Request): Promise<Response> {
         cache_control: { type: 'ephemeral' },
       },
     ],
-    tools: [TOOL_RECOMMEND, TOOL_SEARCH, TOOL_LOOKUP_USER, TOOL_WEB_SEARCH],
+    tools: [TOOL_RECOMMEND, TOOL_RECOMMEND_RECIPES, TOOL_SEARCH, TOOL_LOOKUP_USER, TOOL_WEB_SEARCH],
     messages: body.messages,
   };
 

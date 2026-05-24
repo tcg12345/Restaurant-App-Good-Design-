@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
+  ChefHat,
   ChevronRight,
   Loader2,
   MapPin,
@@ -27,7 +28,7 @@ import {
   CUISINE_TYPES,
 } from '../lib/places';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
-import type { RestaurantMeta } from '../contexts/ListsContext';
+import type { Recipe, RestaurantMeta } from '../contexts/ListsContext';
 import type { ScoredPlace } from '../lib/recommendations';
 import {
   streamLocationChat,
@@ -74,14 +75,15 @@ interface LocationChatProps {
    *  visible place when absent). */
   origin: { lat: number; lng: number } | null;
   /** Fetches fresh Google Places hits for a free-text query, anchored
-   *  to the user's current city. Used when Claude calls the
-   *  search_restaurants tool because the visible pool doesn't have
-   *  what the user is asking for (e.g. "chicken wings" inside a pool
-   *  that's all fine-dining French). LocationPage implements this
-   *  via the same searchPlacesByTextPaged helper handleSearchHere
-   *  uses; it also appends results to placesPool so any matches that
-   *  pass the user's filters show up in the list/map automatically. */
-  onSearchRestaurants: (query: string) => Promise<ScoredPlace[]>;
+   *  to the user's current city by default. When `city` is supplied,
+   *  geocodes that city and searches there instead — lets Claude
+   *  turn web_search restaurant names into clickable card ids for
+   *  any city in the world, not just the page's current one. */
+  onSearchRestaurants: (query: string, city?: string) => Promise<ScoredPlace[]>;
+  /** All of the user's saved recipes (across every list). Used as
+   *  the lookup table when Claude calls recommend_recipes — same
+   *  pattern as placeById for restaurants. */
+  recipes: Recipe[];
   /** Personalization context — user's taste, lists, friends, etc.
    *  Shipped in the request body and inlined into the system prompt
    *  so Claude can tailor recommendations. Optional; omit and the
@@ -109,11 +111,12 @@ interface UiMessage {
 type UiBlock =
   | { type: 'text'; text: string }
   | { type: 'cards'; toolUseId: string; placeIds: string[]; reason?: string }
+  | { type: 'recipe_cards'; toolUseId: string; recipeIds: string[]; reason?: string }
   // Invisible: assistant's tool_use blocks we don't surface as cards
-  // (currently search_restaurants). Kept in messages state so the
-  // conversation can be reconstructed on the next API call without
-  // breaking Anthropic's "every tool_use needs a matching tool_result
-  // immediately after" rule.
+  // (currently search_restaurants and lookup_user). Kept in messages
+  // state so the conversation can be reconstructed on the next API
+  // call without breaking Anthropic's "every tool_use needs a matching
+  // tool_result immediately after" rule.
   | { type: 'tool_use'; toolUseId: string; toolName: string; input: unknown }
   // Invisible: user-role tool_result blocks emitted between agentic
   // turns. Stored on the user turn so the history round-trips cleanly.
@@ -169,6 +172,13 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
         name: 'recommend_restaurants',
         input: { restaurant_ids: b.placeIds, reason: b.reason || '' },
       });
+    } else if (b.type === 'recipe_cards') {
+      out.push({
+        type: 'tool_use',
+        id: b.toolUseId,
+        name: 'recommend_recipes',
+        input: { recipe_ids: b.recipeIds, reason: b.reason || '' },
+      });
     } else if (b.type === 'tool_use') {
       out.push({
         type: 'tool_use',
@@ -215,6 +225,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onSearchRestaurants,
   userContext,
   onLookupUser,
+  recipes,
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -280,11 +291,22 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     return m;
   }, [visible, chatPlaces]);
 
+  const recipeById = useMemo(() => {
+    const m = new Map<string, Recipe>();
+    for (const r of recipes) if (r?.id) m.set(r.id, r);
+    return m;
+  }, [recipes]);
+
   const handleNavigateRestaurant = useCallback((id: string) => {
     setOpen(false);
     // Defer the navigation a tick so the close animation has a
     // chance to play before the route swap.
     setTimeout(() => navigate(`/restaurant/${id}`), 60);
+  }, [navigate]);
+
+  const handleNavigateRecipe = useCallback((id: string) => {
+    setOpen(false);
+    setTimeout(() => navigate(`/recipe/${id}`), 60);
   }, [navigate]);
 
   const sendTurn = useCallback(async (userText: string) => {
@@ -380,6 +402,18 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
                 return next;
               });
+            } else if (ev.name === 'recommend_recipes') {
+              const input = (ev.input || {}) as { recipe_ids?: string[]; reason?: string };
+              const recipeIds = Array.isArray(input.recipe_ids)
+                ? input.recipe_ids.filter((id): id is string => typeof id === 'string')
+                : [];
+              const reason = typeof input.reason === 'string' ? input.reason : '';
+              assistantBlocks.push({ type: 'recipe_cards', toolUseId: ev.id, recipeIds, reason });
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
+                return next;
+              });
             } else {
               // search_restaurants (or any future invisible tool) —
               // record the tool_use so the assistant turn round-trips
@@ -433,6 +467,22 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             content = ids.length > 0
               ? `Rendered ${ids.length} restaurant card(s) for the user.`
               : 'No restaurant ids provided.';
+          } else if (tu.name === 'recommend_recipes') {
+            const input = (tu.input || {}) as { recipe_ids?: string[] };
+            const ids = Array.isArray(input.recipe_ids) ? input.recipe_ids : [];
+            // Filter out ids the user doesn't actually own so we can
+            // tell Claude what stuck vs what was a hallucination.
+            const valid = ids.filter((id) => recipeById.has(id));
+            const invalid = ids.filter((id) => !recipeById.has(id));
+            if (valid.length === 0 && invalid.length === 0) {
+              content = 'No recipe ids provided.';
+            } else if (valid.length === 0) {
+              content = `None of the recipe ids matched the user's saved recipes (${invalid.join(', ')}). Don't fabricate — only use ids from the RECIPES section of the system prompt.`;
+            } else if (invalid.length > 0) {
+              content = `Rendered ${valid.length} recipe card(s) for the user. Skipped ${invalid.length} unknown id(s): ${invalid.join(', ')}.`;
+            } else {
+              content = `Rendered ${valid.length} recipe card(s) for the user.`;
+            }
           } else if (tu.name === 'lookup_user') {
             const input = (tu.input || {}) as { query?: string };
             const query = (input.query || '').trim();
@@ -458,15 +508,17 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               }
             }
           } else if (tu.name === 'search_restaurants') {
-            const input = (tu.input || {}) as { query?: string };
+            const input = (tu.input || {}) as { query?: string; city?: string };
             const query = (input.query || '').trim();
+            const city = (input.city || '').trim() || undefined;
             if (!query) {
               content = 'No query provided to search_restaurants.';
             } else {
               try {
-                const found = await onSearchRestaurants(query);
+                const found = await onSearchRestaurants(query, city);
                 if (!found || found.length === 0) {
-                  content = `Search for "${query}" returned no results. Tell the user honestly that you couldn't find anything matching that ask in their city.`;
+                  const where = city ? ` in ${city}` : '';
+                  content = `Search for "${query}"${where} returned no results. Tell the user honestly that you couldn't find anything matching that ask.`;
                 } else {
                   // Stash for the card-lookup map so any IDs Claude
                   // recommends from this batch still render.
@@ -529,7 +581,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay, onSearchRestaurants]);
+  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay, onSearchRestaurants, userContext, onLookupUser, recipeById]);
 
   const handleSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
@@ -650,7 +702,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 const hasVisibleContent = m.blocks.some(
                   (b) =>
                     (b.type === 'text' && b.text)
-                    || (b.type === 'cards' && b.placeIds.length > 0),
+                    || (b.type === 'cards' && b.placeIds.length > 0)
+                    || (b.type === 'recipe_cards' && b.recipeIds.length > 0),
                 );
                 if (!hasVisibleContent) return null;
                 return (
@@ -672,7 +725,52 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                       // round-tripping the conversation; never rendered.
                       return null;
                     }
-                    // cards
+                    if (b.type === 'recipe_cards') {
+                      if (b.recipeIds.length === 0) return null;
+                      return (
+                        <div key={bi} className="lp-chat-cards">
+                          {b.recipeIds.map((id) => {
+                            const r = recipeById.get(id);
+                            if (!r) {
+                              return (
+                                <div key={id} className="lp-chat-card lp-chat-card-missing">
+                                  Recipe not found in your saved list.
+                                </div>
+                              );
+                            }
+                            const totalMin = (r.prepTime || 0) + (r.cookTime || 0);
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                className="lp-chat-card lp-chat-card-recipe"
+                                onClick={() => handleNavigateRecipe(id)}
+                              >
+                                <div
+                                  className="lp-chat-card-recipe-cover"
+                                  style={r.coverPhoto ? { backgroundImage: `url("${r.coverPhoto}")` } : undefined}
+                                  aria-hidden="true"
+                                >
+                                  {!r.coverPhoto && <ChefHat size={18} />}
+                                </div>
+                                <div className="lp-chat-card-info">
+                                  <h4>{r.title}</h4>
+                                  <p>
+                                    {r.cuisine && <span className="accent">{r.cuisine}</span>}
+                                    {r.cuisine && (totalMin > 0 || r.difficulty) && <span className="dot">·</span>}
+                                    {totalMin > 0 && <span className="price">{totalMin} min</span>}
+                                    {totalMin > 0 && r.difficulty && <span className="dot">·</span>}
+                                    {r.difficulty && <span>{r.difficulty}</span>}
+                                  </p>
+                                </div>
+                                <ChevronRight />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    // restaurant cards
                     if (b.placeIds.length === 0) return null;
                     return (
                       <div key={bi} className="lp-chat-cards">

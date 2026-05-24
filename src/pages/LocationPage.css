@@ -1973,6 +1973,25 @@
   text-align: center;
   padding: 10px;
 }
+/* Recipe card variant — replaces the score circle with a small cover
+   thumbnail (or a ChefHat fallback). Same outer layout otherwise. */
+.location-page-root .lp-chat-card-recipe-cover {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-2);
+  background-size: cover;
+  background-position: center;
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.location-page-root .lp-chat-card-recipe-cover svg {
+  opacity: 0.55;
+}
 .location-page-root .lp-chat-card-score {
   width: 40px;
   height: 40px;

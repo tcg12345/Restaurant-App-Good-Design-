@@ -82,6 +82,7 @@ import {
   isExactAddress,
   loadLastSelectedLocation,
   getCurrentHomeLocation,
+  geocodePlace,
   type HomeLocation,
 } from '../components/HomeLocationBar';
 import { LocationChat } from '../components/LocationChat';
@@ -1700,12 +1701,19 @@ export const LocationPage: React.FC = () => {
     const recipesFlat = lists.flatMap((l) => l.recipes || []);
     if (recipesFlat.length > 0) {
       const seen = new Set<string>();
-      const recipes: Array<{ title: string; cuisine?: string }> = [];
+      const recipes: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string }> = [];
       for (const r of recipesFlat) {
         if (!r?.id || seen.has(r.id)) continue;
         seen.add(r.id);
-        recipes.push({ title: r.title || 'Untitled recipe', cuisine: r.cuisine || undefined });
-        if (recipes.length >= 8) break;
+        recipes.push({
+          id: r.id,
+          title: r.title || 'Untitled recipe',
+          cuisine: r.cuisine || undefined,
+          prepTime: r.prepTime || undefined,
+          cookTime: r.cookTime || undefined,
+          difficulty: r.difficulty || undefined,
+        });
+        if (recipes.length >= 30) break;
       }
       if (recipes.length > 0) ctx.recipes = recipes;
     }
@@ -1742,6 +1750,23 @@ export const LocationPage: React.FC = () => {
     return ctx;
   }, [myProfile, profile.topCuisines, ratings, wishlist, lists, restaurantMeta, areaFriendCandidates, areaExperts, friendCounts, expertCounts, visible]);
 
+  // Flat de-duped list of every Recipe the user owns — passed to
+  // LocationChat as a lookup table so recommend_recipes cards can
+  // render with full details (cover photo, prep+cook time, etc.)
+  // rather than just the trimmed fields we send in the system prompt.
+  const chatRecipesAll = useMemo(() => {
+    const seen = new Set<string>();
+    const out = [];
+    for (const l of lists) {
+      for (const r of l.recipes || []) {
+        if (!r?.id || seen.has(r.id)) continue;
+        seen.add(r.id);
+        out.push(r);
+      }
+    }
+    return out;
+  }, [lists]);
+
   // ── Chat-tool: lookup other users by name / handle ───────────────
   // Wired to Claude's lookup_user tool. Returns up to 5 public
   // profiles via the existing searchUsersByUsername helper.
@@ -1773,16 +1798,48 @@ export const LocationPage: React.FC = () => {
   // to placesPool so anything that passes the user's current filters
   // also surfaces in the list / map; anything outside the filters
   // lives only in the chat's local map.
-  const handleChatSearch = useCallback(async (query: string): Promise<ScoredPlace[]> => {
-    if (!hasCoords) return [];
+  const handleChatSearch = useCallback(async (query: string, city?: string): Promise<ScoredPlace[]> => {
     const q = query.trim();
     if (!q) return [];
     try {
       const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
-      const res = await searchPlacesByTextPaged(q, {
-        lat,
-        lng,
-        radiusMeters,
+      // Resolve which city to search in. When Claude passes a city
+      // different from the page's current one (e.g. "Felice in
+      // Westport, CT" after a web_search), geocode it via Mapbox and
+      // search that bbox instead of the page's lat/lng. Falls back
+      // gracefully to the current city if geocoding fails.
+      let anchor: { lat: number; lng: number; radiusMeters: number } | null = null;
+      const targetCity = city?.trim();
+      const currentCityKey = shortCityName.toLowerCase();
+      const isOtherCity = !!targetCity && targetCity.toLowerCase() !== currentCityKey;
+      if (isOtherCity) {
+        try {
+          const geocoded = await geocodePlace(targetCity!);
+          if (geocoded) {
+            anchor = {
+              lat: geocoded.lat,
+              lng: geocoded.lng,
+              // ~12 mi — wider than the per-city default so a single
+              // text query like "burger spot" inside Westport actually
+              // covers the whole town.
+              radiusMeters: 19312,
+            };
+          }
+        } catch {
+          // ignore — fall through to current-city anchor below
+        }
+      }
+      if (!anchor) {
+        if (!hasCoords) return [];
+        anchor = { lat, lng, radiusMeters };
+      }
+      // When searching another city, embed the city in the query
+      // string too — gives Google's ranker the extra location bias.
+      const finalQuery = isOtherCity ? `${q} in ${targetCity}` : q;
+      const res = await searchPlacesByTextPaged(finalQuery, {
+        lat: anchor.lat,
+        lng: anchor.lng,
+        radiusMeters: anchor.radiusMeters,
         useRestriction: true,
         priceLevels,
       });
@@ -1792,12 +1849,12 @@ export const LocationPage: React.FC = () => {
         seenIdsRef.current.add(p.id);
         fresh.push(p);
       }
-      if (fresh.length > 0) {
+      // Only append to the current city's pool when the search WAS
+      // for the current city — otherwise the user's list/map would
+      // start showing Westport spots while they're browsing NYC.
+      if (fresh.length > 0 && !isOtherCity) {
         setPlacesPool((prev) => [...prev, ...fresh]);
       }
-      // ScoredPlace = PlaceResult + recScore + sources. We don't run
-      // the real recommendation scorer for chat hits (the chat just
-      // needs renderable card data), so synthesize neutral values.
       return res.places.map<ScoredPlace>((p) => ({
         ...p,
         recScore: p.rating > 0 ? p.rating * 2 : 0,
@@ -1807,7 +1864,7 @@ export const LocationPage: React.FC = () => {
       console.error('[LocationPage] handleChatSearch error:', err);
       return [];
     }
-  }, [hasCoords, lat, lng, selectedPrice, radiusMeters]);
+  }, [hasCoords, lat, lng, selectedPrice, radiusMeters, shortCityName]);
 
   // ── "Search this area" — exhaustive viewport-anchored fetch ────────
   // Derives the radius from the map's actual visible bounds (zoom in =
@@ -2511,6 +2568,7 @@ export const LocationPage: React.FC = () => {
         onSearchRestaurants={handleChatSearch}
         onLookupUser={handleLookupUser}
         userContext={chatUserContext}
+        recipes={chatRecipesAll}
       />
     </div>
   );
