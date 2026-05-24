@@ -240,47 +240,107 @@
   position: relative;
   border-radius: var(--radius-lg);
   overflow: hidden;
-  height: 200px;
+  height: 240px;
   margin-bottom: 24px;
-  background:
-    radial-gradient(circle at 20% 30%, rgba(46,125,92,0.18) 0%, transparent 35%),
-    radial-gradient(circle at 70% 60%, rgba(168,57,42,0.16) 0%, transparent 35%),
-    radial-gradient(circle at 45% 75%, rgba(194,143,58,0.16) 0%, transparent 35%),
-    linear-gradient(135deg, #E8E0D0 0%, #DDD2BD 100%);
+  background: var(--bg-2);
   border: 1px solid var(--border);
-  cursor: pointer;
   transition: height .5s cubic-bezier(.22,1,.36,1), box-shadow .18s;
 }
-.location-page-root .minimap.is-expanded { height: 500px; }
+.location-page-root .minimap.is-expanded { height: 540px; }
 .location-page-root .minimap:hover { box-shadow: var(--shadow-md); }
-.location-page-root .minimap::after {
-  content: '';
-  position: absolute; inset: 0;
-  background-image:
-    linear-gradient(rgba(31,26,23,0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(31,26,23,0.06) 1px, transparent 1px);
-  background-size: 40px 40px;
-  background-position: -1px -1px;
+.location-page-root .minimap-canvas {
+  position: absolute;
+  inset: 0;
+}
+.location-page-root .minimap-canvas .mapboxgl-canvas { outline: none; }
+.location-page-root .minimap-canvas .mapboxgl-ctrl-bottom-left,
+.location-page-root .minimap-canvas .mapboxgl-ctrl-bottom-right {
+  display: none;
+}
+
+/* Restaurant markers — small coloured pills with the score on them. */
+.location-page-root .minimap-marker {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font: 700 11px/1 var(--sans);
+  color: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: transform .15s, box-shadow .15s;
+}
+.location-page-root .minimap-marker:hover {
+  transform: scale(1.12);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.30);
+  z-index: 2;
+}
+
+/* The "you are here" pin for the city centre — distinct from the
+   restaurant markers so the user knows where the search anchor sits. */
+.location-page-root .minimap-center-marker {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
   pointer-events: none;
 }
-.location-page-root .minimap-pins {
-  position: absolute; inset: 0;
-}
-.location-page-root .minimap-pin {
-  position: absolute;
-  width: 22px; height: 22px;
+.location-page-root .minimap-center-marker .dot {
+  position: relative;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid #fff;
-  color: #fff;
-  font-size: 10px; font-weight: 700;
-  display: grid; place-items: center;
-  box-shadow: 0 4px 8px -2px rgba(0,0,0,0.25);
-  transform: translate(-50%, -50%);
-  cursor: pointer;
+  background: var(--ink);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.35);
 }
-.location-page-root .minimap-pin.is-pick { background: var(--green); }
-.location-page-root .minimap-pin.is-saved { background: var(--ink); }
+.location-page-root .minimap-center-marker .ring {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: rgba(28, 24, 22, 0.35);
+  transform: translate(-50%, -50%);
+  animation: lp-center-pulse 2s infinite cubic-bezier(0, 0, 0.2, 1);
+}
+@keyframes lp-center-pulse {
+  0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.55; }
+  100% { transform: translate(-50%, -50%) scale(2.6); opacity: 0;    }
+}
+
+/* "Search this area" — floating pill, top-centre. */
+.location-page-root .minimap-search-here {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  box-shadow: 0 4px 14px -4px rgba(28, 24, 22, 0.25);
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .12s;
+}
+.location-page-root .minimap-search-here:hover:not(:disabled) {
+  border-color: var(--ink);
+  transform: translateX(-50%) translateY(-1px);
+}
+.location-page-root .minimap-search-here:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.location-page-root .minimap-search-here svg { width: 14px; height: 14px; }
+
 .location-page-root .minimap-cta {
   position: absolute; bottom: 14px; right: 14px;
   z-index: 3;
@@ -291,6 +351,12 @@
   font-size: 13px; font-weight: 600;
   border-radius: 999px;
   box-shadow: var(--shadow-md);
+  cursor: pointer;
+  transition: background .15s, transform .12s;
+}
+.location-page-root .minimap-cta:hover {
+  background: var(--accent);
+  transform: translateY(-1px);
 }
 .location-page-root .minimap-cta svg { width: 14px; height: 14px; }
 .location-page-root .minimap-info {

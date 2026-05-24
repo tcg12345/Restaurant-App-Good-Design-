@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import mapboxgl from 'mapbox-gl';
+// @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
+import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { MAPBOX_TOKEN } from './useRestaurantDetail';
 import {
   ArrowLeft,
   BookOpen,
@@ -405,6 +410,48 @@ const SORT_LABELS: Record<SortOption, string> = {
   popularity: 'Most Popular',
   distance: 'Closest First',
 };
+
+// Mapbox CSP worker hookup — same wiring LocationMap.tsx does. Safe
+// to assign even when LocationMap has already set it; the property is
+// idempotent. Without this Vite prod builds crash on the worker URL.
+mapboxgl.workerClass = MapboxWorker;
+
+// The mini-map is locked to the same 8-mile bbox the list uses for its
+// fetch radius. maxBounds prevents the user from panning to a different
+// city — which would also let them ask "Search this area" to fetch
+// places we'd never bind back to the URL's city.
+const MAP_RADIUS_MILES = 8;
+const MAP_RADIUS_DEG_LAT = MAP_RADIUS_MILES / 69;
+
+function buildMiniMapBounds(lat: number, lng: number): mapboxgl.LngLatBoundsLike {
+  const cosLat = Math.max(0.01, Math.cos((lat * Math.PI) / 180));
+  const dLat = MAP_RADIUS_DEG_LAT;
+  const dLng = MAP_RADIUS_DEG_LAT / cosLat;
+  return [
+    [lng - dLng, lat - dLat],
+    [lng + dLng, lat + dLat],
+  ];
+}
+
+// Marker pin background colour, mapped to the same green/amber/red
+// scale the list-row score badges use so the map reads at a glance.
+function miniMapMarkerColor(googleRating: number): string {
+  const score = googleRating * 2;
+  if (score >= 8) return '#2E7D5C';
+  if (score >= 5) return '#C28F3A';
+  if (score > 0) return '#A8392A';
+  return '#8C8278';
+}
+
+// Generic seeds used by "Search this area" to fetch a small batch
+// centred on the panned map position. Three is enough to surface the
+// area's standouts without burning the API budget on every click.
+const SEARCH_HERE_QUERIES = [
+  'best restaurants',
+  'popular restaurants',
+  'top rated restaurants',
+];
+const SEARCH_HERE_RADIUS_METERS = 2414; // ≈ 1.5 mi
 
 const INITIAL_BATCH_SIZE = 4;  // queries pulled in parallel on first load (≈40 unique places after dedup)
 const LOAD_MORE_BATCH_SIZE = 4; // queries pulled per "Load more" click
@@ -1245,6 +1292,21 @@ export const LocationPage: React.FC = () => {
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   // Mini-map expand toggle.
   const [mapExpanded, setMapExpanded] = useState(false);
+  // ── Interactive mini-map ─────────────────────────────────────────────
+  // Real Mapbox GL instance pinned to the city bbox. Markers come from
+  // `visible[]` so the map mirrors the list's filters live; a "Search
+  // this area" button runs a tight-radius fetch at the current map
+  // centre and appends the new places into the shared pool.
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
+  const centerMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [searchingHere, setSearchingHere] = useState(false);
+  // Latest coords in a ref so the mount-only init effect can read the
+  // current values without taking them as deps.
+  const initialMapCoordsRef = useRef({ hasCoords, lat, lng });
+  initialMapCoordsRef.current = { hasCoords, lat, lng };
   // Collapsible sections (Guides + Local experts).
   const [guidesOpen, setGuidesOpen] = useState(true);
   const [expertsOpen, setExpertsOpen] = useState(true);
@@ -1281,32 +1343,169 @@ export const LocationPage: React.FC = () => {
     [],
   );
 
-  // Placeholder pin coordinates for the mini-map — purely decorative until
-  // we wire a real projection from visible[]'s lat/lng.
-  const MINIMAP_PINS = useMemo(
-    () => [
-      { x: 22, y: 35, kind: 'pick' as const },
-      { x: 48, y: 28, kind: 'pick' as const },
-      { x: 38, y: 62, kind: 'pin' as const },
-      { x: 70, y: 45, kind: 'pin' as const },
-      { x: 62, y: 70, kind: 'saved' as const },
-      { x: 18, y: 70, kind: 'pin' as const },
-      { x: 84, y: 30, kind: 'pin' as const },
-      { x: 30, y: 18, kind: 'pin' as const },
-      { x: 56, y: 50, kind: 'pick' as const },
-      { x: 78, y: 78, kind: 'pin' as const },
-      { x: 92, y: 55, kind: 'saved' as const },
-      { x: 12, y: 50, kind: 'pin' as const },
-    ],
-    [],
-  );
-
   // Placeholder neighborhood list — wired in but only filters by substring
   // match against `place.address` (best-effort until we have real data).
   const NEIGHBORHOODS = useMemo(
     () => ['All neighborhoods', 'SoHo', 'West Village', 'Midtown', 'Brooklyn', 'Upper West'],
     [],
   );
+
+  // ── Mini-map: initialise once ──────────────────────────────────────
+  // Mount Mapbox into the container only when we actually have coords.
+  // The map persists for the page lifetime; subsequent location changes
+  // recenter it via the effect below rather than tearing down + rebuilding.
+  useEffect(() => {
+    if (!mapContainerRef.current || !MAPBOX_TOKEN) return;
+    const init = initialMapCoordsRef.current;
+    if (!init.hasCoords) return;
+    mapboxgl.accessToken = MAPBOX_TOKEN;
+    const map = new mapboxgl.Map({
+      container: mapContainerRef.current,
+      style: 'mapbox://styles/mapbox/light-v11',
+      center: [init.lng, init.lat],
+      zoom: 12,
+      attributionControl: false,
+      // maxBounds caps panning to the city's 8 mi bbox so a "Search this
+      // area" click can never reach restaurants outside the area the
+      // user picked — same radius the list uses, so the two views agree.
+      maxBounds: buildMiniMapBounds(init.lat, init.lng),
+    });
+    mapRef.current = map;
+    map.on('load', () => {
+      setMapReady(true);
+      map.resize();
+    });
+    return () => {
+      for (const m of Object.values(markersRef.current)) (m as mapboxgl.Marker).remove();
+      markersRef.current = {};
+      if (centerMarkerRef.current) { centerMarkerRef.current.remove(); centerMarkerRef.current = null; }
+      map.remove();
+      mapRef.current = null;
+      setMapReady(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasCoords]);
+
+  // Recenter + re-bound on city change. Mirrors LocationMap's pattern:
+  // clear maxBounds, jump to the new centre, re-apply bounds. flyTo
+  // across hundreds of miles can leave a blank-tile flash on slow
+  // connections so we jumpTo.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !hasCoords) return;
+    map.setMaxBounds(null as unknown as mapboxgl.LngLatBoundsLike);
+    map.jumpTo({ center: [lng, lat], zoom: 12 });
+    map.setMaxBounds(buildMiniMapBounds(lat, lng));
+    map.resize();
+  }, [hasCoords, lat, lng]);
+
+  // Resize the canvas when the user expands / collapses the mini-map.
+  // Mapbox doesn't auto-resize on container height changes. Wait for
+  // the CSS height transition to finish first or the canvas measures
+  // the old dimensions.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const t = setTimeout(() => map.resize(), 540);
+    return () => clearTimeout(t);
+  }, [mapExpanded]);
+
+  // Window-resize listener for the same reason.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onResize = () => map.resize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // ── Mini-map: sync restaurant markers with `visible` ───────────────
+  // Tear-down + rebuild on every change. Diffing would let us skip some
+  // DOM churn but the lists usually either grow (Load More) or filter
+  // wholesale, and rebuild is easier to reason about. Each marker is a
+  // small DOM button coloured by the place's rating; click navigates
+  // straight to the detail page.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    for (const m of Object.values(markersRef.current)) (m as mapboxgl.Marker).remove();
+    markersRef.current = {};
+    for (const place of visible) {
+      if (!Number.isFinite(place.lat) || !Number.isFinite(place.lng)) continue;
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'minimap-marker';
+      el.style.backgroundColor = miniMapMarkerColor(place.rating);
+      el.title = place.name;
+      el.textContent = place.rating > 0 ? (place.rating * 2).toFixed(1) : '·';
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        navigate(`/restaurant/${place.id}`);
+      });
+      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([place.lng, place.lat])
+        .addTo(map);
+      markersRef.current[place.id] = marker;
+    }
+  }, [visible, mapReady, navigate]);
+
+  // ── Mini-map: city-centre marker (distinct from restaurants) ───────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !hasCoords) return;
+    if (centerMarkerRef.current) {
+      centerMarkerRef.current.remove();
+      centerMarkerRef.current = null;
+    }
+    const el = document.createElement('div');
+    el.className = 'minimap-center-marker';
+    el.innerHTML = '<span class="ring"></span><span class="dot"></span>';
+    centerMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([lng, lat])
+      .addTo(map);
+  }, [lat, lng, hasCoords, mapReady]);
+
+  // ── "Search this area" — one-shot fetch at current map centre ──────
+  // Runs three generic queries inside a 1.5 mi radius of the panned
+  // position, dedupes against the page's seenIds, and appends what's
+  // new to placesPool. maxBounds keeps the centre inside the city's
+  // 8 mi bbox so this can never escape "the area you're set to".
+  const handleSearchHere = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map || searchingHere) return;
+    const c = map.getCenter();
+    setSearchingHere(true);
+    try {
+      const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
+      const results = await Promise.all(
+        SEARCH_HERE_QUERIES.map(async (q) => {
+          const res = await searchPlacesByTextPaged(q, {
+            lat: c.lat,
+            lng: c.lng,
+            radiusMeters: SEARCH_HERE_RADIUS_METERS,
+            useRestriction: true,
+            priceLevels,
+          });
+          return res.places;
+        }),
+      );
+      const fresh: PlaceResult[] = [];
+      for (const list of results) {
+        for (const p of list) {
+          if (seenIdsRef.current.has(p.id)) continue;
+          seenIdsRef.current.add(p.id);
+          fresh.push(p);
+        }
+      }
+      if (fresh.length > 0) {
+        setPlacesPool((prev) => [...prev, ...fresh]);
+      }
+    } catch (err) {
+      console.error('[LocationPage] handleSearchHere error:', err);
+    } finally {
+      setSearchingHere(false);
+    }
+  }, [searchingHere, selectedPrice]);
 
   return (
     <div className="location-page-root min-h-screen pb-24">
@@ -1443,45 +1642,50 @@ export const LocationPage: React.FC = () => {
         </div>
 
         {/* ── Mini-map ────────────────────────────────────────────────── */}
-        <div className={cn('minimap', mapExpanded && 'is-expanded')} onClick={handleOpenMap} role="presentation">
-          <div className="minimap-info">
-            <span className="pulse" />
-            {visible.length > 0 ? `${visible.length} spots nearby` : 'Loading nearby spots…'}
+        {hasCoords && (
+          <div className={cn('minimap', mapExpanded && 'is-expanded')}>
+            <div ref={mapContainerRef} className="minimap-canvas" />
+            <div className="minimap-info">
+              <span className="pulse" />
+              {visible.length > 0
+                ? `${visible.length} spots nearby`
+                : initialLoading ? 'Loading nearby spots…' : '0 spots nearby'}
+            </div>
+            <button
+              type="button"
+              className="minimap-expand"
+              onClick={() => setMapExpanded((v) => !v)}
+              aria-label={mapExpanded ? 'Collapse map' : 'Expand map'}
+            >
+              {mapExpanded ? <Minimize2 /> : <Maximize2 />}
+            </button>
+            <button
+              type="button"
+              className="minimap-search-here"
+              onClick={handleSearchHere}
+              disabled={searchingHere || !mapReady}
+            >
+              {searchingHere ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  Searching…
+                </>
+              ) : (
+                <>
+                  <Search size={14} />
+                  Search this area
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              className="minimap-cta"
+              onClick={handleOpenMap}
+            >
+              Open map <ChevronRight />
+            </button>
           </div>
-          <button
-            type="button"
-            className="minimap-expand"
-            onClick={(e) => { e.stopPropagation(); setMapExpanded((v) => !v); }}
-            aria-label={mapExpanded ? 'Collapse map' : 'Expand map'}
-          >
-            {mapExpanded ? <Minimize2 /> : <Maximize2 />}
-          </button>
-          <div className="minimap-pins">
-            {MINIMAP_PINS.map((p, i) => (
-              <button
-                key={i}
-                type="button"
-                className={cn(
-                  'minimap-pin',
-                  p.kind === 'pick' && 'is-pick',
-                  p.kind === 'saved' && 'is-saved',
-                )}
-                style={{ left: `${p.x}%`, top: `${p.y}%` }}
-                onClick={(e) => e.stopPropagation()}
-                aria-label={p.kind}
-              >
-                {p.kind === 'pick' ? '★' : p.kind === 'saved' ? '♥' : ''}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="minimap-cta"
-            onClick={(e) => { e.stopPropagation(); handleOpenMap(); }}
-          >
-            Open map <ChevronRight />
-          </button>
-        </div>
+        )}
 
         {/* ── Guides ──────────────────────────────────────────────────── */}
         <section className={cn('lp-section collapsible-section', guidesOpen ? 'is-open' : 'is-closed')}>
