@@ -223,9 +223,14 @@ interface Props {
   // Returns a Promise so the picker can show a spinner and surface an error
   // if the browser denies or can't resolve a fix.
   onUseCurrent: () => Promise<void>;
+  // Visual treatment of the trigger button. 'block' keeps the original
+  // stacked "DINING IN / Serif label / chevron" used on phone home; 'chip'
+  // renders a compact inline pill the new Discover hero composes alongside
+  // a "View all" link.
+  variant?: 'block' | 'chip';
 }
 
-export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent }) => {
+export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent, variant = 'block' }) => {
   const { setHideBottomNav } = useSettings();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -347,27 +352,42 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex items-start gap-1.5 group text-left max-w-full min-w-0"
-        aria-label="Change location"
-      >
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 leading-none">
-            Dining in
-          </p>
-          {/* Long addresses (e.g. "21 High Point Road, Staples, CT") used to
-              truncate off the edge on narrow phones. We now let them wrap
-              across 2–3 lines; `break-words` handles the rare extra-long
-              single token, and the parent's max-width cap on phone mode
-              (see Map.tsx) is what actually triggers the wrap point. */}
-          <p className="mt-1 font-serif font-bold text-lg sm:text-xl leading-tight text-on-surface group-hover:text-primary transition-colors break-words">
+      {variant === 'chip' ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/[0.09] border border-on-surface/[0.06] text-left group transition-colors max-w-full min-w-0"
+          aria-label="Change location"
+        >
+          <MapPin size={14} className="text-on-surface/55 flex-shrink-0" />
+          <span className="font-serif font-bold text-[15px] leading-none text-on-surface truncate">
             {shortLabel}
-          </p>
-        </div>
-        <ChevronDown size={16} className="text-on-surface/50 mt-4 flex-shrink-0" />
-      </button>
+          </span>
+          <ChevronDown size={14} className="text-on-surface/45 flex-shrink-0" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-start gap-1.5 group text-left max-w-full min-w-0"
+          aria-label="Change location"
+        >
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 leading-none">
+              Dining in
+            </p>
+            {/* Long addresses (e.g. "21 High Point Road, Staples, CT") used to
+                truncate off the edge on narrow phones. We now let them wrap
+                across 2–3 lines; `break-words` handles the rare extra-long
+                single token, and the parent's max-width cap on phone mode
+                (see Map.tsx) is what actually triggers the wrap point. */}
+            <p className="mt-1 font-serif font-bold text-lg sm:text-xl leading-tight text-on-surface group-hover:text-primary transition-colors break-words">
+              {shortLabel}
+            </p>
+          </div>
+          <ChevronDown size={16} className="text-on-surface/50 mt-4 flex-shrink-0" />
+        </button>
+      )}
 
       <AnimatePresence>
         {open && (
