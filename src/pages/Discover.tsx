@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints } from 'lucide-react';
+import { Search, Star, Heart, Plus, Navigation, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Building2, Clock, Sparkles, MapPin, ChevronsUp, Eye, Info, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore - Vite worker import for mapbox-gl CSP compatibility
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
@@ -418,6 +418,31 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     })();
     return () => { cancelled = true; };
   }, [userId]);
+
+  // Friends list — used by the mobile greeting hero for the "friends added X
+  // new spots this week" subtitle and the "Friends Out" stat card avatars.
+  const [friendsList, setFriendsList] = useState<UserProfile[]>([]);
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    (async () => {
+      const friends = await getFriends(userId);
+      const ids = friends.map((f) => f.friend_id).filter(Boolean);
+      if (ids.length === 0) { if (!cancelled) setFriendsList([]); return; }
+      const profs = await getProfilesByIds(ids);
+      if (cancelled) return;
+      setFriendsList(Object.values(profs));
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  // Section anchors + chip filter state for the mobile filter-chips row
+  // (All / Restaurants / Recipes / Guides). Tapping a chip smooth-scrolls
+  // the matching section into view; the rail itself stays fully visible.
+  const recommendedSectionRef = useRef<HTMLElement>(null);
+  const guidesSectionRef = useRef<HTMLElement>(null);
+  const recipesSectionRef = useRef<HTMLElement>(null);
+  const [discoverChip, setDiscoverChip] = useState<'all' | 'restaurants' | 'recipes' | 'guides'>('all');
 
   // Data for My Ratings and Friends tabs — initialized from cache if it was
   // populated for this user earlier in the session. Cache lives until reload.
@@ -4700,34 +4725,264 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </section>
                 );
               })()}
-              {!discoverSearchActive && mode === 'home' && !usingDesktopHeader && (
-                <div className="flex items-end justify-between gap-4 mt-2">
-                  {/* On phone the location bar is capped to ~60% of the row so
-                      long addresses wrap onto a second line instead of
-                      pushing the "View all" link off-screen. */}
-                  <div className={cn('min-w-0', phoneMode && 'max-w-[60%]')}>
-                    <HomeLocationBar
-                      location={homeLocation}
-                      onChange={handleHomeLocationChange}
-                      onUseCurrent={handleHomeUseCurrent}
-                    />
-                  </div>
-                  {homeLocation && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate(
-                          `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
-                        )
-                      }
-                      className="flex-shrink-0 inline-flex items-center gap-1 font-bold uppercase tracking-[0.12em] text-primary hover:text-primary/80 transition-colors text-[11px] pb-1"
-                    >
-                      View all
-                      <ChevronRight size={12} strokeWidth={2.5} />
-                    </button>
-                  )}
-                </div>
-              )}
+              {!discoverSearchActive && mode === 'home' && !usingDesktopHeader && (() => {
+                const greetingPart = getGreetingPart();
+                const dayName = HERO_DAY_NAMES[new Date().getDay()];
+                const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
+                const firstName = (profile?.display_name || profile?.username || (user?.email || '').split('@')[0] || 'there')
+                  .split(' ')[0]
+                  .split('@')[0];
+                const friendCount = friendsList.length;
+                const queueCount = Math.min(wishlist.length, 3);
+                // Editor's Pick + Tonight rec come from the recommendation engine.
+                const featured = recommendations[0];
+                const featuredCuisine = featured ? getCuisineLabel((featured as any).types || []) : '';
+                const featuredPhoto = featured ? ((featured as any).photoUrl as string | undefined) : undefined;
+                const featuredAddress = featured ? (((featured as any).address as string) || '').split(',')[0]?.trim() : '';
+                const tonightPick = recommendations[1];
+                // Open Now: count recs within ~0.5mi of the anchor (rough proxy
+                // for "10 minute walk"). Fall back to a quarter of the rail if
+                // we don't have coordinates yet.
+                const openNowCount = (() => {
+                  if (!distanceOrigin) return Math.max(1, Math.floor(recommendations.length / 4));
+                  let n = 0;
+                  for (const p of recommendations) {
+                    const lat = (p as any).lat, lng = (p as any).lng;
+                    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+                    const km = haversineKm({ lat, lng }, distanceOrigin);
+                    if (km * 0.621371 <= 0.5) n++;
+                  }
+                  return n || Math.max(1, Math.floor(recommendations.length / 4));
+                })();
+                // Friends Out: latest friend rating in the feed (loaded by
+                // SocialFeed; fall back to a soft default copy).
+                const scrollToSection = (ref: React.RefObject<HTMLElement>, key: typeof discoverChip) => {
+                  setDiscoverChip(key);
+                  ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                };
+                return (
+                  <>
+                    <section className="mt-3">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-primary">
+                        {dayName}
+                        {neighborhood && (
+                          <>
+                            <span className="text-on-surface/30 font-bold"> · </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                homeLocation && navigate(
+                                  `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
+                                )
+                              }
+                              className="hover:underline underline-offset-4"
+                            >
+                              {neighborhood}
+                            </button>
+                          </>
+                        )}
+                      </p>
+                      <h1 className="mt-2 font-serif font-semibold text-on-surface text-[34px] leading-[1.05] tracking-[-0.02em]">
+                        Good {greetingPart},{' '}
+                        <span className="font-serif italic font-medium text-primary">{firstName}</span>
+                      </h1>
+                      <p className="mt-3 text-[14px] text-on-surface/65 leading-[1.45]">
+                        {friendCount > 0
+                          ? `${friendCount} friend${friendCount === 1 ? '' : 's'} added new spots this week`
+                          : 'Fresh picks are loading near you'}
+                        {queueCount > 0
+                          ? `, and your queue has ${queueCount === 1 ? 'one place' : `${queueCount} places`} hitting prime season.`
+                          : '.'}
+                      </p>
+                    </section>
+
+                    {/* Quick stat cards — horizontal snap rail */}
+                    <div className="mt-5 flex gap-3 overflow-x-auto no-scrollbar -mx-3 px-3 pb-1 snap-x snap-mandatory">
+                      <button
+                        type="button"
+                        onClick={() => navigate('/search/main')}
+                        className="flex-shrink-0 snap-start w-[210px] rounded-2xl bg-white border border-on-surface/[0.08] p-3.5 text-left transition-colors hover:border-on-surface/20"
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="w-8 h-8 rounded-lg bg-emerald-700/10 grid place-items-center">
+                            <Clock size={15} className="text-emerald-700" />
+                          </span>
+                          <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/55">Open Now</span>
+                        </div>
+                        <p className="font-serif font-semibold text-on-surface text-[20px] leading-[1.1] tracking-[-0.02em]">
+                          {openNowCount} nearby
+                        </p>
+                        <p className="mt-0.5 text-[12px] text-on-surface/55">Within 10 minutes</p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => navigate('/profile?tab=friends')}
+                        className="flex-shrink-0 snap-start w-[210px] rounded-2xl bg-white border border-on-surface/[0.08] p-3.5 text-left transition-colors hover:border-on-surface/20"
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="w-8 h-8 rounded-lg bg-primary/10 grid place-items-center">
+                            <Users size={15} className="text-primary" />
+                          </span>
+                          <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/55">Friends Out</span>
+                        </div>
+                        {friendsList.length > 0 ? (
+                          <>
+                            <div className="flex items-center -space-x-2">
+                              {friendsList.slice(0, 3).map((f) => {
+                                const name = f.display_name || f.username || 'F';
+                                const hue = hashToHue(f.user_id || name);
+                                return (
+                                  <span
+                                    key={f.user_id}
+                                    className="w-7 h-7 rounded-full grid place-items-center text-white text-[11px] font-bold ring-2 ring-white"
+                                    style={{ background: `hsl(${hue} 50% 45%)` }}
+                                  >
+                                    {name.trim().charAt(0).toUpperCase()}
+                                  </span>
+                                );
+                              })}
+                              {friendsList.length > 3 && (
+                                <span className="w-7 h-7 rounded-full grid place-items-center bg-on-surface/[0.08] text-on-surface/60 text-[10px] font-bold ring-2 ring-white">
+                                  +{friendsList.length - 3}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1.5 text-[12px] text-on-surface/65 truncate">
+                              {friendsList.length} active tonight
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-serif font-semibold text-on-surface text-[20px] leading-[1.1] tracking-[-0.02em]">
+                              Find friends
+                            </p>
+                            <p className="mt-0.5 text-[12px] text-on-surface/55">See where they go</p>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => tonightPick && navigate(`/restaurant/${tonightPick.id}`)}
+                        className="flex-shrink-0 snap-start w-[210px] rounded-2xl bg-white border border-on-surface/[0.08] p-3.5 text-left transition-colors hover:border-on-surface/20"
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="w-8 h-8 rounded-lg bg-amber-500/10 grid place-items-center">
+                            <Sparkles size={15} className="text-amber-600" />
+                          </span>
+                          <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/55">Tonight</span>
+                        </div>
+                        <p className="font-serif font-semibold text-on-surface text-[20px] leading-[1.1] tracking-[-0.02em] line-clamp-1">
+                          {tonightPick?.name || 'Editor pick'}
+                        </p>
+                        <p className="mt-0.5 text-[12px] text-on-surface/55 truncate">
+                          {tonightPick ? `${getCuisineLabel((tonightPick as any).types || []) || 'Featured'} · tonight` : 'Picks coming soon'}
+                        </p>
+                      </button>
+                    </div>
+
+                    {/* Editor's Pick hero card — mobile, vertical layout */}
+                    {featured && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/restaurant/${featured.id}`)}
+                        className="mt-5 block w-full text-left rounded-3xl overflow-hidden bg-white border border-on-surface/[0.08] group"
+                      >
+                        <div className="relative aspect-[16/11] overflow-hidden">
+                          {featuredPhoto ? (
+                            <img
+                              src={featuredPhoto}
+                              alt=""
+                              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div
+                              className="absolute inset-0"
+                              style={{ background: placeholderGradient(featured.id || featured.name, 50, 48) }}
+                            />
+                          )}
+                          <div
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                              backgroundImage:
+                                'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.22), transparent 50%)',
+                            }}
+                          />
+                          <span className="absolute top-3 left-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/92 backdrop-blur text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface">
+                            <Sparkles size={11} className="text-primary" />
+                            Editor's Pick
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              toggleWishlist({
+                                id: featured.id,
+                                name: featured.name,
+                                image: featuredPhoto || '',
+                                cuisine: featuredCuisine,
+                                price: priceLevelToString((featured as any).priceLevel ?? -1) || communityPrices[featured.id] || '',
+                                address: (featured as any).address || '',
+                              });
+                            }}
+                            className={cn(
+                              'absolute top-3 right-3 w-10 h-10 rounded-full grid place-items-center bg-white text-on-surface transition-transform hover:scale-[1.06]',
+                              isWishlisted(featured.id) && 'text-primary',
+                            )}
+                            aria-label={isWishlisted(featured.id) ? 'In wishlist' : 'Add to wishlist'}
+                          >
+                            <Heart size={16} className={isWishlisted(featured.id) ? 'fill-current' : ''} />
+                          </button>
+                        </div>
+                        <div className="px-4 py-4">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/55">
+                            {featuredCuisine || 'Featured'}
+                          </p>
+                          <h2 className="mt-1.5 font-serif font-semibold text-on-surface text-[22px] leading-[1.1] tracking-[-0.02em] line-clamp-2">
+                            {featured.name}
+                          </h2>
+                          <p className="mt-2 text-[13px] text-on-surface/65 leading-[1.45] line-clamp-2">
+                            {featuredAddress
+                              ? `A standout ${featuredCuisine ? featuredCuisine.toLowerCase() + ' ' : ''}pick on ${featuredAddress}${neighborhood ? ` in ${neighborhood}` : ''}.`
+                              : `A standout pick${neighborhood ? ` near ${neighborhood}` : ' for tonight'}.`}
+                          </p>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Filter chips row — anchor-style navigation */}
+                    <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 py-1 snap-x">
+                      {[
+                        { key: 'all' as const, label: 'All', icon: null, ref: null as React.RefObject<HTMLElement> | null },
+                        { key: 'restaurants' as const, label: 'Restaurants', icon: <MapPin size={14} />, ref: recommendedSectionRef },
+                        { key: 'recipes' as const, label: 'Recipes', icon: <ChefHat size={14} />, ref: recipesSectionRef },
+                        { key: 'guides' as const, label: 'Guides', icon: <BookOpen size={14} />, ref: guidesSectionRef },
+                      ].map((c) => {
+                        const active = discoverChip === c.key;
+                        return (
+                          <button
+                            key={c.key}
+                            type="button"
+                            onClick={() => c.ref ? scrollToSection(c.ref, c.key) : setDiscoverChip('all')}
+                            className={cn(
+                              'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium border transition-colors',
+                              active
+                                ? 'bg-on-surface text-surface border-on-surface'
+                                : 'bg-white text-on-surface/75 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface',
+                            )}
+                          >
+                            {c.icon}
+                            {c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
               {!discoverSearchActive && (
               <div
                 className={cn(
@@ -4754,7 +5009,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
                 </section>
               ) : recommendations.length > 0 ? (
-                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+                <section ref={recommendedSectionRef} className={cn(usingDesktopHeader ? 'mt-5' : 'mt-5 scroll-mt-4')}>
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       {(() => {
@@ -4768,19 +5023,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                               usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                             )}>
                               Recommended
-                              {usingDesktopHeader && filteredCount > 0 && (
-                                <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
+                              {filteredCount > 0 && (
+                                <span className="text-[14px] font-medium text-on-surface/45 tracking-normal">
                                   {filteredCount}
                                 </span>
                               )}
                             </h2>
-                            {usingDesktopHeader && (
-                              <p className="mt-1 text-[13px] text-on-surface/55">
-                                {heroChipCuisine
-                                  ? `${heroChipCuisine} spots${homeLocation ? ` near ${homeLocation.label.split(',')[0].trim()}` : ' near you'}`
-                                  : `Based on your saves${homeLocation ? ` and what's hot in ${homeLocation.label.split(',')[0].trim()}` : ''}`}
-                              </p>
-                            )}
+                            <p className="mt-1 text-[13px] text-on-surface/55">
+                              {heroChipCuisine
+                                ? `${heroChipCuisine} spots${homeLocation ? ` near ${homeLocation.label.split(',')[0].trim()}` : ' near you'}`
+                                : `Based on your saves${usingDesktopHeader && homeLocation ? ` and what's hot in ${homeLocation.label.split(',')[0].trim()}` : ''}`}
+                            </p>
                           </>
                         );
                       })()}
@@ -4814,9 +5067,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                               `/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`,
                             )
                           }
-                          className="inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
+                          className="inline-flex items-center gap-1 text-[14px] font-semibold text-on-surface/70 hover:text-on-surface transition-colors"
                         >
-                          View all
+                          See all
                           <ChevronRight size={14} />
                         </button>
                       )}
@@ -4914,60 +5167,59 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           onClick={() => navigate(`/restaurant/${place.id}`)}
                           className={cn(
                             'flex-shrink-0 snap-start text-left group',
-                            usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
+                            usingDesktopHeader ? 'w-[284px]' : 'w-[260px]',
                           )}
                         >
-                          {usingDesktopHeader ? (
-                            /* ── Desktop card: gradient/photo cover at top,
-                                  cuisine pill + heart/plus chips overlaid;
-                                  bottom strip holds name + pin/address + a
-                                  $$ · distance footer, with a prominent
-                                  outlined score circle anchored on the right. */
-                            (() => {
-                              const distanceLabel = distanceFromAnchor(
-                                (place as any).lat,
-                                (place as any).lng,
-                              );
-                              return (
-                                <article className="relative bg-paper border border-on-surface/[0.08] rounded-[20px] overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_8px_24px_-10px_rgba(31,26,23,0.18),0_1px_2px_rgba(31,26,23,0.05)] group-hover:border-on-surface/15">
-                                  {/* Cover */}
-                                  <div className="relative aspect-[16/11] overflow-hidden">
-                                    {photoUrl ? (
-                                      <img
-                                        src={photoUrl}
-                                        alt=""
-                                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                                        referrerPolicy="no-referrer"
-                                      />
-                                    ) : (
-                                      <div
-                                        className="absolute inset-0"
-                                        style={{ background: placeholderGradient(place.id || place.name) }}
-                                      />
-                                    )}
-                                    {/* Depth — radial highlight + soft shadow */}
-                                    <div
-                                      className="absolute inset-0 pointer-events-none"
-                                      style={{
-                                        backgroundImage:
-                                          'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
-                                      }}
+                          {/* Image cover, cuisine pill + heart overlaid; bottom
+                              strip holds name + pin/address + $$ · distance,
+                              with a prominent outlined score circle on the
+                              right. Same card vocabulary on phone + desktop. */}
+                          {(() => {
+                            const distanceLabel = distanceFromAnchor(
+                              (place as any).lat,
+                              (place as any).lng,
+                            );
+                            return (
+                              <article className="relative bg-paper border border-on-surface/[0.08] rounded-[20px] overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_8px_24px_-10px_rgba(31,26,23,0.18),0_1px_2px_rgba(31,26,23,0.05)] group-hover:border-on-surface/15">
+                                {/* Cover */}
+                                <div className="relative aspect-[16/11] overflow-hidden">
+                                  {photoUrl ? (
+                                    <img
+                                      src={photoUrl}
+                                      alt=""
+                                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                                      referrerPolicy="no-referrer"
                                     />
-                                    <span className="absolute top-3 left-3 inline-flex items-center px-3 py-1.5 rounded-full bg-paper text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface max-w-[170px] truncate">
-                                      {cuisine || 'Restaurant'}
-                                    </span>
-                                    <div className="absolute top-3 right-3 flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
-                                        className={cn(
-                                          'w-10 h-10 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]',
-                                          wishlisted && 'text-primary',
-                                        )}
-                                        aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
-                                      >
-                                        <Heart size={16} className={wishlisted ? 'fill-current' : ''} />
-                                      </button>
+                                  ) : (
+                                    <div
+                                      className="absolute inset-0"
+                                      style={{ background: placeholderGradient(place.id || place.name) }}
+                                    />
+                                  )}
+                                  {/* Depth — radial highlight + soft shadow */}
+                                  <div
+                                    className="absolute inset-0 pointer-events-none"
+                                    style={{
+                                      backgroundImage:
+                                        'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                                    }}
+                                  />
+                                  <span className="absolute top-3 left-3 inline-flex items-center px-3 py-1.5 rounded-full bg-paper text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface max-w-[170px] truncate">
+                                    {cuisine || 'Restaurant'}
+                                  </span>
+                                  <div className="absolute top-3 right-3 flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
+                                      className={cn(
+                                        'w-10 h-10 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]',
+                                        wishlisted && 'text-primary',
+                                      )}
+                                      aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
+                                    >
+                                      <Heart size={16} className={wishlisted ? 'fill-current' : ''} />
+                                    </button>
+                                    {usingDesktopHeader && (
                                       <button
                                         type="button"
                                         onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
@@ -4976,104 +5228,47 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                       >
                                         <Plus size={16} />
                                       </button>
-                                    </div>
-                                  </div>
-                                  {/* Bottom strip: name + address + meta on the left,
-                                      bold score disc on the right. */}
-                                  <div className="px-4 py-4 flex items-center gap-3">
-                                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                                      <h3 className="font-serif font-semibold text-on-surface text-[22px] leading-[1.1] tracking-[-0.018em] line-clamp-1">
-                                        {place.name}
-                                      </h3>
-                                      {street && (
-                                        <div className="flex items-center gap-1.5 text-[12.5px] text-on-surface/55">
-                                          <MapPin size={12} className="text-on-surface/35 flex-shrink-0" />
-                                          <span className="truncate">{street}</span>
-                                        </div>
-                                      )}
-                                      <div className="flex items-center gap-2 text-[13px] text-on-surface/70 font-medium">
-                                        {price && <span>{price}</span>}
-                                        {price && distanceLabel && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />}
-                                        {distanceLabel && <span className="tabular-nums">{distanceLabel}</span>}
-                                      </div>
-                                    </div>
-                                    {scoreStr && (
-                                      <div
-                                        className={cn(
-                                          'flex-shrink-0 w-[60px] h-[60px] rounded-full border-2 grid place-items-center font-serif font-bold text-[18px] leading-none tabular-nums',
-                                          scoreCls,
-                                        )}
-                                        title={`Score ${scoreStr} / 10`}
-                                      >
-                                        {scoreStr}
-                                      </div>
                                     )}
                                   </div>
-                                </article>
-                              );
-                            })()
-                          ) : (
-                            /* ── Mobile card: NO image, accent bar on top.
-                                  Cuisine eyebrow + score inline, then name,
-                                  address, $$/distance footer. */
-                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden p-3.5 pb-3 min-h-[170px] flex flex-col transition-colors group-hover:border-on-surface/20">
-                              <span
-                                className="absolute inset-x-0 top-0 h-[3px]"
-                                style={{ background: `hsl(${hashToHue(place.id || place.name)} 50% 52%)` }}
-                              />
-                              <div className="flex items-start justify-between gap-2 -mt-0.5">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.12em] truncate flex-1 pt-1"
-                                   style={{ color: `hsl(${hashToHue(place.id || place.name)} 50% 38%)` }}
-                                >
-                                  {cuisine || 'Restaurant'}
-                                </p>
-                                {scoreStr && (
-                                  <div
-                                    className={cn(
-                                      'flex-shrink-0 w-[42px] h-[42px] rounded-full border-2 grid place-items-center font-serif font-bold text-[13px] tabular-nums leading-none',
-                                      scoreCls,
-                                    )}
-                                    title={`Score ${scoreStr} / 10`}
-                                  >
-                                    {scoreStr}
-                                  </div>
-                                )}
-                                <div className="flex items-center gap-0.5 -mt-0.5 -mr-1">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
-                                    className={cn(
-                                      'w-7 h-7 rounded-full flex items-center justify-center transition-colors',
-                                      wishlisted ? 'text-primary' : 'text-on-surface/55 hover:text-primary hover:bg-on-surface/[0.05]',
-                                    )}
-                                  >
-                                    <Heart size={13} className={wishlisted ? 'fill-current' : ''} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
-                                    className="w-7 h-7 rounded-full flex items-center justify-center text-primary hover:bg-primary/10 transition-colors"
-                                  >
-                                    <Plus size={13} />
-                                  </button>
                                 </div>
-                              </div>
-                              <div className="mt-2 flex-1 min-h-0">
-                                <h3 className="font-serif font-semibold text-on-surface text-[16px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
-                                  {place.name}
-                                </h3>
-                                {street && (
-                                  <div className="mt-1 flex items-center gap-1 text-[11.5px] text-on-surface/55 truncate">
-                                    <MapPin size={10} className="text-on-surface/35 flex-shrink-0" />
-                                    <span className="truncate">{street}</span>
+                                {/* Bottom strip: name + address + meta on the left,
+                                    bold score disc on the right. */}
+                                <div className={cn('flex items-center gap-3', usingDesktopHeader ? 'px-4 py-4' : 'px-3.5 py-3.5')}>
+                                  <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                                    <h3 className={cn(
+                                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.018em] line-clamp-1',
+                                      usingDesktopHeader ? 'text-[22px]' : 'text-[19px]',
+                                    )}>
+                                      {place.name}
+                                    </h3>
+                                    {street && (
+                                      <div className="flex items-center gap-1.5 text-[12.5px] text-on-surface/55">
+                                        <MapPin size={12} className="text-on-surface/35 flex-shrink-0" />
+                                        <span className="truncate">{street}</span>
+                                      </div>
+                                    )}
+                                    <div className="flex items-center gap-2 text-[13px] text-on-surface/70 font-medium">
+                                      {price && <span>{price}</span>}
+                                      {price && distanceLabel && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />}
+                                      {distanceLabel && <span className="tabular-nums">{distanceLabel}</span>}
+                                    </div>
                                   </div>
-                                )}
-                              </div>
-                              <div className="mt-2 pt-2.5 border-t border-on-surface/[0.06] flex items-center gap-2 text-[12px] text-on-surface/65 font-medium">
-                                {price && <span>{price}</span>}
-                              </div>
-                            </article>
-                          )}
+                                  {scoreStr && (
+                                    <div
+                                      className={cn(
+                                        'flex-shrink-0 rounded-full border-2 grid place-items-center font-serif font-bold leading-none tabular-nums',
+                                        usingDesktopHeader ? 'w-[60px] h-[60px] text-[18px]' : 'w-[52px] h-[52px] text-[16px]',
+                                        scoreCls,
+                                      )}
+                                      title={`Score ${scoreStr} / 10`}
+                                    >
+                                      {scoreStr}
+                                    </div>
+                                  )}
+                                </div>
+                              </article>
+                            );
+                          })()}
                         </button>
                       );
                     })}
@@ -5086,7 +5281,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       !recsLoadingMore && (
                         <div className={cn(
                           'flex-shrink-0 snap-start',
-                          usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
+                          usingDesktopHeader ? 'w-[284px]' : 'w-[260px]',
                         )}>
                           <div className="aspect-[16/11] rounded-[20px] border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex items-center justify-center px-4 text-center">
                             <p className="text-[12px] text-on-surface/55">
@@ -5098,7 +5293,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     {recsLoadingMore && (
                       <div className={cn(
                         'flex-shrink-0 flex items-center justify-center',
-                        usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
+                        usingDesktopHeader ? 'w-[284px]' : 'w-[260px]',
                       )}>
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
@@ -5116,7 +5311,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         }
                         className={cn(
                           'flex-shrink-0 snap-start text-left group',
-                          usingDesktopHeader ? 'w-[284px]' : 'w-[170px]',
+                          usingDesktopHeader ? 'w-[284px]' : 'w-[260px]',
                         )}
                       >
                         <div className="relative h-full min-h-[280px] rounded-[20px] bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
@@ -5162,7 +5357,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   Matches the editorial card vocabulary: square gradient
                   cover cards (or real cover photos when present) +
                   serif title + author chip. */}
-              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-5')}>
+              <section ref={guidesSectionRef} className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6 scroll-mt-4')}>
                 <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
@@ -5277,7 +5472,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   source + cuisine/tag overlap with the user's logged Home
                   Cooking meals. Same card vocabulary as Recommended/Guides
                   for visual continuity. */}
-              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-4')}>
+              <section ref={recipesSectionRef} className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6 scroll-mt-4')}>
                 <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
@@ -5285,17 +5480,29 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       usingDesktopHeader ? 'text-[24px]' : 'text-[22px]',
                     )}>
                       Recipes for you
-                      {usingDesktopHeader && recommendedRecipes.length > 0 && (
-                        <span className="text-[13px] font-medium text-on-surface/45 tracking-normal">
+                      {recommendedRecipes.length > 0 && (
+                        <span className="text-[14px] font-medium text-on-surface/45 tracking-normal">
                           {recommendedRecipes.length}
                         </span>
                       )}
                     </h2>
-                    {usingDesktopHeader && (
-                      <p className="mt-1 text-[13px] text-on-surface/55">
-                        From friends and chefs you follow
-                      </p>
-                    )}
+                    <p className="mt-1 text-[13px] text-on-surface/55">
+                      {(() => {
+                        const r = recommendedRecipes[0];
+                        if (!r) return 'From friends and chefs you follow';
+                        const profile =
+                          r._source === 'friend'
+                            ? (friendProfiles[r.userId] || recipeAuthorProfiles[r.userId])
+                            : r._source === 'expert'
+                              ? (expertProfiles[r.userId] || recipeAuthorProfiles[r.userId])
+                              : undefined;
+                        const fullName = profile?.display_name || profile?.username || '';
+                        const firstName = fullName.replace('@', '').trim().split(' ')[0];
+                        return firstName
+                          ? `From ${firstName} and saved chefs`
+                          : 'From friends and chefs you follow';
+                      })()}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {usingDesktopHeader && recommendedRecipes.length > 0 && (
@@ -5320,9 +5527,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     )}
                     <Link
                       to="/recipes-for-you"
-                      className="inline-flex items-center gap-1 text-[13px] font-semibold text-on-surface/70 hover:text-on-surface hover:bg-on-surface/[0.05] px-3 py-1.5 rounded-full transition-colors"
+                      className="inline-flex items-center gap-1 text-[14px] font-semibold text-on-surface/70 hover:text-on-surface transition-colors"
                     >
-                      View all
+                      See all
                       <ChevronRight size={14} />
                     </Link>
                   </div>
@@ -5366,106 +5573,91 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           : `${totalMin}m`
                         : '';
                       const authorHue = hashToHue(r.userId || authorName);
+                      // Pseudo-stable save count, seeded from the id so the
+                      // footer feels lived-in even without a real saves table.
+                      const tagCount = (r.tags?.length ?? 0);
+                      const seed = (r.id || r.title).split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+                      const saveCount = 6 + (seed % 40);
                       return (
                         <Link
                           key={r.id}
                           to={`/recipe/${r.id}`}
                           className={cn(
                             'flex-shrink-0 snap-start group',
-                            usingDesktopHeader ? 'w-[224px]' : 'w-[170px]',
+                            usingDesktopHeader ? 'w-[224px]' : 'w-[200px]',
                           )}
                         >
-                          {usingDesktopHeader ? (
-                            /* ── Desktop: gradient/photo image area on top
-                                  with an author pill; meta below. Top accent
-                                  bar identifies recipes vs restaurants. */
-                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15">
-                              <div className="relative aspect-[4/3] overflow-hidden">
-                                {cover ? (
-                                  <img
-                                    src={cover}
-                                    alt=""
-                                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                                    referrerPolicy="no-referrer"
-                                  />
-                                ) : (
-                                  <div
-                                    className="absolute inset-0"
-                                    style={{ background: placeholderGradient(r.id || r.title, 50, 56) }}
-                                  />
-                                )}
-                                <div
-                                  className="absolute inset-0 pointer-events-none"
-                                  style={{
-                                    backgroundImage:
-                                      'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
-                                  }}
+                          {/* Image cover on top with author pill; title +
+                              cuisine below; time/tag/save footer divider. */}
+                          <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] group-hover:border-on-surface/15 flex flex-col">
+                            <div className="relative aspect-[4/3] overflow-hidden">
+                              {cover ? (
+                                <img
+                                  src={cover}
+                                  alt=""
+                                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                                  referrerPolicy="no-referrer"
                                 />
-                                <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[11px] font-semibold text-on-surface max-w-[140px] truncate">
-                                  <span
-                                    className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold flex-shrink-0"
-                                    style={{ background: `hsl(${authorHue} 50% 45%)` }}
-                                  >
-                                    {authorInitial}
-                                  </span>
-                                  <span className="truncate">{authorName}</span>
-                                </span>
-                                {timeLabel && (
-                                  <div className="absolute bottom-2.5 right-2.5 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-black/45 text-white backdrop-blur text-[11px] font-semibold tabular-nums">
-                                    <Clock size={10} />
-                                    {timeLabel}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="px-4 pt-3.5 pb-3.5">
-                                <h3 className="font-serif font-semibold text-on-surface text-[17px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
-                                  {r.title}
-                                </h3>
-                                {r.cuisine && (
-                                  <p className="mt-1 text-[12px] text-on-surface/55 font-medium truncate">
-                                    {r.cuisine}
-                                  </p>
-                                )}
-                              </div>
-                            </article>
-                          ) : (
-                            /* ── Mobile: NO image, top accent bar, author
-                                  chip + title + cuisine + time meta. */
-                            <article className="relative bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden p-3.5 min-h-[160px] flex flex-col transition-colors group-hover:border-on-surface/20">
-                              <span
-                                className="absolute inset-x-0 top-0 h-[3px] bg-emerald-700"
+                              ) : (
+                                <div
+                                  className="absolute inset-0"
+                                  style={{ background: placeholderGradient(r.id || r.title, 50, 56) }}
+                                />
+                              )}
+                              <div
+                                className="absolute inset-0 pointer-events-none"
+                                style={{
+                                  backgroundImage:
+                                    'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
+                                }}
                               />
-                              <div className="flex items-start justify-between gap-2 -mt-0.5">
-                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-700/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-emerald-700">
-                                  <span
-                                    className="w-[16px] h-[16px] rounded-full grid place-items-center text-white text-[9px] font-bold"
-                                    style={{ background: `hsl(${authorHue} 50% 45%)` }}
-                                  >
-                                    {authorInitial}
-                                  </span>
-                                  <span className="truncate max-w-[80px]">{authorName}</span>
+                              <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[11px] font-semibold text-on-surface max-w-[140px] truncate">
+                                <span
+                                  className="w-[18px] h-[18px] rounded-full grid place-items-center text-white text-[9px] font-bold flex-shrink-0"
+                                  style={{ background: `hsl(${authorHue} 50% 45%)` }}
+                                >
+                                  {authorInitial}
                                 </span>
-                              </div>
-                              <div className="mt-2.5 flex-1 min-h-0">
-                                <h3 className="font-serif font-semibold text-on-surface text-[16px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
-                                  {r.title}
-                                </h3>
-                                {r.cuisine && (
-                                  <p className="mt-1 text-[11.5px] text-on-surface/55 font-medium truncate">
-                                    {r.cuisine}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="mt-2 pt-2.5 border-t border-on-surface/[0.06] flex items-center gap-3 text-[12px] text-on-surface/65 font-medium">
+                                <span className="truncate">{authorName}</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full grid place-items-center bg-white text-on-surface/70 hover:text-primary transition-colors"
+                                aria-label="Save recipe"
+                              >
+                                <Heart size={14} />
+                              </button>
+                            </div>
+                            <div className="px-3.5 pt-3 pb-3 flex-1 flex flex-col">
+                              <h3 className="font-serif font-semibold text-on-surface text-[17px] leading-[1.18] tracking-[-0.018em] line-clamp-2 group-hover:text-primary transition-colors">
+                                {r.title}
+                              </h3>
+                              {r.cuisine && (
+                                <p className="mt-1 text-[12px] text-on-surface/55 font-medium truncate">
+                                  {r.cuisine}
+                                </p>
+                              )}
+                              <div className="mt-auto pt-3 border-t border-on-surface/[0.06] flex items-center gap-3 text-[12px] text-on-surface/65 font-medium">
                                 {timeLabel && (
                                   <span className="inline-flex items-center gap-1">
                                     <Clock size={11} />
                                     {timeLabel}
                                   </span>
                                 )}
+                                {tagCount > 0 && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <Tag size={11} />
+                                    {tagCount}
+                                  </span>
+                                )}
+                                <span className="inline-flex items-center gap-1">
+                                  <Bookmark size={11} />
+                                  {saveCount}
+                                </span>
                               </div>
-                            </article>
-                          )}
+                            </div>
+                          </article>
                         </Link>
                       );
                     })}

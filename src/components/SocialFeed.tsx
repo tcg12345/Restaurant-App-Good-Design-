@@ -822,6 +822,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [feedDropdownOpen, setFeedDropdownOpen] = useState(false);
   const feedDropdownRef = React.useRef<HTMLDivElement>(null);
 
+  // Sub-filter row shown under the Friend Activity header. Filters the
+  // existing feedItems by their `type` discriminator — no schema change.
+  const [friendsTab, setFriendsTab] = useState<'all' | 'cooking' | 'ratings'>('all');
+
   // Lazy-load expert ratings the first time the dropdown switches into the
   // "Expert Picks" tab. Subsequent switches reuse what's already in state.
   useEffect(() => {
@@ -884,9 +888,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
           </span>
+          <span className="text-[13px] font-semibold text-emerald-600">Live</span>
           {typeof count === 'number' && count > 0 && (
-            <span className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 bg-on-surface/5 px-2 py-0.5 rounded-full">
-              {count}
+            <span className="ml-auto text-[12px] font-semibold text-on-surface/70 bg-on-surface/5 px-2.5 py-1 rounded-full">
+              {count} new
             </span>
           )}
         </>
@@ -934,13 +939,53 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Recipes-only mode uses its own list rendered from homeMeals.
   const recipesSorted = [...homeMeals].sort((a, b) => b.createdAt - a.createdAt);
 
+  // Apply the friends sub-tab filter to the feed list. Only takes effect
+  // when feedMode === 'friends' (experts/recipes have their own renderers).
+  const cookingCount = feedItems.filter((i) => i.type === 'homeMeal').length;
+  const filteredFeedItems = feedMode === 'friends'
+    ? friendsTab === 'cooking'
+      ? feedItems.filter((i) => i.type === 'homeMeal')
+      : friendsTab === 'ratings'
+        ? feedItems.filter((i) => i.type === 'rating')
+        : feedItems
+    : feedItems;
+
   return (
     <section className="mb-2">
       <div className={cn(
         !phoneMode && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
       )}>
         <div className="xl:min-w-0">
-      <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : feedItems.length} />
+      <SectionHeader count={feedMode === 'recipes' ? recipesSorted.length : filteredFeedItems.length} />
+      {feedMode === 'friends' && (
+        <div className="flex items-center gap-6 border-b border-on-surface/10 mb-1">
+          {([
+            { key: 'all' as const, label: 'All', badge: null },
+            { key: 'cooking' as const, label: 'Cooking', badge: cookingCount > 0 ? cookingCount : null },
+            { key: 'ratings' as const, label: 'Ratings', badge: null },
+          ]).map((t) => {
+            const active = friendsTab === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setFriendsTab(t.key)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 pb-2 -mb-px text-[14px] transition-colors',
+                  active
+                    ? 'border-b-2 border-primary text-on-surface font-semibold'
+                    : 'text-on-surface/55 hover:text-on-surface/80',
+                )}
+              >
+                {t.label}
+                {t.badge != null && (
+                  <span className="text-[12px] font-semibold text-primary">{t.badge}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {feedMode === 'experts' && expertLoading ? (
         <ul>
           {[0, 1, 2].map((i) => (
@@ -1120,7 +1165,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         )
       ) : (
       <ul>
-        {feedItems.map((item) => {
+        {filteredFeedItems.map((item) => {
           if (item.type === 'post') {
             const p = item.data;
             const author = p.author;
