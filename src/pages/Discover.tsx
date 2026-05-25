@@ -5096,7 +5096,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                           onClick={() => navigate(`/restaurant/${place.id}`)}
                           className={cn(
                             'flex-shrink-0 snap-start text-left group',
-                            usingDesktopHeader ? 'w-[284px]' : 'w-[260px]',
+                            'w-[240px]',
                           )}
                         >
                           {/* Image cover, cuisine pill + heart overlaid; bottom
@@ -5133,50 +5133,47 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                         'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.18), transparent 50%)',
                                     }}
                                   />
-                                  <span className="absolute top-3 left-3 inline-flex items-center px-3 py-1.5 rounded-full bg-paper text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface max-w-[170px] truncate">
+                                  <span className="absolute top-2.5 left-2.5 inline-flex items-center px-2.5 py-1 rounded-full bg-paper text-[10px] font-bold uppercase tracking-[0.12em] text-on-surface max-w-[140px] truncate">
                                     {cuisine || 'Restaurant'}
                                   </span>
-                                  <div className="absolute top-3 right-3 flex items-center gap-2">
+                                  <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                                     <button
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleWishlist(recMeta); }}
                                       className={cn(
-                                        'w-10 h-10 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]',
+                                        'w-8 h-8 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]',
                                         wishlisted && 'text-primary',
                                       )}
                                       aria-label={wishlisted ? 'In wishlist' : 'Add to wishlist'}
                                     >
-                                      <Heart size={16} className={wishlisted ? 'fill-current' : ''} />
+                                      <Heart size={14} className={wishlisted ? 'fill-current' : ''} />
                                     </button>
                                     {usingDesktopHeader && (
                                       <button
                                         type="button"
                                         onClick={(e) => { e.stopPropagation(); e.preventDefault(); openAddRestaurantModal(recMeta); }}
-                                        className="w-10 h-10 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]"
+                                        className="w-8 h-8 rounded-full grid place-items-center bg-paper text-on-surface transition-transform hover:scale-[1.06]"
                                         aria-label="Add to list"
                                       >
-                                        <Plus size={16} />
+                                        <Plus size={14} />
                                       </button>
                                     )}
                                   </div>
                                 </div>
                                 {/* Bottom strip: name + address + meta on the left,
                                     bold score disc on the right. */}
-                                <div className={cn('flex items-center gap-3', usingDesktopHeader ? 'px-4 py-4' : 'px-3.5 py-3.5')}>
-                                  <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                                    <h3 className={cn(
-                                      'font-serif font-semibold text-on-surface leading-[1.1] tracking-[-0.018em] line-clamp-1',
-                                      usingDesktopHeader ? 'text-[22px]' : 'text-[19px]',
-                                    )}>
+                                <div className="flex items-center gap-2.5 px-3.5 py-3.5">
+                                  <div className="flex-1 min-w-0 flex flex-col gap-1">
+                                    <h3 className="font-serif font-semibold text-on-surface text-[18px] leading-[1.1] tracking-[-0.018em] line-clamp-1">
                                       {place.name}
                                     </h3>
                                     {street && (
-                                      <div className="flex items-center gap-1.5 text-[12.5px] text-on-surface/55">
-                                        <MapPin size={12} className="text-on-surface/35 flex-shrink-0" />
+                                      <div className="flex items-center gap-1.5 text-[12px] text-on-surface/55">
+                                        <MapPin size={11} className="text-on-surface/35 flex-shrink-0" />
                                         <span className="truncate">{street}</span>
                                       </div>
                                     )}
-                                    <div className="flex items-center gap-2 text-[13px] text-on-surface/70 font-medium">
+                                    <div className="flex items-center gap-2 text-[12.5px] text-on-surface/70 font-medium">
                                       {price && <span>{price}</span>}
                                       {price && distanceLabel && <span className="w-[3px] h-[3px] rounded-full bg-on-surface/25" />}
                                       {distanceLabel && <span className="tabular-nums">{distanceLabel}</span>}
@@ -5185,8 +5182,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                                   {scoreStr && (
                                     <div
                                       className={cn(
-                                        'flex-shrink-0 rounded-full border-2 grid place-items-center font-serif font-bold leading-none tabular-nums',
-                                        usingDesktopHeader ? 'w-[60px] h-[60px] text-[18px]' : 'w-[52px] h-[52px] text-[16px]',
+                                        'flex-shrink-0 w-[48px] h-[48px] text-[15px] rounded-full border-2 grid place-items-center font-serif font-bold leading-none tabular-nums',
                                         scoreCls,
                                       )}
                                       title={`Score ${scoreStr} / 10`}
@@ -5210,7 +5206,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       !recsLoadingMore && (
                         <div className={cn(
                           'flex-shrink-0 snap-start',
-                          usingDesktopHeader ? 'w-[284px]' : 'w-[260px]',
+                          'w-[240px]',
                         )}>
                           <div className="aspect-[16/11] rounded-[20px] border border-dashed border-on-surface/15 bg-on-surface/[0.03] flex items-center justify-center px-4 text-center">
                             <p className="text-[12px] text-on-surface/55">
@@ -5222,7 +5218,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     {recsLoadingMore && (
                       <div className={cn(
                         'flex-shrink-0 flex items-center justify-center',
-                        usingDesktopHeader ? 'w-[284px]' : 'w-[260px]',
+                        'w-[240px]',
                       )}>
                         <Loader2 size={18} className="text-primary/40 animate-spin" />
                       </div>
@@ -5240,7 +5236,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                         }
                         className={cn(
                           'flex-shrink-0 snap-start text-left group',
-                          usingDesktopHeader ? 'w-[284px]' : 'w-[260px]',
+                          'w-[240px]',
                         )}
                       >
                         <div className="relative h-full min-h-[280px] rounded-[20px] bg-on-surface/[0.04] border border-dashed border-on-surface/15 group-hover:bg-on-surface/[0.07] group-hover:border-primary/40 transition-colors flex flex-col items-center justify-center text-center px-4">
