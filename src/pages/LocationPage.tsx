@@ -531,6 +531,9 @@ export const LocationPage: React.FC = () => {
     return () => mq.removeEventListener('change', handler);
   }, []);
   const isMobile = phoneMode || isNarrowViewport;
+  // Drives the headless HomeLocationBar picker opened from the mobile
+  // header's "{city} ▾" button.
+  const [mobileLocationPickerOpen, setMobileLocationPickerOpen] = useState(false);
 
   const cityKey = useMemo(() => cityKeyFromLabel(label), [label]);
   const cityDisplay = useMemo(() => {
@@ -2115,9 +2118,10 @@ export const LocationPage: React.FC = () => {
               <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'var(--muted)' }}>Location</p>
               <button
                 type="button"
-                onClick={() => navigate(-1)}
+                onClick={() => setMobileLocationPickerOpen(true)}
                 className="mt-0.5 inline-flex items-center gap-1 max-w-full"
                 style={{ color: 'var(--ink)' }}
+                aria-label="Change location"
               >
                 <span className="font-serif font-semibold text-[17px] tracking-[-0.01em] truncate">{cityDisplay}</span>
                 <ChevronDown size={16} style={{ color: 'var(--muted-2)' }} />
@@ -2151,6 +2155,20 @@ export const LocationPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Headless location picker — opened by tapping "{city} ▾" in the
+          mobile header above. The component is portal-rendered, so its
+          position in the tree doesn't matter visually. */}
+      {isMobile && (
+        <HomeLocationBar
+          variant="headless"
+          location={currentLocation}
+          onChange={handleLocationChange}
+          onUseCurrent={handleUseCurrent}
+          open={mobileLocationPickerOpen}
+          onOpenChange={setMobileLocationPickerOpen}
+        />
+      )}
 
       <div className="lp-page">
         {/* ── Mobile hero — EXPLORING eyebrow + big serif city name.
