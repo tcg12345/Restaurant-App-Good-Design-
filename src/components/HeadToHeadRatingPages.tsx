@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ChevronLeft, ChevronRight, Sliders, Swords, Sparkles, RotateCcw } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Sliders, Swords, Sparkles, RotateCcw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
+import type { RestaurantRating } from '../contexts/ListsContext';
 import {
   type H2HState,
   type Tier,
@@ -378,3 +379,77 @@ export const ResultPage: React.FC<{
     </motion.div>
   );
 };
+
+/* ── Ranking context (lives under the slider) ─────────────────────── */
+
+export const RankingContext: React.FC<{
+  score: number;
+  ratings: RestaurantRating[];
+  excludeId?: string;
+}> = ({ score, ratings, excludeId }) => {
+  const sorted = useMemo(
+    () =>
+      ratings
+        .filter((r) => r.restaurantId !== excludeId)
+        .sort((a, b) => b.score - a.score),
+    [ratings, excludeId],
+  );
+
+  if (sorted.length === 0) return null;
+
+  let above: RestaurantRating | null = null;
+  let below: RestaurantRating | null = null;
+  let rank = 1;
+  for (const r of sorted) {
+    if (r.score > score) {
+      above = r;
+      rank += 1;
+    } else {
+      below = r;
+      break;
+    }
+  }
+  const total = sorted.length + 1;
+
+  return (
+    <div className="w-full max-w-[300px] rounded-2xl bg-white border border-on-surface/[0.08] overflow-hidden">
+      <NeighborRow direction="up" item={above} fallback="Top of your list" />
+      <div className="px-3.5 py-1.5 flex items-center justify-between border-y border-dashed border-on-surface/[0.12] bg-on-surface/[0.02]">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-on-surface/45">
+          Your pick · #{rank} of {total}
+        </span>
+        <span className={cn("text-[13px] font-serif font-bold tabular-nums", scoreColor(score))}>
+          {score.toFixed(1)}
+        </span>
+      </div>
+      <NeighborRow direction="down" item={below} fallback="Bottom of your list" />
+    </div>
+  );
+};
+
+const NeighborRow: React.FC<{
+  direction: 'up' | 'down';
+  item: RestaurantRating | null;
+  fallback: string;
+}> = ({ direction, item, fallback }) => (
+  <div className="px-3.5 py-2 flex items-center gap-2.5">
+    {direction === 'up'
+      ? <ArrowUp size={12} className="text-on-surface/35 flex-shrink-0" />
+      : <ArrowDown size={12} className="text-on-surface/35 flex-shrink-0" />}
+    {item ? (
+      <>
+        <div className="flex-1 min-w-0">
+          <div className="text-[12.5px] font-semibold text-on-surface/85 truncate leading-snug">{item.name}</div>
+          {item.cuisine && (
+            <div className="text-[10px] text-on-surface/40 truncate leading-snug">{item.cuisine}</div>
+          )}
+        </div>
+        <span className={cn("text-[12.5px] font-serif font-bold tabular-nums flex-shrink-0", scoreColor(item.score))}>
+          {item.score.toFixed(1)}
+        </span>
+      </>
+    ) : (
+      <span className="text-[11.5px] italic text-on-surface/40">{fallback}</span>
+    )}
+  </div>
+);

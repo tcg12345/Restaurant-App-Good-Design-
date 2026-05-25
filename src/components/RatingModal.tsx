@@ -17,7 +17,7 @@ import {
   isComplete,
   computeFinalScore,
 } from '../lib/headToHeadRating';
-import { ModeSelectPage, TierSelectPage, ComparePage, ResultPage } from './HeadToHeadRatingPages';
+import { ModeSelectPage, TierSelectPage, ComparePage, ResultPage, RankingContext } from './HeadToHeadRatingPages';
 
 type Page = 'mode-select' | 'h2h-tier' | 'h2h-compare' | 'h2h-result' | 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
@@ -393,11 +393,12 @@ export const RatingModal: React.FC = () => {
                           <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
                         </div>
                       </div>
-                      <p className="text-xs font-medium text-on-surface/40 mb-4">
+                      <p className="text-xs font-medium text-on-surface/40 mb-3">
                         {score >= 9 ? 'Exceptional!' : score >= 8 ? 'Excellent' : score >= 7 ? 'Very Good' : score >= 6 ? 'Good' : score >= 5 ? 'Average' : score >= 4 ? 'Below Average' : score >= 3 ? 'Poor' : 'Terrible'}
                       </p>
+                      <RankingContext score={score} ratings={ratings} excludeId={ratingModalRestaurant.id} />
                     </div>
-                    <div className="border-t border-on-surface/6 pt-3 pb-2">
+                    <div className="border-t border-on-surface/6 pt-3 mt-3 pb-2">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/35 mb-1">Add details</p>
                       <div>
                         <DetailRow icon={<StickyNote size={20} />} label="Notes" value={hasNotes ? notes : undefined} onClick={() => setPage('notes')} />
