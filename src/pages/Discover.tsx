@@ -436,13 +436,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
     return () => { cancelled = true; };
   }, [userId]);
 
-  // Section anchors + chip filter state for the mobile filter-chips row
-  // (All / Restaurants / Recipes / Guides). Tapping a chip smooth-scrolls
-  // the matching section into view; the rail itself stays fully visible.
-  const recommendedSectionRef = useRef<HTMLElement>(null);
-  const guidesSectionRef = useRef<HTMLElement>(null);
-  const recipesSectionRef = useRef<HTMLElement>(null);
-  const [discoverChip, setDiscoverChip] = useState<'all' | 'restaurants' | 'recipes' | 'guides'>('all');
+  // Mobile filter-chips row (All / Recommendations / Recipes / Guides).
+  // Tapping a non-"All" chip filters the page to that single section;
+  // "All" restores the full feed (incl. Friend Activity).
+  const [discoverChip, setDiscoverChip] = useState<'all' | 'recommendations' | 'recipes' | 'guides'>('all');
   // Drives the headless HomeLocationBar picker from the greeting's
   // neighborhood label — restores the location-switch popup the old
   // mobile header used to expose via the chevron control.
@@ -4754,12 +4751,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   }
                   return n || Math.max(1, Math.floor(recommendations.length / 4));
                 })();
-                // Friends Out: latest friend rating in the feed (loaded by
-                // SocialFeed; fall back to a soft default copy).
-                const scrollToSection = (ref: React.RefObject<HTMLElement>, key: typeof discoverChip) => {
-                  setDiscoverChip(key);
-                  ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                };
                 return (
                   <>
                     <section className="mt-3">
@@ -4875,20 +4866,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       </button>
                     </div>
 
-                    {/* Filter chips row — anchor-style navigation */}
+                    {/* Filter chips row — picking a chip narrows the feed
+                        below to that single section. */}
                     <div className="mt-5 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 py-1 snap-x">
                       {[
-                        { key: 'all' as const, label: 'All', icon: null, ref: null as React.RefObject<HTMLElement> | null },
-                        { key: 'restaurants' as const, label: 'Restaurants', icon: <MapPin size={14} />, ref: recommendedSectionRef },
-                        { key: 'recipes' as const, label: 'Recipes', icon: <ChefHat size={14} />, ref: recipesSectionRef },
-                        { key: 'guides' as const, label: 'Guides', icon: <BookOpen size={14} />, ref: guidesSectionRef },
+                        { key: 'all' as const, label: 'All', icon: null },
+                        { key: 'recommendations' as const, label: 'Recommendations', icon: <MapPin size={14} /> },
+                        { key: 'recipes' as const, label: 'Recipes', icon: <ChefHat size={14} /> },
+                        { key: 'guides' as const, label: 'Guides', icon: <BookOpen size={14} /> },
                       ].map((c) => {
                         const active = discoverChip === c.key;
                         return (
                           <button
                             key={c.key}
                             type="button"
-                            onClick={() => c.ref ? scrollToSection(c.ref, c.key) : setDiscoverChip('all')}
+                            onClick={() => setDiscoverChip(c.key)}
                             className={cn(
                               'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium border transition-colors',
                               active
@@ -4924,7 +4916,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 )}
               >
               {/* Recommendations */}
-              {recsLoading ? (
+              {(discoverChip === 'all' || discoverChip === 'recommendations') && (
+              recsLoading ? (
                 <section className={cn(usingDesktopHeader ? 'mt-3' : 'mt-4')}>
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
@@ -4942,7 +4935,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
                 </section>
               ) : recommendations.length > 0 ? (
-                <section ref={recommendedSectionRef} className={cn(usingDesktopHeader ? 'mt-5' : 'mt-5 scroll-mt-4')}>
+                <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-5')}>
                   <div className="flex items-end justify-between gap-4 mb-3">
                     <div className="min-w-0">
                       {(() => {
@@ -5284,13 +5277,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     <p className="text-xs text-on-surface/40 mt-1">Try a wider radius or a different location.</p>
                   </div>
                 </section>
-              ) : null}
+              ) : null
+              )}
 
               {/* Guides — curated lists from friends and tastemakers.
                   Matches the editorial card vocabulary: square gradient
                   cover cards (or real cover photos when present) +
                   serif title + author chip. */}
-              <section ref={guidesSectionRef} className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6 scroll-mt-4')}>
+              {(discoverChip === 'all' || discoverChip === 'guides') && (
+              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6')}>
                 <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
@@ -5400,12 +5395,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   })}
                 </div>
               </section>
+              )}
 
               {/* Recipes For You — friend / expert / public recipes ranked by
                   source + cuisine/tag overlap with the user's logged Home
                   Cooking meals. Same card vocabulary as Recommended/Guides
                   for visual continuity. */}
-              <section ref={recipesSectionRef} className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6 scroll-mt-4')}>
+              {(discoverChip === 'all' || discoverChip === 'recipes') && (
+              <section className={cn(usingDesktopHeader ? 'mt-5' : 'mt-6')}>
                 <div className="flex items-end justify-between gap-4 mb-3">
                   <div className="min-w-0">
                     <h2 className={cn(
@@ -5597,8 +5594,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   </div>
                 )}
               </section>
+              )}
 
               {/* Social Feed — Friend Activity + Suggested for You + Featured Guides */}
+              {discoverChip === 'all' && (
               <div className={cn(usingDesktopHeader ? 'mt-7' : 'mt-5')}>
                 <SocialFeed
                   centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
@@ -5614,6 +5613,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   })) : []}
                 />
               </div>
+              )}
               </div>
               )}
             </div>
