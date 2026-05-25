@@ -2634,50 +2634,56 @@ export const LocationPage: React.FC = () => {
             filters: neighborhood dropdown, Open Now toggle, then quick
             cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
         {isMobile && (() => {
-          // Compact pill recipe — tight padding, 36px height, thin
-          // hairline ring with a soft contact shadow.
-          const pillIdle = '0 0 0 1px rgba(28, 24, 22, 0.06), 0 1px 2px rgba(28, 24, 22, 0.04)';
-          const pillActive = '0 0 0 1.5px rgba(28, 24, 22, 0.88), 0 1px 2px rgba(28, 24, 22, 0.06)';
-          const pillSelected = '0 2px 6px rgba(28, 24, 22, 0.18)';
-          const pillBase = 'flex-shrink-0 inline-flex items-center h-[36px] rounded-full text-[13px] font-semibold transition-all active:scale-[0.97]';
+          // Pill spec from the design system:
+          //   32px tall, fully rounded, 1px solid #1f1a17 border,
+          //   white fill, Inter 13/500, #4a423c text, 5px gap
+          //   between icon and label, asymmetric padding (8px left,
+          //   12px right — leaves room for trailing chevron icons).
+          const pillBase = 'flex-shrink-0 inline-flex items-center h-[32px] rounded-full text-[13px] font-medium leading-[1.4] transition-all active:scale-[0.97]';
           return (
           <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-0 py-0.5">
             <button
               type="button"
               onClick={() => setNeighborhoodMenuOpen((v) => !v)}
-              className={cn(pillBase, 'gap-1.5 px-3.5')}
+              className={pillBase}
               style={{
                 background: '#FFFFFF',
-                color: 'var(--ink)',
-                boxShadow: neighborhood !== 'all' ? pillActive : pillIdle,
+                color: '#4a423c',
+                border: '1px solid #1f1a17',
+                gap: '5px',
+                paddingLeft: '8px',
+                paddingRight: '12px',
               }}
             >
-              <MapIcon size={13} strokeWidth={1.75} style={{ color: 'var(--ink-2)' }} />
+              <MapIcon size={13} strokeWidth={1.75} style={{ color: '#4a423c' }} />
               {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
-              <ChevronDown size={13} strokeWidth={2} style={{ color: 'var(--muted-2)' }} />
+              <ChevronDown size={13} strokeWidth={2} style={{ color: '#4a423c' }} />
             </button>
             <button
               type="button"
               onClick={() => setOpenNow((v) => !v)}
-              className={cn(pillBase, 'gap-1.5 px-3.5')}
+              className={pillBase}
               style={{
                 background: '#FFFFFF',
-                color: 'var(--ink)',
-                boxShadow: openNow ? pillActive : pillIdle,
+                color: '#4a423c',
+                border: '1px solid #1f1a17',
+                gap: '5px',
+                paddingLeft: '8px',
+                paddingRight: '12px',
               }}
             >
               <span className={cn(
-                'relative w-[24px] h-[14px] rounded-full transition-colors',
-                openNow ? 'bg-emerald-600' : 'bg-on-surface/20',
+                'relative w-[22px] h-[12px] rounded-full transition-colors',
+                openNow ? 'bg-emerald-600' : 'bg-on-surface/25',
               )}>
                 <span className={cn(
-                  'absolute top-[2px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-all',
-                  openNow ? 'left-[12px]' : 'left-[2px]',
+                  'absolute top-[1px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-all',
+                  openNow ? 'left-[11px]' : 'left-[1px]',
                 )} />
               </span>
               Open now
             </button>
-            <span className="flex-shrink-0 self-center w-px h-5" style={{ background: 'var(--border-strong)' }} />
+            <span className="flex-shrink-0 self-center w-px h-4" style={{ background: '#1f1a17', opacity: 0.25 }} />
             {QUICK_CUISINES.map((c) => {
               const active = selectedCuisines.includes(c.type);
               return (
@@ -2685,10 +2691,22 @@ export const LocationPage: React.FC = () => {
                   key={c.type}
                   type="button"
                   onClick={() => toggleCuisine(c.type)}
-                  className={cn(pillBase, 'px-3.5')}
+                  className={pillBase}
                   style={active
-                    ? { background: 'var(--ink)', color: '#FFFFFF', boxShadow: pillSelected }
-                    : { background: '#FFFFFF', color: 'var(--ink)', boxShadow: pillIdle }}
+                    ? {
+                        background: '#1f1a17',
+                        color: '#FFFFFF',
+                        border: '1px solid #1f1a17',
+                        paddingLeft: '12px',
+                        paddingRight: '12px',
+                      }
+                    : {
+                        background: '#FFFFFF',
+                        color: '#4a423c',
+                        border: '1px solid #1f1a17',
+                        paddingLeft: '12px',
+                        paddingRight: '12px',
+                      }}
                 >
                   {c.label}
                 </button>
