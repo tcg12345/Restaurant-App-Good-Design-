@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles, RotateCcw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
@@ -72,7 +72,11 @@ export const AddRestaurantModal: React.FC = () => {
 
   const [page, setPage] = useState<Page>('main');
   const [h2hState, setH2hState] = useState<H2HState | null>(null);
-  const [cameFromH2H, setCameFromH2H] = useState(false);
+  // Set to the H2H-computed score when the user lands on the slider via
+  // head-to-head Continue. Used to show the "from head-to-head" pill, gate
+  // the safety-net effect, and surface a revert button when the slider
+  // drifts off the computed value.
+  const [h2hScore, setH2hScore] = useState<number | null>(null);
   // Tracks whether the user explicitly chose Quick rate on the mode-select
   // screen. Without this, the async-ratings safety net below would yank a
   // user who'd intentionally picked the slider back to mode-select.
@@ -126,7 +130,7 @@ export const AddRestaurantModal: React.FC = () => {
       else if (others.length > 0) initialPage = 'mode-select';
       setPage(initialPage);
       setH2hState(null);
-      setCameFromH2H(false);
+      setH2hScore(null);
       userPickedSlider.current = false;
       setConfirmDelete(false);
       setCreatingList(false);
@@ -153,13 +157,13 @@ export const AddRestaurantModal: React.FC = () => {
   useEffect(() => {
     if (!addRestaurantModalOpen || !restaurant) return;
     if (userPickedSlider.current) return;
-    if (cameFromH2H) return; // user just landed on main from h2h continue — leave them be
+    if (h2hScore !== null) return; // user just landed on main from h2h continue — leave them be
     if (page !== 'main') return;
     if (getRating(restaurant.id)) return; // editing an existing rating — stay on slider
     if (isNewVisit) return; // logging a new visit on an existing rating — stay on slider
     const others = ratings.filter((r) => r.restaurantId !== restaurant.id);
     if (others.length > 0) setPage('mode-select');
-  }, [ratings.length, addRestaurantModalOpen, restaurant, page, isNewVisit, cameFromH2H]);
+  }, [ratings.length, addRestaurantModalOpen, restaurant, page, isNewVisit, h2hScore]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
@@ -367,7 +371,7 @@ export const AddRestaurantModal: React.FC = () => {
                   restaurantName={restaurant.name}
                   isEdit={!!existing}
                   onClose={closeAddRestaurantModal}
-                  onPickSlider={() => { userPickedSlider.current = true; setCameFromH2H(false); setPage('main'); }}
+                  onPickSlider={() => { userPickedSlider.current = true; setH2hScore(null); setPage('main'); }}
                   onPickH2H={() => setPage('h2h-tier')}
                 />
               )}
@@ -425,7 +429,7 @@ export const AddRestaurantModal: React.FC = () => {
                   onContinue={() => {
                     const final = computeFinalScore(h2hState);
                     setScore(final);
-                    setCameFromH2H(true);
+                    setH2hScore(final);
                     setPage('main');
                   }}
                 />
@@ -438,7 +442,7 @@ export const AddRestaurantModal: React.FC = () => {
                   <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
                     <div className="flex items-center gap-1 min-w-0">
                       {!existing && !isNewVisit && ratings.filter((r) => r.restaurantId !== restaurant.id).length > 0 && (
-                        <button onClick={() => { setCameFromH2H(false); userPickedSlider.current = false; setPage('mode-select'); }} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
+                        <button onClick={() => { setH2hScore(null); userPickedSlider.current = false; setPage('mode-select'); }} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
                           <ChevronLeft size={20} />
                         </button>
                       )}
@@ -537,16 +541,37 @@ export const AddRestaurantModal: React.FC = () => {
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
                     <div className="flex flex-col items-center pt-3 sm:pt-5">
-                      {cameFromH2H && (
-                        <motion.div
-                          initial={{ opacity: 0, y: -4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.25 }}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-2"
-                        >
-                          <Sparkles size={11} />
-                          From head-to-head
-                        </motion.div>
+                      {h2hScore !== null && (
+                        <AnimatePresence mode="wait" initial={false}>
+                          {Math.abs(score - h2hScore) > 0.05 ? (
+                            <motion.button
+                              key="revert"
+                              type="button"
+                              onClick={() => setScore(h2hScore)}
+                              initial={{ opacity: 0, y: -4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -4 }}
+                              transition={{ duration: 0.18 }}
+                              whileTap={{ scale: 0.96 }}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary text-white text-[10px] font-bold uppercase tracking-widest mb-2 hover:bg-primary/90 transition-colors"
+                            >
+                              <RotateCcw size={11} />
+                              Revert to {h2hScore.toFixed(1)}
+                            </motion.button>
+                          ) : (
+                            <motion.div
+                              key="from-h2h"
+                              initial={{ opacity: 0, y: -4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -4 }}
+                              transition={{ duration: 0.18 }}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-2"
+                            >
+                              <Sparkles size={11} />
+                              From head-to-head
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       )}
                       <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
                         <div className="text-center">
