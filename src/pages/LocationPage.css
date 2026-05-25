@@ -281,8 +281,8 @@
    edges. Border bumps to a solid 1px ink hairline matching the
    filter-pill spec, and the radius opens up to 20px. */
 .location-page-root .minimap.is-mobile {
-  margin-left: 16px;
-  margin-right: 16px;
+  margin-left: 10px;
+  margin-right: 10px;
   border-radius: 20px;
   border-color: #1f1a17;
 }
