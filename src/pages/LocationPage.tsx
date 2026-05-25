@@ -2530,7 +2530,8 @@ export const LocationPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setExpertsOpen((v) => !v)}
-                  className="w-full flex items-center justify-between gap-3 mb-3 text-left px-5"
+                  className="w-full flex items-center justify-between gap-3 mb-3 text-left"
+                  style={{ paddingLeft: '20px', paddingRight: '20px' }}
                 >
                   <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
                     <span>Local experts</span>
