@@ -24,12 +24,18 @@ export interface H2HCandidate {
 }
 
 export interface H2HStep {
-  pickedNew: boolean;
+  kind: 'choice' | 'tie';
+  pickedNew?: boolean;
   comparisonId: string;
+  comparisonIndex: number;
   prevLo: number;
   prevHi: number;
   prevUpper: number;
   prevLower: number;
+  prevUpperFromComparison: boolean;
+  prevLowerFromComparison: boolean;
+  prevExcluded: number[];
+  prevTiedScores: number[];
 }
 
 export interface H2HState {
@@ -39,9 +45,18 @@ export interface H2HState {
   hi: number;
   upperBound: number;
   lowerBound: number;
+  /** True if `upperBound` was tightened by a real comparison (strict <). */
+  upperBoundFromComparison: boolean;
+  /** True if `lowerBound` was tightened by a real comparison (strict >). */
+  lowerBoundFromComparison: boolean;
+  /** Indices of candidates the user marked "too close to call". They get
+   *  skipped by `pickComparison` but feed the fallback in `computeFinalScore`
+   *  when nothing else narrowed the bounds. */
+  excluded: number[];
+  /** Scores of the tied candidates, in tie order — used to average a final
+   *  score when no real comparison ever tightened the bounds. */
+  tiedScores: number[];
   history: H2HStep[];
-  /** Set by applyTie — score is forced to the tie partner's score. */
-  tieScore: number | null;
   /** Total candidates considered when the search started — used for progress. */
   initialPoolSize: number;
 }
@@ -102,56 +117,104 @@ export function initH2H(
     hi: candidates.length - 1,
     upperBound: max,
     lowerBound: min,
+    upperBoundFromComparison: false,
+    lowerBoundFromComparison: false,
+    excluded: [],
+    tiedScores: [],
     history: [],
-    tieScore: null,
     initialPoolSize: candidates.length,
   };
 }
 
-export function pickComparison(state: H2HState): H2HCandidate | null {
-  if (state.tieScore !== null) return null;
+/** Return the next index to compare against, or null when nothing valid
+ *  remains in [lo, hi]. Walks outward from the midpoint so we keep the
+ *  search balanced even after several ties have eaten into the window. */
+function pickComparisonIndex(state: H2HState): number | null {
   if (state.lo > state.hi) return null;
-  const mid = Math.floor((state.lo + state.hi) / 2);
-  return state.candidates[mid] ?? null;
+  const target = Math.floor((state.lo + state.hi) / 2);
+  const excludedSet = new Set(state.excluded);
+  const span = state.hi - state.lo;
+  for (let offset = 0; offset <= span; offset++) {
+    const candidates = offset === 0 ? [target] : [target - offset, target + offset];
+    for (const idx of candidates) {
+      if (idx < state.lo || idx > state.hi) continue;
+      if (!excludedSet.has(idx)) return idx;
+    }
+  }
+  return null;
+}
+
+export function pickComparison(state: H2HState): H2HCandidate | null {
+  const idx = pickComparisonIndex(state);
+  if (idx === null) return null;
+  return state.candidates[idx] ?? null;
 }
 
 export function applyChoice(state: H2HState, pickedNew: boolean): H2HState {
-  if (state.tieScore !== null || state.lo > state.hi) return state;
-  const mid = Math.floor((state.lo + state.hi) / 2);
+  const mid = pickComparisonIndex(state);
+  if (mid === null) return state;
   const comp = state.candidates[mid];
   if (!comp) return state;
   const step: H2HStep = {
+    kind: 'choice',
     pickedNew,
     comparisonId: comp.restaurantId,
+    comparisonIndex: mid,
     prevLo: state.lo,
     prevHi: state.hi,
     prevUpper: state.upperBound,
     prevLower: state.lowerBound,
+    prevUpperFromComparison: state.upperBoundFromComparison,
+    prevLowerFromComparison: state.lowerBoundFromComparison,
+    prevExcluded: state.excluded,
+    prevTiedScores: state.tiedScores,
   };
   if (pickedNew) {
-    // New restaurant beat the comparison → new is above comp.score
+    // New restaurant beat the comparison → new is strictly above comp.score
+    const newLower = Math.max(state.lowerBound, comp.score);
     return {
       ...state,
-      lowerBound: Math.max(state.lowerBound, comp.score),
+      lowerBound: newLower,
+      lowerBoundFromComparison: true,
       hi: mid - 1,
       history: [...state.history, step],
     };
   }
-  // Comparison beat the new restaurant → new is below comp.score
+  // Comparison beat the new restaurant → new is strictly below comp.score
+  const newUpper = Math.min(state.upperBound, comp.score);
   return {
     ...state,
-    upperBound: Math.min(state.upperBound, comp.score),
+    upperBound: newUpper,
+    upperBoundFromComparison: true,
     lo: mid + 1,
     history: [...state.history, step],
   };
 }
 
 export function applyTie(state: H2HState): H2HState {
-  if (state.lo > state.hi) return state;
-  const mid = Math.floor((state.lo + state.hi) / 2);
+  const mid = pickComparisonIndex(state);
+  if (mid === null) return state;
   const comp = state.candidates[mid];
   if (!comp) return state;
-  return { ...state, tieScore: comp.score };
+  const step: H2HStep = {
+    kind: 'tie',
+    comparisonId: comp.restaurantId,
+    comparisonIndex: mid,
+    prevLo: state.lo,
+    prevHi: state.hi,
+    prevUpper: state.upperBound,
+    prevLower: state.lowerBound,
+    prevUpperFromComparison: state.upperBoundFromComparison,
+    prevLowerFromComparison: state.lowerBoundFromComparison,
+    prevExcluded: state.excluded,
+    prevTiedScores: state.tiedScores,
+  };
+  return {
+    ...state,
+    excluded: [...state.excluded, mid],
+    tiedScores: [...state.tiedScores, comp.score],
+    history: [...state.history, step],
+  };
 }
 
 export function undoLastChoice(state: H2HState): H2HState {
@@ -163,28 +226,54 @@ export function undoLastChoice(state: H2HState): H2HState {
     hi: last.prevHi,
     upperBound: last.prevUpper,
     lowerBound: last.prevLower,
+    upperBoundFromComparison: last.prevUpperFromComparison,
+    lowerBoundFromComparison: last.prevLowerFromComparison,
+    excluded: last.prevExcluded,
+    tiedScores: last.prevTiedScores,
     history: state.history.slice(0, -1),
-    tieScore: null,
   };
 }
 
 export function isComplete(state: H2HState): boolean {
-  if (state.tieScore !== null) return true;
-  return state.lo > state.hi;
+  return pickComparisonIndex(state) === null;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+function round1(v: number): number {
+  return Math.round(v * 10) / 10;
+}
+
 export function computeFinalScore(state: H2HState): number {
-  if (state.tieScore !== null) return Math.round(state.tieScore * 10) / 10;
-  const { min, max } = tierRange(state.tier);
-  // If the tier had zero candidates, settle on the tier midpoint instead of
-  // (tier.min + tier.max) / 2 — same thing, but state.lower/upper are still
-  // at the unmodified tier bounds so this falls out naturally.
+  // All-ties fallback: no real comparison ever tightened a bound, so use the
+  // average of the tied scores — that's the best signal the user gave us.
+  if (
+    !state.upperBoundFromComparison &&
+    !state.lowerBoundFromComparison &&
+    state.tiedScores.length > 0
+  ) {
+    const avg = state.tiedScores.reduce((s, x) => s + x, 0) / state.tiedScores.length;
+    return clamp(round1(avg), 0, 10);
+  }
+
   const raw = (state.upperBound + state.lowerBound) / 2;
-  return Math.round(clamp(raw, min, max) * 10) / 10;
+  let rounded = round1(raw);
+
+  // Strict-bound nudge: when a bound came from a real comparison the user
+  // told us the new restaurant is strictly above/below that score. If the
+  // average rounded right onto the bound it would tie with that comparison
+  // and sort against the H2H result — push it off by 0.1 in the correct
+  // direction. Allow spill outside the tier (e.g. a "loved" rating that
+  // lost to everything can land at 6.9) because that's the honest outcome.
+  if (state.upperBoundFromComparison && rounded >= state.upperBound) {
+    rounded = round1(state.upperBound - 0.1);
+  } else if (state.lowerBoundFromComparison && rounded <= state.lowerBound) {
+    rounded = round1(state.lowerBound + 0.1);
+  }
+
+  return clamp(rounded, 0, 10);
 }
 
 /**
@@ -193,7 +282,11 @@ export function computeFinalScore(state: H2HState): number {
  */
 export function estimateRemainingComparisons(state: H2HState): number {
   if (isComplete(state)) return 0;
-  const remaining = state.hi - state.lo + 1;
+  const excludedSet = new Set(state.excluded);
+  let remaining = 0;
+  for (let i = state.lo; i <= state.hi; i++) {
+    if (!excludedSet.has(i)) remaining += 1;
+  }
   return Math.max(1, Math.ceil(Math.log2(remaining + 1)));
 }
 
