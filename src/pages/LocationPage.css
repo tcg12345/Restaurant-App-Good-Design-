@@ -1781,7 +1781,9 @@
 .location-page-root .lp-chat-fab {
   position: fixed;
   right: 24px;
-  bottom: 96px;
+  /* Sits above the global bottom nav. The safe-area inset keeps the
+     button clear of the iPhone home indicator. */
+  bottom: calc(36px + env(safe-area-inset-bottom, 0px));
   z-index: 45;
   width: 56px;
   height: 56px;
@@ -1867,9 +1869,15 @@
 .location-page-root .lp-chat-drag-handle {
   display: flex;
   justify-content: center;
-  padding: 10px 0 4px;
+  align-items: center;
+  /* Touch target — generous vertical padding so the drag handle is
+     easy to grab anywhere along the top strip of the sheet. */
+  padding: 12px 0;
   flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
 }
+.location-page-root .lp-chat-drag-handle:active { cursor: grabbing; }
 .location-page-root .lp-chat-drag-handle > span {
   width: 40px;
   height: 4px;
@@ -2241,7 +2249,10 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 10px 12px 4px;
+  /* Bottom padding stacks the design's 4px gutter on top of the
+     device safe-area inset so the input never sits under the iPhone
+     home indicator. */
+  padding: 10px 12px calc(4px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
 }
 .location-page-root .lp-chat-input {

@@ -562,7 +562,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const { dragProps } = useBottomSheet(open && phoneMode, () => setOpen(false));
+  const { dragProps, startDrag } = useBottomSheet(open && phoneMode, () => setOpen(false));
 
   // Hide the bottom-nav on phone while the chat sheet is up.
   useEffect(() => {
@@ -1206,7 +1206,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             aria-label="Restaurant assistant"
           >
             {phoneMode && (
-              <div className="lp-chat-drag-handle" aria-hidden="true">
+              <div
+                className="lp-chat-drag-handle"
+                aria-hidden="true"
+                onPointerDown={startDrag}
+                style={{ touchAction: 'none' }}
+              >
                 <span />
               </div>
             )}
