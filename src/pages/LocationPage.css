@@ -48,6 +48,16 @@
   margin: 0;
   padding: 8px 24px 96px;
 }
+/* Mobile redesign uses tighter side padding so guide cards, list
+   items, and the editorial hero can breathe out closer to the
+   phone-frame edge. Overrides the 16px set by the 900px media
+   query further below. */
+/* Mobile layout: page itself has NO horizontal padding so the page
+   background runs to the phone-frame edges. Individual sections
+   (titles, hero, list items, search row) apply their own px-3 inline
+   for readability; rails apply pl-12px / pr-0 so the first card has
+   breathing room at scroll=0 but trailing cards can scroll off. */
+.location-page-root .lp-page.is-mobile { padding-left: 0; padding-right: 0; padding-top: 4px; }
 
 /* ============ LOCATION HERO ============ */
 .location-page-root .loc-hero {
@@ -266,6 +276,16 @@
 }
 .location-page-root .minimap.is-expanded { height: 590px; }
 .location-page-root .minimap:hover { box-shadow: var(--shadow-md); }
+/* Mobile: page itself has no horizontal padding, so the minimap
+   carries its own 16px side margin to inset from the phone-frame
+   edges. Border bumps to a solid 1px ink hairline matching the
+   filter-pill spec, and the radius opens up to 20px. */
+.location-page-root .minimap.is-mobile {
+  margin-left: 10px;
+  margin-right: 10px;
+  border-radius: 20px;
+  border-color: #1f1a17;
+}
 .location-page-root .minimap-canvas {
   position: absolute;
   left: 0;
@@ -782,6 +802,40 @@
   border: 1.5px solid rgba(255,255,255,0.4);
 }
 
+/* Smaller, denser guide cards on the mobile layout — matches the
+   compact card sizing the desktop Discover Guides rail uses. The
+   snap-mandatory behavior is also dropped so the user can stop the
+   horizontal scroll anywhere instead of jumping to fixed columns. */
+.location-page-root .gd-row.is-mobile {
+  grid-auto-columns: 180px;
+  gap: 12px;
+  scroll-snap-type: none;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  /* Page no longer has horizontal padding, so the rail already
+     spans the phone-frame width naturally. We just add a 12px
+     left padding inside the rail so the first card doesn't kiss
+     the bezel at scroll=0; right padding stays 0 so trailing
+     cards scroll fully off the right edge. */
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 12px;
+  padding-right: 0;
+}
+.location-page-root .gd-row.is-mobile > * { scroll-snap-align: none; }
+.location-page-root .gd-row.is-mobile .gd-card { aspect-ratio: 1 / 1.05; border-radius: 16px; }
+.location-page-root .gd-row.is-mobile .gd-stamp {
+  top: 10px; left: 10px;
+  padding: 4px 8px;
+  font-size: 9.5px;
+}
+.location-page-root .gd-row.is-mobile .gd-stamp svg { width: 11px; height: 11px; }
+.location-page-root .gd-row.is-mobile .gd-meta { left: 12px; right: 12px; bottom: 12px; }
+.location-page-root .gd-row.is-mobile .gd-meta .gd-title { font-size: 15px; line-height: 1.18; margin-bottom: 4px; }
+.location-page-root .gd-row.is-mobile .gd-meta .gd-by { font-size: 11.5px; gap: 6px; }
+.location-page-root .gd-row.is-mobile .gd-meta .gd-by .av { width: 18px; height: 18px; font-size: 9px; }
+
 /* ============ EXPERT CARD ============ */
 .location-page-root .exp-row {
   display: grid;
@@ -905,6 +959,33 @@
 }
 .location-page-root .exp-cta .btn-view:hover { border-color: var(--ink); color: var(--ink); }
 .location-page-root .exp-cta .btn-view svg { width: 15px; height: 15px; }
+
+/* Slightly smaller expert cards on the mobile layout + free-stop
+   horizontal scroll (no snap, smooth momentum). Edge-to-edge:
+   matches the gd-row.is-mobile escape trick. */
+.location-page-root .exp-row.is-mobile {
+  grid-auto-columns: 260px;
+  gap: 12px;
+  scroll-snap-type: none;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 12px;
+  padding-right: 0;
+}
+.location-page-root .exp-row.is-mobile > * { scroll-snap-align: none; }
+.location-page-root .exp-row.is-mobile .exp-card { padding: 16px; gap: 12px; border-radius: 18px; }
+.location-page-root .exp-row.is-mobile .exp-av { width: 40px; height: 40px; font-size: 16px; }
+.location-page-root .exp-row.is-mobile .exp-name { font-size: 16px; }
+.location-page-root .exp-row.is-mobile .exp-handle { font-size: 12px; }
+.location-page-root .exp-row.is-mobile .exp-tag { font-size: 12.5px; min-height: 32px; }
+.location-page-root .exp-row.is-mobile .exp-stats { padding-top: 12px; }
+.location-page-root .exp-row.is-mobile .exp-stat .n { font-size: 16px; }
+.location-page-root .exp-row.is-mobile .exp-stat + .exp-stat { padding-left: 10px; }
+.location-page-root .exp-row.is-mobile .exp-cta .btn-follow { height: 34px; font-size: 12.5px; }
+.location-page-root .exp-row.is-mobile .exp-cta .btn-view { width: 34px; height: 34px; }
 
 /* ============ SEARCH ROW ============ */
 .location-page-root .r-search-row {
@@ -1223,8 +1304,15 @@
 .location-page-root .lp-filter-drag-handle {
   display: flex;
   justify-content: center;
-  padding: 10px 0 4px;
+  align-items: center;
+  /* Generous vertical touch target so the user can grab anywhere
+     along the top strip — pairs with onPointerDown={startDrag}. */
+  padding: 12px 0;
+  flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
 }
+.location-page-root .lp-filter-drag-handle:active { cursor: grabbing; }
 .location-page-root .lp-filter-drag-handle > span {
   width: 40px;
   height: 4px;
@@ -1612,7 +1700,9 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 14px 22px;
+  /* Stack the design's 14px bottom gutter on top of the iPhone home
+     indicator's safe-area inset so Reset / Apply never sit under it. */
+  padding: 14px 22px calc(14px + env(safe-area-inset-bottom, 0px));
   background: var(--surface-2);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
@@ -1700,7 +1790,9 @@
 .location-page-root .lp-chat-fab {
   position: fixed;
   right: 24px;
-  bottom: 96px;
+  /* Sits above the global bottom nav. The safe-area inset keeps the
+     button clear of the iPhone home indicator. */
+  bottom: calc(36px + env(safe-area-inset-bottom, 0px));
   z-index: 45;
   width: 56px;
   height: 56px;
@@ -1778,17 +1870,23 @@
   bottom: 0;
   width: auto;
   max-width: none;
-  height: 85vh;
-  max-height: 85vh;
+  height: 94vh;
+  max-height: 94vh;
   border-radius: 22px 22px 0 0;
 }
 
 .location-page-root .lp-chat-drag-handle {
   display: flex;
   justify-content: center;
-  padding: 10px 0 4px;
+  align-items: center;
+  /* Touch target — generous vertical padding so the drag handle is
+     easy to grab anywhere along the top strip of the sheet. */
+  padding: 12px 0;
   flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
 }
+.location-page-root .lp-chat-drag-handle:active { cursor: grabbing; }
 .location-page-root .lp-chat-drag-handle > span {
   width: 40px;
   height: 4px;
@@ -2160,7 +2258,10 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 10px 12px 4px;
+  /* Bottom padding stacks the design's 4px gutter on top of the
+     device safe-area inset so the input never sits under the iPhone
+     home indicator. */
+  padding: 10px 12px calc(4px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
 }
 .location-page-root .lp-chat-input {

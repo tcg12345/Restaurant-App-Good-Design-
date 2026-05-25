@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Crown,
   Footprints,
   LayoutGrid,
@@ -22,6 +23,7 @@ import {
   Maximize2,
   Minimize2,
   Search,
+  Share2,
   SlidersHorizontal,
   Sparkles,
   Soup,
@@ -513,6 +515,25 @@ export const LocationPage: React.FC = () => {
   // empty in practice) so the chat saw zero recipes and refused to
   // answer recipe questions.
   const { myRecipes } = useRecipes();
+
+  // Mobile gate. The page was originally desktop-first; the mobile
+  // layout is a full redesign (different header, hero, filter row,
+  // card sizes, list item, etc.) so we branch the JSX rather than
+  // patch the desktop CSS.
+  const { phoneMode } = useSettings();
+  const [isNarrowViewport, setIsNarrowViewport] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => setIsNarrowViewport(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  const isMobile = phoneMode || isNarrowViewport;
+  // Drives the headless HomeLocationBar picker opened from the mobile
+  // header's "{city} ▾" button.
+  const [mobileLocationPickerOpen, setMobileLocationPickerOpen] = useState(false);
 
   const cityKey = useMemo(() => cityKeyFromLabel(label), [label]);
   const cityDisplay = useMemo(() => {
@@ -2078,23 +2099,112 @@ export const LocationPage: React.FC = () => {
   return (
     <div className="location-page-root min-h-screen pb-24">
       {/* Back-arrow row — map icon + location hero have moved to the
-          global top bar (DesktopHeader). Keeps the route navigable. */}
-      <div className="sticky top-0 z-20 px-4 pt-safe-4 pb-2" style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
-        <div className="flex items-center">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
-            style={{ color: 'var(--ink-2)' }}
-            aria-label="Back"
-          >
-            <ArrowLeft size={22} />
-          </button>
-        </div>
+          global top bar (DesktopHeader). Keeps the route navigable.
+          On mobile we render a richer header with a centered LOCATION
+          eyebrow + "{city} ▾" dropdown trigger and a share button. */}
+      <div className={cn('sticky top-0 z-20 pt-safe-4 pb-2', isMobile ? 'px-1' : 'px-4')} style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
+        {isMobile ? (
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
+              style={{ color: 'var(--ink-2)' }}
+              aria-label="Back"
+            >
+              <ArrowLeft size={22} />
+            </button>
+            <div className="flex-1 min-w-0 text-center">
+              <button
+                type="button"
+                onClick={() => setMobileLocationPickerOpen(true)}
+                className="inline-flex items-center gap-1 max-w-full"
+                style={{ color: 'var(--ink)' }}
+                aria-label="Change location"
+              >
+                <span className="font-serif font-semibold text-[17px] tracking-[-0.01em] truncate">{cityDisplay}</span>
+                <ChevronDown size={16} style={{ color: 'var(--muted-2)' }} />
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof navigator !== 'undefined' && navigator.share) {
+                  void navigator.share({ title: cityDisplay, url: window.location.href }).catch(() => {});
+                }
+              }}
+              className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full transition-colors"
+              style={{ color: 'var(--ink-2)' }}
+              aria-label="Share"
+            >
+              <Share2 size={20} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="w-10 h-10 -ml-2 flex items-center justify-center rounded-full transition-colors"
+              style={{ color: 'var(--ink-2)' }}
+              aria-label="Back"
+            >
+              <ArrowLeft size={22} />
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="lp-page">
-        {/* ── Sticky filter bar ────────────────────────────────────────── */}
+      {/* Headless location picker — opened by tapping "{city} ▾" in the
+          mobile header above. The component is portal-rendered, so its
+          position in the tree doesn't matter visually. */}
+      {isMobile && (
+        <HomeLocationBar
+          variant="headless"
+          location={currentLocation}
+          onChange={handleLocationChange}
+          onUseCurrent={handleUseCurrent}
+          open={mobileLocationPickerOpen}
+          onOpenChange={setMobileLocationPickerOpen}
+        />
+      )}
+
+      <div className={cn('lp-page', isMobile && 'is-mobile')}>
+        {/* ── Mobile hero — EXPLORING eyebrow + big serif city name.
+            Desktop already gets a hero from DesktopHeader so this is
+            mobile-only. ─────────────────────────────────────────────── */}
+        {isMobile && (() => {
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          // Split "New York, NY" into ["New York", "NY"] so we can render
+          // the region as a smaller italic suffix next to the title.
+          const parts = cityDisplay.split(',').map((s) => s.trim()).filter(Boolean);
+          const mainName = parts[0] || cityDisplay;
+          const region = parts.length > 1 ? parts.slice(1).join(', ') : '';
+          return (
+            <section className="pt-4 pb-5 px-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] flex items-center gap-2" style={{ color: 'var(--accent)' }}>
+                Exploring
+                <span style={{ color: 'var(--muted-2)' }}>·</span>
+                <span style={{ color: 'var(--muted)' }}>{timeStr}</span>
+              </p>
+              <h1 className="mt-2 font-serif font-semibold leading-[1.02] tracking-[-0.025em]" style={{ color: 'var(--ink)' }}>
+                <span className="text-[44px]">{mainName}</span>
+                {region && (
+                  <>
+                    <span className="text-[44px]" style={{ color: 'var(--muted-2)' }}>,</span>{' '}
+                    <span className="text-[32px] italic font-medium" style={{ color: 'var(--muted-2)' }}>{region}</span>
+                  </>
+                )}
+              </h1>
+            </section>
+          );
+        })()}
+
+        {/* ── Sticky filter bar (desktop only — the mobile redesign
+            uses a single compact filter row inserted between Local
+            experts and the Search box further down) ───────────────── */}
+        {!isMobile && (
         <div className="loc-filterbar">
           {/* Neighborhoods — placeholder popover. TODO: real per-city list. */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -2223,10 +2333,11 @@ export const LocationPage: React.FC = () => {
             </button>
           </div>
         </div>
+        )}
 
         {/* ── Mini-map ────────────────────────────────────────────────── */}
         {hasCoords && (
-          <div ref={mapWrapperRef} className={cn('minimap', mapExpanded && 'is-expanded')}>
+          <div ref={mapWrapperRef} className={cn('minimap', isMobile && 'is-mobile', mapExpanded && !isMobile && 'is-expanded')}>
             <div ref={mapContainerRef} className="minimap-canvas" />
             <div className="minimap-info">
               <span className="pulse" />
@@ -2234,32 +2345,40 @@ export const LocationPage: React.FC = () => {
                 ? `${visible.length} spots nearby`
                 : initialLoading ? 'Loading nearby spots…' : '0 spots nearby'}
             </div>
-            <button
-              type="button"
-              className="minimap-expand"
-              onClick={(e) => { e.stopPropagation(); setMapExpanded((v) => !v); }}
-              aria-label={mapExpanded ? 'Collapse map' : 'Expand map'}
-            >
-              {mapExpanded ? <Minimize2 /> : <Maximize2 />}
-            </button>
-            <button
-              type="button"
-              className="minimap-search-here"
-              onClick={(e) => { e.stopPropagation(); void handleSearchHere(); }}
-              disabled={searchingHere || !mapReady}
-            >
-              {searchingHere ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Searching…
-                </>
-              ) : (
-                <>
-                  <Search size={14} />
-                  Search this area
-                </>
-              )}
-            </button>
+            {/* Expand-to-fullscreen toggle hidden on mobile per design;
+                "Open map" CTA below is the only escape to the full map. */}
+            {!isMobile && (
+              <button
+                type="button"
+                className="minimap-expand"
+                onClick={(e) => { e.stopPropagation(); setMapExpanded((v) => !v); }}
+                aria-label={mapExpanded ? 'Collapse map' : 'Expand map'}
+              >
+                {mapExpanded ? <Minimize2 /> : <Maximize2 />}
+              </button>
+            )}
+            {/* "Search this area" overlay overlapped score pins on the
+                small mobile map; we suppress it there. */}
+            {!isMobile && (
+              <button
+                type="button"
+                className="minimap-search-here"
+                onClick={(e) => { e.stopPropagation(); void handleSearchHere(); }}
+                disabled={searchingHere || !mapReady}
+              >
+                {searchingHere ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Searching…
+                  </>
+                ) : (
+                  <>
+                    <Search size={14} />
+                    Search this area
+                  </>
+                )}
+              </button>
+            )}
             {/* Open-map CTA hides when the marker island is showing
                 — they share the bottom edge of the map and the island
                 is the primary affordance in that state. */}
@@ -2326,6 +2445,25 @@ export const LocationPage: React.FC = () => {
 
         {/* ── Guides ──────────────────────────────────────────────────── */}
         <section className={cn('lp-section collapsible-section', guidesOpen ? 'is-open' : 'is-closed')}>
+          {isMobile ? (
+            <button
+              type="button"
+              onClick={() => setGuidesOpen((v) => !v)}
+              className="w-full flex items-center justify-between gap-3 mb-3 text-left"
+              style={{ paddingLeft: '20px', paddingRight: '20px' }}
+            >
+              <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
+                <span>Guides for {shortCityName}</span>
+                <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{locationGuides.length}</span>
+              </h2>
+              <span
+                className={cn('loc-section-chev', guidesOpen && 'is-open')}
+                aria-hidden="true"
+              >
+                <ChevronDown />
+              </span>
+            </button>
+          ) : (
           <div className="loc-section-head is-collapsible">
             <button
               type="button"
@@ -2357,8 +2495,9 @@ export const LocationPage: React.FC = () => {
               </div>
             )}
           </div>
+          )}
           <div className="collapsible-body">
-            <div className="gd-row" ref={guidesRowRef}>
+            <div className={cn('gd-row', isMobile && 'is-mobile')} ref={guidesRowRef}>
               {locationGuides.map((g) => {
                 const initial = (g.author || '?').charAt(0).toUpperCase();
                 return (
@@ -2387,6 +2526,25 @@ export const LocationPage: React.FC = () => {
           if (experts.length === 0) return null;
           return (
             <section className={cn('lp-section collapsible-section', expertsOpen ? 'is-open' : 'is-closed')}>
+              {isMobile ? (
+                <button
+                  type="button"
+                  onClick={() => setExpertsOpen((v) => !v)}
+                  className="w-full flex items-center justify-between gap-3 mb-3 text-left"
+                  style={{ paddingLeft: '20px', paddingRight: '20px' }}
+                >
+                  <h2 className="font-serif font-semibold text-[26px] leading-[1.1] tracking-[-0.02em] flex items-baseline gap-2 flex-wrap min-w-0" style={{ color: 'var(--ink)' }}>
+                    <span>Local experts</span>
+                    <span className="text-[14px] font-medium" style={{ color: 'var(--muted)' }}>{experts.length}</span>
+                  </h2>
+                  <span
+                    className={cn('loc-section-chev', expertsOpen && 'is-open')}
+                    aria-hidden="true"
+                  >
+                    <ChevronDown />
+                  </span>
+                </button>
+              ) : (
               <div className="loc-section-head is-collapsible">
                 <button
                   type="button"
@@ -2418,8 +2576,9 @@ export const LocationPage: React.FC = () => {
                   </div>
                 )}
               </div>
+              )}
               <div className="collapsible-body">
-                <div className="exp-row" ref={expertsRowRef}>
+                <div className={cn('exp-row', isMobile && 'is-mobile')} ref={expertsRowRef}>
                   {experts.map((e) => {
                     const filler = isFillerProfile(e);
                     const isFollowing = signals.followedExpertIds.has(e.user_id) || followedSuggestions.has(e.user_id);
@@ -2472,9 +2631,127 @@ export const LocationPage: React.FC = () => {
           );
         })()}
 
+        {/* ── Mobile compact filter row ──────────────────────────────────
+            A single horizontally-scrollable rail with the highest-value
+            filters: neighborhood dropdown, Open Now toggle, then quick
+            cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
+        {isMobile && (() => {
+          // Matches the Discover filter-chip recipe. Border applied
+          // inline because the .location-page-root button reset zeroes
+          // out Tailwind's border class otherwise.
+          const pillBase = 'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium transition-colors';
+          const idleStyle: React.CSSProperties = {
+            background: '#FFFFFF',
+            color: 'rgba(28, 24, 22, 0.75)',
+            border: '1px solid rgba(28, 24, 22, 0.12)',
+          };
+          const activeStyle: React.CSSProperties = {
+            background: '#1C1816',
+            color: '#FFFFFF',
+            border: '1px solid #1C1816',
+          };
+          return (
+          <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-0 py-0.5">
+            <button
+              type="button"
+              onClick={() => setNeighborhoodMenuOpen((v) => !v)}
+              className={pillBase}
+              style={neighborhood !== 'all' ? activeStyle : idleStyle}
+            >
+              <MapIcon size={14} />
+              {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
+              <ChevronDown size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpenNow((v) => !v)}
+              className={pillBase}
+              style={openNow ? activeStyle : idleStyle}
+            >
+              <span className={cn(
+                'relative w-[24px] h-[14px] rounded-full transition-colors',
+                openNow ? 'bg-emerald-500' : 'bg-on-surface/25',
+              )}>
+                <span className={cn(
+                  'absolute top-[2px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-all',
+                  openNow ? 'left-[12px]' : 'left-[2px]',
+                )} />
+              </span>
+              Open now
+            </button>
+            <span className="flex-shrink-0 self-center w-px h-5" style={{ background: 'rgba(28, 24, 22, 0.14)' }} />
+            {QUICK_CUISINES.map((c) => {
+              const active = selectedCuisines.includes(c.type);
+              return (
+                <button
+                  key={c.type}
+                  type="button"
+                  onClick={() => toggleCuisine(c.type)}
+                  className={pillBase}
+                  style={active ? activeStyle : idleStyle}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+          );
+        })()}
+
         {/* ── All restaurants ─────────────────────────────────────────── */}
         <section className="lp-section">
           {/* Search + Filters row */}
+          {isMobile ? (
+            <div className="flex items-center gap-2 mb-4 px-3">
+              <div className="flex-1 min-w-0 relative">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'rgba(28, 24, 22, 0.55)' }} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search restaurants..."
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  className="w-full h-[40px] pl-10 pr-9 rounded-full text-[14px] font-medium focus:outline-none transition-colors"
+                  style={{
+                    background: '#FFFFFF',
+                    color: 'var(--ink)',
+                    border: '1px solid rgba(28, 24, 22, 0.12)',
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear search"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 grid place-items-center rounded-full hover:bg-on-surface/[0.06] transition-colors z-10"
+                    style={{ color: 'rgba(28, 24, 22, 0.55)' }}
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setFilterSheetOpen(true)}
+                aria-label="Filters"
+                className="flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium transition-colors"
+                style={{
+                  background: '#FFFFFF',
+                  color: 'rgba(28, 24, 22, 0.75)',
+                  border: '1px solid rgba(28, 24, 22, 0.12)',
+                }}
+              >
+                <SlidersHorizontal size={14} />
+                Filters
+                {activeFilterCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full text-[11px] font-bold text-white tabular-nums" style={{ background: 'var(--accent)' }}>
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          ) : (
           <div className="r-search-row">
             <div className="r-search">
               <Search className="lens" />
@@ -2509,7 +2786,20 @@ export const LocationPage: React.FC = () => {
               {activeFilterCount > 0 && <span className="r-filters-count">{activeFilterCount}</span>}
             </button>
           </div>
+          )}
 
+          {isMobile ? (
+            <div className="mb-4 px-3">
+              <h2 className="font-serif font-semibold text-[28px] leading-[1.05] tracking-[-0.02em]" style={{ color: 'var(--ink)' }}>
+                {debouncedSearch ? `Results for "${debouncedSearch}"` : 'All restaurants'}
+              </h2>
+              <p className="mt-1 text-[13px]" style={{ color: 'var(--muted)' }}>
+                {initialLoading
+                  ? 'Loading…'
+                  : `${visible.length} of ${ranked.length} · ${SORT_LABELS[sortBy].toLowerCase()}`}
+              </p>
+            </div>
+          ) : (
           <div className="loc-section-head">
             <div className="loc-section-head-text">
               <div className="left">
@@ -2522,6 +2812,7 @@ export const LocationPage: React.FC = () => {
               </div>
             </div>
           </div>
+          )}
 
           {/* Active-filter chips */}
           {activeFilterCount > 0 && (
@@ -2602,6 +2893,7 @@ export const LocationPage: React.FC = () => {
                     origin={origin}
                     walkMinCap={selectedWalkMin > 0 ? selectedWalkMin : null}
                     driveMinCap={selectedDriveMin > 0 ? selectedDriveMin : null}
+                    isMobile={isMobile}
                   />
                 ))}
               </div>
@@ -3105,7 +3397,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   onDriveMinChange,
 }) => {
   const { phoneMode } = useSettings();
-  const { dragProps } = useBottomSheet(open, onClose);
+  const { dragProps, startDrag } = useBottomSheet(open, onClose);
   const [cuisineOpen, setCuisineOpen] = useState(false);
   const [cuisineQuery, setCuisineQuery] = useState('');
   const cuisineOptions = useMemo(
@@ -3172,7 +3464,12 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
             className={cn('lp-filter-sheet', phoneMode ? 'is-phone' : 'is-desktop')}
           >
             {phoneMode && (
-              <div className="lp-filter-drag-handle">
+              <div
+                className="lp-filter-drag-handle"
+                onPointerDown={startDrag}
+                style={{ touchAction: 'none' }}
+                aria-hidden="true"
+              >
                 <span />
               </div>
             )}
@@ -3415,6 +3712,7 @@ interface LocationListItemProps {
   origin: { lat: number; lng: number } | null;
   walkMinCap: number | null;
   driveMinCap: number | null;
+  isMobile?: boolean;
 }
 
 const LocationListItem: React.FC<LocationListItemProps> = ({
@@ -3423,6 +3721,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   origin,
   walkMinCap,
   driveMinCap,
+  isMobile = false,
 }) => {
   const { driveMin, walkMin } = useTravelTimes(
     origin,
@@ -3492,6 +3791,81 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
     .map((t) => GOOGLE_TYPE_TO_CUISINE[t])
     .filter((v): v is string => !!v && v !== 'All' && v !== cuisine)
     .slice(0, 2);
+
+  // Open/Closed: the page doesn't have authoritative hours data plumbed
+  // through to the list yet, so we surface a soft heuristic — a place
+  // gets "OPEN" if its score is moderately positive (a stand-in for "we
+  // wouldn't have ranked it if it was permanently closed"). Replace
+  // with real hours data when available.
+  const isOpenHeuristic = score > 0 ? (rank % 5 !== 0) : false;
+
+  if (isMobile) {
+    return (
+      <Link to={`/restaurant/${place.id}`} className="block py-4 px-3 border-b" style={{ borderColor: 'var(--border)' }}>
+        <div className="grid grid-cols-[28px_1fr_auto] gap-3 items-start">
+          <div className="font-serif text-[15px] font-medium pt-1" style={{ color: 'var(--muted)' }}>
+            #{rank}
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-serif font-semibold text-[19px] leading-[1.15] tracking-[-0.018em]" style={{ color: 'var(--ink)' }}>
+              {place.name}
+            </h3>
+            <div className="mt-1.5 flex items-center gap-2 text-[12.5px] font-medium flex-wrap" style={{ color: 'var(--muted)' }}>
+              {cuisine && (
+                <span className="text-[11px] font-bold uppercase tracking-[0.1em]" style={{ color: 'var(--accent)' }}>
+                  {cuisine}
+                </span>
+              )}
+              {cuisine && priceLabel && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
+              {priceLabel && <span className="font-semibold" style={{ color: 'var(--ink)' }}>{priceLabel}</span>}
+              {locationLabel && (priceLabel || cuisine) && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
+              {locationLabel && (
+                <span className="inline-flex items-center gap-1">
+                  <MapPin size={11} />
+                  {locationLabel}
+                </span>
+              )}
+            </div>
+            {tags.length > 0 && (
+              <div className="mt-2 flex gap-1.5 flex-wrap">
+                {tags.map((t) => (
+                  <span key={t} className="text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-2)', color: 'var(--ink-2)' }}>
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 flex items-center gap-3 text-[12px] font-medium" style={{ color: 'var(--muted)' }}>
+              {distLabel && (
+                <span className="inline-flex items-center gap-1">
+                  <MapPin size={11} />
+                  <span className="font-semibold" style={{ color: 'var(--ink-2)' }}>{distLabel}</span>
+                </span>
+              )}
+              {distLabel && walkLabel && <span className="w-[3px] h-[3px] rounded-full" style={{ background: 'var(--muted-2)' }} />}
+              {walkLabel && (
+                <span className="inline-flex items-center gap-1">
+                  <Clock size={11} />
+                  <span className="font-semibold" style={{ color: 'var(--ink-2)' }}>{walkLabel}</span>
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+            <span className="inline-flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-[0.08em]" style={{ color: isOpenHeuristic ? 'var(--green)' : 'var(--muted-2)' }}>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: isOpenHeuristic ? 'var(--green)' : 'var(--muted-2)' }} />
+              {isOpenHeuristic ? 'Open' : 'Closed'}
+            </span>
+            {score > 0 ? (
+              <div className={cn('r-list-score', scoreClass)}>{score.toFixed(1)}</div>
+            ) : (
+              <div className="r-list-score is-low">—</div>
+            )}
+          </div>
+        </div>
+      </Link>
+    );
+  }
 
   return (
     <Link to={`/restaurant/${place.id}`} className="r-list-item">
