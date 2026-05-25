@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star } from 'lucide-react';
+import { X, Plus, Check, Camera, ChevronLeft, ChevronDown, ChevronRight, DollarSign, CalendarDays, Tag, StickyNote, Image, Users, Search, GripVertical, Star, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { scoreColorLight, scoreRingColor, scoreBgGradient } from '../lib/score';
 import { useLists, type PhotoItem } from '../contexts/ListsContext';
@@ -9,14 +9,25 @@ import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, EMOJI_OPTIONS, Calendar }
 import { useAuth } from '../contexts/AuthContext';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import {
+  type H2HState,
+  initH2H,
+  pickComparison,
+  applyChoice,
+  applyTie,
+  undoLastChoice,
+  isComplete,
+  computeFinalScore,
+} from '../lib/headToHeadRating';
+import { ModeSelectPage, TierSelectPage, ComparePage, ResultPage } from './HeadToHeadRatingPages';
 
-type Page = 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
+type Page = 'mode-select' | 'h2h-tier' | 'h2h-compare' | 'h2h-result' | 'main' | 'notes' | 'tags' | 'photos' | 'price' | 'date' | 'friends';
 
 export const AddRestaurantModal: React.FC = () => {
   const {
     addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, closeAddRestaurantModal,
     rateRestaurant, getRating, removeRating,
-    lists, createList,
+    lists, createList, ratings,
   } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
@@ -60,6 +71,12 @@ export const AddRestaurantModal: React.FC = () => {
   const [newEmoji, setNewEmoji] = useState('📋');
 
   const [page, setPage] = useState<Page>('main');
+  const [h2hState, setH2hState] = useState<H2HState | null>(null);
+  const [cameFromH2H, setCameFromH2H] = useState(false);
+  // Tracks whether the user explicitly chose Quick rate on the mode-select
+  // screen. Without this, the async-ratings safety net below would yank a
+  // user who'd intentionally picked the slider back to mode-select.
+  const userPickedSlider = useRef(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isNewVisit, setIsNewVisit] = useState(false);
   const [visitCount, setVisitCount] = useState(0);
@@ -93,7 +110,24 @@ export const AddRestaurantModal: React.FC = () => {
       setIsNewVisit(startAsNewVisit);
       setPriceIndex(-1);
       setPriceAmount('');
-      setPage(startAsNewVisit ? 'main' : ((addRestaurantModalInitialPage as Page) || 'main'));
+      // Pick the initial landing page. Caller-requested initial page wins
+      // (e.g. opening directly to "notes"); a new-visit open stays on main
+      // because the user already has a score they're logging fresh; an
+      // edit on an existing rating skips mode-select (the user already
+      // has a score); otherwise, if the user has any other rated
+      // restaurants we route through the mode-select entry so they can
+      // pick slider vs head-to-head.
+      const requestedInitial = addRestaurantModalInitialPage as Page | null;
+      const others = ratings.filter((r) => r.restaurantId !== restaurant.id);
+      let initialPage: Page = 'main';
+      if (requestedInitial && requestedInitial !== 'main') initialPage = requestedInitial;
+      else if (startAsNewVisit) initialPage = 'main';
+      else if (ex) initialPage = 'main';
+      else if (others.length > 0) initialPage = 'mode-select';
+      setPage(initialPage);
+      setH2hState(null);
+      setCameFromH2H(false);
+      userPickedSlider.current = false;
       setConfirmDelete(false);
       setCreatingList(false);
       setNewListSheetOpen(false);
@@ -111,6 +145,20 @@ export const AddRestaurantModal: React.FC = () => {
       }
     }
   }, [addRestaurantModalOpen, restaurant]);
+
+  // Safety net for the race where the modal opens before Supabase has
+  // finished syncing ratings down: if ratings becomes non-empty while we're
+  // still parked on the slider with no user interaction, upgrade to
+  // mode-select so head-to-head is reachable.
+  useEffect(() => {
+    if (!addRestaurantModalOpen || !restaurant) return;
+    if (userPickedSlider.current) return;
+    if (page !== 'main') return;
+    if (getRating(restaurant.id)) return; // editing an existing rating — stay on slider
+    if (isNewVisit) return; // logging a new visit on an existing rating — stay on slider
+    const others = ratings.filter((r) => r.restaurantId !== restaurant.id);
+    if (others.length > 0) setPage('mode-select');
+  }, [ratings.length, addRestaurantModalOpen, restaurant, page, isNewVisit]);
 
   const toggleTag = (tag: string) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   const toggleList = (listId: string) => setSelectedListIds((prev) => prev.includes(listId) ? prev.filter((id) => id !== listId) : [...prev, listId]);
@@ -312,19 +360,96 @@ export const AddRestaurantModal: React.FC = () => {
           >
             {photoInput}
             <AnimatePresence mode="wait">
+              {page === 'mode-select' && (
+                <ModeSelectPage
+                  key="mode-select"
+                  restaurantName={restaurant.name}
+                  isEdit={!!existing}
+                  onClose={closeAddRestaurantModal}
+                  onPickSlider={() => { userPickedSlider.current = true; setCameFromH2H(false); setPage('main'); }}
+                  onPickH2H={() => setPage('h2h-tier')}
+                />
+              )}
+
+              {page === 'h2h-tier' && (
+                <TierSelectPage
+                  key="h2h-tier"
+                  onBack={() => setPage('mode-select')}
+                  onPick={(tier) => {
+                    const fresh = initH2H(ratings, tier, restaurant.id);
+                    setH2hState(fresh);
+                    setPage(isComplete(fresh) ? 'h2h-result' : 'h2h-compare');
+                  }}
+                />
+              )}
+
+              {page === 'h2h-compare' && h2hState && (() => {
+                const comparison = pickComparison(h2hState);
+                if (!comparison) {
+                  setTimeout(() => setPage('h2h-result'), 0);
+                  return null;
+                }
+                return (
+                  <ComparePage
+                    key="h2h-compare"
+                    state={h2hState}
+                    comparison={comparison}
+                    newRestaurant={restaurant}
+                    onBack={() => {
+                      if (h2hState.history.length > 0) {
+                        setH2hState((s) => (s ? undoLastChoice(s) : s));
+                      } else {
+                        setPage('h2h-tier');
+                      }
+                    }}
+                    onPick={(pickedNew) => {
+                      const next = applyChoice(h2hState, pickedNew);
+                      setH2hState(next);
+                      if (isComplete(next)) setPage('h2h-result');
+                    }}
+                    onTie={() => {
+                      const next = applyTie(h2hState);
+                      setH2hState(next);
+                      setPage('h2h-result');
+                    }}
+                  />
+                );
+              })()}
+
+              {page === 'h2h-result' && h2hState && (
+                <ResultPage
+                  key="h2h-result"
+                  state={h2hState}
+                  onRedo={() => { setH2hState(null); setPage('h2h-tier'); }}
+                  onContinue={() => {
+                    const final = computeFinalScore(h2hState);
+                    setScore(final);
+                    setCameFromH2H(true);
+                    setPage('main');
+                  }}
+                />
+              )}
+
               {/* ═══════════ MAIN PAGE ═══════════ */}
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
                   <div className="px-5 pt-safe-4 sm:pt-5 pb-2 flex items-center justify-between flex-shrink-0">
-                    <div className="min-w-0">
-                      <h2 className="font-serif font-bold text-lg truncate">
-                        {existing ? (isNewVisit ? 'New Visit' : 'Update Rating') : 'Rate Restaurant'}
-                        {existing && visitCount > 0 && (
-                          <span className="text-xs font-normal text-on-surface/30 ml-1.5">Visit #{visitCount + (isNewVisit ? 2 : 1)}</span>
-                        )}
-                      </h2>
-                      <p className="text-xs text-on-surface/40 truncate">{restaurant.name}</p>
+                    <div className="flex items-center gap-1 min-w-0">
+                      {!existing && !isNewVisit && ratings.filter((r) => r.restaurantId !== restaurant.id).length > 0 && (
+                        <button onClick={() => { setCameFromH2H(false); userPickedSlider.current = false; setPage('mode-select'); }} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40 hover:text-on-surface transition-colors flex-shrink-0">
+                          <ChevronLeft size={20} />
+                        </button>
+                      )}
+                      <div className="min-w-0">
+                        <h2 className="font-serif font-bold text-lg truncate">
+                          {existing ? (isNewVisit ? 'New Visit' : 'Update Rating') : 'Rate Restaurant'}
+                          {existing && visitCount > 0 && (
+                            <span className="text-xs font-normal text-on-surface/30 ml-1.5">Visit #{visitCount + (isNewVisit ? 2 : 1)}</span>
+                          )}
+                        </h2>
+                        <p className="text-xs text-on-surface/40 truncate">{restaurant.name}</p>
+                      </div>
                     </div>
                     <button onClick={closeAddRestaurantModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
@@ -411,6 +536,17 @@ export const AddRestaurantModal: React.FC = () => {
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
                     <div className="flex flex-col items-center pt-3 sm:pt-5">
+                      {cameFromH2H && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.25 }}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-2"
+                        >
+                          <Sparkles size={11} />
+                          From head-to-head
+                        </motion.div>
+                      )}
                       <div className={cn("relative w-28 h-28 sm:w-32 sm:h-32 rounded-full flex items-center justify-center mb-3 bg-gradient-to-b ring-4", scoreBg, scoreRing)}>
                         <div className="text-center">
                           <div className={cn("text-4xl sm:text-5xl font-serif font-bold tabular-nums transition-colors duration-300", scoreClr)}>{score.toFixed(1)}</div>
