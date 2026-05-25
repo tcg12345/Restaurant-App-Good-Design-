@@ -445,7 +445,7 @@ export const RecipesForYou: React.FC = () => {
                 return (
                   <Link
                     key={r.id}
-                    to={`/recipe/${r.id}`}
+                    to={`/recipe/${r.userId}/${r.id}`}
                     className="group relative flex items-stretch rounded-2xl bg-white border border-on-surface/[0.07] active:border-on-surface/[0.2] active:scale-[0.985] transition-all overflow-hidden shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
                   >
                     <div className="relative w-[88px] flex-shrink-0 bg-gradient-to-br from-emerald-50 to-emerald-100/30 flex items-center justify-center">
@@ -499,7 +499,7 @@ export const RecipesForYou: React.FC = () => {
               return (
                 <Link
                   key={r.id}
-                  to={`/recipe/${r.id}`}
+                  to={`/recipe/${r.userId}/${r.id}`}
                   className="group relative rounded-2xl bg-white border border-on-surface/[0.07] hover:border-on-surface/[0.18] hover:shadow-[0_8px_24px_-10px_rgba(0,0,0,0.12)] transition-all p-4 flex flex-col overflow-hidden"
                 >
                   {/* Top emerald accent strip */}

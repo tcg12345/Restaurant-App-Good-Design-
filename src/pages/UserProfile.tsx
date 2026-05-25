@@ -828,7 +828,7 @@ export const UserProfile: React.FC = () => {
                       return (
                         <li key={meal.id}>
                           <Link
-                            to={`/meal/${encodeURIComponent(profile?.user_id || '')}/${encodeURIComponent(meal.id)}`}
+                            to={`/recipe/${encodeURIComponent(profile?.user_id || '')}/${encodeURIComponent(meal.id)}`}
                             className="block w-full px-3 py-4 hover:bg-on-surface/[0.02] active:scale-[0.99] transition-transform"
                           >
                             <div className="flex items-start justify-between gap-3">

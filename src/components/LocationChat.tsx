@@ -756,8 +756,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   const handleNavigateRecipe = useCallback((id: string) => {
     setOpen(false);
-    setTimeout(() => navigate(`/recipe/${id}`), 60);
-  }, [navigate]);
+    // The canonical recipe page needs the owner id in the URL to
+    // disambiguate formal recipes from home meals. Pull it from the
+    // recipe map populated above; fall back to the legacy id-only URL
+    // if for some reason the recipe isn't loaded yet (RecipePage will
+    // still resolve formal recipes by id alone).
+    const recipe = recipeById.get(id);
+    const target = recipe?.userId ? `/recipe/${recipe.userId}/${id}` : `/recipe/${id}`;
+    setTimeout(() => navigate(target), 60);
+  }, [navigate, recipeById]);
 
   const handleNavigateUser = useCallback((username: string) => {
     setOpen(false);

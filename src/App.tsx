@@ -35,7 +35,7 @@ import { AddHomeMealModal } from './components/AddHomeMealModal';
 import { AddReelModal } from './components/AddReelModal';
 import { AddPostModal } from './components/AddPostModal';
 import { RecipeModal } from './components/RecipeModal';
-import { RecipeDetail } from './pages/RecipeDetail';
+import { RecipePage } from './pages/RecipePage';
 import { RecipesForYou } from './pages/RecipesForYou';
 import { GuideDetail } from './pages/GuideDetail';
 import { GuideEdit } from './pages/GuideEdit';
@@ -48,7 +48,6 @@ import { FriendReviewDetail } from './pages/FriendReviewDetail';
 import { LocationPage } from './pages/LocationPage';
 import { LocationMap } from './pages/LocationMap';
 import { RestaurantCircleReviews } from './pages/RestaurantCircleReviews';
-import { MealRecipePage } from './pages/MealRecipePage';
 import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
 import { ReelsProvider } from './contexts/ReelsContext';
@@ -242,10 +241,14 @@ const AppContent: React.FC = () => {
           <Route path="/import" element={<ImportRestaurants />} />
           <Route path="/reorder" element={<ReorderRatings />} />
           <Route path="/recipes-for-you" element={<RecipesForYou />} />
-          <Route path="/recipe/:id" element={<RecipeDetail />} />
+          {/* Canonical recipe detail page; the /recipe/:id (legacy) and
+              /meal/:userId/:mealId aliases below keep existing links
+              (reels, messages, RecipePanel, old guide entries) working. */}
+          <Route path="/recipe/:userId/:id" element={<RecipePage />} />
+          <Route path="/recipe/:id" element={<RecipePage />} />
           <Route path="/guides/:id" element={<GuideDetail />} />
           <Route path="/guides/:id/edit" element={<GuideEdit />} />
-          <Route path="/meal/:userId/:mealId" element={<MealRecipePage />} />
+          <Route path="/meal/:userId/:mealId" element={<RecipePage />} />
           <Route path="/user/:username" element={<UserProfile />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
