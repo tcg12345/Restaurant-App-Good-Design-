@@ -296,6 +296,7 @@ const AppContent: React.FC = () => {
   return (
     <div className={showPhoneFrame ? "min-h-screen bg-black flex items-center justify-center" : ""}>
       <div
+        id={showPhoneFrame ? "phone-frame-root" : undefined}
         className={
           showPhoneFrame
             ? "relative bg-surface selection:bg-primary/20 selection:text-primary overflow-hidden rounded-3xl shadow-2xl border border-white/10"

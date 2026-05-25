@@ -411,7 +411,10 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
           `position: fixed` is relative to the viewport — when this
           component is mounted inside the sticky DesktopHeader (which
           uses backdrop-blur, creating a containing block), the sheet
-          would otherwise get trapped inside the topbar's height. */}
+          would otherwise get trapped inside the topbar's height.
+          In phone-frame preview mode (desktop with phoneMode on) we
+          target the phone-frame container so the sheet stays inside
+          the simulated device rather than spanning the full desktop. */}
       {createPortal(
       <AnimatePresence>
         {open && (
@@ -575,7 +578,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
           </>
         )}
       </AnimatePresence>,
-      document.body,
+      document.getElementById('phone-frame-root') ?? document.body,
       )}
     </>
   );
