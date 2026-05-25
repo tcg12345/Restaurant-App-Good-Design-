@@ -1708,14 +1708,21 @@ export const LocationPage: React.FC = () => {
     }
     // Recipes are nested under lists.
     // Pull from useRecipes().myRecipes — the canonical Supabase-backed
-    // store the Pantry uses. (Previous version walked lists[].recipes,
-    // a legacy attach point that never gets populated for normal
-    // recipes, so the chat saw zero and refused to answer.)
+    // store the Pantry uses. Filter to "real" recipes only — anything
+    // with zero ingredients AND zero steps is almost certainly a stub
+    // (auto-imported / placeholder / accidentally-created entry whose
+    // title happens to be a restaurant name). Surfacing stubs makes
+    // the AI hallucinate when the user asks "what recipe should I
+    // cook" — it picks a stub and the card looks like a restaurant
+    // recommendation in disguise. Keep them out of the model's view.
     if (myRecipes.length > 0) {
       const seen = new Set<string>();
-      const recipes: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string }> = [];
+      const recipes: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string; ingredientCount?: number; stepCount?: number }> = [];
       for (const r of myRecipes) {
         if (!r?.id || seen.has(r.id)) continue;
+        const ing = r.ingredients?.length || 0;
+        const stp = r.steps?.length || 0;
+        if (ing === 0 && stp === 0) continue;  // stub — skip
         seen.add(r.id);
         recipes.push({
           id: r.id,
@@ -1728,6 +1735,10 @@ export const LocationPage: React.FC = () => {
           difficulty: r.difficulty
             ? r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)
             : undefined,
+          // Send counts so the AI can see at-a-glance whether a row
+          // is a substantial cooking recipe vs a thin metadata row.
+          ingredientCount: ing,
+          stepCount: stp,
         });
         if (recipes.length >= 30) break;
       }
@@ -1806,17 +1817,21 @@ export const LocationPage: React.FC = () => {
     return out;
   }, [ratings, wishlist]);
 
-  // De-duped list of every Recipe the user owns — passed to
-  // LocationChat as a lookup table so recommend_recipes cards can
-  // render with full details (cover photo, prep+cook time, etc.)
-  // rather than just the trimmed fields we send in the system prompt.
-  // Sourced from useRecipes (canonical Supabase store), not the
-  // legacy lists[].recipes path.
+  // De-duped + stub-filtered list of every Recipe the user owns.
+  // Passed to LocationChat as the recipe-card lookup table. Same
+  // 0-ingredients-AND-0-steps stub filter as the system-prompt
+  // context above so cards can't render for placeholder entries
+  // either (and if the AI ever tries to recommend one of those ids,
+  // the lookup misses and the "Recipe not found in your saved list"
+  // fallback shows instead of a misleading restaurant-name card).
   const chatRecipesAll = useMemo(() => {
     const seen = new Set<string>();
     const out: typeof myRecipes = [];
     for (const r of myRecipes) {
       if (!r?.id || seen.has(r.id)) continue;
+      const ing = r.ingredients?.length || 0;
+      const stp = r.steps?.length || 0;
+      if (ing === 0 && stp === 0) continue;
       seen.add(r.id);
       out.push(r);
     }

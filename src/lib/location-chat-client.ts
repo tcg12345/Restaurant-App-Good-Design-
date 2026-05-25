@@ -41,7 +41,16 @@ export interface UserContext {
   topCuisines?: string[];
   topRated?: Array<{ id?: string; name: string; score?: number; cuisine?: string; neighborhood?: string }>;
   wishlist?: Array<{ id?: string; name: string; cuisine?: string; neighborhood?: string }>;
-  recipes?: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string }>;
+  recipes?: Array<{
+    id: string;
+    title: string;
+    cuisine?: string;
+    prepTime?: number;
+    cookTime?: number;
+    difficulty?: string;
+    ingredientCount?: number;
+    stepCount?: number;
+  }>;
   friends?: Array<{ displayName: string; username?: string }>;
   followedExperts?: Array<{ displayName: string; username?: string; bio?: string }>;
   circleSignals?: Array<{ restaurantId: string; friendCount?: number; expertCount?: number }>;

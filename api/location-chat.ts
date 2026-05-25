@@ -175,7 +175,16 @@ interface UserContext {
   /** Restaurants in the user's wishlist. */
   wishlist?: Array<{ id?: string; name: string; cuisine?: string; neighborhood?: string }>;
   /** Recipes the user has saved / cooked. */
-  recipes?: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string }>;
+  recipes?: Array<{
+    id: string;
+    title: string;
+    cuisine?: string;
+    prepTime?: number;
+    cookTime?: number;
+    difficulty?: string;
+    ingredientCount?: number;
+    stepCount?: number;
+  }>;
   /** Friends the user has connected with — display names only. */
   friends?: Array<{ displayName: string; username?: string }>;
   /** Experts the user follows. */
@@ -277,9 +286,11 @@ function buildSystemPrompt(body: ChatRequest): string {
       }
     }
     if (u.recipes && u.recipes.length > 0) {
-      // RECIPES the user has saved/cooked. Listed with their ids so
-      // recommend_recipes can render cards.
-      lines.push(`- RECIPES (the user's own saved recipes, ${u.recipes.length} total):`);
+      // RECIPES = the user's own saved cooking recipes (dishes with
+      // ingredients + steps). NEVER conflate with restaurants. The
+      // frontend already filters out stub entries (0 ingredients AND
+      // 0 steps), so every row below is a real recipe.
+      lines.push(`- RECIPES (the user's own saved COOKING recipes — dishes they cook at home, with ingredients and steps. NOT restaurants. ${u.recipes.length} total):`);
       for (const r of u.recipes) {
         const time = (r.prepTime || 0) + (r.cookTime || 0);
         const bits = [
@@ -288,9 +299,15 @@ function buildSystemPrompt(body: ChatRequest): string {
           r.cuisine,
           time > 0 ? `${time} min total` : null,
           r.difficulty,
+          r.ingredientCount != null ? `${r.ingredientCount} ingredient${r.ingredientCount === 1 ? '' : 's'}` : null,
+          r.stepCount != null ? `${r.stepCount} step${r.stepCount === 1 ? '' : 's'}` : null,
         ].filter(Boolean);
         lines.push(`    • ${bits.join(' · ')}`);
       }
+    } else {
+      // Be explicit when empty — gives the AI a definite signal so it
+      // doesn't try to be helpful by surfacing restaurants instead.
+      lines.push(`- RECIPES: the user has NO saved cooking recipes. If they ask about recipes, tell them this honestly — do not substitute restaurants from RATED or WISHLIST.`);
     }
     if (u.friends && u.friends.length > 0) {
       lines.push(`- Friends: ${u.friends.slice(0, 10).map((f) => f.username ? `${f.displayName} (@${f.username})` : f.displayName).join(', ')}`);
@@ -355,6 +372,9 @@ function buildSystemPrompt(body: ChatRequest): string {
   );
   lines.push(
     "5. ALWAYS surface places via the recommend_restaurants tool. EVERY restaurant you mention by name — including ones from the user's RATED list, their WISHLIST, or anywhere else — needs to be passed to recommend_restaurants with the place id from that row. The card render is what makes the name clickable for the user. Likewise, when surfacing one of the user's own RECIPES, use the recommend_recipes tool — never just type names in prose.",
+  );
+  lines.push(
+    "5a. RECIPES vs RESTAURANTS — these are SEPARATE worlds. Restaurants are places to eat out (RATED, WISHLIST, the Available pool). Recipes are dishes to cook at home (the RECIPES section). NEVER pass a restaurant id to recommend_recipes, and NEVER pass a recipe id to recommend_restaurants. When the user asks about RECIPES (\"what should I cook tonight?\", \"what recipe have I rated highest?\", \"any rice recipes?\"), look ONLY at the RECIPES section. If RECIPES is empty or has no match, say so honestly — DO NOT substitute restaurants from RATED / WISHLIST as if they were recipes. The correct response when there are no matching recipes is: \"You don't have a saved recipe for [X]. Want me to suggest some general ideas, or look up restaurants serving it?\"",
   );
   lines.push(
     "6. Only say 'I couldn't find anything' AFTER trying search_restaurants and / or web_search and they genuinely returned nothing useful.",
