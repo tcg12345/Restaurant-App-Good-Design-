@@ -48,6 +48,11 @@
   margin: 0;
   padding: 8px 24px 96px;
 }
+/* Mobile redesign uses tighter side padding so guide cards, list
+   items, and the editorial hero can breathe out closer to the
+   phone-frame edge. Overrides the 16px set by the 900px media
+   query further below. */
+.location-page-root .lp-page.is-mobile { padding-left: 12px; padding-right: 12px; padding-top: 4px; }
 
 /* ============ LOCATION HERO ============ */
 .location-page-root .loc-hero {

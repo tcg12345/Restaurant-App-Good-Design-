@@ -2102,7 +2102,7 @@ export const LocationPage: React.FC = () => {
           global top bar (DesktopHeader). Keeps the route navigable.
           On mobile we render a richer header with a centered LOCATION
           eyebrow + "{city} ▾" dropdown trigger and a share button. */}
-      <div className="sticky top-0 z-20 px-4 pt-safe-4 pb-2" style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
+      <div className={cn('sticky top-0 z-20 pt-safe-4 pb-2', isMobile ? 'px-3' : 'px-4')} style={{ background: 'rgba(237,231,217,0.92)', backdropFilter: 'saturate(150%) blur(14px)' }}>
         {isMobile ? (
           <div className="flex items-center justify-between gap-3">
             <button
@@ -2170,7 +2170,7 @@ export const LocationPage: React.FC = () => {
         />
       )}
 
-      <div className="lp-page">
+      <div className={cn('lp-page', isMobile && 'is-mobile')}>
         {/* ── Mobile hero — EXPLORING eyebrow + big serif city name.
             Desktop already gets a hero from DesktopHeader so this is
             mobile-only. ─────────────────────────────────────────────── */}
@@ -2629,7 +2629,7 @@ export const LocationPage: React.FC = () => {
             filters: neighborhood dropdown, Open Now toggle, then quick
             cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
         {isMobile && (
-          <div className="mt-2 mb-3 flex gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 py-1 snap-x">
+          <div className="mt-2 mb-3 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 py-1 snap-x">
             <button
               type="button"
               onClick={() => setNeighborhoodMenuOpen((v) => !v)}
