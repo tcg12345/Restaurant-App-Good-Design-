@@ -22,7 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { getPublicRecipes, type Recipe } from '../lib/supabase-recipes';
-import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
+import { getProfilesByIds, getFriends, getFriendsPublicHomeMeals, type UserProfile, type FriendHomeMeal } from '../lib/supabase-community';
 import { cn } from '../lib/utils';
 import './RecipesForYou.css';
 
@@ -149,6 +149,31 @@ const sourceOf = (r: Recipe, friendIds: Set<string>, author?: UserProfile): Sour
   return 'home';
 };
 
+// Adapt a FriendHomeMeal (rows from user_app_data.home_meals) into the
+// Recipe shape so the rest of the page can treat both data sources as one
+// list. Mirrors the adapter Discover.tsx uses for its rail.
+const friendHomeMealToRecipe = (m: FriendHomeMeal): Recipe => ({
+  id: m.id,
+  userId: m.userId,
+  title: m.name,
+  description: m.description || '',
+  ingredients: m.ingredients || [],
+  steps: (m.steps || []).map((text, i) => ({ order: i, text })),
+  prepTimeMinutes: m.prepTime ?? null,
+  cookTimeMinutes: m.cookTime ?? null,
+  servings: m.servings ?? null,
+  difficulty: ((m.difficulty?.toLowerCase() ?? 'medium') as 'easy' | 'medium' | 'hard'),
+  cuisine: m.cuisine || '',
+  tags: m.tags || [],
+  photos: m.coverPhoto ? [m.coverPhoto] : (m.photos?.map((p) => p.url).filter(Boolean) || []),
+  isPublic: true,
+  sourceType: 'user',
+  linkedRestaurantId: null,
+  linkedMealId: null,
+  createdAt: new Date(m.createdAt ?? Date.now()).toISOString(),
+  updatedAt: new Date(m.createdAt ?? Date.now()).toISOString(),
+});
+
 const sourceLabelOf = (s: SourceFilter): string =>
   s === 'chef' ? 'Chef' : s === 'friend' ? 'Friend' : 'Home Cook';
 
@@ -199,21 +224,48 @@ export const RecipesForYou: React.FC = () => {
   const collectionsRowRef = useRef<HTMLDivElement>(null);
 
   // ── Load ──
+  // Friends publish recipes through two separate paths: the formal /recipes
+  // flow (rows in the `recipes` table, covered by getPublicRecipes) and the
+  // meal-logger flow (rows in user_app_data.home_meals, only reachable via
+  // getFriendsPublicHomeMeals). Both have to be merged so the "Friends" tab
+  // and the From-Your-Friends rail aren't silently empty whenever the user's
+  // friends only logged meals.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const list = await getPublicRecipes(200);
+
+      // Run the public-recipes pull and the viewer's friends list in
+      // parallel — neither depends on the other.
+      const [list, friends] = await Promise.all([
+        getPublicRecipes(200),
+        user?.id ? getFriends(user.id) : Promise.resolve([]),
+      ]);
       if (cancelled) return;
-      setRecipes(list);
-      const authorIds = Array.from(new Set(list.map((r) => r.userId).filter(Boolean)));
+      const friendIdSet = new Set(friends.map((f) => f.friend_id));
+      setFriendIds(friendIdSet);
+
+      // Pull friend home meals only when there are friends. Merge them into
+      // the recipes list (de-duped by id, formal recipes win on collision).
+      const friendIdArr = Array.from(friendIdSet);
+      const homeMeals: FriendHomeMeal[] = friendIdArr.length > 0
+        ? await getFriendsPublicHomeMeals(friendIdArr)
+        : [];
+      if (cancelled) return;
+      const merged: Recipe[] = [...list];
+      const seen = new Set(list.map((r) => r.id));
+      for (const m of homeMeals) {
+        if (!m?.id || seen.has(m.id)) continue;
+        if ((m.name || '').trim().length === 0) continue;
+        seen.add(m.id);
+        merged.push(friendHomeMealToRecipe(m));
+      }
+      setRecipes(merged);
+
+      const authorIds = Array.from(new Set(merged.map((r) => r.userId).filter(Boolean)));
       if (authorIds.length > 0) {
         const profiles = await getProfilesByIds(authorIds);
         if (!cancelled) setAuthors(profiles);
-      }
-      if (user?.id) {
-        const friends = await getFriends(user.id);
-        if (!cancelled) setFriendIds(new Set(friends.map((f) => f.friend_id)));
       }
       if (!cancelled) setLoading(false);
     })();
@@ -247,46 +299,55 @@ export const RecipesForYou: React.FC = () => {
     return sourceOf(r, friendIds, authors[r.userId]);
   }, [friendIds, authors]);
 
+  // The viewer's own recipes never belong in an "Explore" feed — they're
+  // already surfaced from the cookbook/Pantry. Filter them out once and
+  // route every downstream derivation (counts, trending, RoD, explore
+  // grid) through this filtered list.
+  const displayRecipes = useMemo(() => {
+    if (!user?.id) return recipes;
+    return recipes.filter((r) => r.userId !== user.id);
+  }, [recipes, user?.id]);
+
   // ── Counts per meal / per source for the chip badges. ──
   const mealCounts = useMemo(() => {
     const out: Record<MealKey, number> = { breakfast: 0, lunch: 0, dinner: 0, dessert: 0, baking: 0, drinks: 0 };
-    recipes.forEach((r) => { out[recipeMeal(r)]++; });
+    displayRecipes.forEach((r) => { out[recipeMeal(r)]++; });
     return out;
-  }, [recipes]);
+  }, [displayRecipes]);
 
   const sourceCounts = useMemo(() => {
-    const out: Record<SourceFilter, number> = { all: recipes.length, friend: 0, chef: 0, home: 0 };
-    recipes.forEach((r) => { out[recipeSource(r)]++; });
+    const out: Record<SourceFilter, number> = { all: displayRecipes.length, friend: 0, chef: 0, home: 0 };
+    displayRecipes.forEach((r) => { out[recipeSource(r)]++; });
     return out;
-  }, [recipes, recipeSource]);
+  }, [displayRecipes, recipeSource]);
 
   // ── Recipe of the Day: pick stably per UTC day so the hero doesn't churn. ──
   const recipeOfDay = useMemo<Recipe | null>(() => {
-    if (recipes.length === 0) return null;
+    if (displayRecipes.length === 0) return null;
     const dayOfYear = Math.floor(Date.now() / 86400000);
-    return recipes[dayOfYear % recipes.length] ?? null;
-  }, [recipes]);
+    return displayRecipes[dayOfYear % displayRecipes.length] ?? null;
+  }, [displayRecipes]);
 
   // ── Top tags (taken from the full library) for the explore-tag chips. ──
   const allTags = useMemo(() => {
     const counts = new Map<string, number>();
-    recipes.forEach((r) => r.tags.forEach((t) => {
+    displayRecipes.forEach((r) => r.tags.forEach((t) => {
       counts.set(t, (counts.get(t) || 0) + 1);
     }));
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .map(([t]) => t);
-  }, [recipes]);
+  }, [displayRecipes]);
 
   // ── Trending: top 6, ranked by recency. Fake "up X" derived from
   //    a stable hash so the value doesn't reshuffle each render. ──
-  const trending = useMemo<Recipe[]>(() => recipes.slice(0, 6), [recipes]);
+  const trending = useMemo<Recipe[]>(() => displayRecipes.slice(0, 6), [displayRecipes]);
 
   // ── Friends' recent recipes ──
   const friendRecipes = useMemo(
-    () => recipes.filter((r) => friendIds.has(r.userId)).slice(0, 8),
-    [recipes, friendIds],
+    () => displayRecipes.filter((r) => friendIds.has(r.userId)).slice(0, 8),
+    [displayRecipes, friendIds],
   );
 
   // ── Top friend names for the activity strip (deduplicated). ──
@@ -307,7 +368,7 @@ export const RecipesForYou: React.FC = () => {
   // ── Chef spotlight: experts with at least one public recipe ──
   const chefSpotlight = useMemo(() => {
     const byChef = new Map<string, { profile: UserProfile; recipeCount: number }>();
-    recipes.forEach((r) => {
+    displayRecipes.forEach((r) => {
       const p = authors[r.userId];
       if (!p?.is_expert) return;
       const cur = byChef.get(p.user_id);
@@ -317,12 +378,12 @@ export const RecipesForYou: React.FC = () => {
     return Array.from(byChef.values())
       .sort((a, b) => b.recipeCount - a.recipeCount)
       .slice(0, 3);
-  }, [recipes, authors]);
+  }, [displayRecipes, authors]);
 
   // ── Filter + sort the explore grid ──
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    let pool = recipes.filter((r) => {
+    let pool = displayRecipes.filter((r) => {
       if (!r.title) return false;
       if (source !== 'all' && recipeSource(r) !== source) return false;
       if (meal && recipeMeal(r) !== meal) return false;
@@ -359,7 +420,7 @@ export const RecipesForYou: React.FC = () => {
 
   // ── Stats strip ──
   const cookedCount = homeMeals.length;
-  const recipesCount = recipes.length;
+  const recipesCount = displayRecipes.length;
   const savedCount = savedIds.size;
 
   // ── Helpers ──
