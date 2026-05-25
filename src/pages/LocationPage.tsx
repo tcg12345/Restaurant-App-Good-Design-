@@ -2634,56 +2634,41 @@ export const LocationPage: React.FC = () => {
             filters: neighborhood dropdown, Open Now toggle, then quick
             cuisines. Replaces the old multi-row .loc-filterbar on phones. */}
         {isMobile && (() => {
-          // Pill spec from the design system:
-          //   32px tall, fully rounded, 1px solid #1f1a17 border,
-          //   white fill, Inter 13/500, #4a423c text, 5px gap
-          //   between icon and label, asymmetric padding (8px left,
-          //   12px right — leaves room for trailing chevron icons).
-          const pillBase = 'flex-shrink-0 inline-flex items-center h-[32px] rounded-full text-[13px] font-medium leading-[1.4] transition-all active:scale-[0.97]';
+          // Matches the Discover filter-chip recipe:
+          //   h-[40px] px-4 rounded-full text-[14px] font-medium border.
+          //   Inactive: bg-white text-on-surface/75 border-on-surface/10
+          //   Active:   bg-on-surface text-surface border-on-surface
+          const pillBase = 'flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium border transition-colors';
+          const pillIdle = 'bg-white text-on-surface/75 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface';
+          const pillActive = 'bg-on-surface text-surface border-on-surface';
           return (
           <div className="mt-2 mb-3 flex items-center gap-2 overflow-x-auto no-scrollbar pl-3 pr-0 py-0.5">
             <button
               type="button"
               onClick={() => setNeighborhoodMenuOpen((v) => !v)}
-              className={pillBase}
-              style={{
-                background: '#FFFFFF',
-                color: '#4a423c',
-                border: '1px solid #1f1a17',
-                gap: '5px',
-                paddingLeft: '8px',
-                paddingRight: '12px',
-              }}
+              className={cn(pillBase, neighborhood !== 'all' ? pillActive : pillIdle)}
             >
-              <MapIcon size={13} strokeWidth={1.75} style={{ color: '#4a423c' }} />
+              <MapIcon size={14} />
               {neighborhood === 'all' ? 'All neighborhoods' : neighborhood}
-              <ChevronDown size={13} strokeWidth={2} style={{ color: '#4a423c' }} />
+              <ChevronDown size={14} />
             </button>
             <button
               type="button"
               onClick={() => setOpenNow((v) => !v)}
-              className={pillBase}
-              style={{
-                background: '#FFFFFF',
-                color: '#4a423c',
-                border: '1px solid #1f1a17',
-                gap: '5px',
-                paddingLeft: '8px',
-                paddingRight: '12px',
-              }}
+              className={cn(pillBase, openNow ? pillActive : pillIdle)}
             >
               <span className={cn(
-                'relative w-[22px] h-[12px] rounded-full transition-colors',
-                openNow ? 'bg-emerald-600' : 'bg-on-surface/25',
+                'relative w-[24px] h-[14px] rounded-full transition-colors',
+                openNow ? 'bg-emerald-500' : 'bg-on-surface/25',
               )}>
                 <span className={cn(
-                  'absolute top-[1px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-all',
-                  openNow ? 'left-[11px]' : 'left-[1px]',
+                  'absolute top-[2px] w-[10px] h-[10px] rounded-full bg-white shadow-sm transition-all',
+                  openNow ? 'left-[12px]' : 'left-[2px]',
                 )} />
               </span>
               Open now
             </button>
-            <span className="flex-shrink-0 self-center w-px h-4" style={{ background: '#1f1a17', opacity: 0.25 }} />
+            <span className="flex-shrink-0 self-center w-px h-5" style={{ background: 'var(--border-strong)' }} />
             {QUICK_CUISINES.map((c) => {
               const active = selectedCuisines.includes(c.type);
               return (
@@ -2691,22 +2676,7 @@ export const LocationPage: React.FC = () => {
                   key={c.type}
                   type="button"
                   onClick={() => toggleCuisine(c.type)}
-                  className={pillBase}
-                  style={active
-                    ? {
-                        background: '#1f1a17',
-                        color: '#FFFFFF',
-                        border: '1px solid #1f1a17',
-                        paddingLeft: '12px',
-                        paddingRight: '12px',
-                      }
-                    : {
-                        background: '#FFFFFF',
-                        color: '#4a423c',
-                        border: '1px solid #1f1a17',
-                        paddingLeft: '12px',
-                        paddingRight: '12px',
-                      }}
+                  className={cn(pillBase, active ? pillActive : pillIdle)}
                 >
                   {c.label}
                 </button>
@@ -2722,7 +2692,7 @@ export const LocationPage: React.FC = () => {
           {isMobile ? (
             <div className="flex items-center gap-2 mb-4 px-3">
               <div className="flex-1 min-w-0 relative">
-                <Search size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--muted)' }} />
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10 text-on-surface/55" />
                 <input
                   type="text"
                   value={searchQuery}
@@ -2730,20 +2700,14 @@ export const LocationPage: React.FC = () => {
                   placeholder="Search restaurants..."
                   autoCapitalize="off"
                   autoCorrect="off"
-                  className="w-full h-[40px] pl-10 pr-9 rounded-full text-[13px] font-medium focus:outline-none"
-                  style={{
-                    background: '#FFFFFF',
-                    color: 'var(--ink)',
-                    boxShadow: '0 0 0 1px rgba(28, 24, 22, 0.06), 0 1px 2px rgba(28, 24, 22, 0.04)',
-                  }}
+                  className="w-full h-[40px] pl-10 pr-9 rounded-full text-[14px] font-medium bg-white border border-on-surface/10 text-on-surface placeholder:text-on-surface/45 focus:outline-none focus:border-on-surface/25 transition-colors"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="Clear search"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 grid place-items-center rounded-full hover:bg-on-surface/[0.06] transition-colors z-10"
-                    style={{ color: 'var(--muted)' }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 grid place-items-center rounded-full text-on-surface/55 hover:bg-on-surface/[0.06] transition-colors z-10"
                   >
                     <X size={13} />
                   </button>
@@ -2753,14 +2717,9 @@ export const LocationPage: React.FC = () => {
                 type="button"
                 onClick={() => setFilterSheetOpen(true)}
                 aria-label="Filters"
-                className="flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] pl-3 pr-3 rounded-full text-[13px] font-semibold active:scale-[0.97] transition-all"
-                style={{
-                  background: '#FFFFFF',
-                  color: 'var(--ink)',
-                  boxShadow: '0 0 0 1px rgba(28, 24, 22, 0.06), 0 1px 2px rgba(28, 24, 22, 0.04)',
-                }}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 h-[40px] px-4 rounded-full text-[14px] font-medium border bg-white text-on-surface/75 border-on-surface/10 hover:border-on-surface/25 hover:text-on-surface transition-colors"
               >
-                <SlidersHorizontal size={14} strokeWidth={1.75} />
+                <SlidersHorizontal size={14} />
                 Filters
                 {activeFilterCount > 0 && (
                   <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full text-[11px] font-bold text-white tabular-nums" style={{ background: 'var(--accent)' }}>
