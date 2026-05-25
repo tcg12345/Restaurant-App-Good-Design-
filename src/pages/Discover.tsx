@@ -437,8 +437,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
   }, [userId]);
 
   // Mobile filter-chips row (All / Recommendations / Recipes / Guides).
-  // Tapping a non-"All" chip filters the page to that single section;
-  // "All" restores the full feed (incl. Friend Activity).
+  // Filters which of the three top rails render; the Friend Activity
+  // feed below the rails is always visible regardless of selection.
   const [discoverChip, setDiscoverChip] = useState<'all' | 'recommendations' | 'recipes' | 'guides'>('all');
   // Drives the headless HomeLocationBar picker from the greeting's
   // neighborhood label — restores the location-switch popup the old
@@ -5597,7 +5597,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
               )}
 
               {/* Social Feed — Friend Activity + Suggested for You + Featured Guides */}
-              {discoverChip === 'all' && (
               <div className={cn(usingDesktopHeader ? 'mt-7' : 'mt-5')}>
                 <SocialFeed
                   centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}
@@ -5613,7 +5612,6 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   })) : []}
                 />
               </div>
-              )}
               </div>
               )}
             </div>
