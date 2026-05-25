@@ -262,6 +262,71 @@ function renderAssistantText(
  *  Anthropic rejects the conversation with
  *  "tool_use ids were found without tool_result blocks immediately
  *  after".  */
+/** Walk the message history pair-wise and drop any tool_use /
+ *  tool_result that doesn't have its counterpart in the adjacent
+ *  message. Anthropic strictly requires that every tool_result in a
+ *  user turn has a matching tool_use in the IMMEDIATELY preceding
+ *  assistant turn, and vice versa — otherwise the API rejects the
+ *  request with 'tool_use ids were found without tool_result blocks'
+ *  or 'unexpected tool_use_id found in tool_result blocks'.
+ *
+ *  State and saved chats keep the full UI history (so the user still
+ *  sees their cards even if the protocol blocks went sideways); only
+ *  the wire payload sent to Anthropic is sanitised. Common triggers:
+ *  aborted streams, older saved chats from before tool_result
+ *  persistence was added, agentic-loop interruptions. */
+function sanitizeForAnthropic(messages: UiMessage[]): UiMessage[] {
+  const out: UiMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === 'assistant') {
+      // Tool_use ids in the next user turn (the only place a
+      // tool_result could legitimately match them).
+      const nextResultIds = new Set<string>();
+      const nextMsg = messages[i + 1];
+      if (nextMsg && nextMsg.role === 'user') {
+        for (const b of nextMsg.blocks) {
+          if (b.type === 'tool_result') nextResultIds.add(b.toolUseId);
+        }
+      }
+      const blocks = m.blocks.filter((b) => {
+        if (b.type === 'cards' || b.type === 'recipe_cards' || b.type === 'tool_use') {
+          return nextResultIds.has(b.toolUseId);
+        }
+        return true;
+      });
+      const hasContent = blocks.some((b) =>
+        (b.type === 'text' && !!b.text)
+        || (b.type === 'cards' && b.placeIds.length > 0)
+        || (b.type === 'recipe_cards' && b.recipeIds.length > 0)
+        || b.type === 'tool_use'
+      );
+      if (hasContent) out.push({ ...m, blocks });
+    } else {
+      // user — drop tool_results whose tool_use is not in the
+      // immediately preceding assistant turn.
+      const prevToolUseIds = new Set<string>();
+      const prevMsg = messages[i - 1];
+      if (prevMsg && prevMsg.role === 'assistant') {
+        for (const b of prevMsg.blocks) {
+          if (b.type === 'cards' || b.type === 'recipe_cards' || b.type === 'tool_use') {
+            prevToolUseIds.add(b.toolUseId);
+          }
+        }
+      }
+      const blocks = m.blocks.filter((b) => {
+        if (b.type === 'tool_result') return prevToolUseIds.has(b.toolUseId);
+        return true;
+      });
+      const hasContent = blocks.some((b) =>
+        (b.type === 'text' && !!b.text) || b.type === 'tool_result',
+      );
+      if (hasContent) out.push({ ...m, blocks });
+    }
+  }
+  return out;
+}
+
 function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
   const out: ContentBlock[] = [];
   for (const b of blocks) {
@@ -678,9 +743,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     // gets a stable system block within the same filter state).
     const restaurantsForModel = buildCompactRestaurants(visible, restaurantMeta, origin);
 
-    // Build the message history we'll send. We always send the full
-    // history (so Claude has context) plus the new user turn.
-    const baseHistory: AnthropicMessage[] = messages.map((m) => ({
+    // Build the message history we'll send. Sanitize first — drop
+    // any orphan tool_use / tool_result blocks left over from old
+    // saved chats, aborted streams, or other state hiccups. The UI
+    // state itself stays untouched (so the user keeps seeing their
+    // cards); only the wire payload is cleaned.
+    const cleanedMessages = sanitizeForAnthropic(messages);
+    const baseHistory: AnthropicMessage[] = cleanedMessages.map((m) => ({
       role: m.role,
       content: uiBlocksToAnthropicContent(m.blocks),
     }));
