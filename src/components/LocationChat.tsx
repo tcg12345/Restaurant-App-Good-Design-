@@ -10,13 +10,17 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
+  ArrowLeft,
   ChefHat,
   ChevronRight,
+  Clock,
   Loader2,
   MapPin,
+  Plus,
   RotateCw,
   Send,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -313,6 +317,93 @@ function buildSuggestions(shortCity: string, filters: ChatFilters): string[] {
 
 const MAX_AGENTIC_TURNS = 5;
 
+/* ── Chat history persistence ─────────────────────────────────────
+   Saved chats live in localStorage so they survive reloads + return
+   visits. Each conversation gets a stable id, a title derived from
+   the first user message, and the full UiMessage array (including
+   invisible tool_use / tool_result blocks so reopening can continue
+   the agentic conversation without breaking Anthropic's history
+   rules). chatPlaces — the search_restaurants result cache — is
+   snapshot too so cards inside an old chat still resolve. */
+
+interface SavedChat {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: UiMessage[];
+  chatPlaces: Record<string, ScoredPlace>;
+}
+
+const CHAT_STORAGE_KEY = 'lp-chat-history-v1';
+const MAX_SAVED_CHATS = 30;
+
+function loadSavedChats(): SavedChat[] {
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages));
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedChats(chats: SavedChat[]) {
+  const bounded = [...chats]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, MAX_SAVED_CHATS);
+  try {
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(bounded));
+  } catch {
+    // Quota exceeded — drop oldest one at a time until it fits.
+    let working = bounded;
+    while (working.length > 1) {
+      working = working.slice(0, -1);
+      try {
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(working));
+        return;
+      } catch { /* keep trimming */ }
+    }
+  }
+}
+
+/** Derive a chat title from the first user message in the conversation. */
+function deriveChatTitle(messages: UiMessage[]): string {
+  for (const m of messages) {
+    if (m.role !== 'user') continue;
+    for (const b of m.blocks) {
+      if (b.type === 'text' && b.text) {
+        const t = b.text.trim().replace(/\s+/g, ' ');
+        return t.length > 50 ? t.slice(0, 50).trimEnd() + '…' : t;
+      }
+    }
+  }
+  return 'New conversation';
+}
+
+/** Compact relative-time label for the history list. */
+function formatTimeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return 'Just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function countUserMessages(messages: UiMessage[]): number {
+  let n = 0;
+  for (const m of messages) {
+    if (m.role === 'user' && m.blocks.some((b) => b.type === 'text' && b.text)) n++;
+  }
+  return n;
+}
+
 export const LocationChat: React.FC<LocationChatProps> = ({
   visible,
   restaurantMeta,
@@ -340,6 +431,18 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // point of the tool) so we need somewhere to render cards from
   // regardless of visible[]. Keys are place ids.
   const [chatPlaces, setChatPlaces] = useState<Record<string, ScoredPlace>>({});
+
+  // ── Chat history ────────────────────────────────────────────────
+  // `view` swaps between the live conversation and the saved-chats
+  // list. `currentChatId` tracks which saved chat (if any) the
+  // current messages belong to — null = unsaved new chat. Sending
+  // the first message auto-creates the id; auto-save persists every
+  // subsequent change. The savedChats list is loaded once on mount
+  // and kept in lockstep with localStorage.
+  const [view, setView] = useState<'chat' | 'history'>('chat');
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [savedChats, setSavedChats] = useState<SavedChat[]>(() => loadSavedChats());
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Desktop drag — repositions the island. Resize is handled by
   // the browser's native CSS `resize: both` on the island element
@@ -381,6 +484,88 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   useEffect(() => () => {
     abortRef.current?.abort();
   }, []);
+
+  // Always land in the live-chat view when the panel opens —
+  // history view is a navigation destination, not a default.
+  useEffect(() => {
+    if (open) setView('chat');
+  }, [open]);
+
+  // Auto-save the current conversation on any change. Debounced so
+  // streaming text deltas don't trigger one localStorage write per
+  // token; one save fires ~600ms after activity settles. On the
+  // first message we mint an id and adopt it as currentChatId so
+  // subsequent saves update the same row.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      let id = currentChatId;
+      if (!id) {
+        id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        setCurrentChatId(id);
+      }
+      setSavedChats((prev) => {
+        const now = Date.now();
+        const idx = prev.findIndex((c) => c.id === id);
+        const updated: SavedChat = {
+          id: id!,
+          title: deriveChatTitle(messages),
+          createdAt: idx >= 0 ? prev[idx].createdAt : now,
+          updatedAt: now,
+          messages,
+          chatPlaces,
+        };
+        const next = idx >= 0
+          ? prev.map((c, i) => (i === idx ? updated : c))
+          : [updated, ...prev];
+        persistSavedChats(next);
+        return next;
+      });
+    }, 600);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [messages, chatPlaces, currentChatId]);
+
+  // History-feature handlers.
+  const handleNewChat = useCallback(() => {
+    abortRef.current?.abort();
+    // The auto-save effect already snapshotted any messages we had
+    // here, so it's safe to wipe local state.
+    setMessages([]);
+    setChatPlaces({});
+    setCurrentChatId(null);
+    setError(null);
+    setView('chat');
+    setStreaming(false);
+  }, []);
+
+  const handleSelectChat = useCallback((chat: SavedChat) => {
+    abortRef.current?.abort();
+    setMessages(chat.messages);
+    setChatPlaces(chat.chatPlaces || {});
+    setCurrentChatId(chat.id);
+    setError(null);
+    setStreaming(false);
+    setView('chat');
+  }, []);
+
+  const handleDeleteChat = useCallback((id: string) => {
+    setSavedChats((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      persistSavedChats(next);
+      return next;
+    });
+    if (currentChatId === id) {
+      // The user just deleted the conversation they're currently in
+      // — drop into a fresh empty chat so they can start over.
+      setMessages([]);
+      setChatPlaces({});
+      setCurrentChatId(null);
+      setError(null);
+    }
+  }, [currentChatId]);
 
   // Compute the initial desktop position when the chat first opens —
   // bottom-right with a 24px gutter, sized to match the CSS defaults
@@ -836,13 +1021,58 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               onMouseDown={onHeaderMouseDown}
               style={!phoneMode ? { cursor: pos ? 'grab' : 'default', userSelect: 'none' } : undefined}
             >
-              <div className="lp-chat-head-icon" aria-hidden="true">
-                <Sparkles />
-              </div>
+              {view === 'history' ? (
+                <button
+                  type="button"
+                  className="lp-chat-head-back"
+                  onClick={() => setView('chat')}
+                  aria-label="Back to chat"
+                  title="Back to chat"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+              ) : (
+                <div className="lp-chat-head-icon" aria-hidden="true">
+                  <Sparkles />
+                </div>
+              )}
               <div className="lp-chat-head-text">
-                <h3>Ask a local</h3>
-                <p>Powered by Claude</p>
+                {view === 'history' ? (
+                  <>
+                    <h3>Chats</h3>
+                    <p>{savedChats.length === 0
+                      ? 'No saved chats yet'
+                      : `${savedChats.length} saved`}</p>
+                  </>
+                ) : (
+                  <>
+                    <h3>Ask a local</h3>
+                    <p>Powered by Claude</p>
+                  </>
+                )}
               </div>
+              {view === 'chat' && (
+                <>
+                  <button
+                    type="button"
+                    className="lp-chat-head-action"
+                    onClick={handleNewChat}
+                    aria-label="New chat"
+                    title="New chat"
+                  >
+                    <Plus size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="lp-chat-head-action"
+                    onClick={() => setView('history')}
+                    aria-label="Prior chats"
+                    title="Prior chats"
+                  >
+                    <Clock size={16} />
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 className="lp-chat-head-close"
@@ -853,7 +1083,52 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               </button>
             </header>
 
-            <div className="lp-chat-body" ref={scrollRef}>
+            <div className={cn('lp-chat-body', view === 'history' && 'is-history')} ref={scrollRef}>
+              {view === 'history' ? (
+                <div className="lp-chat-history">
+                  {savedChats.length === 0 ? (
+                    <div className="lp-chat-history-empty">
+                      <p>No prior chats yet.</p>
+                      <p className="sub">Conversations save automatically — they'll appear here after you send your first message.</p>
+                    </div>
+                  ) : (
+                    savedChats.map((chat) => (
+                      <div
+                        key={chat.id}
+                        className={cn('lp-chat-history-item', chat.id === currentChatId && 'is-current')}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleSelectChat(chat)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleSelectChat(chat);
+                          }
+                        }}
+                      >
+                        <div className="lp-chat-history-info">
+                          <h4>{chat.title}</h4>
+                          <p>
+                            {formatTimeAgo(chat.updatedAt)}
+                            {' · '}
+                            {countUserMessages(chat.messages)} message{countUserMessages(chat.messages) === 1 ? '' : 's'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="lp-chat-history-delete"
+                          onClick={(e) => { e.stopPropagation(); handleDeleteChat(chat.id); }}
+                          aria-label={`Delete "${chat.title}"`}
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+              <>
               {messages.length === 0 && (
                 <div className="lp-chat-empty">
                   <p className="lp-chat-empty-lead">
@@ -1049,8 +1324,11 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   </button>
                 </div>
               )}
+              </>
+              )}
             </div>
 
+            {view === 'chat' && (
             <form className="lp-chat-foot" onSubmit={handleSubmit}>
               <textarea
                 ref={inputRef}
@@ -1080,9 +1358,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 {streaming ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               </button>
             </form>
-            <div className="lp-chat-foot-note">
-              AI can make mistakes — verify the basics.
-            </div>
+            )}
+            {view === 'chat' && (
+              <div className="lp-chat-foot-note">
+                AI can make mistakes — verify the basics.
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
