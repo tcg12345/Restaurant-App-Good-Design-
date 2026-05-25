@@ -34,6 +34,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
+import { useRecipes } from '../contexts/RecipesContext';
 import { useSettings } from '../contexts/SettingsContext';
 import {
   searchPlacesByTextPaged,
@@ -58,6 +59,8 @@ import {
   getFollowedExpertIds,
   getProfilesInArea,
   getRatingsByUserIds,
+  getProfilesByIds,
+  searchUsersByUsername,
   sendFriendRequest,
   type CommunityRating,
   type UserProfile,
@@ -81,6 +84,7 @@ import {
   isExactAddress,
   loadLastSelectedLocation,
   getCurrentHomeLocation,
+  geocodePlace,
   type HomeLocation,
 } from '../components/HomeLocationBar';
 import { LocationChat } from '../components/LocationChat';
@@ -500,9 +504,15 @@ export const LocationPage: React.FC = () => {
   const lng = Number(params.get('lng'));
   const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
 
-  const { user } = useAuth();
+  const { user, profile: myProfile } = useAuth();
   const userId = user?.id ?? null;
   const { ratings, wishlist, lists, restaurantMeta } = useLists();
+  // The canonical source of the user's saved recipes — same store
+  // the Pantry's home-cooking section reads from. Prior version was
+  // pulling from `lists[].recipes` (a legacy attach point that's
+  // empty in practice) so the chat saw zero recipes and refused to
+  // answer recipe questions.
+  const { myRecipes } = useRecipes();
 
   const cityKey = useMemo(() => cityKeyFromLabel(label), [label]);
   const cityDisplay = useMemo(() => {
@@ -1619,6 +1629,357 @@ export const LocationPage: React.FC = () => {
     }
   }, [selectedMarkerPlace, visible]);
 
+  // ── AI chatbot context: personalize from the user's data ─────────
+  // Pull a city + region tag out of a Google-formatted address so the
+  // chat's user-context lines say "Boston, MA" instead of just an
+  // unparseable street. Falls through to the full address when the
+  // shape is unfamiliar. Used for ratings + wishlist entries whose
+  // restaurant_meta hasn't been backfilled yet (meta is lazy-loaded
+  // when the user views the detail page, so older entries are bare).
+  const cityFromAddress = (address: string | undefined | null): string => {
+    if (!address) return '';
+    const parts = address.split(',').map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0];
+    if (parts.length === 2) return parts.join(', ');
+    // 3+ parts: drop the street (first), keep city + state/region
+    // (next two). e.g. "200 Berkeley St, Boston, MA 02116" -> "Boston, MA 02116".
+    return parts.slice(1, 3).join(', ');
+  };
+  // Inlined into the system prompt every turn so Claude can weight
+  // recommendations toward the user's taste history, friends, and
+  // followed experts. Strictly read-only — same data already shown
+  // throughout the app, just packaged for the model.
+  const chatUserContext = useMemo(() => {
+    const ctx: {
+      displayName?: string;
+      username?: string;
+      homeCity?: string;
+      topCuisines?: string[];
+      topRated?: Array<{ name: string; score?: number; cuisine?: string; neighborhood?: string }>;
+      wishlist?: Array<{ name: string; cuisine?: string; neighborhood?: string }>;
+      recipes?: Array<{ title: string; cuisine?: string }>;
+      friends?: Array<{ displayName: string; username?: string }>;
+      followedExperts?: Array<{ displayName: string; username?: string; bio?: string }>;
+      circleSignals?: Array<{ restaurantId: string; friendCount?: number; expertCount?: number }>;
+    } = {};
+    if (myProfile?.display_name) ctx.displayName = myProfile.display_name;
+    if (myProfile?.username) ctx.username = myProfile.username;
+    if (myProfile?.home_city) ctx.homeCity = myProfile.home_city;
+    if (profile.topCuisines.length > 0) ctx.topCuisines = profile.topCuisines.slice(0, 6);
+    // Send ALL ratings (up to 50), sorted by score desc. Previous
+    // 8-item cap caused the chat to confidently say "you have no
+    // Boston ratings" when the user's Boston picks happened to
+    // score below their top 8. Address comes off the rating row
+    // itself (not the lazy-loaded restaurant_meta) so the city is
+    // always present — meta-backed neighborhood is preferred when
+    // it's there for the richer "Beacon Hill, Boston" form.
+    if (ratings.length > 0) {
+      const sorted = [...ratings].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 50);
+      ctx.topRated = sorted.map((r) => {
+        const meta = restaurantMeta[r.restaurantId];
+        const richLocation = meta
+          ? formatLocationLabel(meta.addressComponents, meta.address || r.address || '', meta.neighborhood)
+          : '';
+        const location = richLocation || cityFromAddress(r.address);
+        return {
+          id: r.restaurantId,
+          name: r.name || meta?.name || 'Unnamed',
+          score: typeof r.score === 'number' ? r.score : undefined,
+          cuisine: r.cuisine || meta?.cuisine || undefined,
+          neighborhood: location || undefined,
+        };
+      });
+    }
+    // Wishlist — same treatment, capped at 30.
+    if (wishlist.length > 0) {
+      ctx.wishlist = wishlist.slice(0, 30).map((w) => {
+        const meta = restaurantMeta[w.restaurantId];
+        const richLocation = meta
+          ? formatLocationLabel(meta.addressComponents, meta.address || w.address || '', meta.neighborhood)
+          : '';
+        const location = richLocation || cityFromAddress(w.address);
+        return {
+          id: w.restaurantId,
+          name: w.name || meta?.name || 'Unnamed',
+          cuisine: w.cuisine || meta?.cuisine || undefined,
+          neighborhood: location || undefined,
+        };
+      });
+    }
+    // Recipes are nested under lists.
+    // Pull from useRecipes().myRecipes — the canonical Supabase-backed
+    // store the Pantry uses. Filter to "real" recipes only — anything
+    // with zero ingredients AND zero steps is almost certainly a stub
+    // (auto-imported / placeholder / accidentally-created entry whose
+    // title happens to be a restaurant name). Surfacing stubs makes
+    // the AI hallucinate when the user asks "what recipe should I
+    // cook" — it picks a stub and the card looks like a restaurant
+    // recommendation in disguise. Keep them out of the model's view.
+    if (myRecipes.length > 0) {
+      const seen = new Set<string>();
+      const recipes: Array<{ id: string; title: string; cuisine?: string; prepTime?: number; cookTime?: number; difficulty?: string; ingredientCount?: number; stepCount?: number }> = [];
+      for (const r of myRecipes) {
+        if (!r?.id || seen.has(r.id)) continue;
+        const ing = r.ingredients?.length || 0;
+        const stp = r.steps?.length || 0;
+        if (ing === 0 && stp === 0) continue;  // stub — skip
+        seen.add(r.id);
+        recipes.push({
+          id: r.id,
+          title: r.title || 'Untitled recipe',
+          cuisine: r.cuisine || undefined,
+          prepTime: r.prepTimeMinutes ?? undefined,
+          cookTime: r.cookTimeMinutes ?? undefined,
+          // Capitalise so the system-prompt line reads naturally
+          // ("Easy" / "Medium" / "Hard").
+          difficulty: r.difficulty
+            ? r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)
+            : undefined,
+          // Send counts so the AI can see at-a-glance whether a row
+          // is a substantial cooking recipe vs a thin metadata row.
+          ingredientCount: ing,
+          stepCount: stp,
+        });
+        if (recipes.length >= 30) break;
+      }
+      if (recipes.length > 0) ctx.recipes = recipes;
+    }
+    // Friends + followed experts come from areaFriendCandidates +
+    // areaExperts, both already loaded for the "Around <city>" rail.
+    if (areaFriendCandidates.length > 0) {
+      ctx.friends = areaFriendCandidates.slice(0, 10).map((f) => ({
+        displayName: f.display_name || f.username,
+        username: f.username,
+      }));
+    }
+    if (areaExperts.length > 0) {
+      ctx.followedExperts = areaExperts.slice(0, 8).map((e) => ({
+        displayName: e.display_name || e.username,
+        username: e.username,
+        bio: e.bio || undefined,
+      }));
+    }
+    // Circle ratings on the visible pool. Only include places that
+    // have at least one friend or expert hit so the array stays tight.
+    if (visible.length > 0 && (friendCounts.size > 0 || expertCounts.size > 0)) {
+      const sig: Array<{ restaurantId: string; friendCount?: number; expertCount?: number }> = [];
+      for (const p of visible.slice(0, 30)) {
+        const fc = friendCounts.get(p.id) || 0;
+        const ec = expertCounts.get(p.id) || 0;
+        if (fc > 0 || ec > 0) sig.push({
+          restaurantId: p.id,
+          friendCount: fc || undefined,
+          expertCount: ec || undefined,
+        });
+      }
+      if (sig.length > 0) ctx.circleSignals = sig;
+    }
+    return ctx;
+  }, [myProfile, profile.topCuisines, ratings, wishlist, lists, restaurantMeta, areaFriendCandidates, areaExperts, friendCounts, expertCounts, visible]);
+
+  // Synthesize minimal ScoredPlace objects for every restaurant the
+  // user has rated or wishlisted. Passed to LocationChat so its card
+  // lookup can render cards for places outside the visible[] / pool
+  // (e.g. Plénitude in Paris when the user is browsing New York).
+  // We don't have lat/lng or Google types on rating rows — they're
+  // only needed for the in-pool recommendation scoring, not for
+  // chat-card rendering, so neutral values are fine.
+  const chatKnownPlaces = useMemo<ScoredPlace[]>(() => {
+    const seen = new Set<string>();
+    const out: ScoredPlace[] = [];
+    const push = (id: string, name: string, score: number, cuisine: string, address: string, image: string) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      out.push({
+        id,
+        name: name || 'Unnamed',
+        rating: score > 0 ? score / 2 : 0, // app's 0-10 -> Google's 0-5
+        types: [],
+        priceLevel: 0,
+        address: address || '',
+        fullAddress: address || '',
+        photoUrl: image || null,
+        userRatingCount: 0,
+        lat: 0,
+        lng: 0,
+        recScore: score,
+        sources: ['google'],
+        // Keep the canonical cuisine string from the rating row so
+        // the chat card can show it even though `types` is empty.
+        // (LocationChat falls back to this when inferCuisineLabel
+        // returns nothing.)
+        // @ts-expect-error - extra field for chat use only
+        cuisineHint: cuisine || '',
+      });
+    };
+    for (const r of ratings) push(r.restaurantId, r.name, r.score, r.cuisine, r.address, r.image);
+    for (const w of wishlist) push(w.restaurantId, w.name, 0, w.cuisine, w.address, w.image);
+    return out;
+  }, [ratings, wishlist]);
+
+  // De-duped + stub-filtered list of every Recipe the user owns.
+  // Passed to LocationChat as the recipe-card lookup table. Same
+  // 0-ingredients-AND-0-steps stub filter as the system-prompt
+  // context above so cards can't render for placeholder entries
+  // either (and if the AI ever tries to recommend one of those ids,
+  // the lookup misses and the "Recipe not found in your saved list"
+  // fallback shows instead of a misleading restaurant-name card).
+  const chatRecipesAll = useMemo(() => {
+    const seen = new Set<string>();
+    const out: typeof myRecipes = [];
+    for (const r of myRecipes) {
+      if (!r?.id || seen.has(r.id)) continue;
+      const ing = r.ingredients?.length || 0;
+      const stp = r.steps?.length || 0;
+      if (ing === 0 && stp === 0) continue;
+      seen.add(r.id);
+      out.push(r);
+    }
+    return out;
+  }, [myRecipes]);
+
+  // ── Chat-tool: lookup other users by name / handle ───────────────
+  // Wired to Claude's lookup_user tool. Returns up to 5 public
+  // profiles via the existing searchUsersByUsername helper.
+  const handleLookupUser = useCallback(async (query: string) => {
+    const q = query.trim();
+    if (!q) return [];
+    try {
+      const profiles = await searchUsersByUsername(q, userId || '');
+      return profiles.slice(0, 5).map((p) => ({
+        username: p.username,
+        displayName: p.display_name || p.username,
+        bio: p.bio || undefined,
+        isExpert: !!p.is_expert,
+        homeCity: p.home_city || undefined,
+      }));
+    } catch (err) {
+      console.error('[LocationPage] handleLookupUser error:', err);
+      return [];
+    }
+  }, [userId]);
+
+  // ── Chat-tool: who in the user's circle rated this restaurant? ──
+  // Wired to Claude's get_circle_ratings tool. Reads from the same
+  // signals.communityByRestaurant map the recommendation engine
+  // already populates (all friend + expert ratings, not just for
+  // visible places). Profiles for raters that aren't already in the
+  // areaExperts / areaFriendCandidates pools are fetched lazily via
+  // getProfilesByIds. Returns a shape the chat can stash so any
+  // names Claude mentions auto-link to their profile.
+  const handleGetCircleRatings = useCallback(async (restaurantId: string) => {
+    const id = restaurantId.trim();
+    if (!id) return [];
+    const ratings = signals.communityByRestaurant.get(id) || [];
+    if (ratings.length === 0) return [];
+    // Build a profile lookup using what's already loaded for the page…
+    const profiles: Record<string, UserProfile> = {};
+    for (const e of areaExperts) profiles[e.user_id] = e;
+    for (const f of areaFriendCandidates) profiles[f.user_id] = f;
+    // …then fetch any raters we don't have profiles for yet.
+    const allUserIds: string[] = ratings.map((r) => r.user_id);
+    const missing: string[] = Array.from(new Set(allUserIds))
+      .filter((uid) => !profiles[uid]);
+    if (missing.length > 0) {
+      try {
+        const fetched = await getProfilesByIds(missing);
+        Object.assign(profiles, fetched);
+      } catch (err) {
+        console.error('[LocationPage] handleGetCircleRatings profile fetch error:', err);
+      }
+    }
+    return ratings.map((r) => {
+      const p = profiles[r.user_id];
+      return {
+        username: p?.username || '',
+        displayName: p?.display_name || p?.username || 'Unknown',
+        isExpert: signals.expertUserIds.has(r.user_id),
+        isFriend: signals.friendUserIds.has(r.user_id),
+        score: typeof r.score === 'number' ? r.score : undefined,
+        notes: r.notes || undefined,
+      };
+    });
+  }, [signals, areaExperts, areaFriendCandidates]);
+
+  // ── Chat-tool: free-text search for the AI assistant ─────────────
+  // Bound to the LocationChat's onSearchRestaurants prop. When the
+  // model can't find what the user asked for in its system-prompt
+  // pool, it calls search_restaurants and this fires a Google Places
+  // text search anchored to the city. Single page (≤20 hits) for
+  // chat responsiveness — Claude only needs enough to pick 3-5
+  // recommendations from. Deduped against seenIdsRef and appended
+  // to placesPool so anything that passes the user's current filters
+  // also surfaces in the list / map; anything outside the filters
+  // lives only in the chat's local map.
+  const handleChatSearch = useCallback(async (query: string, city?: string): Promise<ScoredPlace[]> => {
+    const q = query.trim();
+    if (!q) return [];
+    try {
+      const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
+      // Resolve which city to search in. When Claude passes a city
+      // different from the page's current one (e.g. "Felice in
+      // Westport, CT" after a web_search), geocode it via Mapbox and
+      // search that bbox instead of the page's lat/lng. Falls back
+      // gracefully to the current city if geocoding fails.
+      let anchor: { lat: number; lng: number; radiusMeters: number } | null = null;
+      const targetCity = city?.trim();
+      const currentCityKey = shortCityName.toLowerCase();
+      const isOtherCity = !!targetCity && targetCity.toLowerCase() !== currentCityKey;
+      if (isOtherCity) {
+        try {
+          const geocoded = await geocodePlace(targetCity!);
+          if (geocoded) {
+            anchor = {
+              lat: geocoded.lat,
+              lng: geocoded.lng,
+              // ~12 mi — wider than the per-city default so a single
+              // text query like "burger spot" inside Westport actually
+              // covers the whole town.
+              radiusMeters: 19312,
+            };
+          }
+        } catch {
+          // ignore — fall through to current-city anchor below
+        }
+      }
+      if (!anchor) {
+        if (!hasCoords) return [];
+        anchor = { lat, lng, radiusMeters };
+      }
+      // When searching another city, embed the city in the query
+      // string too — gives Google's ranker the extra location bias.
+      const finalQuery = isOtherCity ? `${q} in ${targetCity}` : q;
+      const res = await searchPlacesByTextPaged(finalQuery, {
+        lat: anchor.lat,
+        lng: anchor.lng,
+        radiusMeters: anchor.radiusMeters,
+        useRestriction: true,
+        priceLevels,
+      });
+      const fresh: PlaceResult[] = [];
+      for (const p of res.places) {
+        if (seenIdsRef.current.has(p.id)) continue;
+        seenIdsRef.current.add(p.id);
+        fresh.push(p);
+      }
+      // Only append to the current city's pool when the search WAS
+      // for the current city — otherwise the user's list/map would
+      // start showing Westport spots while they're browsing NYC.
+      if (fresh.length > 0 && !isOtherCity) {
+        setPlacesPool((prev) => [...prev, ...fresh]);
+      }
+      return res.places.map<ScoredPlace>((p) => ({
+        ...p,
+        recScore: p.rating > 0 ? p.rating * 2 : 0,
+        sources: ['google'],
+      }));
+    } catch (err) {
+      console.error('[LocationPage] handleChatSearch error:', err);
+      return [];
+    }
+  }, [hasCoords, lat, lng, selectedPrice, radiusMeters, shortCityName]);
+
   // ── "Search this area" — exhaustive viewport-anchored fetch ────────
   // Derives the radius from the map's actual visible bounds (zoom in =
   // tight radius, zoom out = wider) and runs a broad query mix at the
@@ -2318,6 +2679,12 @@ export const LocationPage: React.FC = () => {
           sort: sortBy !== 'recommended' ? SORT_LABELS[sortBy] : undefined,
         }}
         origin={origin}
+        onSearchRestaurants={handleChatSearch}
+        onLookupUser={handleLookupUser}
+        onGetCircleRatings={handleGetCircleRatings}
+        userContext={chatUserContext}
+        recipes={chatRecipesAll}
+        knownPlaces={chatKnownPlaces}
       />
     </div>
   );

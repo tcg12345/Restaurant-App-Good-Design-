@@ -10,12 +10,17 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
+  ArrowLeft,
+  ChefHat,
   ChevronRight,
+  Clock,
   Loader2,
   MapPin,
+  Plus,
   RotateCw,
   Send,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -28,6 +33,7 @@ import {
 } from '../lib/places';
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import type { RestaurantMeta } from '../contexts/ListsContext';
+import type { Recipe } from '../contexts/RecipesContext';
 import type { ScoredPlace } from '../lib/recommendations';
 import {
   streamLocationChat,
@@ -35,6 +41,7 @@ import {
   type ContentBlock,
   type ChatFilters,
   type CompactRestaurant,
+  type UserContext,
 } from '../lib/location-chat-client';
 
 const GOOGLE_TYPE_TO_CUISINE_LABEL: Record<string, string> = (() => {
@@ -72,6 +79,47 @@ interface LocationChatProps {
   /** City coords for the distance line on cards (falls back to first
    *  visible place when absent). */
   origin: { lat: number; lng: number } | null;
+  /** Fetches fresh Google Places hits for a free-text query, anchored
+   *  to the user's current city by default. When `city` is supplied,
+   *  geocodes that city and searches there instead — lets Claude
+   *  turn web_search restaurant names into clickable card ids for
+   *  any city in the world, not just the page's current one. */
+  onSearchRestaurants: (query: string, city?: string) => Promise<ScoredPlace[]>;
+  /** All of the user's saved recipes (across every list). Used as
+   *  the lookup table when Claude calls recommend_recipes — same
+   *  pattern as placeById for restaurants. */
+  recipes: Recipe[];
+  /** Restaurants the user has rated or wishlisted that may not be in
+   *  the visible pool (e.g. a Paris restaurant when the page is
+   *  browsing New York). Augments placeById so the chat can render
+   *  cards + auto-link any of those names mentioned in prose. */
+  knownPlaces: ScoredPlace[];
+  /** Personalization context — user's taste, lists, friends, etc.
+   *  Shipped in the request body and inlined into the system prompt
+   *  so Claude can tailor recommendations. Optional; omit and the
+   *  chat works in 'cold' mode. */
+  userContext?: UserContext;
+  /** Looks up app users by username / display name (case-insensitive
+   *  substring). Returns up to 5 public profiles. Wired to Claude's
+   *  lookup_user tool. */
+  onLookupUser: (query: string) => Promise<Array<{
+    username: string;
+    displayName?: string;
+    bio?: string;
+    isExpert?: boolean;
+    homeCity?: string;
+  }>>;
+  /** Look up who in the user's circle (friends + followed experts)
+   *  rated a specific restaurant. Wired to Claude's get_circle_ratings
+   *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
+  onGetCircleRatings: (restaurantId: string) => Promise<Array<{
+    username: string;
+    displayName?: string;
+    isExpert?: boolean;
+    isFriend?: boolean;
+    score?: number;
+    notes?: string;
+  }>>;
 }
 
 interface UiMessage {
@@ -83,7 +131,17 @@ interface UiMessage {
 
 type UiBlock =
   | { type: 'text'; text: string }
-  | { type: 'cards'; toolUseId: string; placeIds: string[]; reason?: string };
+  | { type: 'cards'; toolUseId: string; placeIds: string[]; reason?: string }
+  | { type: 'recipe_cards'; toolUseId: string; recipeIds: string[]; reason?: string }
+  // Invisible: assistant's tool_use blocks we don't surface as cards
+  // (currently search_restaurants and lookup_user). Kept in messages
+  // state so the conversation can be reconstructed on the next API
+  // call without breaking Anthropic's "every tool_use needs a matching
+  // tool_result immediately after" rule.
+  | { type: 'tool_use'; toolUseId: string; toolName: string; input: unknown }
+  // Invisible: user-role tool_result blocks emitted between agentic
+  // turns. Stored on the user turn so the history round-trips cleanly.
+  | { type: 'tool_result'; toolUseId: string; content: string };
 
 /** Build the compact restaurant payload sent to the model. */
 function buildCompactRestaurants(
@@ -116,10 +174,192 @@ function buildCompactRestaurants(
   });
 }
 
+/** Find a place in the lookup map by case-insensitive exact name match. */
+interface InlineLinkable {
+  /** Lowercase pattern to match against (case-insensitive). For
+   *  users this includes both the display name and "@username" forms. */
+  pattern: string;
+  kind: 'place' | 'user';
+  /** Click handler — closes the chat then navigates. */
+  navigate: () => void;
+  /** CSS class suffix so users and places can render slightly
+   *  differently if desired. */
+  className: string;
+}
+
+const MARKDOWN_BOLD_RE = /(\*\*[^*\n]+\*\*)/g;
+const REGEX_ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
+
+/** Build the longest-first alternation regex for the linkable list.
+ *  Display names get \b…\b word-boundaries; "@username" patterns
+ *  use a leading "@" + trailing \b. Sort by pattern length so
+ *  "Joe's Pizza & Wings" beats "Joe's". */
+function buildLinkableRegex(items: InlineLinkable[]): RegExp | null {
+  if (items.length === 0) return null;
+  const seen = new Set<string>();
+  const unique = items.filter((it) => {
+    const k = it.pattern.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const sorted = [...unique].sort((a, b) => b.pattern.length - a.pattern.length);
+  const alternations = sorted.map((it) => {
+    const esc = it.pattern.replace(REGEX_ESCAPE_RE, '\\$&');
+    if (it.pattern.startsWith('@')) {
+      // username pattern: literal @ + bare word characters; need a
+      // trailing word-boundary so @joe doesn't match part of @joey.
+      return esc + '\\b';
+    }
+    return `\\b${esc}\\b`;
+  });
+  return new RegExp(`(${alternations.join('|')})`, 'gi');
+}
+
+function findLinkable(matched: string, items: InlineLinkable[]): InlineLinkable | null {
+  const norm = matched.toLowerCase();
+  for (const it of items) {
+    if (it.pattern.toLowerCase() === norm) return it;
+  }
+  return null;
+}
+
+/** Render an assistant text block:
+ *   - **bold** markdown becomes <strong> (or an inline link when the
+ *     bolded text is a known restaurant or user name).
+ *   - Plain-text restaurant + user names become inline links too —
+ *     so even when Claude forgets the markdown, mentions are still
+ *     clickable. Restaurants tap-through to the detail page; users
+ *     tap-through to their profile.
+ *  Links are styled as accent-tinted pills. */
+function renderAssistantText(
+  text: string,
+  linkables: InlineLinkable[],
+  linkRegex: RegExp | null,
+): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let key = 0;
+  const renderLink = (it: InlineLinkable, label: string) => (
+    <button
+      key={key++}
+      type="button"
+      className={it.className}
+      onClick={it.navigate}
+    >
+      {label}
+    </button>
+  );
+  const linkifyPlain = (segment: string): void => {
+    if (!segment) return;
+    if (!linkRegex) {
+      out.push(<React.Fragment key={key++}>{segment}</React.Fragment>);
+      return;
+    }
+    linkRegex.lastIndex = 0;
+    let lastEnd = 0;
+    let m: RegExpExecArray | null;
+    while ((m = linkRegex.exec(segment)) !== null) {
+      if (m.index > lastEnd) {
+        out.push(<React.Fragment key={key++}>{segment.slice(lastEnd, m.index)}</React.Fragment>);
+      }
+      const matched = m[0];
+      const it = findLinkable(matched, linkables);
+      if (it) out.push(renderLink(it, matched));
+      else out.push(<React.Fragment key={key++}>{matched}</React.Fragment>);
+      lastEnd = m.index + matched.length;
+      if (m.index === linkRegex.lastIndex) linkRegex.lastIndex++;
+    }
+    if (lastEnd < segment.length) {
+      out.push(<React.Fragment key={key++}>{segment.slice(lastEnd)}</React.Fragment>);
+    }
+  };
+
+  for (const part of text.split(MARKDOWN_BOLD_RE)) {
+    if (!part) continue;
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      const inner = part.slice(2, -2);
+      const exact = findLinkable(inner, linkables);
+      if (exact) out.push(renderLink(exact, inner));
+      else out.push(<strong key={key++}>{inner}</strong>);
+    } else {
+      linkifyPlain(part);
+    }
+  }
+  return out;
+}
+
 /** Strip the UI blocks back into the Anthropic content array we
- *  need to round-trip on the next request (we have to resend the
- *  assistant's full content including tool_use blocks so Claude
- *  can match up tool_result blocks we send in the follow-up). */
+ *  need to round-trip on the next request. We MUST resend the
+ *  assistant's full content (including tool_use blocks) AND the
+ *  user-role tool_result blocks that followed them, otherwise
+ *  Anthropic rejects the conversation with
+ *  "tool_use ids were found without tool_result blocks immediately
+ *  after".  */
+/** Walk the message history pair-wise and drop any tool_use /
+ *  tool_result that doesn't have its counterpart in the adjacent
+ *  message. Anthropic strictly requires that every tool_result in a
+ *  user turn has a matching tool_use in the IMMEDIATELY preceding
+ *  assistant turn, and vice versa — otherwise the API rejects the
+ *  request with 'tool_use ids were found without tool_result blocks'
+ *  or 'unexpected tool_use_id found in tool_result blocks'.
+ *
+ *  State and saved chats keep the full UI history (so the user still
+ *  sees their cards even if the protocol blocks went sideways); only
+ *  the wire payload sent to Anthropic is sanitised. Common triggers:
+ *  aborted streams, older saved chats from before tool_result
+ *  persistence was added, agentic-loop interruptions. */
+function sanitizeForAnthropic(messages: UiMessage[]): UiMessage[] {
+  const out: UiMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === 'assistant') {
+      // Tool_use ids in the next user turn (the only place a
+      // tool_result could legitimately match them).
+      const nextResultIds = new Set<string>();
+      const nextMsg = messages[i + 1];
+      if (nextMsg && nextMsg.role === 'user') {
+        for (const b of nextMsg.blocks) {
+          if (b.type === 'tool_result') nextResultIds.add(b.toolUseId);
+        }
+      }
+      const blocks = m.blocks.filter((b) => {
+        if (b.type === 'cards' || b.type === 'recipe_cards' || b.type === 'tool_use') {
+          return nextResultIds.has(b.toolUseId);
+        }
+        return true;
+      });
+      const hasContent = blocks.some((b) =>
+        (b.type === 'text' && !!b.text)
+        || (b.type === 'cards' && b.placeIds.length > 0)
+        || (b.type === 'recipe_cards' && b.recipeIds.length > 0)
+        || b.type === 'tool_use'
+      );
+      if (hasContent) out.push({ ...m, blocks });
+    } else {
+      // user — drop tool_results whose tool_use is not in the
+      // immediately preceding assistant turn.
+      const prevToolUseIds = new Set<string>();
+      const prevMsg = messages[i - 1];
+      if (prevMsg && prevMsg.role === 'assistant') {
+        for (const b of prevMsg.blocks) {
+          if (b.type === 'cards' || b.type === 'recipe_cards' || b.type === 'tool_use') {
+            prevToolUseIds.add(b.toolUseId);
+          }
+        }
+      }
+      const blocks = m.blocks.filter((b) => {
+        if (b.type === 'tool_result') return prevToolUseIds.has(b.toolUseId);
+        return true;
+      });
+      const hasContent = blocks.some((b) =>
+        (b.type === 'text' && !!b.text) || b.type === 'tool_result',
+      );
+      if (hasContent) out.push({ ...m, blocks });
+    }
+  }
+  return out;
+}
+
 function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
   const out: ContentBlock[] = [];
   for (const b of blocks) {
@@ -131,6 +371,26 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
         id: b.toolUseId,
         name: 'recommend_restaurants',
         input: { restaurant_ids: b.placeIds, reason: b.reason || '' },
+      });
+    } else if (b.type === 'recipe_cards') {
+      out.push({
+        type: 'tool_use',
+        id: b.toolUseId,
+        name: 'recommend_recipes',
+        input: { recipe_ids: b.recipeIds, reason: b.reason || '' },
+      });
+    } else if (b.type === 'tool_use') {
+      out.push({
+        type: 'tool_use',
+        id: b.toolUseId,
+        name: b.toolName,
+        input: b.input,
+      });
+    } else if (b.type === 'tool_result') {
+      out.push({
+        type: 'tool_result',
+        tool_use_id: b.toolUseId,
+        content: b.content,
       });
     }
   }
@@ -155,6 +415,93 @@ function buildSuggestions(shortCity: string, filters: ChatFilters): string[] {
 
 const MAX_AGENTIC_TURNS = 5;
 
+/* ── Chat history persistence ─────────────────────────────────────
+   Saved chats live in localStorage so they survive reloads + return
+   visits. Each conversation gets a stable id, a title derived from
+   the first user message, and the full UiMessage array (including
+   invisible tool_use / tool_result blocks so reopening can continue
+   the agentic conversation without breaking Anthropic's history
+   rules). chatPlaces — the search_restaurants result cache — is
+   snapshot too so cards inside an old chat still resolve. */
+
+interface SavedChat {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: UiMessage[];
+  chatPlaces: Record<string, ScoredPlace>;
+}
+
+const CHAT_STORAGE_KEY = 'lp-chat-history-v1';
+const MAX_SAVED_CHATS = 30;
+
+function loadSavedChats(): SavedChat[] {
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages));
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedChats(chats: SavedChat[]) {
+  const bounded = [...chats]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, MAX_SAVED_CHATS);
+  try {
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(bounded));
+  } catch {
+    // Quota exceeded — drop oldest one at a time until it fits.
+    let working = bounded;
+    while (working.length > 1) {
+      working = working.slice(0, -1);
+      try {
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(working));
+        return;
+      } catch { /* keep trimming */ }
+    }
+  }
+}
+
+/** Derive a chat title from the first user message in the conversation. */
+function deriveChatTitle(messages: UiMessage[]): string {
+  for (const m of messages) {
+    if (m.role !== 'user') continue;
+    for (const b of m.blocks) {
+      if (b.type === 'text' && b.text) {
+        const t = b.text.trim().replace(/\s+/g, ' ');
+        return t.length > 50 ? t.slice(0, 50).trimEnd() + '…' : t;
+      }
+    }
+  }
+  return 'New conversation';
+}
+
+/** Compact relative-time label for the history list. */
+function formatTimeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return 'Just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function countUserMessages(messages: UiMessage[]): number {
+  let n = 0;
+  for (const m of messages) {
+    if (m.role === 'user' && m.blocks.some((b) => b.type === 'text' && b.text)) n++;
+  }
+  return n;
+}
+
 export const LocationChat: React.FC<LocationChatProps> = ({
   visible,
   restaurantMeta,
@@ -162,6 +509,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   shortCityName,
   filters,
   origin,
+  onSearchRestaurants,
+  userContext,
+  onLookupUser,
+  onGetCircleRatings,
+  recipes,
+  knownPlaces,
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -171,6 +524,40 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Chat-local cache for places returned by the search_restaurants
+  // tool — they may fall outside the user's current filters (whole
+  // point of the tool) so we need somewhere to render cards from
+  // regardless of visible[]. Keys are place ids.
+  const [chatPlaces, setChatPlaces] = useState<Record<string, ScoredPlace>>({});
+
+  // Chat-local cache for users surfaced via lookup_user or
+  // get_circle_ratings during this conversation. Augments the
+  // friend / expert lists from userContext when scanning prose for
+  // inline @username / display-name links.
+  const [chatKnownUsers, setChatKnownUsers] = useState<Record<string, { username: string; displayName?: string }>>({});
+
+  // ── Chat history ────────────────────────────────────────────────
+  // `view` swaps between the live conversation and the saved-chats
+  // list. `currentChatId` tracks which saved chat (if any) the
+  // current messages belong to — null = unsaved new chat. Sending
+  // the first message auto-creates the id; auto-save persists every
+  // subsequent change. The savedChats list is loaded once on mount
+  // and kept in lockstep with localStorage.
+  const [view, setView] = useState<'chat' | 'history'>('chat');
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [savedChats, setSavedChats] = useState<SavedChat[]>(() => loadSavedChats());
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Desktop drag — repositions the island. Resize is handled by
+  // the browser's native CSS `resize: both` on the island element
+  // (more reliable than wiring our own mousedown listener through
+  // the foot / send-button stack). Position is computed once when
+  // the chat first opens so it lands in its anchored bottom-right
+  // spot, then is fully user-controlled from there. Phone mode
+  // skips drag entirely — the bottom sheet animation handles itself.
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; startLeft: number; startTop: number } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -203,6 +590,135 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     abortRef.current?.abort();
   }, []);
 
+  // Always land in the live-chat view when the panel opens —
+  // history view is a navigation destination, not a default.
+  useEffect(() => {
+    if (open) setView('chat');
+  }, [open]);
+
+  // Auto-save the current conversation on any change. Debounced so
+  // streaming text deltas don't trigger one localStorage write per
+  // token; one save fires ~600ms after activity settles. On the
+  // first message we mint an id and adopt it as currentChatId so
+  // subsequent saves update the same row.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      let id = currentChatId;
+      if (!id) {
+        id = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        setCurrentChatId(id);
+      }
+      setSavedChats((prev) => {
+        const now = Date.now();
+        const idx = prev.findIndex((c) => c.id === id);
+        const updated: SavedChat = {
+          id: id!,
+          title: deriveChatTitle(messages),
+          createdAt: idx >= 0 ? prev[idx].createdAt : now,
+          updatedAt: now,
+          messages,
+          chatPlaces,
+        };
+        const next = idx >= 0
+          ? prev.map((c, i) => (i === idx ? updated : c))
+          : [updated, ...prev];
+        persistSavedChats(next);
+        return next;
+      });
+    }, 600);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [messages, chatPlaces, currentChatId]);
+
+  // History-feature handlers.
+  const handleNewChat = useCallback(() => {
+    abortRef.current?.abort();
+    // The auto-save effect already snapshotted any messages we had
+    // here, so it's safe to wipe local state.
+    setMessages([]);
+    setChatPlaces({});
+    setChatKnownUsers({});
+    setCurrentChatId(null);
+    setError(null);
+    setView('chat');
+    setStreaming(false);
+  }, []);
+
+  const handleSelectChat = useCallback((chat: SavedChat) => {
+    abortRef.current?.abort();
+    setMessages(chat.messages);
+    setChatPlaces(chat.chatPlaces || {});
+    // Reset the user-link cache on chat switch — friends/experts from
+    // userContext still linkify; only mid-conversation lookups are lost.
+    setChatKnownUsers({});
+    setCurrentChatId(chat.id);
+    setError(null);
+    setStreaming(false);
+    setView('chat');
+  }, []);
+
+  const handleDeleteChat = useCallback((id: string) => {
+    setSavedChats((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      persistSavedChats(next);
+      return next;
+    });
+    if (currentChatId === id) {
+      // The user just deleted the conversation they're currently in
+      // — drop into a fresh empty chat so they can start over.
+      setMessages([]);
+      setChatPlaces({});
+      setCurrentChatId(null);
+      setError(null);
+    }
+  }, [currentChatId]);
+
+  // Compute the initial desktop position when the chat first opens —
+  // bottom-right with a 24px gutter, sized to match the CSS defaults
+  // (400 × 560). Once positioned, drag is in charge.
+  useEffect(() => {
+    if (!open || phoneMode || pos) return;
+    setPos({
+      left: Math.max(16, window.innerWidth - 400 - 24),
+      top: Math.max(16, window.innerHeight - 560 - 24),
+    });
+  }, [open, phoneMode, pos]);
+
+  // Drag the header to reposition. Mouse events on the document let
+  // the drag continue when the cursor leaves the island bounds.
+  const onHeaderMouseDown = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    if (phoneMode || !pos) return;
+    // Ignore clicks that originated on a button (the close X, etc.)
+    // so those keep working as normal click targets.
+    if ((e.target as HTMLElement).closest('button')) return;
+    e.preventDefault();
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startLeft: pos.left,
+      startTop: pos.top,
+    };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      setPos({
+        left: Math.max(0, Math.min(window.innerWidth - 80, dragRef.current.startLeft + dx)),
+        top: Math.max(0, Math.min(window.innerHeight - 60, dragRef.current.startTop + dy)),
+      });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [phoneMode, pos]);
+
   const suggestions = useMemo(
     () => buildSuggestions(shortCityName, filters),
     [shortCityName, filters],
@@ -210,9 +726,26 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
   const placeById = useMemo(() => {
     const m = new Map<string, ScoredPlace>();
+    // visible first (canonical / filtered list)…
     for (const p of visible) m.set(p.id, p);
+    // …then chatPlaces (search_restaurants results)…
+    for (const id in chatPlaces) {
+      if (!m.has(id)) m.set(id, chatPlaces[id]);
+    }
+    // …then knownPlaces (synthesized from the user's rated +
+    // wishlisted restaurants so cards / inline links resolve for any
+    // place they've personally logged, even cross-city).
+    for (const p of knownPlaces) {
+      if (!m.has(p.id)) m.set(p.id, p);
+    }
     return m;
-  }, [visible]);
+  }, [visible, chatPlaces, knownPlaces]);
+
+  const recipeById = useMemo(() => {
+    const m = new Map<string, Recipe>();
+    for (const r of recipes) if (r?.id) m.set(r.id, r);
+    return m;
+  }, [recipes]);
 
   const handleNavigateRestaurant = useCallback((id: string) => {
     setOpen(false);
@@ -220,6 +753,68 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     // chance to play before the route swap.
     setTimeout(() => navigate(`/restaurant/${id}`), 60);
   }, [navigate]);
+
+  const handleNavigateRecipe = useCallback((id: string) => {
+    setOpen(false);
+    setTimeout(() => navigate(`/recipe/${id}`), 60);
+  }, [navigate]);
+
+  const handleNavigateUser = useCallback((username: string) => {
+    setOpen(false);
+    setTimeout(() => navigate(`/user/${username}`), 60);
+  }, [navigate]);
+
+  // Combined linkable set for the assistant-text renderer. Includes
+  // every known restaurant (visible + chatPlaces + knownPlaces from
+  // the rated/wishlist synth) AND every known user (friends +
+  // followed experts from userContext + anyone Claude has surfaced
+  // mid-conversation via lookup_user / get_circle_ratings).
+  const linkables = useMemo<InlineLinkable[]>(() => {
+    const items: InlineLinkable[] = [];
+    // Places — match restaurant name; tap-through to detail page.
+    for (const p of placeById.values()) {
+      if (!p.name || p.name.length < 3) continue;
+      items.push({
+        pattern: p.name,
+        kind: 'place',
+        navigate: () => handleNavigateRestaurant(p.id),
+        className: 'lp-chat-inline-link',
+      });
+    }
+    // Users — both '@username' and 'Display Name' patterns route to
+    // the same profile page. Deduped by username so a name doesn't
+    // get added once from userContext and once from chatKnownUsers.
+    const userMap = new Map<string, { username: string; displayName?: string }>();
+    for (const f of userContext?.friends || []) {
+      if (f.username) userMap.set(f.username, { username: f.username, displayName: f.displayName });
+    }
+    for (const e of userContext?.followedExperts || []) {
+      if (e.username) userMap.set(e.username, { username: e.username, displayName: e.displayName });
+    }
+    for (const k in chatKnownUsers) {
+      if (!userMap.has(k)) userMap.set(k, chatKnownUsers[k]);
+    }
+    for (const u of userMap.values()) {
+      items.push({
+        pattern: '@' + u.username,
+        kind: 'user',
+        navigate: () => handleNavigateUser(u.username),
+        className: 'lp-chat-inline-link is-user',
+      });
+      if (u.displayName && u.displayName.length >= 3 && u.displayName.toLowerCase() !== u.username.toLowerCase()) {
+        items.push({
+          pattern: u.displayName,
+          kind: 'user',
+          navigate: () => handleNavigateUser(u.username),
+          className: 'lp-chat-inline-link is-user',
+        });
+      }
+    }
+    return items;
+  }, [placeById, userContext, chatKnownUsers, handleNavigateRestaurant, handleNavigateUser]);
+
+  // One pre-built regex for everything — O(text length) per render.
+  const linkRegex = useMemo(() => buildLinkableRegex(linkables), [linkables]);
 
   const sendTurn = useCallback(async (userText: string) => {
     setError(null);
@@ -234,9 +829,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     // gets a stable system block within the same filter state).
     const restaurantsForModel = buildCompactRestaurants(visible, restaurantMeta, origin);
 
-    // Build the message history we'll send. We always send the full
-    // history (so Claude has context) plus the new user turn.
-    const baseHistory: AnthropicMessage[] = messages.map((m) => ({
+    // Build the message history we'll send. Sanitize first — drop
+    // any orphan tool_use / tool_result blocks left over from old
+    // saved chats, aborted streams, or other state hiccups. The UI
+    // state itself stays untouched (so the user keeps seeing their
+    // cards); only the wire payload is cleaned.
+    const cleanedMessages = sanitizeForAnthropic(messages);
+    const baseHistory: AnthropicMessage[] = cleanedMessages.map((m) => ({
       role: m.role,
       content: uiBlocksToAnthropicContent(m.blocks),
     }));
@@ -260,20 +859,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     // The agentic loop: keep round-tripping with tool_results until
     // Claude stops calling tools or we hit the safety cap.
     let convo: AnthropicMessage[] = [...baseHistory, userTurn];
-    let pendingToolResults: ContentBlock[] = [];
 
     try {
       for (let turn = 0; turn < MAX_AGENTIC_TURNS; turn++) {
-        // If we have tool_results from the previous turn, add a user
-        // turn carrying them BEFORE the next stream.
-        if (pendingToolResults.length > 0) {
-          convo = [...convo, { role: 'user', content: pendingToolResults }];
-          pendingToolResults = [];
-        }
-
         const assistantBlocks: UiBlock[] = [];
         let textBlockOpen = false;
-        const toolUsesInThisTurn: Array<{ id: string; placeIds: string[]; reason: string }> = [];
+        // Every tool_use Claude emits in this streamed message —
+        // recommend_restaurants AND search_restaurants. We process
+        // them all after 'done' so we can await the search ones.
+        const toolUsesInThisTurn: Array<{ id: string; name: string; input: unknown }> = [];
 
         const stream = streamLocationChat(
           {
@@ -281,22 +875,23 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             restaurants: restaurantsForModel,
             filters,
             city: cityDisplay,
+            userContext,
           },
           controller.signal,
         );
 
+        let streamReachedDone = false;
+        let modelCalledTools = false;
+
         for await (const ev of stream) {
           if (controller.signal.aborted) break;
           if (ev.type === 'text_delta') {
-            // Append to (or open) the trailing text block of the
-            // current assistant turn.
             if (!textBlockOpen) {
               assistantBlocks.push({ type: 'text', text: '' });
               textBlockOpen = true;
             }
             const last = assistantBlocks[assistantBlocks.length - 1];
             if (last.type === 'text') last.text += ev.delta;
-            // Mirror to UI by replacing the trailing assistant turn.
             setMessages((prev) => {
               const next = [...prev];
               next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
@@ -304,56 +899,49 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             });
           } else if (ev.type === 'tool_use') {
             textBlockOpen = false;
+            toolUsesInThisTurn.push({ id: ev.id, name: ev.name, input: ev.input });
             if (ev.name === 'recommend_restaurants') {
+              // Render cards immediately — no need to wait for 'done'.
               const input = (ev.input || {}) as { restaurant_ids?: string[]; reason?: string };
               const placeIds = Array.isArray(input.restaurant_ids)
                 ? input.restaurant_ids.filter((id): id is string => typeof id === 'string')
                 : [];
               const reason = typeof input.reason === 'string' ? input.reason : '';
-              assistantBlocks.push({
-                type: 'cards',
-                toolUseId: ev.id,
-                placeIds,
-                reason,
-              });
-              toolUsesInThisTurn.push({ id: ev.id, placeIds, reason });
+              assistantBlocks.push({ type: 'cards', toolUseId: ev.id, placeIds, reason });
               setMessages((prev) => {
                 const next = [...prev];
                 next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
                 return next;
               });
+            } else if (ev.name === 'recommend_recipes') {
+              const input = (ev.input || {}) as { recipe_ids?: string[]; reason?: string };
+              const recipeIds = Array.isArray(input.recipe_ids)
+                ? input.recipe_ids.filter((id): id is string => typeof id === 'string')
+                : [];
+              const reason = typeof input.reason === 'string' ? input.reason : '';
+              assistantBlocks.push({ type: 'recipe_cards', toolUseId: ev.id, recipeIds, reason });
+              setMessages((prev) => {
+                const next = [...prev];
+                next[next.length - 1] = { role: 'assistant', blocks: [...assistantBlocks] };
+                return next;
+              });
+            } else {
+              // search_restaurants (or any future invisible tool) —
+              // record the tool_use so the assistant turn round-trips
+              // correctly. Card-less / no UI surface.
+              assistantBlocks.push({
+                type: 'tool_use',
+                toolUseId: ev.id,
+                toolName: ev.name,
+                input: ev.input,
+              });
             }
           } else if (ev.type === 'done') {
-            // End of one streamed message. If the model called any
-            // tools we need to round-trip with tool_results.
-            if (toolUsesInThisTurn.length > 0) {
-              // Add the assistant turn (with its tool_use blocks) to convo.
-              convo = [
-                ...convo,
-                { role: 'assistant', content: uiBlocksToAnthropicContent(assistantBlocks) },
-              ];
-              for (const tu of toolUsesInThisTurn) {
-                // Cards have already been rendered client-side; the
-                // tool_result just confirms.
-                pendingToolResults.push({
-                  type: 'tool_result',
-                  tool_use_id: tu.id,
-                  content: tu.placeIds.length > 0
-                    ? `Rendered ${tu.placeIds.length} restaurant card(s) to the user.`
-                    : 'No matching restaurant ids — please try different ones.',
-                });
-              }
-              // Open a fresh assistant turn for the next stream's text.
-              setMessages((prev) => [...prev, { role: 'assistant', blocks: [] }]);
-            } else {
-              // Final answer — exit the agentic loop.
-              return;
-            }
-            break; // exit for-await, top-of-loop processes pendingToolResults.
+            streamReachedDone = true;
+            modelCalledTools = toolUsesInThisTurn.length > 0;
+            break;
           } else if (ev.type === 'error') {
             setError(ev.message);
-            // Drop the trailing empty assistant turn if there's
-            // nothing in it; otherwise keep the partial.
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               if (last?.role === 'assistant' && last.blocks.length === 0) {
@@ -364,6 +952,178 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             return;
           }
         }
+
+        if (!streamReachedDone) {
+          // Stream cut off without a 'done' event (likely an abort).
+          return;
+        }
+        if (!modelCalledTools) {
+          // Final answer — exit the agentic loop.
+          return;
+        }
+
+        // Process every tool use Claude emitted this turn, generating
+        // a tool_result content string for each. recommend_restaurants
+        // is a no-op confirm. search_restaurants actually does work:
+        // hits Google Places via the parent's callback, dedupes into
+        // chatPlaces (so the cards Claude renders next still resolve),
+        // and returns a compact id-keyed listing back to Claude.
+        const toolResultsForApi: ContentBlock[] = [];
+        const toolResultsForUi: UiBlock[] = [];
+        for (const tu of toolUsesInThisTurn) {
+          let content = '';
+          if (tu.name === 'recommend_restaurants') {
+            const input = (tu.input || {}) as { restaurant_ids?: string[] };
+            const ids = Array.isArray(input.restaurant_ids) ? input.restaurant_ids : [];
+            content = ids.length > 0
+              ? `Rendered ${ids.length} restaurant card(s) for the user.`
+              : 'No restaurant ids provided.';
+          } else if (tu.name === 'recommend_recipes') {
+            const input = (tu.input || {}) as { recipe_ids?: string[] };
+            const ids = Array.isArray(input.recipe_ids) ? input.recipe_ids : [];
+            // Filter out ids the user doesn't actually own so we can
+            // tell Claude what stuck vs what was a hallucination.
+            const valid = ids.filter((id) => recipeById.has(id));
+            const invalid = ids.filter((id) => !recipeById.has(id));
+            if (valid.length === 0 && invalid.length === 0) {
+              content = 'No recipe ids provided.';
+            } else if (valid.length === 0) {
+              content = `None of the recipe ids matched the user's saved recipes (${invalid.join(', ')}). Don't fabricate — only use ids from the RECIPES section of the system prompt.`;
+            } else if (invalid.length > 0) {
+              content = `Rendered ${valid.length} recipe card(s) for the user. Skipped ${invalid.length} unknown id(s): ${invalid.join(', ')}.`;
+            } else {
+              content = `Rendered ${valid.length} recipe card(s) for the user.`;
+            }
+          } else if (tu.name === 'lookup_user') {
+            const input = (tu.input || {}) as { query?: string };
+            const query = (input.query || '').trim();
+            if (!query) {
+              content = 'No query provided to lookup_user.';
+            } else {
+              try {
+                const hits = await onLookupUser(query);
+                if (!hits || hits.length === 0) {
+                  content = `No users matched "${query}". Tell the user honestly that you couldn't find that person.`;
+                } else {
+                  // Stash for inline-link rendering so any names
+                  // Claude mentions in its reply auto-link.
+                  setChatKnownUsers((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) {
+                      if (h.username) next[h.username] = { username: h.username, displayName: h.displayName };
+                    }
+                    return next;
+                  });
+                  const lines = hits.slice(0, 5).map((h, i) => {
+                    const flag = h.isExpert ? ' [expert]' : '';
+                    const bits = [h.displayName || h.username, h.username ? `@${h.username}` : null, h.homeCity, h.bio]
+                      .filter(Boolean)
+                      .join(' · ');
+                    return `${i + 1}. ${bits}${flag}`;
+                  }).join('\n');
+                  content = `Found ${hits.length} user(s) matching "${query}":\n${lines}\n\nMention them by name in your reply — names will auto-link to their profiles.`;
+                }
+              } catch (err) {
+                content = `User lookup for "${query}" failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'get_circle_ratings') {
+            const input = (tu.input || {}) as { restaurant_id?: string };
+            const rid = (input.restaurant_id || '').trim();
+            if (!rid) {
+              content = 'No restaurant_id provided to get_circle_ratings.';
+            } else {
+              try {
+                const hits = await onGetCircleRatings(rid);
+                if (!hits || hits.length === 0) {
+                  content = 'No one in the user\'s circle has rated this restaurant. Tell the user plainly.';
+                } else {
+                  setChatKnownUsers((prev) => {
+                    const next = { ...prev };
+                    for (const h of hits) {
+                      if (h.username) next[h.username] = { username: h.username, displayName: h.displayName };
+                    }
+                    return next;
+                  });
+                  const lines = hits.map((h, i) => {
+                    const role = h.isExpert ? 'expert' : h.isFriend ? 'friend' : 'community';
+                    const score = typeof h.score === 'number' ? `${h.score.toFixed(1)}/10` : '—';
+                    const handle = h.username ? `@${h.username}` : '';
+                    const noteSnippet = h.notes ? ` "${h.notes.slice(0, 60).trim()}${h.notes.length > 60 ? '…' : ''}"` : '';
+                    return `${i + 1}. ${h.displayName || h.username} ${handle ? `(${handle})` : ''} — ${role} — ${score}${noteSnippet}`;
+                  }).join('\n');
+                  content = `${hits.length} member${hits.length === 1 ? '' : 's'} of the user's circle rated this restaurant:\n${lines}\n\nMention them by name in your reply — names will auto-link to their profiles.`;
+                }
+              } catch (err) {
+                content = `Circle-ratings lookup failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'search_restaurants') {
+            const input = (tu.input || {}) as { query?: string; city?: string };
+            const query = (input.query || '').trim();
+            const city = (input.city || '').trim() || undefined;
+            if (!query) {
+              content = 'No query provided to search_restaurants.';
+            } else {
+              try {
+                const found = await onSearchRestaurants(query, city);
+                if (!found || found.length === 0) {
+                  const where = city ? ` in ${city}` : '';
+                  content = `Search for "${query}"${where} returned no results. Tell the user honestly that you couldn't find anything matching that ask.`;
+                } else {
+                  // Stash for the card-lookup map so any IDs Claude
+                  // recommends from this batch still render.
+                  setChatPlaces((prev) => {
+                    const next = { ...prev };
+                    for (const p of found) next[p.id] = p;
+                    return next;
+                  });
+                  const lines = found.slice(0, 10).map((p, i) => {
+                    const cuisine = inferCuisineLabel(p.types);
+                    const price = priceLevelToString(p.priceLevel);
+                    const score = p.rating > 0 ? `${(p.rating * 2).toFixed(1)}/10` : '';
+                    const meta = [cuisine, price, score].filter(Boolean).join(' · ');
+                    return `${i + 1}. ${p.name}  (id: ${p.id})  ${meta}`;
+                  }).join('\n');
+                  content = `Search for "${query}" returned ${Math.min(found.length, 10)} matches:\n${lines}\n\nRecommend any of these via recommend_restaurants — their cards will render even though they're outside the user's current filters.`;
+                }
+              } catch (err) {
+                content = `Search for "${query}" failed: ${err instanceof Error ? err.message : 'unknown error'}. Don't retry the same query.`;
+              }
+            }
+          } else {
+            content = `Unknown tool "${tu.name}".`;
+          }
+          toolResultsForApi.push({
+            type: 'tool_result',
+            tool_use_id: tu.id,
+            content,
+          });
+          toolResultsForUi.push({
+            type: 'tool_result',
+            toolUseId: tu.id,
+            content,
+          });
+        }
+
+        // CRITICAL: persist tool_results in the React `messages` state
+        // (as an invisible user turn). Without this, sending a fresh
+        // user message later rebuilds the history from messages and
+        // Anthropic rejects it with "tool_use ids were found without
+        // tool_result blocks immediately after".
+        setMessages((prev) => [
+          ...prev,
+          { role: 'user', blocks: toolResultsForUi },
+          { role: 'assistant', blocks: [] },
+        ]);
+
+        // Add assistant turn + user(tool_results) turn to convo for
+        // the next streamed iteration.
+        convo = [
+          ...convo,
+          { role: 'assistant', content: uiBlocksToAnthropicContent(assistantBlocks) },
+          { role: 'user', content: toolResultsForApi },
+        ];
       }
     } catch (err) {
       if ((err as { name?: string })?.name === 'AbortError') return;
@@ -372,7 +1132,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       setStreaming(false);
       abortRef.current = null;
     }
-  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay]);
+  }, [messages, visible, restaurantMeta, origin, filters, cityDisplay, onSearchRestaurants, userContext, onLookupUser, onGetCircleRatings, recipeById]);
 
   const handleSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
@@ -434,6 +1194,14 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               ? { type: 'spring', damping: 28, stiffness: 300 }
               : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             {...(phoneMode ? dragProps : {})}
+            style={!phoneMode && pos
+              ? {
+                  left: pos.left,
+                  top: pos.top,
+                  right: 'auto',
+                  bottom: 'auto',
+                }
+              : undefined}
             role="dialog"
             aria-label="Restaurant assistant"
           >
@@ -443,14 +1211,63 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               </div>
             )}
 
-            <header className="lp-chat-head">
-              <div className="lp-chat-head-icon" aria-hidden="true">
-                <Sparkles />
-              </div>
+            <header
+              className="lp-chat-head"
+              onMouseDown={onHeaderMouseDown}
+              style={!phoneMode ? { cursor: pos ? 'grab' : 'default', userSelect: 'none' } : undefined}
+            >
+              {view === 'history' ? (
+                <button
+                  type="button"
+                  className="lp-chat-head-back"
+                  onClick={() => setView('chat')}
+                  aria-label="Back to chat"
+                  title="Back to chat"
+                >
+                  <ArrowLeft size={16} />
+                </button>
+              ) : (
+                <div className="lp-chat-head-icon" aria-hidden="true">
+                  <Sparkles />
+                </div>
+              )}
               <div className="lp-chat-head-text">
-                <h3>Ask a local</h3>
-                <p>Powered by Claude</p>
+                {view === 'history' ? (
+                  <>
+                    <h3>Chats</h3>
+                    <p>{savedChats.length === 0
+                      ? 'No saved chats yet'
+                      : `${savedChats.length} saved`}</p>
+                  </>
+                ) : (
+                  <>
+                    <h3>Ask a local</h3>
+                    <p>Powered by Claude</p>
+                  </>
+                )}
               </div>
+              {view === 'chat' && (
+                <>
+                  <button
+                    type="button"
+                    className="lp-chat-head-action"
+                    onClick={handleNewChat}
+                    aria-label="New chat"
+                    title="New chat"
+                  >
+                    <Plus size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="lp-chat-head-action"
+                    onClick={() => setView('history')}
+                    aria-label="Prior chats"
+                    title="Prior chats"
+                  >
+                    <Clock size={16} />
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 className="lp-chat-head-close"
@@ -461,7 +1278,52 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               </button>
             </header>
 
-            <div className="lp-chat-body" ref={scrollRef}>
+            <div className={cn('lp-chat-body', view === 'history' && 'is-history')} ref={scrollRef}>
+              {view === 'history' ? (
+                <div className="lp-chat-history">
+                  {savedChats.length === 0 ? (
+                    <div className="lp-chat-history-empty">
+                      <p>No prior chats yet.</p>
+                      <p className="sub">Conversations save automatically — they'll appear here after you send your first message.</p>
+                    </div>
+                  ) : (
+                    savedChats.map((chat) => (
+                      <div
+                        key={chat.id}
+                        className={cn('lp-chat-history-item', chat.id === currentChatId && 'is-current')}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleSelectChat(chat)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleSelectChat(chat);
+                          }
+                        }}
+                      >
+                        <div className="lp-chat-history-info">
+                          <h4>{chat.title}</h4>
+                          <p>
+                            {formatTimeAgo(chat.updatedAt)}
+                            {' · '}
+                            {countUserMessages(chat.messages)} message{countUserMessages(chat.messages) === 1 ? '' : 's'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="lp-chat-history-delete"
+                          onClick={(e) => { e.stopPropagation(); handleDeleteChat(chat.id); }}
+                          aria-label={`Delete "${chat.title}"`}
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+              <>
               {messages.length === 0 && (
                 <div className="lp-chat-empty">
                   <p className="lp-chat-empty-lead">
@@ -482,28 +1344,95 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 </div>
               )}
 
-              {messages.map((m, mi) => (
+              {messages.map((m, mi) => {
+                // Hide messages that have only invisible blocks (a
+                // user turn full of tool_results, an assistant turn
+                // that only called search_restaurants, an empty
+                // pre-stream assistant slot, etc.). The persistent
+                // typing indicator at the bottom of the list (below)
+                // handles all the "Claude is thinking" UX, so empty
+                // assistant slots don't need their own bubble.
+                const hasVisibleContent = m.blocks.some(
+                  (b) =>
+                    (b.type === 'text' && b.text)
+                    || (b.type === 'cards' && b.placeIds.length > 0)
+                    || (b.type === 'recipe_cards' && b.recipeIds.length > 0),
+                );
+                if (!hasVisibleContent) return null;
+                return (
                 <div
                   key={mi}
                   className={cn('lp-chat-msg', m.role === 'user' ? 'is-user' : 'is-assistant')}
                 >
-                  {m.blocks.length === 0 && m.role === 'assistant' && streaming && (
-                    <div className="lp-chat-bubble">
-                      <span className="lp-chat-typing" aria-label="Assistant is typing">
-                        <span /><span /><span />
-                      </span>
-                    </div>
-                  )}
                   {m.blocks.map((b, bi) => {
                     if (b.type === 'text') {
                       if (!b.text) return null;
                       return (
                         <div key={bi} className="lp-chat-bubble">
-                          {b.text}
+                          {m.role === 'assistant'
+                            ? renderAssistantText(b.text, linkables, linkRegex)
+                            : b.text}
                         </div>
                       );
                     }
-                    // cards
+                    if (b.type === 'tool_use' || b.type === 'tool_result') {
+                      // Invisible protocol blocks — stored in state for
+                      // round-tripping the conversation; never rendered.
+                      return null;
+                    }
+                    if (b.type === 'recipe_cards') {
+                      if (b.recipeIds.length === 0) return null;
+                      return (
+                        <div key={bi} className="lp-chat-cards">
+                          {b.recipeIds.map((id) => {
+                            const r = recipeById.get(id);
+                            if (!r) {
+                              return (
+                                <div key={id} className="lp-chat-card lp-chat-card-missing">
+                                  Recipe not found in your saved list.
+                                </div>
+                              );
+                            }
+                            const totalMin = (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0);
+                            const cover = r.photos?.[0] || '';
+                            // Difficulty in the new Supabase store is
+                            // lowercase ('easy' / 'medium' / 'hard') —
+                            // capitalize the first letter for display.
+                            const difficulty = r.difficulty
+                              ? r.difficulty.charAt(0).toUpperCase() + r.difficulty.slice(1)
+                              : '';
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                className="lp-chat-card lp-chat-card-recipe"
+                                onClick={() => handleNavigateRecipe(id)}
+                              >
+                                <div
+                                  className="lp-chat-card-recipe-cover"
+                                  style={cover ? { backgroundImage: `url("${cover}")` } : undefined}
+                                  aria-hidden="true"
+                                >
+                                  {!cover && <ChefHat size={18} />}
+                                </div>
+                                <div className="lp-chat-card-info">
+                                  <h4>{r.title}</h4>
+                                  <p>
+                                    {r.cuisine && <span className="accent">{r.cuisine}</span>}
+                                    {r.cuisine && (totalMin > 0 || difficulty) && <span className="dot">·</span>}
+                                    {totalMin > 0 && <span className="price">{totalMin} min</span>}
+                                    {totalMin > 0 && difficulty && <span className="dot">·</span>}
+                                    {difficulty && <span>{difficulty}</span>}
+                                  </p>
+                                </div>
+                                <ChevronRight />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    }
+                    // restaurant cards
                     if (b.placeIds.length === 0) return null;
                     return (
                       <div key={bi} className="lp-chat-cards">
@@ -561,7 +1490,26 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                     );
                   })}
                 </div>
-              ))}
+                );
+              })}
+
+              {/* Persistent typing indicator — visible the whole time
+                  `streaming` is true (between user-send and final
+                  message_stop), so the dots stay on screen during
+                  tool calls and gaps between text deltas, not just
+                  the brief pre-first-token moment. Looks like an
+                  assistant bubble so it slots into the conversation
+                  naturally; auto-scroll keeps it in view because
+                  the existing scroll effect re-fires on `streaming`. */}
+              {streaming && (
+                <div className="lp-chat-msg is-assistant lp-chat-streaming-indicator">
+                  <div className="lp-chat-bubble">
+                    <span className="lp-chat-typing" aria-label="Assistant is responding">
+                      <span /><span /><span />
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {error && (
                 <div className="lp-chat-error">
@@ -571,8 +1519,11 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   </button>
                 </div>
               )}
+              </>
+              )}
             </div>
 
+            {view === 'chat' && (
             <form className="lp-chat-foot" onSubmit={handleSubmit}>
               <textarea
                 ref={inputRef}
@@ -602,9 +1553,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 {streaming ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               </button>
             </form>
-            <div className="lp-chat-foot-note">
-              AI can make mistakes — verify the basics.
-            </div>
+            )}
+            {view === 'chat' && (
+              <div className="lp-chat-foot-note">
+                AI can make mistakes — verify the basics.
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

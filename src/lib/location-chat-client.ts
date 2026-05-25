@@ -34,11 +34,34 @@ export interface ChatFilters {
   sort?: string;
 }
 
+export interface UserContext {
+  displayName?: string;
+  username?: string;
+  homeCity?: string;
+  topCuisines?: string[];
+  topRated?: Array<{ id?: string; name: string; score?: number; cuisine?: string; neighborhood?: string }>;
+  wishlist?: Array<{ id?: string; name: string; cuisine?: string; neighborhood?: string }>;
+  recipes?: Array<{
+    id: string;
+    title: string;
+    cuisine?: string;
+    prepTime?: number;
+    cookTime?: number;
+    difficulty?: string;
+    ingredientCount?: number;
+    stepCount?: number;
+  }>;
+  friends?: Array<{ displayName: string; username?: string }>;
+  followedExperts?: Array<{ displayName: string; username?: string; bio?: string }>;
+  circleSignals?: Array<{ restaurantId: string; friendCount?: number; expertCount?: number }>;
+}
+
 export interface ChatRequest {
   messages: AnthropicMessage[];
   restaurants: CompactRestaurant[];
   filters: ChatFilters;
   city: string;
+  userContext?: UserContext;
   model?: string;
 }
 
@@ -145,7 +168,12 @@ export async function* streamLocationChat(
           case 'content_block_start': {
             const block = (event as { content_block?: { type: string; id: string; name: string } })
               .content_block;
-            if (block?.type === 'tool_use') {
+            // Skip Anthropic's server-side web_search blocks — they're
+            // resolved inside the same API call, no client tool_result
+            // expected, and the matching web_search_tool_result block
+            // is inlined by the server. Tracking them would tempt us
+            // to send a bogus client tool_result on the next turn.
+            if (block?.type === 'tool_use' && block.name !== 'web_search') {
               currentTool = { id: block.id, name: block.name, jsonBuffer: '' };
             }
             break;
