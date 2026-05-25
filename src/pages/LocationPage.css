@@ -798,6 +798,14 @@
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
+  /* Escape the 12px .lp-page side padding so cards run to the
+     phone-frame edge while scrolling. The matching inner padding
+     keeps the first/last card aligned with everything else in the
+     page (titles, list items, etc.). */
+  margin-left: -12px;
+  margin-right: -12px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 .location-page-root .gd-row.is-mobile > * { scroll-snap-align: none; }
 .location-page-root .gd-row.is-mobile .gd-card { aspect-ratio: 1 / 1.05; border-radius: 16px; }
@@ -937,7 +945,8 @@
 .location-page-root .exp-cta .btn-view svg { width: 15px; height: 15px; }
 
 /* Slightly smaller expert cards on the mobile layout + free-stop
-   horizontal scroll (no snap, smooth momentum). */
+   horizontal scroll (no snap, smooth momentum). Edge-to-edge:
+   matches the gd-row.is-mobile escape trick. */
 .location-page-root .exp-row.is-mobile {
   grid-auto-columns: 260px;
   gap: 12px;
@@ -945,6 +954,10 @@
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
+  margin-left: -12px;
+  margin-right: -12px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 .location-page-root .exp-row.is-mobile > * { scroll-snap-align: none; }
 .location-page-root .exp-row.is-mobile .exp-card { padding: 16px; gap: 12px; border-radius: 18px; }

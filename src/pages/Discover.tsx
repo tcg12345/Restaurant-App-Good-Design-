@@ -4780,8 +4780,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       </p>
                     </section>
 
-                    {/* Quick stat cards — horizontal snap rail */}
-                    <div className="mt-5 flex gap-3 overflow-x-auto no-scrollbar -mx-3 px-3 pb-1 snap-x snap-mandatory">
+                    {/* Quick stat cards — free-stop horizontal rail */}
+                    <div className="mt-5 flex gap-3 overflow-x-auto no-scrollbar scroll-smooth -mx-3 px-3 pb-1">
                       <button
                         type="button"
                         onClick={() => navigate('/search/main')}
@@ -5044,7 +5044,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   })()}
                   <div
                     ref={recRailRef}
-                    className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
+                    className={cn(
+                      "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
+                      phoneMode ? "-mx-3 px-3" : "-mx-1 px-1",
+                    )}
                     onScroll={(e) => {
                       if (recommendations.length >= 30) return;
                       const el = e.currentTarget;
@@ -5309,7 +5312,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                     <ChevronRight size={14} />
                   </button>
                 </div>
-                <div className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory">
+                <div className={cn(
+                  "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
+                  phoneMode ? "-mx-3 px-3" : "-mx-1 px-1",
+                )}>
                   {/* Create-a-guide tile — soft accent surface so it doesn't
                       compete with real guides, but is still inviting. */}
                   <button
@@ -5482,7 +5488,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                 ) : (
                   <div
                     ref={recipeRailRef}
-                    className="flex gap-3 overflow-x-auto pb-3 no-scrollbar -mx-1 px-1 snap-x snap-mandatory"
+                    className={cn(
+                      "flex gap-3 overflow-x-auto pb-3 no-scrollbar scroll-smooth",
+                      phoneMode ? "-mx-3 px-3" : "-mx-1 px-1",
+                    )}
                   >
                     {recommendedRecipes.map((r) => {
                       const cover = r.photos?.[0];
