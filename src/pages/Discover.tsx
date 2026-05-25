@@ -4734,11 +4734,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                   .split('@')[0];
                 const friendCount = friendsList.length;
                 const queueCount = Math.min(wishlist.length, 3);
-                // Editor's Pick + Tonight rec come from the recommendation engine.
-                const featured = recommendations[0];
-                const featuredCuisine = featured ? getCuisineLabel((featured as any).types || []) : '';
-                const featuredPhoto = featured ? ((featured as any).photoUrl as string | undefined) : undefined;
-                const featuredAddress = featured ? (((featured as any).address as string) || '').split(',')[0]?.trim() : '';
+                // Tonight stat card: second strongest pick from the rec engine.
                 const tonightPick = recommendations[1];
                 // Open Now: count recs within ~0.5mi of the anchor (rough proxy
                 // for "10 minute walk"). Fall back to a quarter of the rail if
@@ -4882,79 +4878,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home' }) => {
                       </button>
                     </div>
 
-                    {/* Editor's Pick hero card — mobile, vertical layout */}
-                    {featured && (
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/restaurant/${featured.id}`)}
-                        className="mt-5 block w-full text-left rounded-3xl overflow-hidden bg-white border border-on-surface/[0.08] group"
-                      >
-                        <div className="relative aspect-[16/11] overflow-hidden">
-                          {featuredPhoto ? (
-                            <img
-                              src={featuredPhoto}
-                              alt=""
-                              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div
-                              className="absolute inset-0"
-                              style={{ background: placeholderGradient(featured.id || featured.name, 50, 48) }}
-                            />
-                          )}
-                          <div
-                            className="absolute inset-0 pointer-events-none"
-                            style={{
-                              backgroundImage:
-                                'radial-gradient(circle at 25% 25%, rgba(255,255,255,0.16), transparent 45%), radial-gradient(circle at 75% 80%, rgba(0,0,0,0.22), transparent 50%)',
-                            }}
-                          />
-                          <span className="absolute top-3 left-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/92 backdrop-blur text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface">
-                            <Sparkles size={11} className="text-primary" />
-                            Editor's Pick
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              e.preventDefault();
-                              toggleWishlist({
-                                id: featured.id,
-                                name: featured.name,
-                                image: featuredPhoto || '',
-                                cuisine: featuredCuisine,
-                                price: priceLevelToString((featured as any).priceLevel ?? -1) || communityPrices[featured.id] || '',
-                                address: (featured as any).address || '',
-                              });
-                            }}
-                            className={cn(
-                              'absolute top-3 right-3 w-10 h-10 rounded-full grid place-items-center bg-white text-on-surface transition-transform hover:scale-[1.06]',
-                              isWishlisted(featured.id) && 'text-primary',
-                            )}
-                            aria-label={isWishlisted(featured.id) ? 'In wishlist' : 'Add to wishlist'}
-                          >
-                            <Heart size={16} className={isWishlisted(featured.id) ? 'fill-current' : ''} />
-                          </button>
-                        </div>
-                        <div className="px-4 py-4">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/55">
-                            {featuredCuisine || 'Featured'}
-                          </p>
-                          <h2 className="mt-1.5 font-serif font-semibold text-on-surface text-[22px] leading-[1.1] tracking-[-0.02em] line-clamp-2">
-                            {featured.name}
-                          </h2>
-                          <p className="mt-2 text-[13px] text-on-surface/65 leading-[1.45] line-clamp-2">
-                            {featuredAddress
-                              ? `A standout ${featuredCuisine ? featuredCuisine.toLowerCase() + ' ' : ''}pick on ${featuredAddress}${neighborhood ? ` in ${neighborhood}` : ''}.`
-                              : `A standout pick${neighborhood ? ` near ${neighborhood}` : ' for tonight'}.`}
-                          </p>
-                        </div>
-                      </button>
-                    )}
-
                     {/* Filter chips row — anchor-style navigation */}
-                    <div className="mt-4 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 py-1 snap-x">
+                    <div className="mt-5 flex gap-2 overflow-x-auto no-scrollbar -mx-3 px-3 py-1 snap-x">
                       {[
                         { key: 'all' as const, label: 'All', icon: null, ref: null as React.RefObject<HTMLElement> | null },
                         { key: 'restaurants' as const, label: 'Restaurants', icon: <MapPin size={14} />, ref: recommendedSectionRef },
